@@ -1,6 +1,7 @@
 package com.btelly.ui.fragment.player
 
 import com.btelly.model.player.PlayInfoModel
+import com.btelly.model.player.VideoSnapshotData
 import com.btelly.network.NetworkManager
 import com.btelly.network.WbiGenerator
 import com.btelly.network.api.ApiService
@@ -152,6 +153,38 @@ class VideoPlayerPlayInfoGateway(
             )
         }
         return normalResponse?.data?.takeIf { normalResponse.isSuccess }
+    }
+
+    suspend fun requestVideoSnapshot(
+        aid: Long?,
+        bvid: String?,
+        cid: Long
+    ): VideoSnapshotData? {
+        if ((aid == null || aid <= 0L) && bvid.isNullOrBlank()) {
+            return null
+        }
+        if (cid <= 0L) {
+            return null
+        }
+
+        val response = runCatching {
+            apiService.getVideoSnapshot(
+                aid = aid,
+                bvid = bvid,
+                cid = cid
+            )
+        }.onFailure { throwable ->
+            AppLog.e(logTag, "requestVideoSnapshot exception: ${throwable.message}", throwable)
+        }.getOrNull()
+
+        if (response != null) {
+            AppLog.d(
+                logTag,
+                "requestVideoSnapshot response: code=${response.code}, success=${response.isSuccess}, images=${response.data?.images?.size ?: 0}, indexSize=${response.data?.index?.size ?: 0}, cid=$cid"
+            )
+        }
+
+        return response?.data?.takeIf { response.isSuccess }
     }
 
     suspend fun requestDanmakuSegmentBytes(

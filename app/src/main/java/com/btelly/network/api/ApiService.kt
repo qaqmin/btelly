@@ -25,6 +25,7 @@ import com.btelly.model.video.UserDynamicResponse
 import com.btelly.model.video.AllDynamicResponse
 import com.btelly.model.video.GetVideoByChannelWrapper
 import com.btelly.model.player.PlayInfoModel
+import com.btelly.model.player.VideoSnapshotData
 import com.btelly.model.recommend.RecommendListDataModel
 import com.btelly.model.favorite.FavoriteFolderModel
 import com.btelly.model.favorite.CheckFavoriteModel
@@ -161,6 +162,14 @@ interface ApiService {
         @Query("bvid") bvid: String?,
         @Query("cid") cid: Long
     ): BaseResponse<PlayerInfoDataWrapper>
+
+    @GET("x/player/videoshot")
+    suspend fun getVideoSnapshot(
+        @Query("aid") aid: Long?,
+        @Query("bvid") bvid: String?,
+        @Query("cid") cid: Long,
+        @Query("index") index: Int = 1
+    ): BaseResponse<VideoSnapshotData>
 
     @GET("x/player/wbi/v2")
     suspend fun getPlayerInfoWbi(

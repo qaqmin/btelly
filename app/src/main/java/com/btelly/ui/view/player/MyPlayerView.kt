@@ -31,6 +31,7 @@ import com.kuaishou.akdanmaku.ui.DanmakuView
 import com.btelly.R
 import com.btelly.model.dm.DmModel
 import com.btelly.model.dm.SpecialDanmakuModel
+import com.btelly.model.player.VideoSnapshotData
 import com.btelly.model.subtitle.SubtitleInfoModel
 import com.btelly.model.video.quality.AudioQuality
 import com.btelly.model.video.quality.VideoCodecEnum
@@ -638,6 +639,9 @@ class MyPlayerView @JvmOverloads constructor(
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         touchInterceptListener?.let { if (it(event)) return true }
+        if (isSwipeSeeking && handleSwipeSeekTouch(event)) {
+            return true
+        }
         if (controller?.isTouchWithinInteractiveArea(event.x, event.y) == true) {
             return false
         }
@@ -905,6 +909,10 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     fun getDoubleTapDelay(): Long = gestureListener.doubleTapDelay
+
+    fun setSeekPreviewSnapshot(snapshot: VideoSnapshotData?) {
+        tapOverlayView?.setSeekPreviewSnapshot(snapshot)
+    }
 
     fun setControllerAutoShow(autoShow: Boolean) {
         controllerAutoShow = autoShow
