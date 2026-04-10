@@ -4,9 +4,9 @@ import android.content.Context
 import android.view.LayoutInflater
 import android.view.Window
 import androidx.appcompat.app.AppCompatDialog
-import com.bumptech.glide.Glide
 import com.btelly.R
 import com.btelly.databinding.DialogVideoInfoBinding
+import com.btelly.utils.ImageLoader
 
 class VideoInfoDialog(
     context: Context,
@@ -21,17 +21,17 @@ class VideoInfoDialog(
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE)
         setContentView(binding.root)
         setCanceledOnTouchOutside(true)
-        binding.root.setOnClickListener { dismiss() }
         bindContent()
         binding.buttonClose.setOnClickListener { dismiss() }
     }
 
     private fun bindContent() {
-        Glide.with(binding.imageView)
-            .load(coverUrl)
-            .placeholder(R.drawable.default_video)
-            .error(R.drawable.default_video)
-            .into(binding.imageView)
+        ImageLoader.loadVideoCover(
+            imageView = binding.imageView,
+            url = coverUrl,
+            placeholder = R.drawable.default_video,
+            error = R.drawable.default_video
+        )
         binding.textTitle.text = title
         binding.textDescription.text = description
     }
