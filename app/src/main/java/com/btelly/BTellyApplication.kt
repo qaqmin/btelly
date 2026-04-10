@@ -1,0 +1,62 @@
+package com.btelly
+
+import android.app.Application
+import com.btelly.di.appModules
+import com.btelly.network.NetworkManager
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import org.koin.android.ext.koin.androidContext
+import org.koin.android.ext.koin.androidLogger
+import org.koin.core.context.startKoin
+import org.koin.core.logger.Level
+
+class BTellyApplication : Application() {
+
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val startupPrewarmScheduled = AtomicBoolean(false)
+    
+    companion object {
+        lateinit var instance: BTellyApplication
+            private set
+    }
+    
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+        
+        initKoin()
+        initNetwork()
+    }
+    
+    private fun initKoin() {
+        startKoin {
+            androidLogger(if (BuildConfig.DEBUG) Level.ERROR else Level.NONE)
+            androidContext(this@BTellyApplication)
+            modules(appModules)
+        }
+    }
+    
+    private fun initNetwork() {
+        NetworkManager.init(this)
+    }
+
+    fun scheduleDeferredSessionPrewarm(delayMillis: Long = 1500L) {
+        if (!startupPrewarmScheduled.compareAndSet(false, true)) {
+            return
+        }
+        appScope.launch {
+            if (delayMillis > 0) {
+                delay(delayMillis)
+            }
+            if (NetworkManager.isLoggedIn()) {
+                NetworkManager.prewarmWebSession()
+            } else {
+                startupPrewarmScheduled.set(false)
+            }
+        }
+    }
+}
