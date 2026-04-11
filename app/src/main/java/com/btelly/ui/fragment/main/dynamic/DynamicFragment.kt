@@ -7,6 +7,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
+import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -23,6 +24,7 @@ import com.btelly.ui.fragment.main.settings.SignInFragment
 import com.btelly.ui.activity.MainActivity
 import com.btelly.ui.view.WrapContentGridLayoutManager
 import com.btelly.ui.base.RecyclerViewFocusRestoreHelper
+import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.utils.AppLog
 import com.btelly.utils.ContentFilter
 import com.btelly.utils.SpatialFocusNavigator
@@ -45,6 +47,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
     }
 
     private val viewModel: DynamicViewModel by viewModel()
+    private val mainNavigationViewModel: MainNavigationViewModel by activityViewModels()
     private lateinit var upAdapter: DynamicUpAdapter
     private lateinit var videoAdapter: DynamicVideoAdapter
     private var swipeRefreshLayout: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null
@@ -253,6 +256,40 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
                 viewModel.status.collectLatest { status ->
                     latestStatus = status
                     renderUiState()
+                }
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                mainNavigationViewModel.events.collectLatest { event ->
+                    if (isHidden) {
+                        return@collectLatest
+                    }
+                    when (event) {
+                        is MainNavigationViewModel.Event.MainTabSelected ->
+                            if (event.index == 2 && shouldRefresh()) {
+                                currentUpId = 0L
+                                loadData()
+                            }
+
+                        is MainNavigationViewModel.Event.MainTabReselected ->
+                            if (event.index == 2) {
+                                currentUpId = 0L
+                                loadData()
+                            }
+
+                        MainNavigationViewModel.Event.MenuPressed -> {
+                            currentUpId = 0L
+                            loadData()
+                        }
+
+                        MainNavigationViewModel.Event.BackPressed -> {
+                            scrollVideoListToTop()
+                        }
+
+                        else -> Unit
+                    }
                 }
             }
         }
@@ -500,29 +537,6 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
                 if (!isHidden) {
                     currentUpId = 0L
                     loadData()
-                }
-            }
-            "selectTab2" -> {
-                if (!isHidden && shouldRefresh()) {
-                    currentUpId = 0L
-                    loadData()
-                }
-            }
-            "clickTab2" -> {
-                if (!isHidden) {
-                    currentUpId = 0L
-                    loadData()
-                }
-            }
-            "keyMenuPress" -> {
-                if (!isHidden) {
-                    currentUpId = 0L
-                    loadData()
-                }
-            }
-            "backPressed" -> {
-                if (!isHidden) {
-                    scrollVideoListToTop()
                 }
             }
         }

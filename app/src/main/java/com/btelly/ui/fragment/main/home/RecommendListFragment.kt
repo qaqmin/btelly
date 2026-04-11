@@ -2,6 +2,7 @@ package com.btelly.ui.fragment.main.home
 
 import android.os.Bundle
 import android.view.View
+import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -10,6 +11,7 @@ import com.btelly.model.video.VideoModel
 import com.btelly.repository.cache.HomeCacheStore
 import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.ui.base.BaseListFragment
+import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.utils.AppLog
 import com.btelly.utils.ContentFilter
 import com.btelly.utils.VideoRouteNavigator
@@ -33,6 +35,7 @@ class RecommendListFragment : BaseListFragment<VideoModel>(), HomeTabPage {
     }
 
     private val viewModel: RecommendViewModel by viewModel()
+    private val mainNavigationViewModel: MainNavigationViewModel by activityViewModels()
     private var loadingPage = 1
     private var waitingForFirstLoad = true
     private var cacheRestoreJob: Job? = null
@@ -124,7 +127,7 @@ class RecommendListFragment : BaseListFragment<VideoModel>(), HomeTabPage {
                     if (videos.isNotEmpty()) {
                         showContent()
                         showLoading(false)
-                        EventBus.getDefault().post("homeContentReady")
+                        mainNavigationViewModel.dispatch(MainNavigationViewModel.Event.HomeContentReady)
                         if (loadingPage == 1) {
                             cacheVideos(videos)
                             scrollToTop()
@@ -175,6 +178,38 @@ class RecommendListFragment : BaseListFragment<VideoModel>(), HomeTabPage {
                 }
             }
         }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                mainNavigationViewModel.events.collectLatest { event ->
+                    if (!isResumed || view == null) {
+                        return@collectLatest
+                    }
+                    when (event) {
+                        is MainNavigationViewModel.Event.MainTabReselected ->
+                            if (event.index == 0 && !isLoading) {
+                                refresh()
+                            }
+
+                        is MainNavigationViewModel.Event.SecondaryTabReselected ->
+                            if (event.host == MainNavigationViewModel.SecondaryTabHost.HOME &&
+                                event.position == 0 &&
+                                !isLoading
+                            ) {
+                                refresh()
+                            }
+
+                        MainNavigationViewModel.Event.MenuPressed ->
+                            if (!isLoading) {
+                                refresh()
+                            }
+
+                        MainNavigationViewModel.Event.BackPressed -> scrollToTop()
+                        else -> Unit
+                    }
+                }
+            }
+        }
     }
 
     override fun onRetryClick() {
@@ -201,12 +236,11 @@ class RecommendListFragment : BaseListFragment<VideoModel>(), HomeTabPage {
             return
         }
         when (event) {
-            "signIn", "updateUserInfo", "clickTab0", "clickTopTab0", "keyMenuPress" -> {
+            "signIn", "updateUserInfo" -> {
                 if (!isLoading) {
                     refresh()
                 }
             }
-            "backPressed" -> scrollToTop()
         }
     }
 
@@ -242,7 +276,7 @@ class RecommendListFragment : BaseListFragment<VideoModel>(), HomeTabPage {
         adapter?.setShowLoadMore(true)
         showContent()
         showLoading(false)
-        EventBus.getDefault().post("homeContentReady")
+        mainNavigationViewModel.dispatch(MainNavigationViewModel.Event.HomeContentReady)
         return true
     }
 
