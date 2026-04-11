@@ -12,7 +12,7 @@ import com.btelly.databinding.DialogUserInfoBinding
 import com.btelly.event.AppEventHub
 import com.btelly.model.user.UserDetailInfoModel
 import com.btelly.model.user.UserStatModel
-import com.btelly.network.NetworkManager
+import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.UserRepository
 import com.btelly.ui.activity.MainActivity
 import com.btelly.ui.fragment.detail.UserSpaceFragment
@@ -31,6 +31,7 @@ class UserInfoDialog(context: Context) : AppCompatDialog(context, R.style.Dialog
     private val binding = DialogUserInfoBinding.inflate(LayoutInflater.from(context))
     private val appEventHub: AppEventHub by inject()
     private val userRepository: UserRepository by inject()
+    private val sessionGateway: NetworkSessionGateway by inject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     init {
@@ -38,7 +39,7 @@ class UserInfoDialog(context: Context) : AppCompatDialog(context, R.style.Dialog
         setContentView(binding.root)
         setCanceledOnTouchOutside(true)
         binding.root.setOnClickListener { dismiss() }
-        bindUserInfo(NetworkManager.getUserInfo())
+        bindUserInfo(sessionGateway.getUserInfo())
         bindUserStat(null)
         initListeners()
         setOnShowListener {
@@ -52,13 +53,13 @@ class UserInfoDialog(context: Context) : AppCompatDialog(context, R.style.Dialog
 
     private fun initListeners() {
         binding.buttonViewSpace.setOnClickListener {
-            val mid = NetworkManager.getUserInfo()?.mid ?: 0L
+            val mid = sessionGateway.getUserInfo()?.mid ?: 0L
             if (mid > 0L) {
                 openOverlay(UserSpaceFragment.newInstance(mid), "user_space")
             }
         }
         binding.textFollowing.setOnClickListener {
-            val mid = NetworkManager.getUserInfo()?.mid ?: 0L
+            val mid = sessionGateway.getUserInfo()?.mid ?: 0L
             if (mid > 0L) {
                 openOverlay(
                     FollowUserListFragment.newInstance(mid, FollowUserListFragment.TYPE_FOLLOWING),
@@ -67,7 +68,7 @@ class UserInfoDialog(context: Context) : AppCompatDialog(context, R.style.Dialog
             }
         }
         binding.textFollower.setOnClickListener {
-            val mid = NetworkManager.getUserInfo()?.mid ?: 0L
+            val mid = sessionGateway.getUserInfo()?.mid ?: 0L
             if (mid > 0L) {
                 openOverlay(
                     FollowUserListFragment.newInstance(mid, FollowUserListFragment.TYPE_FOLLOWER),
@@ -76,8 +77,7 @@ class UserInfoDialog(context: Context) : AppCompatDialog(context, R.style.Dialog
             }
         }
         binding.buttonSignOut.setOnClickListener {
-            NetworkManager.getCookieManager().clearCookies()
-            NetworkManager.updateUserSession(null)
+            sessionGateway.clearUserSession(reason = "userInfoDialog.signOut")
             appEventHub.dispatch(AppEventHub.Event.UserSessionChanged)
             dismiss()
         }

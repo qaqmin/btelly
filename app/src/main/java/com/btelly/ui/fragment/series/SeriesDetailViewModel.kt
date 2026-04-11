@@ -5,8 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.btelly.model.series.EpisodeProgressModel
 import com.btelly.model.series.EpisodesDetailModel
 import com.btelly.model.series.FollowSeriesResult
-import com.btelly.network.NetworkManager
 import com.btelly.R
+import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.SeriesRepository
 import androidx.annotation.StringRes
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -18,7 +18,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 
 class SeriesDetailViewModel(
-    private val repository: SeriesRepository
+    private val repository: SeriesRepository,
+    private val sessionGateway: NetworkSessionGateway
 ) : ViewModel() {
 
     sealed interface UiMessage {
@@ -70,7 +71,7 @@ class SeriesDetailViewModel(
 
     fun toggleFollow() {
         if (currentSeasonId <= 0 || isFollowActionRunning) return
-        if (!NetworkManager.isLoggedIn()) {
+        if (!sessionGateway.isLoggedIn()) {
             return
         }
         
