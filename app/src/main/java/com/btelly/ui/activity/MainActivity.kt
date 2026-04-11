@@ -20,8 +20,8 @@ import com.btelly.databinding.ActivityMainBinding
 import com.btelly.event.AppEventHub
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.UserRepository
-import com.btelly.ui.base.BaseActivity
-import com.btelly.ui.base.OnBackPressedHandler
+import com.btelly.core.ui.base.BaseActivity
+import com.btelly.core.ui.base.OnBackPressedHandler
 import com.btelly.model.video.VideoModel
 import com.btelly.feature.category.CategoryFragment
 import com.btelly.feature.dynamic.DynamicFragment
@@ -36,7 +36,7 @@ import com.btelly.feature.settings.SignInFragment
 import com.btelly.ui.dialog.UserInfoDialog
 import com.btelly.feature.player.PlayerLaunchContext
 import com.btelly.feature.player.VideoPlayerFragment
-import com.btelly.ui.view.TabBarView
+import com.btelly.core.ui.navigation.TabBarView
 import com.btelly.utils.AppLog
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch

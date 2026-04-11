@@ -21,11 +21,11 @@ import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.UserRepository
 import com.btelly.ui.adapter.UserSpaceHeaderAdapter
 import com.btelly.ui.adapter.VideoAdapter
-import com.btelly.ui.base.BaseAdapter
-import com.btelly.ui.base.BaseFragment
+import com.btelly.core.ui.base.BaseAdapter
+import com.btelly.core.ui.base.BaseFragment
 import com.btelly.feature.user.FollowUserListFragment
-import com.btelly.ui.view.WrapContentGridLayoutManager
-import com.btelly.ui.widget.GridSpacingItemDecoration
+import com.btelly.core.ui.layout.WrapContentGridLayoutManager
+import com.btelly.core.ui.decoration.GridSpacingItemDecoration
 import com.btelly.utils.ContentFilter
 import com.btelly.utils.VideoRouteNavigator
 import kotlinx.coroutines.flow.collectLatest

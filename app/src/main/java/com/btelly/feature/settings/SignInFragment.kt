@@ -15,7 +15,7 @@ import com.btelly.utils.AppLog
 import com.btelly.utils.CookieManager
 import com.btelly.repository.AuthRepository
 import com.btelly.repository.UserRepository
-import com.btelly.ui.base.BaseFragment
+import com.btelly.core.ui.base.BaseFragment
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive

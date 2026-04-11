@@ -14,7 +14,7 @@ import com.google.android.material.tabs.TabLayoutMediator
 import com.btelly.R
 import com.btelly.databinding.FragmentLiveBinding
 import com.btelly.model.live.LiveAreaCategoryParent
-import com.btelly.ui.base.BaseFragment
+import com.btelly.core.ui.base.BaseFragment
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.ui.fragment.main.MainTabFocusTarget
 import com.btelly.utils.AppLog

@@ -1,4 +1,4 @@
-package com.btelly.ui.view
+package com.btelly.core.ui.navigation
 
 import android.content.Context
 import android.graphics.PorterDuff

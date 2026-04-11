@@ -1,4 +1,4 @@
-package com.btelly.ui.base
+package com.btelly.core.ui.base
 
 import android.view.LayoutInflater
 import android.view.View

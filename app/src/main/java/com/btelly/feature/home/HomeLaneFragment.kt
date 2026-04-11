@@ -12,9 +12,9 @@ import com.btelly.model.lane.HomeLaneSection
 import com.btelly.repository.HomeLaneRepository
 import com.btelly.repository.cache.HomeCacheStore
 import com.btelly.ui.adapter.HomeLaneAdapter
-import com.btelly.ui.base.BaseAdapter
-import com.btelly.ui.base.BaseListFragment
-import com.btelly.ui.base.RecyclerViewFocusRestoreHelper
+import com.btelly.core.ui.base.BaseAdapter
+import com.btelly.core.ui.base.BaseListFragment
+import com.btelly.core.ui.base.RecyclerViewFocusRestoreHelper
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.feature.series.AllSeriesFragment
 import com.btelly.feature.series.SeriesDetailFragment

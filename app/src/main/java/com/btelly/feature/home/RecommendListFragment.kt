@@ -11,7 +11,7 @@ import com.btelly.event.AppEventHub
 import com.btelly.model.video.VideoModel
 import com.btelly.repository.cache.HomeCacheStore
 import com.btelly.ui.adapter.VideoAdapter
-import com.btelly.ui.base.BaseListFragment
+import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.utils.AppLog
 import com.btelly.utils.ContentFilter

@@ -11,7 +11,7 @@ import androidx.recyclerview.widget.DiffUtil
 import com.btelly.R
 import com.btelly.databinding.CellVideoBinding
 import com.btelly.model.video.VideoModel
-import com.btelly.ui.base.BaseAdapter
+import com.btelly.core.ui.base.BaseAdapter
 import com.btelly.utils.AppLog
 import com.btelly.utils.ContentFilter
 import com.btelly.utils.ImageLoader

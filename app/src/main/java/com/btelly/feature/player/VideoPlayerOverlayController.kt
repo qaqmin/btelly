@@ -19,7 +19,7 @@ import com.btelly.ui.dialog.OwnerDetailDialog
 import com.btelly.ui.dialog.PlayerActionDialog
 import com.btelly.ui.dialog.VideoInfoDialog
 import com.btelly.feature.detail.UserSpaceFragment
-import com.btelly.ui.view.WrapContentGridLayoutManager
+import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.feature.player.view.MyPlayerView
 
 @UnstableApi

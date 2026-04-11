@@ -19,12 +19,12 @@ import com.btelly.event.AppEventHub
 import com.btelly.model.user.FollowingModel
 import com.btelly.model.video.VideoModel
 import com.btelly.network.session.NetworkSessionGateway
-import com.btelly.ui.base.BaseFragment
+import com.btelly.core.ui.base.BaseFragment
 import com.btelly.ui.fragment.main.MainTabFocusTarget
 import com.btelly.feature.settings.SignInFragment
 import com.btelly.ui.activity.MainActivity
-import com.btelly.ui.view.WrapContentGridLayoutManager
-import com.btelly.ui.base.RecyclerViewFocusRestoreHelper
+import com.btelly.core.ui.layout.WrapContentGridLayoutManager
+import com.btelly.core.ui.base.RecyclerViewFocusRestoreHelper
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.utils.AppLog
 import com.btelly.utils.ContentFilter

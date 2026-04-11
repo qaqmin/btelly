@@ -16,8 +16,8 @@ import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.UserRepository
 import com.btelly.ui.activity.PlayerActivity
 import com.btelly.ui.adapter.VideoAdapter
-import com.btelly.ui.view.WrapContentGridLayoutManager
-import com.btelly.ui.widget.GridSpacingItemDecoration
+import com.btelly.core.ui.layout.WrapContentGridLayoutManager
+import com.btelly.core.ui.decoration.GridSpacingItemDecoration
 import com.btelly.utils.ContentFilter
 import com.btelly.utils.ImageLoader
 import kotlinx.coroutines.CoroutineScope

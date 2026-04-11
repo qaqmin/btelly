@@ -9,9 +9,9 @@ import com.btelly.R
 import com.btelly.databinding.FragmentBaseListBinding
 import com.btelly.repository.VideoRepository
 import com.btelly.ui.adapter.VideoAdapter
-import com.btelly.ui.base.BaseFragment
-import com.btelly.ui.view.WrapContentGridLayoutManager
-import com.btelly.ui.widget.GridSpacingItemDecoration
+import com.btelly.core.ui.base.BaseFragment
+import com.btelly.core.ui.layout.WrapContentGridLayoutManager
+import com.btelly.core.ui.decoration.GridSpacingItemDecoration
 import com.btelly.utils.ContentFilter
 import com.btelly.utils.VideoRouteNavigator
 import kotlinx.coroutines.launch

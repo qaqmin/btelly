@@ -1,4 +1,4 @@
-package com.btelly.ui.base
+package com.btelly.core.ui.base
 
 import android.os.Build
 import android.os.Bundle

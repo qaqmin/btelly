@@ -9,8 +9,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.model.video.VideoModel
 import com.btelly.ui.adapter.VideoAdapter
-import com.btelly.ui.base.BaseListFragment
-import com.btelly.ui.view.WrapContentGridLayoutManager
+import com.btelly.core.ui.base.BaseListFragment
+import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.utils.AppLog
 import com.btelly.utils.ContentFilter
 import com.btelly.utils.VideoRouteNavigator

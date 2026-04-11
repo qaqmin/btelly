@@ -8,7 +8,7 @@ import androidx.fragment.app.commit
 import androidx.media3.common.util.UnstableApi
 import com.btelly.R
 import com.btelly.databinding.ActivityPlayerBinding
-import com.btelly.ui.base.BaseActivity
+import com.btelly.core.ui.base.BaseActivity
 import com.btelly.feature.player.LivePlayerFragment
 
 @OptIn(UnstableApi::class)

@@ -17,11 +17,11 @@ import com.btelly.model.series.timeline.SeriesTimeLineModel
 import com.btelly.model.series.timeline.TimeLineADayModel
 import com.btelly.repository.SeriesRepository
 import com.btelly.ui.adapter.SeriesTimelineAdapter
-import com.btelly.ui.base.BaseFragment
-import com.btelly.ui.base.RecyclerViewFocusRestoreHelper
+import com.btelly.core.ui.base.BaseFragment
+import com.btelly.core.ui.base.RecyclerViewFocusRestoreHelper
 import com.btelly.ui.fragment.main.MainNavigationViewModel
-import com.btelly.ui.view.WrapContentGridLayoutManager
-import com.btelly.ui.widget.GridSpacingItemDecoration
+import com.btelly.core.ui.layout.WrapContentGridLayoutManager
+import com.btelly.core.ui.decoration.GridSpacingItemDecoration
 import com.btelly.utils.AppLog
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest

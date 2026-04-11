@@ -1,4 +1,4 @@
-package com.btelly.ui.view
+package com.btelly.core.ui.layout
 
 import android.content.Context
 import androidx.recyclerview.widget.GridLayoutManager

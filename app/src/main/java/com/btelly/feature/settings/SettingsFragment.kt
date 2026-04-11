@@ -14,8 +14,8 @@ import com.btelly.databinding.FragmentSettingsBinding
 import com.btelly.model.SettingModel
 import com.btelly.ui.adapter.SettingAdapter
 import com.btelly.ui.adapter.SettingSelectionDialogAdapter
-import com.btelly.ui.base.BaseFragment
-import com.btelly.ui.widget.LinearSpacingItemDecoration
+import com.btelly.core.ui.base.BaseFragment
+import com.btelly.core.ui.decoration.LinearSpacingItemDecoration
 import com.btelly.utils.AppLog
 import com.btelly.utils.FileCacheManager
 import com.btelly.utils.ImageLoader

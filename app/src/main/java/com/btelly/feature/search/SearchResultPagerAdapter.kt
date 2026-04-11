@@ -12,10 +12,10 @@ import com.btelly.databinding.PageSearchResultBinding
 import com.btelly.model.search.SearchCategoryItem
 import com.btelly.model.search.SearchItemModel
 import com.btelly.model.search.SearchType
-import com.btelly.ui.view.WrapContentGridLayoutManager
+import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.utils.ContentFilter
 import com.btelly.utils.SpatialFocusNavigator
-import com.btelly.ui.widget.GridSpacingItemDecoration
+import com.btelly.core.ui.decoration.GridSpacingItemDecoration
 
 class SearchResultPagerAdapter(
     private val onItemClick: (SearchResultEntry) -> Unit,

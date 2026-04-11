@@ -18,10 +18,10 @@ import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.SeriesRepository
 import com.btelly.repository.UserRepository
 import com.btelly.ui.adapter.SeriesAdapter
-import com.btelly.ui.base.BaseFragment
-import com.btelly.ui.base.RecyclerViewFocusRestoreHelper
+import com.btelly.core.ui.base.BaseFragment
+import com.btelly.core.ui.base.RecyclerViewFocusRestoreHelper
 import com.btelly.feature.series.SeriesDetailFragment
-import com.btelly.ui.view.WrapContentGridLayoutManager
+import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.utils.AppLog
 import com.btelly.utils.FileCacheManager
 import com.btelly.utils.SpatialFocusNavigator

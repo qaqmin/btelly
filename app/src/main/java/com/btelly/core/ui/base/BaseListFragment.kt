@@ -1,4 +1,4 @@
-package com.btelly.ui.base
+package com.btelly.core.ui.base
 
 import android.view.LayoutInflater
 import android.view.View
@@ -9,7 +9,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.btelly.databinding.FragmentBaseListBinding
-import com.btelly.ui.view.WrapContentGridLayoutManager
+import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.utils.AppLog
 import com.btelly.utils.SpatialFocusNavigator
 

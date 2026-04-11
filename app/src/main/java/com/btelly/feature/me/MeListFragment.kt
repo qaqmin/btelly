@@ -20,10 +20,10 @@ import com.btelly.model.video.HistoryVideoModel
 import com.btelly.model.video.VideoModel
 import com.btelly.ui.adapter.HistoryVideoAdapter
 import com.btelly.ui.adapter.VideoAdapter
-import com.btelly.ui.base.BaseFragment
-import com.btelly.ui.base.RecyclerViewFocusRestoreHelper
+import com.btelly.core.ui.base.BaseFragment
+import com.btelly.core.ui.base.RecyclerViewFocusRestoreHelper
 import com.btelly.utils.FileCacheManager
-import com.btelly.ui.view.WrapContentGridLayoutManager
+import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.utils.AppLog
 import com.btelly.utils.ContentFilter
 import com.btelly.utils.SpatialFocusNavigator

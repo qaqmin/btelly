@@ -28,11 +28,11 @@ import com.btelly.model.search.SearchCategoryItem
 import com.btelly.model.search.SearchType
 import com.btelly.model.search.SearchVideoOrder
 import com.btelly.ui.activity.LivePlayerActivity
-import com.btelly.ui.base.BaseFragment
+import com.btelly.core.ui.base.BaseFragment
 import com.btelly.ui.fragment.main.MainTabFocusTarget
 import com.btelly.feature.detail.UserSpaceFragment
 import com.btelly.feature.series.SeriesDetailFragment
-import com.btelly.ui.view.keyboard.KeyboardView
+import com.btelly.feature.search.view.KeyboardView
 import com.btelly.utils.SpatialFocusNavigator
 import com.btelly.utils.ViewUtils
 import com.btelly.utils.enableTouchNavigation

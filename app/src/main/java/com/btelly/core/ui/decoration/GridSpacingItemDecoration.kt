@@ -1,4 +1,4 @@
-package com.btelly.ui.widget
+package com.btelly.core.ui.decoration
 
 import android.content.Context
 import android.graphics.Rect

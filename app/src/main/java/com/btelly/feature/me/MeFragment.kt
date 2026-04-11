@@ -15,7 +15,7 @@ import com.btelly.R
 import com.btelly.databinding.FragmentMeBinding
 import com.btelly.event.AppEventHub
 import com.btelly.network.session.NetworkSessionGateway
-import com.btelly.ui.base.BaseFragment
+import com.btelly.core.ui.base.BaseFragment
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.ui.fragment.main.MainTabFocusTarget
 import com.btelly.ui.dialog.UserInfoDialog

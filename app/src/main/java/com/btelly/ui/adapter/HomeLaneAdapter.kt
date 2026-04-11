@@ -17,7 +17,7 @@ import com.btelly.model.lane.HomeLaneSection
 import com.btelly.model.lane.LaneItemModel
 import com.btelly.model.series.timeline.SeriesTimeLineModel
 import com.btelly.ui.activity.MainActivity
-import com.btelly.ui.base.BaseAdapter
+import com.btelly.core.ui.base.BaseAdapter
 
 class HomeLaneAdapter(
     private val onSeriesClick: (LaneItemModel) -> Unit,

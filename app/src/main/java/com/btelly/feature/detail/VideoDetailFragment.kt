@@ -30,7 +30,7 @@ import com.btelly.repository.FavoriteRepository
 import com.btelly.repository.VideoRepository
 import com.btelly.ui.adapter.EpisodeListAdapter
 import com.btelly.ui.adapter.VideoAdapter
-import com.btelly.ui.base.BaseFragment
+import com.btelly.core.ui.base.BaseFragment
 import com.btelly.ui.dialog.OwnerDetailDialog
 import com.btelly.ui.dialog.PlayerActionDialog
 import com.btelly.feature.search.SearchNewFragment

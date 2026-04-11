@@ -12,8 +12,8 @@ import com.btelly.R
 import com.btelly.databinding.FragmentLiveListBinding
 import com.btelly.model.live.LiveRoomItem
 import com.btelly.ui.activity.LivePlayerActivity
-import com.btelly.ui.base.BaseFragment
-import com.btelly.ui.view.WrapContentGridLayoutManager
+import com.btelly.core.ui.base.BaseFragment
+import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.utils.AppLog
 import com.btelly.utils.ContentFilter
 import com.btelly.utils.SwipeRefreshHelper

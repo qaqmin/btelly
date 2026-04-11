@@ -14,7 +14,7 @@ import com.btelly.databinding.FragmentLiveBaseListBinding
 import com.btelly.model.live.LiveListWrapper
 import com.btelly.model.live.LiveRecommendSection
 import com.btelly.ui.activity.LivePlayerActivity
-import com.btelly.ui.base.BaseFragment
+import com.btelly.core.ui.base.BaseFragment
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.utils.AppLog
 import com.btelly.utils.ContentFilter

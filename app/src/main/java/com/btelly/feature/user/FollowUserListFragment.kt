@@ -17,10 +17,10 @@ import com.btelly.event.AppEventHub
 import com.btelly.model.user.FollowingModel
 import com.btelly.repository.UserRepository
 import com.btelly.ui.adapter.FollowUserAdapter
-import com.btelly.ui.base.BaseFragment
+import com.btelly.core.ui.base.BaseFragment
 import com.btelly.feature.detail.UserSpaceFragment
-import com.btelly.ui.view.WrapContentGridLayoutManager
-import com.btelly.ui.widget.GridSpacingItemDecoration
+import com.btelly.core.ui.layout.WrapContentGridLayoutManager
+import com.btelly.core.ui.decoration.GridSpacingItemDecoration
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject

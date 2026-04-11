@@ -1,4 +1,4 @@
-package com.btelly.ui.view.keyboard
+package com.btelly.feature.search.view
 
 import android.annotation.SuppressLint
 import android.content.Context

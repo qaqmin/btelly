@@ -5,7 +5,7 @@ import android.view.View
 import android.view.ViewGroup
 import com.btelly.databinding.CellEpisodeBinding
 import com.btelly.model.video.VideoModel
-import com.btelly.ui.base.BaseAdapter
+import com.btelly.core.ui.base.BaseAdapter
 import com.btelly.utils.ImageLoader
 import com.btelly.utils.NumberUtils
 import java.util.Locale

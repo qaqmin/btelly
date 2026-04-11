@@ -9,7 +9,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.btelly.databinding.CellLaneScrollableBinding
 import com.btelly.model.live.LiveRecommendSection
 import com.btelly.model.live.LiveRoomItem
-import com.btelly.ui.view.WrapContentGridLayoutManager
+import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.utils.AppLog
 
 class LiveRecommendAdapter(
