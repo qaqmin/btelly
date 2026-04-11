@@ -17,7 +17,7 @@ import com.btelly.model.series.timeline.SeriesTimeLineModel
 import com.btelly.model.series.timeline.TimeLineADayModel
 import com.btelly.network.api.ApiService
 import com.btelly.repository.UserRepository
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient

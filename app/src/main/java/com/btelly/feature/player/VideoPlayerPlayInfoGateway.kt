@@ -9,7 +9,7 @@ import com.btelly.network.security.NetworkSecurityGateway
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.network.response.Base2Response
 import com.btelly.network.response.PlayerInfoDataWrapper
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 import com.btelly.utils.CookieManager
 import okhttp3.OkHttpClient
 import okhttp3.Request

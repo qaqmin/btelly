@@ -1,7 +1,7 @@
 package com.btelly.feature.player.view
 
 import android.content.Context
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 import android.graphics.drawable.ColorDrawable
 import android.os.Handler
 import android.os.Looper

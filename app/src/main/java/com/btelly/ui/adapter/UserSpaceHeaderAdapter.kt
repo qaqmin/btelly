@@ -10,7 +10,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
 import com.btelly.databinding.CellUserSpaceHeaderBinding
 import com.btelly.model.user.UserSpaceInfo
-import com.btelly.utils.ImageLoader
+import com.btelly.core.ui.image.ImageLoader
 
 class UserSpaceHeaderAdapter(
     private val onFollowClick: () -> Unit,

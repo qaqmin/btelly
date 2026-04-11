@@ -1,4 +1,4 @@
-package com.btelly.utils
+package com.btelly.core.common.log
 
 import android.util.Log
 import com.btelly.BuildConfig

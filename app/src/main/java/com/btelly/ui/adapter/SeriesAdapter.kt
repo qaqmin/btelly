@@ -11,7 +11,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
 import com.btelly.databinding.CellSeriesBinding
 import com.btelly.model.series.SeriesModel
-import com.btelly.utils.ImageLoader
+import com.btelly.core.ui.image.ImageLoader
 import com.btelly.utils.VideoCardFocusHelper
 
 class SeriesAdapter(

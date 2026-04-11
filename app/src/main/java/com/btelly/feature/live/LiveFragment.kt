@@ -17,10 +17,10 @@ import com.btelly.model.live.LiveAreaCategoryParent
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.ui.fragment.main.MainTabFocusTarget
-import com.btelly.utils.AppLog
-import com.btelly.utils.enableTouchNavigation
-import com.btelly.utils.focusNearestTabTo
-import com.btelly.utils.focusSelectedTab
+import com.btelly.core.common.log.AppLog
+import com.btelly.core.ui.tab.enableTouchNavigation
+import com.btelly.core.ui.tab.focusNearestTabTo
+import com.btelly.core.ui.tab.focusSelectedTab
 import com.btelly.utils.toast
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch

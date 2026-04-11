@@ -10,7 +10,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
 import com.btelly.databinding.CellSeriesFilterBinding
 import com.btelly.model.series.AllSeriesFilterModel
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 
 class AllSeriesFilterAdapter(
     private val onItemClick: (Int) -> Unit,

@@ -1,4 +1,6 @@
-package com.btelly.utils
+package com.btelly.core.ui.tab
+
+import com.btelly.core.ui.focus.SpatialFocusNavigator
 
 import android.view.KeyEvent
 import android.view.View

@@ -6,7 +6,7 @@ import android.util.Base64
 import com.btelly.model.BaseResponse
 import com.btelly.model.user.UserDetailInfoModel
 import com.btelly.network.api.ApiService
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 import com.btelly.utils.CookieManager
 import java.security.KeyFactory
 import java.security.PublicKey

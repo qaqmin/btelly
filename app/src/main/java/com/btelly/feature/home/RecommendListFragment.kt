@@ -13,9 +13,9 @@ import com.btelly.repository.cache.HomeCacheStore
 import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.ui.fragment.main.MainNavigationViewModel
-import com.btelly.utils.AppLog
-import com.btelly.utils.ContentFilter
-import com.btelly.utils.VideoRouteNavigator
+import com.btelly.core.common.log.AppLog
+import com.btelly.core.common.content.ContentFilter
+import com.btelly.core.navigation.VideoRouteNavigator
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch

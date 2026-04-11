@@ -20,10 +20,10 @@ import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.ui.fragment.main.MainTabFocusTarget
 import com.btelly.ui.dialog.UserInfoDialog
 import com.btelly.feature.settings.SignInFragment
-import com.btelly.utils.AppLog
-import com.btelly.utils.ImageLoader
-import com.btelly.utils.enableTouchNavigation
-import com.btelly.utils.focusNearestTabTo
+import com.btelly.core.common.log.AppLog
+import com.btelly.core.ui.image.ImageLoader
+import com.btelly.core.ui.tab.enableTouchNavigation
+import com.btelly.core.ui.tab.focusNearestTabTo
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject

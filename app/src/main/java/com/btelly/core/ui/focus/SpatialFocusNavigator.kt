@@ -1,4 +1,4 @@
-package com.btelly.utils
+package com.btelly.core.ui.focus
 
 import android.graphics.Rect
 import android.view.View

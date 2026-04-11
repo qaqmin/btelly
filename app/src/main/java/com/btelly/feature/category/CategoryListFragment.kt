@@ -11,9 +11,9 @@ import com.btelly.model.video.VideoModel
 import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
-import com.btelly.utils.AppLog
-import com.btelly.utils.ContentFilter
-import com.btelly.utils.VideoRouteNavigator
+import com.btelly.core.common.log.AppLog
+import com.btelly.core.common.content.ContentFilter
+import com.btelly.core.navigation.VideoRouteNavigator
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel

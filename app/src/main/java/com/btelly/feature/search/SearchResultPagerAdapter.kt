@@ -13,8 +13,8 @@ import com.btelly.model.search.SearchCategoryItem
 import com.btelly.model.search.SearchItemModel
 import com.btelly.model.search.SearchType
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
-import com.btelly.utils.ContentFilter
-import com.btelly.utils.SpatialFocusNavigator
+import com.btelly.core.common.content.ContentFilter
+import com.btelly.core.ui.focus.SpatialFocusNavigator
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
 
 class SearchResultPagerAdapter(

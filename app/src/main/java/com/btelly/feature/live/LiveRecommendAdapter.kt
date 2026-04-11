@@ -10,7 +10,7 @@ import com.btelly.databinding.CellLaneScrollableBinding
 import com.btelly.model.live.LiveRecommendSection
 import com.btelly.model.live.LiveRoomItem
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 
 class LiveRecommendAdapter(
     private val onRoomClick: (LiveRoomItem) -> Unit,

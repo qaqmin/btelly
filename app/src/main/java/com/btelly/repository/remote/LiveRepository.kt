@@ -11,7 +11,7 @@ import com.btelly.model.live.LiveAreaCategoryParent
 import com.btelly.model.live.LiveListWrapper
 import com.btelly.network.api.ApiService
 import com.btelly.network.session.NetworkSessionGateway
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 

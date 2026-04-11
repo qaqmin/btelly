@@ -8,7 +8,7 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.ui.activity.MainActivity
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 
 object VideoCardFocusHelper {
 

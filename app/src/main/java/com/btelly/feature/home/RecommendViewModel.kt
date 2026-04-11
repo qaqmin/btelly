@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.btelly.model.video.VideoModel
 import com.btelly.repository.VideoRepository
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow

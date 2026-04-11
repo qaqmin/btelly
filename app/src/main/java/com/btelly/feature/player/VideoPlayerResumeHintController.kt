@@ -7,7 +7,7 @@ import androidx.fragment.app.Fragment
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.btelly.R
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 
 @UnstableApi
 class VideoPlayerResumeHintController(

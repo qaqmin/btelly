@@ -6,7 +6,7 @@ import android.os.Looper
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 
 internal object PlayerInstancePool {
 

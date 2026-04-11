@@ -37,7 +37,7 @@ import com.btelly.ui.dialog.UserInfoDialog
 import com.btelly.feature.player.PlayerLaunchContext
 import com.btelly.feature.player.VideoPlayerFragment
 import com.btelly.core.ui.navigation.TabBarView
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject

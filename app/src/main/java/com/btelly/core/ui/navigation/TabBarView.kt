@@ -10,9 +10,9 @@ import android.view.View
 import android.widget.FrameLayout
 import androidx.appcompat.widget.AppCompatImageView
 import com.btelly.R
-import com.btelly.utils.AppLog
-import com.btelly.utils.ImageLoader
-import com.btelly.utils.SpatialFocusNavigator
+import com.btelly.core.common.log.AppLog
+import com.btelly.core.ui.image.ImageLoader
+import com.btelly.core.ui.focus.SpatialFocusNavigator
 
 class TabBarView @JvmOverloads constructor(
     context: Context,

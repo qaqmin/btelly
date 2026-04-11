@@ -1,4 +1,4 @@
-package com.btelly.utils
+package com.btelly.core.ui.refresh
 
 import android.view.ViewGroup
 import android.widget.FrameLayout

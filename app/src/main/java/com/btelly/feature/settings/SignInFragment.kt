@@ -11,7 +11,7 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.btelly.R
 import com.btelly.databinding.FragmentSignInBinding
 import com.btelly.event.AppEventHub
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 import com.btelly.utils.CookieManager
 import com.btelly.repository.AuthRepository
 import com.btelly.repository.UserRepository

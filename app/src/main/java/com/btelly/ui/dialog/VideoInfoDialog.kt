@@ -6,7 +6,7 @@ import android.view.Window
 import androidx.appcompat.app.AppCompatDialog
 import com.btelly.R
 import com.btelly.databinding.DialogVideoInfoBinding
-import com.btelly.utils.ImageLoader
+import com.btelly.core.ui.image.ImageLoader
 
 class VideoInfoDialog(
     context: Context,

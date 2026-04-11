@@ -12,9 +12,9 @@ import com.btelly.R
 import com.btelly.databinding.CellVideoBinding
 import com.btelly.model.video.VideoModel
 import com.btelly.core.ui.base.BaseAdapter
-import com.btelly.utils.AppLog
-import com.btelly.utils.ContentFilter
-import com.btelly.utils.ImageLoader
+import com.btelly.core.common.log.AppLog
+import com.btelly.core.common.content.ContentFilter
+import com.btelly.core.ui.image.ImageLoader
 import com.btelly.utils.NumberUtils
 import com.btelly.utils.TimeUtils
 import com.btelly.utils.VideoCardFocusHelper

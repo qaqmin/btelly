@@ -9,8 +9,8 @@ import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
 import com.btelly.databinding.CellFollowingBinding
 import com.btelly.model.user.FollowingModel
-import com.btelly.utils.AppLog
-import com.btelly.utils.ImageLoader
+import com.btelly.core.common.log.AppLog
+import com.btelly.core.ui.image.ImageLoader
 
 class DynamicUpAdapter(
     private val onItemClick: (FollowingModel) -> Unit,

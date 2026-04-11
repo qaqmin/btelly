@@ -2,6 +2,7 @@ package com.btelly.utils
 
 import com.google.gson.Gson
 import com.btelly.BTellyApplication
+import com.btelly.core.common.log.AppLog
 import java.io.File
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicInteger

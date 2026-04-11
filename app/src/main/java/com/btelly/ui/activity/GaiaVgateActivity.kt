@@ -11,7 +11,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 import com.btelly.network.security.NetworkWebGateway
 import com.btelly.network.session.NetworkSessionGateway
 import kotlinx.coroutines.Dispatchers

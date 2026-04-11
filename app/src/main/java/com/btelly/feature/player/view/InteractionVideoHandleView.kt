@@ -11,7 +11,7 @@ import androidx.appcompat.widget.AppCompatButton
 import androidx.appcompat.widget.AppCompatTextView
 import com.btelly.R
 import com.btelly.model.interaction.*
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 import java.util.regex.Pattern
 
 class InteractionVideoHandleView @JvmOverloads constructor(

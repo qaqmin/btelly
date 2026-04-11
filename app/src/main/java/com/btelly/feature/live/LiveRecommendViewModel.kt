@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.btelly.model.live.LiveListWrapper
 import com.btelly.repository.LiveRepository
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

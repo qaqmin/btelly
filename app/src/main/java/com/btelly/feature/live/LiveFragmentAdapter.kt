@@ -6,7 +6,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.recyclerview.widget.DiffUtil
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import com.btelly.model.live.LiveAreaCategoryParent
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 
 class LiveFragmentAdapter(
     fragmentManager: FragmentManager,

@@ -9,7 +9,7 @@ import androidx.appcompat.widget.AppCompatTextView
 import com.btelly.R
 import com.btelly.databinding.CellFavoriteFolderBinding
 import com.btelly.model.favorite.FavoriteFolderModel
-import com.btelly.utils.ImageLoader
+import com.btelly.core.ui.image.ImageLoader
 import com.btelly.utils.VideoCardFocusHelper
 
 class FavoriteFolderAdapter(

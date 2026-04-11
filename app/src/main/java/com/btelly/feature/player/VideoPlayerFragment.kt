@@ -41,12 +41,12 @@ import com.btelly.feature.player.view.InteractionVideoHandleView
 import com.btelly.feature.player.view.MyPlayerView
 import com.btelly.feature.player.view.OnPlayerSettingChange
 import com.btelly.feature.player.view.OnVideoSettingChangeListener
-import com.btelly.utils.AppLog
-import com.btelly.utils.ContentFilter
+import com.btelly.core.common.log.AppLog
+import com.btelly.core.common.content.ContentFilter
 import com.btelly.utils.PlayerSettings
 import com.btelly.utils.PlayerSettingsStore
 import com.btelly.utils.TimeUtils
-import com.btelly.utils.ViewUtils
+import com.btelly.core.ui.system.ViewUtils
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 import java.util.Locale

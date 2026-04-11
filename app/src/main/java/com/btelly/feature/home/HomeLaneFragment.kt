@@ -18,8 +18,8 @@ import com.btelly.core.ui.base.RecyclerViewFocusRestoreHelper
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.feature.series.AllSeriesFragment
 import com.btelly.feature.series.SeriesDetailFragment
-import com.btelly.utils.AppLog
-import com.btelly.utils.SpatialFocusNavigator
+import com.btelly.core.common.log.AppLog
+import com.btelly.core.ui.focus.SpatialFocusNavigator
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest

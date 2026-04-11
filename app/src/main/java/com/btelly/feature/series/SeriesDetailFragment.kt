@@ -23,8 +23,8 @@ import com.btelly.model.series.SeriesModel
 import com.btelly.model.series.SeriesUserState
 import com.btelly.model.video.VideoModel
 import com.btelly.ui.adapter.SeriesDetailContentAdapter
-import com.btelly.utils.AppLog
-import com.btelly.utils.VideoRouteNavigator
+import com.btelly.core.common.log.AppLog
+import com.btelly.core.navigation.VideoRouteNavigator
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject

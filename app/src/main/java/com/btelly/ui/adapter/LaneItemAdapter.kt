@@ -12,7 +12,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
 import com.btelly.databinding.CellMovieBinding
 import com.btelly.model.lane.LaneItemModel
-import com.btelly.utils.ImageLoader
+import com.btelly.core.ui.image.ImageLoader
 import com.btelly.utils.VideoCardFocusHelper
 
 class LaneItemAdapter(

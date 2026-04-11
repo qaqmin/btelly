@@ -10,8 +10,8 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.btelly.databinding.FragmentBaseListBinding
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
-import com.btelly.utils.AppLog
-import com.btelly.utils.SpatialFocusNavigator
+import com.btelly.core.common.log.AppLog
+import com.btelly.core.ui.focus.SpatialFocusNavigator
 
 abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>() {
 

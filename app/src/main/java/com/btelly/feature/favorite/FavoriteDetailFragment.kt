@@ -20,8 +20,8 @@ import com.btelly.ui.adapter.FavoriteHistoryAdapter
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
-import com.btelly.utils.ContentFilter
-import com.btelly.utils.VideoRouteNavigator
+import com.btelly.core.common.content.ContentFilter
+import com.btelly.core.navigation.VideoRouteNavigator
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject

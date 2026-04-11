@@ -1,4 +1,4 @@
-package com.btelly.utils
+package com.btelly.core.common.content
 
 import android.content.Context
 import com.btelly.model.live.LiveRoomItem

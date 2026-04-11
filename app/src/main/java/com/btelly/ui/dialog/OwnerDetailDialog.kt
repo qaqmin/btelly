@@ -18,8 +18,8 @@ import com.btelly.ui.activity.PlayerActivity
 import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
-import com.btelly.utils.ContentFilter
-import com.btelly.utils.ImageLoader
+import com.btelly.core.common.content.ContentFilter
+import com.btelly.core.ui.image.ImageLoader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

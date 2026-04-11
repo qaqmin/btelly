@@ -4,7 +4,7 @@ import android.os.Handler
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 
 /**
  * Centralizes focus routing and focus restoration for the controller chrome.

@@ -22,7 +22,7 @@ import com.btelly.core.ui.base.RecyclerViewFocusRestoreHelper
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
 import org.koin.android.ext.android.inject

@@ -1,4 +1,4 @@
-package com.btelly.utils
+package com.btelly.core.ui.image
 
 import android.content.Context
 import android.content.SharedPreferences

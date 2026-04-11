@@ -6,7 +6,7 @@ import android.graphics.Color
 import android.util.LruCache
 import com.kuaishou.akdanmaku.data.DanmakuVipGradientStyle
 import com.btelly.network.NetworkManager
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 import java.util.concurrent.ConcurrentHashMap
 import okhttp3.Request
 

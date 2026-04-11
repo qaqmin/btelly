@@ -3,7 +3,7 @@ package com.btelly.core.ui.layout
 import android.content.Context
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 
 open class WrapContentGridLayoutManager(
     context: Context,

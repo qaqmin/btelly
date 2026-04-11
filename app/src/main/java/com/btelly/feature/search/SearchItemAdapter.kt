@@ -18,9 +18,9 @@ import com.btelly.databinding.CellUserBinding
 import com.btelly.databinding.CellVideoBinding
 import com.btelly.model.search.SearchItemModel
 import com.btelly.model.search.SearchType
-import com.btelly.utils.AppLog
-import com.btelly.utils.ContentFilter
-import com.btelly.utils.ImageLoader
+import com.btelly.core.common.log.AppLog
+import com.btelly.core.common.content.ContentFilter
+import com.btelly.core.ui.image.ImageLoader
 import com.btelly.utils.NumberUtils
 import com.btelly.utils.TimeUtils
 import com.btelly.utils.VideoCardFocusHelper

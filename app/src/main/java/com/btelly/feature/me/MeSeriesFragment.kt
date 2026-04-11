@@ -22,10 +22,10 @@ import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.ui.base.RecyclerViewFocusRestoreHelper
 import com.btelly.feature.series.SeriesDetailFragment
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 import com.btelly.utils.FileCacheManager
-import com.btelly.utils.SpatialFocusNavigator
-import com.btelly.utils.SwipeRefreshHelper
+import com.btelly.core.ui.focus.SpatialFocusNavigator
+import com.btelly.core.ui.refresh.SwipeRefreshHelper
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject

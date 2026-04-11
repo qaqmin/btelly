@@ -16,7 +16,7 @@ import com.btelly.model.favorite.FavoriteFolderModel
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.FavoriteRepository
 import com.btelly.repository.VideoRepository
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

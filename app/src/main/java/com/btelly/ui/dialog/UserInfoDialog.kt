@@ -17,7 +17,7 @@ import com.btelly.repository.UserRepository
 import com.btelly.ui.activity.MainActivity
 import com.btelly.feature.detail.UserSpaceFragment
 import com.btelly.feature.user.FollowUserListFragment
-import com.btelly.utils.ImageLoader
+import com.btelly.core.ui.image.ImageLoader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

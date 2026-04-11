@@ -35,10 +35,10 @@ import com.btelly.ui.dialog.OwnerDetailDialog
 import com.btelly.ui.dialog.PlayerActionDialog
 import com.btelly.feature.search.SearchNewFragment
 import com.btelly.utils.serializableCompat
-import com.btelly.utils.ContentFilter
-import com.btelly.utils.ImageLoader
+import com.btelly.core.common.content.ContentFilter
+import com.btelly.core.ui.image.ImageLoader
 import com.btelly.utils.TimeUtils
-import com.btelly.utils.VideoRouteNavigator
+import com.btelly.core.navigation.VideoRouteNavigator
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject

@@ -9,7 +9,7 @@ import com.bumptech.glide.Glide
 import com.btelly.R
 import com.btelly.databinding.CellUserBinding
 import com.btelly.model.live.LiveAreaCategory
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 import com.btelly.utils.VideoCardFocusHelper
 
 class LiveAreaAdapter(

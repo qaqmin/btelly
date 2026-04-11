@@ -15,7 +15,7 @@ import com.btelly.network.api.ApiService
 import com.btelly.network.security.NetworkSecurityGateway
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.network.response.ListDataModel
-import com.btelly.utils.AppLog
+import com.btelly.core.common.log.AppLog
 import com.btelly.utils.CookieManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
