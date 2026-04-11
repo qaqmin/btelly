@@ -3,7 +3,7 @@ package com.btelly.repository.remote
 import com.btelly.model.lane.LaneItemModel
 import com.btelly.model.series.AllSeriesFilterModel
 import com.btelly.model.series.SeriesModel
-import com.btelly.network.NetworkManager
+import com.btelly.network.api.ApiService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -12,9 +12,9 @@ data class AllSeriesPage(
     val hasMore: Boolean = false
 )
 
-class AllSeriesRepository {
-
-    private val apiService = NetworkManager.apiService
+class AllSeriesRepository(
+    private val apiService: ApiService
+) {
 
     suspend fun getAllSeries(
         type: Int,

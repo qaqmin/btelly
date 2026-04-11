@@ -1,6 +1,8 @@
 package com.btelly
 
 import com.btelly.network.NetworkManager
+import com.btelly.network.security.NetworkManagerSecurityGateway
+import com.btelly.network.session.NetworkManagerSessionGateway
 import com.btelly.repository.UserRepository
 import com.btelly.repository.VideoRepository
 import com.btelly.repository.remote.HomeLaneRepository
@@ -12,8 +14,16 @@ class HomeDataProbeTest {
 
     @Test
     fun probeRecommendAndAnimeHomeData() {
+        val sessionGateway = NetworkManagerSessionGateway()
+        val securityGateway = NetworkManagerSecurityGateway()
         val videoRepository = VideoRepository(
-            RemoteVideoRepository(NetworkManager.apiService)
+            RemoteVideoRepository(
+                NetworkManager.apiService,
+                sessionGateway,
+                securityGateway,
+                NetworkManager.getCookieManager()
+            ),
+            sessionGateway
         )
         runCatching {
             kotlinx.coroutines.runBlocking {
@@ -32,8 +42,9 @@ class HomeDataProbeTest {
 
         val homeLaneRepository = HomeLaneRepository(
             apiService = NetworkManager.apiService,
-            seriesRepository = RemoteSeriesRepository(),
-            userRepository = UserRepository()
+            okHttpClient = NetworkManager.getOkHttpClient(),
+            seriesRepository = RemoteSeriesRepository(NetworkManager.apiService, sessionGateway),
+            userRepository = UserRepository(NetworkManager.apiService, sessionGateway)
         )
         val anime = kotlinx.coroutines.runBlocking {
             homeLaneRepository.getHomeLanes(

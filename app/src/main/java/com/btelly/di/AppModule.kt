@@ -5,6 +5,10 @@ import androidx.media3.common.util.UnstableApi
 import com.btelly.event.AppEventHub
 import com.btelly.network.NetworkManager
 import com.btelly.network.api.ApiService
+import com.btelly.network.security.NetworkManagerSecurityGateway
+import com.btelly.network.security.NetworkSecurityGateway
+import com.btelly.network.session.NetworkManagerSessionGateway
+import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.AllSeriesRepository
 import com.btelly.repository.AuthRepository
 import com.btelly.repository.FavoriteRepository
@@ -27,6 +31,8 @@ import com.btelly.ui.fragment.main.search.SearchViewModel
 import com.btelly.ui.fragment.player.LivePlayerViewModel
 import com.btelly.ui.fragment.player.VideoPlayerViewModel
 import com.btelly.ui.fragment.series.SeriesDetailViewModel
+import com.btelly.utils.CookieManager
+import okhttp3.OkHttpClient
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
@@ -34,18 +40,23 @@ import org.koin.dsl.module
 @OptIn(UnstableApi::class)
 val networkModule = module {
     single<ApiService> { NetworkManager.apiService }
+    single<OkHttpClient> { NetworkManager.getOkHttpClient() }
+    single<CookieManager> { NetworkManager.getCookieManager() }
+    single<NetworkSessionGateway> { NetworkManagerSessionGateway() }
+    single<NetworkSecurityGateway> { NetworkManagerSecurityGateway() }
 }
 
 @OptIn(UnstableApi::class)
 val repositoryModule = module {
-    single { com.btelly.repository.remote.AllSeriesRepository() }
-    single { com.btelly.repository.remote.AuthRepository(get()) }
-    single { com.btelly.repository.remote.FavoriteRepository(get()) }
-    single { com.btelly.repository.remote.HomeLaneRepository(get(), get(), get()) }
-    single { com.btelly.repository.remote.LiveRepository() }
-    single { com.btelly.repository.remote.SearchRepository() }
-    single { com.btelly.repository.remote.SeriesRepository() }
-    single { com.btelly.repository.remote.VideoRepository(get()) }
+    single { com.btelly.repository.remote.AllSeriesRepository(get()) }
+    single { com.btelly.repository.remote.AuthRepository(get(), get()) }
+    single { com.btelly.repository.remote.FavoriteRepository(get(), get()) }
+    single { com.btelly.repository.remote.HomeLaneRepository(get(), get(), get(), get()) }
+    single { com.btelly.repository.remote.LiveRepository(get(), get()) }
+    single { com.btelly.repository.remote.SearchRepository(get(), get()) }
+    single { com.btelly.repository.remote.SeriesRepository(get(), get()) }
+    single { com.btelly.repository.remote.UserRepository(get(), get()) }
+    single { com.btelly.repository.remote.VideoRepository(get(), get(), get(), get()) }
     single { AllSeriesRepository(get()) }
     single { AuthRepository(get()) }
     single { FavoriteRepository(get()) }
@@ -53,8 +64,8 @@ val repositoryModule = module {
     single { LiveRepository(get()) }
     single { SearchRepository(get()) }
     single { SeriesRepository(get()) }
-    single { VideoRepository(get()) }
-    single { UserRepository() }
+    single { VideoRepository(get(), get()) }
+    single { UserRepository(get(), get()) }
 }
 
 @OptIn(UnstableApi::class)
