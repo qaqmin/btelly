@@ -1,4 +1,4 @@
-package com.btelly.ui.fragment.main.dynamic
+package com.btelly.feature.dynamic
 
 import android.os.Bundle
 import android.view.Gravity
@@ -21,7 +21,7 @@ import com.btelly.model.video.VideoModel
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.ui.base.BaseFragment
 import com.btelly.ui.fragment.main.MainTabFocusTarget
-import com.btelly.ui.fragment.main.settings.SignInFragment
+import com.btelly.feature.settings.SignInFragment
 import com.btelly.ui.activity.MainActivity
 import com.btelly.ui.view.WrapContentGridLayoutManager
 import com.btelly.ui.base.RecyclerViewFocusRestoreHelper

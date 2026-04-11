@@ -19,7 +19,7 @@ import com.btelly.ui.base.BaseFragment
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.ui.fragment.main.MainTabFocusTarget
 import com.btelly.ui.dialog.UserInfoDialog
-import com.btelly.ui.fragment.main.settings.SignInFragment
+import com.btelly.feature.settings.SignInFragment
 import com.btelly.utils.AppLog
 import com.btelly.utils.ImageLoader
 import com.btelly.utils.enableTouchNavigation

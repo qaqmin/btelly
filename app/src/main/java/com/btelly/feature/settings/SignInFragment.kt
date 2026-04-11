@@ -1,4 +1,4 @@
-package com.btelly.ui.fragment.main.settings
+package com.btelly.feature.settings
 
 import android.graphics.Bitmap
 import android.view.LayoutInflater

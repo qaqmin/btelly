@@ -1,4 +1,4 @@
-package com.btelly.ui.fragment.main.dynamic
+package com.btelly.feature.dynamic
 
 import android.view.LayoutInflater
 import android.view.KeyEvent

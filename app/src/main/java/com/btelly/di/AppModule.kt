@@ -20,8 +20,8 @@ import com.btelly.repository.SearchRepository
 import com.btelly.repository.SeriesRepository
 import com.btelly.repository.UserRepository
 import com.btelly.repository.VideoRepository
-import com.btelly.ui.fragment.main.category.CategoryViewModel
-import com.btelly.ui.fragment.main.dynamic.DynamicViewModel
+import com.btelly.feature.category.CategoryViewModel
+import com.btelly.feature.dynamic.DynamicViewModel
 import com.btelly.feature.home.HotViewModel
 import com.btelly.feature.home.RecommendViewModel
 import com.btelly.feature.live.LiveListViewModel

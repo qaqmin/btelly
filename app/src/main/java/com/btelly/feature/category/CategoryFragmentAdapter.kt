@@ -1,4 +1,4 @@
-package com.btelly.ui.fragment.main.category
+package com.btelly.feature.category
 
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentManager

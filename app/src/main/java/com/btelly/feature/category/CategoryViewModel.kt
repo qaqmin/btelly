@@ -1,4 +1,4 @@
-package com.btelly.ui.fragment.main.category
+package com.btelly.feature.category
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
