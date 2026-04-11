@@ -1,4 +1,4 @@
-package com.btelly.ui.fragment.main.search
+package com.btelly.feature.search
 
 import android.content.Context
 import android.text.Editable

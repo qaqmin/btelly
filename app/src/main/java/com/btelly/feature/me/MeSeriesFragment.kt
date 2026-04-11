@@ -1,4 +1,4 @@
-package com.btelly.ui.fragment.main.me
+package com.btelly.feature.me
 
 import android.os.Bundle
 import android.view.LayoutInflater

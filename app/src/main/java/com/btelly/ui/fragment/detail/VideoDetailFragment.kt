@@ -33,7 +33,7 @@ import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.ui.base.BaseFragment
 import com.btelly.ui.dialog.OwnerDetailDialog
 import com.btelly.ui.dialog.PlayerActionDialog
-import com.btelly.ui.fragment.main.search.SearchNewFragment
+import com.btelly.feature.search.SearchNewFragment
 import com.btelly.utils.serializableCompat
 import com.btelly.utils.ContentFilter
 import com.btelly.utils.ImageLoader

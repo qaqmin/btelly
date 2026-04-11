@@ -1,4 +1,4 @@
-package com.btelly.ui.fragment.main.live
+package com.btelly.feature.live
 
 interface LiveTabPage {
     fun scrollToTop()

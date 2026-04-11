@@ -20,8 +20,8 @@ import com.btelly.repository.UserRepository
 import com.btelly.repository.FavoriteRepository
 import com.btelly.ui.adapter.FavoriteFolderAdapter
 import com.btelly.ui.base.BaseFragment
-import com.btelly.ui.fragment.main.me.MeFragment
-import com.btelly.ui.fragment.main.me.MeTabPage
+import com.btelly.feature.me.MeFragment
+import com.btelly.feature.me.MeTabPage
 import com.btelly.ui.view.WrapContentGridLayoutManager
 import com.btelly.ui.widget.GridSpacingItemDecoration
 import com.btelly.ui.base.RecyclerViewFocusRestoreHelper

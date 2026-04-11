@@ -1,4 +1,4 @@
-package com.btelly.ui.fragment.main.search
+package com.btelly.feature.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope

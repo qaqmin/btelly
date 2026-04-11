@@ -1,4 +1,4 @@
-package com.btelly.ui.fragment.main.me
+package com.btelly.feature.me
 
 import com.btelly.model.video.HistoryVideoModel
 import com.btelly.model.video.VideoModel

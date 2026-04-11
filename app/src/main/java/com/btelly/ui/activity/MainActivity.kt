@@ -26,11 +26,11 @@ import com.btelly.model.video.VideoModel
 import com.btelly.ui.fragment.main.category.CategoryFragment
 import com.btelly.ui.fragment.main.dynamic.DynamicFragment
 import com.btelly.feature.home.HomeFragment
-import com.btelly.ui.fragment.main.live.LiveFragment
-import com.btelly.ui.fragment.main.me.MeFragment
+import com.btelly.feature.live.LiveFragment
+import com.btelly.feature.me.MeFragment
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.ui.fragment.main.MainTabFocusTarget
-import com.btelly.ui.fragment.main.search.SearchNewFragment
+import com.btelly.feature.search.SearchNewFragment
 import com.btelly.ui.fragment.main.settings.SettingsFragment
 import com.btelly.ui.fragment.main.settings.SignInFragment
 import com.btelly.ui.dialog.UserInfoDialog
