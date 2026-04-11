@@ -15,7 +15,7 @@ import com.google.gson.reflect.TypeToken
 import com.btelly.R
 import com.btelly.databinding.FragmentFavoriteBinding
 import com.btelly.event.AppEventHub
-import com.btelly.network.NetworkManager
+import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.UserRepository
 import com.btelly.repository.FavoriteRepository
 import com.btelly.ui.adapter.FavoriteFolderAdapter
@@ -52,6 +52,7 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
     private var lastRefreshTime = 0L
 
     private val appEventHub: AppEventHub by inject()
+    private val sessionGateway: NetworkSessionGateway by inject()
     private val favoriteRepository: FavoriteRepository by inject()
     private val userRepository: UserRepository by inject()
     private lateinit var adapter: FavoriteFolderAdapter
@@ -158,7 +159,7 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
             return
         }
         coverHydrationJob?.cancel()
-        if (!NetworkManager.isLoggedIn()) {
+        if (!sessionGateway.isLoggedIn()) {
             binding.progressBar.visibility = View.GONE
             binding.tvEmpty.visibility = View.VISIBLE
             binding.tvEmpty.text = getString(R.string.need_sign_in)

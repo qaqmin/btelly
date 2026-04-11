@@ -6,7 +6,9 @@ import com.btelly.event.AppEventHub
 import com.btelly.network.NetworkManager
 import com.btelly.network.api.ApiService
 import com.btelly.network.security.NetworkManagerSecurityGateway
+import com.btelly.network.security.NetworkManagerWebGateway
 import com.btelly.network.security.NetworkSecurityGateway
+import com.btelly.network.security.NetworkWebGateway
 import com.btelly.network.session.NetworkManagerSessionGateway
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.AllSeriesRepository
@@ -44,6 +46,7 @@ val networkModule = module {
     single<CookieManager> { NetworkManager.getCookieManager() }
     single<NetworkSessionGateway> { NetworkManagerSessionGateway() }
     single<NetworkSecurityGateway> { NetworkManagerSecurityGateway() }
+    single<NetworkWebGateway> { NetworkManagerWebGateway() }
 }
 
 @OptIn(UnstableApi::class)
@@ -72,7 +75,7 @@ val repositoryModule = module {
 val viewModelModule = module {
     viewModel { RecommendViewModel(get()) }
     viewModel { HotViewModel(get()) }
-    viewModel { VideoPlayerViewModel(get(), androidContext()) }
+    viewModel { VideoPlayerViewModel(get(), get(), get(), get(), get(), androidContext()) }
     viewModel { CategoryViewModel(get()) }
     viewModel { DynamicViewModel(get()) }
     viewModel { LiveViewModel(get()) }

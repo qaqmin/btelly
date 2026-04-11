@@ -11,11 +11,11 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.btelly.R
 import com.btelly.databinding.FragmentSignInBinding
 import com.btelly.event.AppEventHub
+import com.btelly.utils.AppLog
+import com.btelly.utils.CookieManager
 import com.btelly.repository.AuthRepository
 import com.btelly.repository.UserRepository
 import com.btelly.ui.base.BaseFragment
-import com.btelly.network.NetworkManager
-import com.btelly.utils.AppLog
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -30,6 +30,7 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
 
     private val authRepository: AuthRepository by inject()
     private val appEventHub: AppEventHub by inject()
+    private val cookieManager: CookieManager by inject()
     private val userRepository: UserRepository by inject()
     private var qrcodeKey = ""
     private var pollingJob: Job? = null
@@ -160,7 +161,7 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
                     "$name=$value; domain=bilibili.com; path=/; secure"
                 }
             if (cookieStrings.isNotEmpty()) {
-                NetworkManager.getCookieManager().saveCookies(cookieStrings)
+                cookieManager.saveCookies(cookieStrings)
             }
         } catch (e: Exception) {
             AppLog.e("SignInFragment", "saveCookiesFromLoginUrl failed", e)

@@ -25,7 +25,7 @@ import com.btelly.model.video.detail.UgcEpisode
 import com.btelly.model.video.detail.UgcSeason
 import com.btelly.model.video.detail.VideoDetailModel
 import com.btelly.model.video.detail.VideoView
-import com.btelly.network.NetworkManager
+import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.FavoriteRepository
 import com.btelly.repository.VideoRepository
 import com.btelly.ui.adapter.EpisodeListAdapter
@@ -76,6 +76,7 @@ class VideoDetailFragment : BaseFragment<FragmentVideoDetailBinding>() {
     private var bvid: String? = null
 
     private val appEventHub: AppEventHub by inject()
+    private val sessionGateway: NetworkSessionGateway by inject()
     private val videoRepository: VideoRepository by inject()
     private val favoriteRepository: FavoriteRepository by inject()
 
@@ -444,7 +445,7 @@ class VideoDetailFragment : BaseFragment<FragmentVideoDetailBinding>() {
     }
 
     private fun refreshActionState() {
-        if (!NetworkManager.isLoggedIn()) {
+        if (!sessionGateway.isLoggedIn()) {
             return
         }
         val currentAid = videoView?.aid ?: videoModel?.aid ?: return

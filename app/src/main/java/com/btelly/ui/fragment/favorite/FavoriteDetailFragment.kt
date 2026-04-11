@@ -12,9 +12,9 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
-import com.btelly.network.NetworkManager
 import com.btelly.databinding.FragmentFavoriteDetailBinding
 import com.btelly.event.AppEventHub
+import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.FavoriteRepository
 import com.btelly.ui.adapter.FavoriteHistoryAdapter
 import com.btelly.ui.base.BaseFragment
@@ -46,6 +46,7 @@ class FavoriteDetailFragment : BaseFragment<FragmentFavoriteDetailBinding>() {
     private var title: String = ""
 
     private val appEventHub: AppEventHub by inject()
+    private val sessionGateway: NetworkSessionGateway by inject()
     private val favoriteRepository: FavoriteRepository by inject()
     private lateinit var favoriteAdapter: FavoriteHistoryAdapter
 
@@ -162,7 +163,7 @@ class FavoriteDetailFragment : BaseFragment<FragmentFavoriteDetailBinding>() {
     private fun loadFavoriteVideos() {
         if (folderId == 0L || isLoading || !hasMore) return
 
-        if (!NetworkManager.isLoggedIn()) {
+        if (!sessionGateway.isLoggedIn()) {
             hasMore = false
             favoriteAdapter.setData(emptyList())
             showEmpty(getString(R.string.need_sign_in))

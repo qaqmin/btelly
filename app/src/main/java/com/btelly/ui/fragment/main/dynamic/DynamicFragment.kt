@@ -18,7 +18,7 @@ import com.btelly.databinding.FragmentDynamicBinding
 import com.btelly.event.AppEventHub
 import com.btelly.model.user.FollowingModel
 import com.btelly.model.video.VideoModel
-import com.btelly.network.NetworkManager
+import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.ui.base.BaseFragment
 import com.btelly.ui.fragment.main.MainTabFocusTarget
 import com.btelly.ui.fragment.main.settings.SignInFragment
@@ -46,6 +46,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
     }
 
     private val appEventHub: AppEventHub by inject()
+    private val sessionGateway: NetworkSessionGateway by inject()
     private val viewModel: DynamicViewModel by viewModel()
     private val mainNavigationViewModel: MainNavigationViewModel by activityViewModels()
     private lateinit var upAdapter: DynamicUpAdapter
@@ -74,7 +75,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
     }
 
     override fun onRetryClick() {
-        if (!NetworkManager.isLoggedIn()) {
+        if (!sessionGateway.isLoggedIn()) {
             (activity as? MainActivity)?.openOverlayFragment(SignInFragment.newInstance(), "sign_in")
         } else {
             currentUpId = 0L
@@ -179,7 +180,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
     private fun loadData() {
         pendingScrollToTop = true
         lastRefreshTime = System.currentTimeMillis()
-        if (!NetworkManager.isLoggedIn()) {
+        if (!sessionGateway.isLoggedIn()) {
             currentUpId = 0L
             viewModel.loadFollowingList()
             latestScreenState = viewModel.screenState.value

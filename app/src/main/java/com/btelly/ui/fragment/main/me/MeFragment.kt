@@ -14,7 +14,7 @@ import com.google.android.material.tabs.TabLayoutMediator
 import com.btelly.R
 import com.btelly.databinding.FragmentMeBinding
 import com.btelly.event.AppEventHub
-import com.btelly.network.NetworkManager
+import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.ui.base.BaseFragment
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.ui.fragment.main.MainTabFocusTarget
@@ -39,6 +39,7 @@ class MeFragment : BaseFragment<FragmentMeBinding>(), MainTabFocusTarget {
 
     private val appEventHub: AppEventHub by inject()
     private val mainNavigationViewModel: MainNavigationViewModel by activityViewModels()
+    private val sessionGateway: NetworkSessionGateway by inject()
     private val viewModel: MeViewModel by viewModel()
     private lateinit var tabLayout: TabLayout
     private lateinit var viewPager: ViewPager2
@@ -199,7 +200,7 @@ class MeFragment : BaseFragment<FragmentMeBinding>(), MainTabFocusTarget {
     }
 
     private fun onAvatarClick() {
-        if (!NetworkManager.isLoggedIn()) {
+        if (!sessionGateway.isLoggedIn()) {
             openInHostContainer(SignInFragment.newInstance())
             return
         }

@@ -18,7 +18,7 @@ import com.btelly.R
 import com.btelly.BTellyApplication
 import com.btelly.databinding.ActivityMainBinding
 import com.btelly.event.AppEventHub
-import com.btelly.network.NetworkManager
+import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.UserRepository
 import com.btelly.ui.base.BaseActivity
 import com.btelly.ui.base.OnBackPressedHandler
@@ -61,6 +61,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     private val fragments = mutableListOf<Fragment>()
     private val appEventHub: AppEventHub by inject()
     private val mainNavigationViewModel: MainNavigationViewModel by viewModels()
+    private val sessionGateway: NetworkSessionGateway by inject()
     private val userRepository: UserRepository by inject()
     private var currentFragmentIndex = -1
     private var exitTime: Long = 0
@@ -292,7 +293,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     }
 
     override fun onAvatarClick() {
-        if (!NetworkManager.isLoggedIn()) {
+        if (!sessionGateway.isLoggedIn()) {
             openOverlayFragment(SignInFragment.newInstance(), "sign_in")
             return
         }
@@ -306,12 +307,12 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     }
 
     private fun refreshAvatar(allowNetworkFetch: Boolean = true) {
-        if (!NetworkManager.isLoggedIn()) {
+        if (!sessionGateway.isLoggedIn()) {
             binding.myTabView.setAvatarUrl(null)
             return
         }
 
-        val cachedAvatar = NetworkManager.getUserInfo()?.face
+        val cachedAvatar = sessionGateway.getUserInfo()?.face
         if (!cachedAvatar.isNullOrBlank()) {
             binding.myTabView.setAvatarUrl(cachedAvatar)
             return

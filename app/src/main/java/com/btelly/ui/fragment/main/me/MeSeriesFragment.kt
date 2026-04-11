@@ -14,7 +14,7 @@ import com.google.gson.reflect.TypeToken
 import com.btelly.R
 import com.btelly.databinding.FragmentMeTabListBinding
 import com.btelly.event.AppEventHub
-import com.btelly.network.NetworkManager
+import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.SeriesRepository
 import com.btelly.repository.UserRepository
 import com.btelly.ui.adapter.SeriesAdapter
@@ -49,6 +49,7 @@ class MeSeriesFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage {
     }
 
     private val appEventHub: AppEventHub by inject()
+    private val sessionGateway: NetworkSessionGateway by inject()
     private val repository: SeriesRepository by inject()
     private val userRepository: UserRepository by inject()
 
@@ -142,7 +143,7 @@ class MeSeriesFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage {
     private fun loadData() {
         if (isLoading) return
 
-        if (!NetworkManager.isLoggedIn()) {
+        if (!sessionGateway.isLoggedIn()) {
             showState(getString(R.string.need_sign_in), retryVisible = false)
             return
         }
