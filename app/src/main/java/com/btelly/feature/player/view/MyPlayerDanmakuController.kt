@@ -13,7 +13,7 @@ import com.kuaishou.akdanmaku.ui.DanmakuPlayer
 import com.kuaishou.akdanmaku.ui.DanmakuView
 import com.btelly.model.dm.DmModel
 import com.btelly.core.common.log.AppLog
-import com.btelly.utils.isVipColorfulDanmakuAllowed
+import com.btelly.core.common.ext.isVipColorfulDanmakuAllowed
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

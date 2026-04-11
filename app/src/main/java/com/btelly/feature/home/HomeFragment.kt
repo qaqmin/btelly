@@ -19,7 +19,7 @@ import com.btelly.ui.fragment.main.MainTabFocusTarget
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.tab.enableTouchNavigation
 import com.btelly.core.ui.tab.focusNearestTabTo
-import com.btelly.utils.getHomeDefaultStartPageIndex
+import com.btelly.core.common.ext.getHomeDefaultStartPageIndex
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 

@@ -10,7 +10,7 @@ import com.btelly.R
 import com.btelly.databinding.CellFavoriteFolderBinding
 import com.btelly.model.favorite.FavoriteFolderModel
 import com.btelly.core.ui.image.ImageLoader
-import com.btelly.utils.VideoCardFocusHelper
+import com.btelly.core.ui.focus.VideoCardFocusHelper
 
 class FavoriteFolderAdapter(
     private val onItemClick: ((position: Int, item: FavoriteFolderModel) -> Unit)? = null,

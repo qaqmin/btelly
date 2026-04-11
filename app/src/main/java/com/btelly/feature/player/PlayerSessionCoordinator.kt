@@ -5,7 +5,7 @@ import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import com.btelly.model.video.VideoModel
 import com.btelly.model.video.detail.VideoDetailModel
-import com.btelly.utils.serializableCompat
+import com.btelly.core.common.ext.serializableCompat
 import java.util.ArrayDeque
 
 @OptIn(UnstableApi::class)

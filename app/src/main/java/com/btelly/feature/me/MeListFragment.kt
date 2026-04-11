@@ -22,7 +22,7 @@ import com.btelly.ui.adapter.HistoryVideoAdapter
 import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.ui.base.RecyclerViewFocusRestoreHelper
-import com.btelly.utils.FileCacheManager
+import com.btelly.core.common.cache.FileCacheManager
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.content.ContentFilter

@@ -7,7 +7,7 @@ import com.btelly.model.BaseResponse
 import com.btelly.model.user.UserDetailInfoModel
 import com.btelly.network.api.ApiService
 import com.btelly.core.common.log.AppLog
-import com.btelly.utils.CookieManager
+import com.btelly.network.cookie.CookieManager
 import java.security.KeyFactory
 import java.security.PublicKey
 import java.security.SecureRandom

@@ -12,7 +12,7 @@ import com.btelly.R
 import com.btelly.databinding.CellEpisodeBinding
 import com.btelly.model.episode.EpisodeModel
 import com.btelly.core.ui.image.ImageLoader
-import com.btelly.utils.ScreenUtils
+import com.btelly.core.ui.system.ScreenUtils
 
 class EpisodeAdapter(
     private val onEpisodeClick: (EpisodeModel) -> Unit,

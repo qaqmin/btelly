@@ -13,7 +13,7 @@ import com.btelly.R
 import com.btelly.databinding.CellMovieBinding
 import com.btelly.model.lane.LaneItemModel
 import com.btelly.core.ui.image.ImageLoader
-import com.btelly.utils.VideoCardFocusHelper
+import com.btelly.core.ui.focus.VideoCardFocusHelper
 
 class LaneItemAdapter(
     private val onItemClick: (LaneItemModel) -> Unit = {},

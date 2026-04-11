@@ -1,7 +1,7 @@
 package com.btelly.network.interceptor
 
 import com.btelly.core.common.log.AppLog
-import com.btelly.utils.CookieManager
+import com.btelly.network.cookie.CookieManager
 import okhttp3.Interceptor
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.Response

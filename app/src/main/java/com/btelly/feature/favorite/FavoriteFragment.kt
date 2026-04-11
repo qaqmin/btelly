@@ -26,7 +26,7 @@ import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
 import com.btelly.core.ui.base.RecyclerViewFocusRestoreHelper
 import com.btelly.core.common.log.AppLog
-import com.btelly.utils.FileCacheManager
+import com.btelly.core.common.cache.FileCacheManager
 import com.btelly.core.ui.focus.SpatialFocusNavigator
 import com.btelly.core.ui.refresh.SwipeRefreshHelper
 import kotlinx.coroutines.flow.collectLatest

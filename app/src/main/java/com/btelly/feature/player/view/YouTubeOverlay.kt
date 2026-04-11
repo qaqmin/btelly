@@ -21,7 +21,7 @@ import com.bumptech.glide.request.transition.Transition
 import com.btelly.R
 import com.btelly.model.player.VideoSnapshotData
 import com.btelly.network.NetworkManager
-import com.btelly.utils.NumberUtils
+import com.btelly.core.common.format.NumberUtils
 import kotlin.math.abs
 
 class YouTubeOverlay @JvmOverloads constructor(

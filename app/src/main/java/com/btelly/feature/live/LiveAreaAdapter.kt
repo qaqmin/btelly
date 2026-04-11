@@ -10,7 +10,7 @@ import com.btelly.R
 import com.btelly.databinding.CellUserBinding
 import com.btelly.model.live.LiveAreaCategory
 import com.btelly.core.common.log.AppLog
-import com.btelly.utils.VideoCardFocusHelper
+import com.btelly.core.ui.focus.VideoCardFocusHelper
 
 class LiveAreaAdapter(
     private val onItemClick: (LiveAreaCategory) -> Unit,

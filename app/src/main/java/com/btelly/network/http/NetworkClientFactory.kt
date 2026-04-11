@@ -7,7 +7,7 @@ import com.btelly.model.adapter.FlexibleIntAdapter
 import com.btelly.model.adapter.FlexibleLongAdapter
 import com.btelly.network.interceptor.HeaderInterceptor
 import com.btelly.network.interceptor.HttpCacheInterceptor
-import com.btelly.utils.CookieManager
+import com.btelly.network.cookie.CookieManager
 import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor

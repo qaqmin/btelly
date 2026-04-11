@@ -1,4 +1,4 @@
-package com.btelly.utils
+package com.btelly.core.common.format
 
 import java.text.DecimalFormat
 import java.util.Locale

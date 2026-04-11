@@ -9,7 +9,7 @@ import com.btelly.ui.activity.MainActivity
 import com.btelly.ui.activity.PlayerActivity
 import com.btelly.feature.detail.VideoDetailFragment
 import com.btelly.feature.series.SeriesDetailFragment
-import com.btelly.utils.isOpenDetailFirstEnabled
+import com.btelly.core.common.ext.isOpenDetailFirstEnabled
 import java.net.URL
 
 object VideoRouteNavigator {

@@ -18,9 +18,9 @@ import com.btelly.model.series.SectionModel
 import com.btelly.model.series.SeriesModel
 import com.btelly.model.video.VideoModel
 import com.btelly.core.ui.image.ImageLoader
-import com.btelly.utils.NumberUtils
-import com.btelly.utils.ScreenUtils
-import com.btelly.utils.TimeUtils
+import com.btelly.core.common.format.NumberUtils
+import com.btelly.core.ui.system.ScreenUtils
+import com.btelly.core.common.time.TimeUtils
 
 class SeriesDetailContentAdapter(
     private val onToggleFollow: () -> Unit,

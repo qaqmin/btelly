@@ -17,10 +17,10 @@ import com.btelly.ui.adapter.SettingSelectionDialogAdapter
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.ui.decoration.LinearSpacingItemDecoration
 import com.btelly.core.common.log.AppLog
-import com.btelly.utils.FileCacheManager
+import com.btelly.core.common.cache.FileCacheManager
 import com.btelly.core.ui.image.ImageLoader
-import com.btelly.utils.PlayerMediaCache
-import com.btelly.utils.normalizeDanmakuSmartFilterValue
+import com.btelly.feature.player.cache.PlayerMediaCache
+import com.btelly.core.common.ext.normalizeDanmakuSmartFilterValue
 import java.util.Locale
 
 class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {

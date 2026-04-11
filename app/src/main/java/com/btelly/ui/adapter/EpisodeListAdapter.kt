@@ -7,7 +7,7 @@ import com.btelly.databinding.CellEpisodeBinding
 import com.btelly.model.video.VideoModel
 import com.btelly.core.ui.base.BaseAdapter
 import com.btelly.core.ui.image.ImageLoader
-import com.btelly.utils.NumberUtils
+import com.btelly.core.common.format.NumberUtils
 import java.util.Locale
 
 class EpisodeListAdapter : BaseAdapter<VideoModel, EpisodeListAdapter.EpisodeViewHolder>() {

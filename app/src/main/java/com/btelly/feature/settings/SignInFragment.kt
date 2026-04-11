@@ -12,7 +12,7 @@ import com.btelly.R
 import com.btelly.databinding.FragmentSignInBinding
 import com.btelly.event.AppEventHub
 import com.btelly.core.common.log.AppLog
-import com.btelly.utils.CookieManager
+import com.btelly.network.cookie.CookieManager
 import com.btelly.repository.AuthRepository
 import com.btelly.repository.UserRepository
 import com.btelly.core.ui.base.BaseFragment

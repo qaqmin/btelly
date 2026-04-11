@@ -17,8 +17,8 @@ import com.btelly.model.live.LiveRoomItem
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.ui.image.ImageLoader
-import com.btelly.utils.NumberUtils
-import com.btelly.utils.VideoCardFocusHelper
+import com.btelly.core.common.format.NumberUtils
+import com.btelly.core.ui.focus.VideoCardFocusHelper
 
 class LiveRoomAdapter(
     private val onItemClick: (LiveRoomItem) -> Unit,

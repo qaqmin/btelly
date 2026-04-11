@@ -12,7 +12,7 @@ import com.btelly.R
 import com.btelly.databinding.CellSeriesBinding
 import com.btelly.model.series.SeriesModel
 import com.btelly.core.ui.image.ImageLoader
-import com.btelly.utils.VideoCardFocusHelper
+import com.btelly.core.ui.focus.VideoCardFocusHelper
 
 class SeriesAdapter(
     private val onItemClick: (SeriesModel) -> Unit = {},

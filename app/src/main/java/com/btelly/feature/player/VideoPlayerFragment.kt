@@ -43,9 +43,9 @@ import com.btelly.feature.player.view.OnPlayerSettingChange
 import com.btelly.feature.player.view.OnVideoSettingChangeListener
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.content.ContentFilter
-import com.btelly.utils.PlayerSettings
-import com.btelly.utils.PlayerSettingsStore
-import com.btelly.utils.TimeUtils
+import com.btelly.feature.player.settings.PlayerSettings
+import com.btelly.feature.player.settings.PlayerSettingsStore
+import com.btelly.core.common.time.TimeUtils
 import com.btelly.core.ui.system.ViewUtils
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel

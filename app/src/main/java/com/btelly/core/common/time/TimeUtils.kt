@@ -1,4 +1,4 @@
-package com.btelly.utils
+package com.btelly.core.common.time
 
 import java.text.SimpleDateFormat
 import java.util.Calendar

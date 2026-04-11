@@ -35,10 +35,10 @@ import com.btelly.network.security.NetworkSecurityGateway
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.network.response.Base2Response
 import com.btelly.core.common.log.AppLog
-import com.btelly.utils.CookieManager
-import com.btelly.utils.PlayerMediaCache
-import com.btelly.utils.PlayerSettings
-import com.btelly.utils.PlayerSettingsStore
+import com.btelly.network.cookie.CookieManager
+import com.btelly.feature.player.cache.PlayerMediaCache
+import com.btelly.feature.player.settings.PlayerSettings
+import com.btelly.feature.player.settings.PlayerSettingsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async

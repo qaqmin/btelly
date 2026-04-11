@@ -1,4 +1,4 @@
-package com.btelly.utils
+package com.btelly.core.common.ext
 
 import android.content.Context
 import android.content.Intent

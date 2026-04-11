@@ -13,7 +13,7 @@ import com.btelly.network.security.BiliSecurityCoordinator
 import com.btelly.network.session.NetworkSessionStore
 import com.btelly.network.ua.DesktopUserAgentStore
 import com.btelly.core.common.log.AppLog
-import com.btelly.utils.CookieManager
+import com.btelly.network.cookie.CookieManager
 import okhttp3.OkHttpClient
 import org.json.JSONObject
 import retrofit2.Retrofit

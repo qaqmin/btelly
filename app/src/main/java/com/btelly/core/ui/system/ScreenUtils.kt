@@ -1,4 +1,4 @@
-package com.btelly.utils
+package com.btelly.core.ui.system
 
 import android.content.Context
 import android.util.DisplayMetrics

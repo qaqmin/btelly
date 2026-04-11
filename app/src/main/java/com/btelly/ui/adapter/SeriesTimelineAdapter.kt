@@ -9,7 +9,7 @@ import com.btelly.R
 import com.btelly.databinding.CellMovieBinding
 import com.btelly.model.series.timeline.SeriesTimeLineModel
 import com.btelly.core.ui.image.ImageLoader
-import com.btelly.utils.VideoCardFocusHelper
+import com.btelly.core.ui.focus.VideoCardFocusHelper
 
 class SeriesTimelineAdapter(
     private val onItemClick: (SeriesTimeLineModel) -> Unit = {},

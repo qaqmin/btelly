@@ -1,4 +1,4 @@
-package com.btelly.utils
+package com.btelly.feature.player.settings
 
 import android.content.Context
 import android.content.SharedPreferences

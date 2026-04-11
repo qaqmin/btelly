@@ -1,4 +1,4 @@
-package com.btelly.utils
+package com.btelly.core.common.cache
 
 import com.google.gson.Gson
 import com.btelly.BTellyApplication

@@ -3,7 +3,7 @@ package com.btelly.repository.cache
 import com.google.gson.reflect.TypeToken
 import com.btelly.model.lane.HomeLaneSection
 import com.btelly.model.video.VideoModel
-import com.btelly.utils.FileCacheManager
+import com.btelly.core.common.cache.FileCacheManager
 
 object HomeCacheStore {
 

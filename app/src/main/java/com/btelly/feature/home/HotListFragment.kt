@@ -14,7 +14,7 @@ import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.navigation.VideoRouteNavigator
-import com.btelly.utils.toast
+import com.btelly.core.common.ext.toast
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
