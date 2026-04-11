@@ -6,7 +6,7 @@ import com.btelly.model.search.SearchVideoOrder
 import com.btelly.repository.remote.SearchRepository as NetworkSearchRepository
 
 class SearchRepository(
-    private val delegate: NetworkSearchRepository = NetworkSearchRepository()
+    private val delegate: NetworkSearchRepository
 ) {
     suspend fun loadHotSearchWords(): Result<List<HotWordModel>> = delegate.loadHotSearchWords()
 

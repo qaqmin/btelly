@@ -4,7 +4,7 @@ import com.btelly.model.series.FollowSeriesResult
 import com.btelly.repository.remote.SeriesRepository as NetworkSeriesRepository
 
 class SeriesRepository(
-    private val delegate: NetworkSeriesRepository = NetworkSeriesRepository()
+    private val delegate: NetworkSeriesRepository
 ) {
     suspend fun getSeriesDetail(seasonId: Long, epId: Long = 0) =
         delegate.getSeriesDetail(seasonId, epId)

@@ -3,7 +3,7 @@ package com.btelly.repository
 import com.btelly.repository.remote.HomeLaneRepository as NetworkHomeLaneRepository
 
 class HomeLaneRepository(
-    private val delegate: NetworkHomeLaneRepository = NetworkHomeLaneRepository()
+    private val delegate: NetworkHomeLaneRepository
 ) {
     companion object {
         const val TYPE_ANIMATION = NetworkHomeLaneRepository.TYPE_ANIMATION

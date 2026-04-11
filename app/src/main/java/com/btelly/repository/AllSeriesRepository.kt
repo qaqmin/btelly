@@ -6,7 +6,7 @@ import com.btelly.repository.remote.AllSeriesRepository as NetworkAllSeriesRepos
 typealias AllSeriesPage = com.btelly.repository.remote.AllSeriesPage
 
 class AllSeriesRepository(
-    private val delegate: NetworkAllSeriesRepository = NetworkAllSeriesRepository()
+    private val delegate: NetworkAllSeriesRepository
 ) {
     suspend fun getAllSeries(
         type: Int,

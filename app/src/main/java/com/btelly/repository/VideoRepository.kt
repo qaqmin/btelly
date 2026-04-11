@@ -11,7 +11,7 @@ import com.btelly.network.NetworkManager
 import com.btelly.repository.remote.VideoRepository as NetworkVideoRepository
 
 class VideoRepository(
-    private val delegate: NetworkVideoRepository = NetworkVideoRepository()
+    private val delegate: NetworkVideoRepository
 ) {
 
     suspend fun getRecommendList(

@@ -1,14 +1,20 @@
 package com.btelly
 
+import com.btelly.network.NetworkManager
+import com.btelly.repository.UserRepository
 import com.btelly.repository.VideoRepository
 import com.btelly.repository.remote.HomeLaneRepository
+import com.btelly.repository.remote.SeriesRepository as RemoteSeriesRepository
+import com.btelly.repository.remote.VideoRepository as RemoteVideoRepository
 import org.junit.Test
 
 class HomeDataProbeTest {
 
     @Test
     fun probeRecommendAndAnimeHomeData() {
-        val videoRepository = VideoRepository()
+        val videoRepository = VideoRepository(
+            RemoteVideoRepository(NetworkManager.apiService)
+        )
         runCatching {
             kotlinx.coroutines.runBlocking {
                 videoRepository.getRecommendList(0, 24)
@@ -24,7 +30,11 @@ class HomeDataProbeTest {
             println("recommend.failure=${throwable::class.java.name}:${throwable.message}")
         }
 
-        val homeLaneRepository = HomeLaneRepository()
+        val homeLaneRepository = HomeLaneRepository(
+            apiService = NetworkManager.apiService,
+            seriesRepository = RemoteSeriesRepository(),
+            userRepository = UserRepository()
+        )
         val anime = kotlinx.coroutines.runBlocking {
             homeLaneRepository.getHomeLanes(
                 type = HomeLaneRepository.TYPE_ANIMATION,

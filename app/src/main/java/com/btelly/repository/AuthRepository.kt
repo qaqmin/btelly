@@ -3,7 +3,7 @@ package com.btelly.repository
 import com.btelly.repository.remote.AuthRepository as NetworkAuthRepository
 
 class AuthRepository(
-    private val delegate: NetworkAuthRepository = NetworkAuthRepository()
+    private val delegate: NetworkAuthRepository
 ) {
     suspend fun getQrCode() = delegate.getQrCode()
 

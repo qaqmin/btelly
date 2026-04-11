@@ -3,7 +3,7 @@ package com.btelly.repository
 import com.btelly.repository.remote.FavoriteRepository as NetworkFavoriteRepository
 
 class FavoriteRepository(
-    private val delegate: NetworkFavoriteRepository = NetworkFavoriteRepository()
+    private val delegate: NetworkFavoriteRepository
 ) {
     suspend fun checkFavorite(aid: Long?) = delegate.checkFavorite(aid)
 
