@@ -1,6 +1,7 @@
 package com.btelly
 
 import android.app.Application
+import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.di.appModules
 import com.btelly.network.NetworkManager
 import java.util.concurrent.atomic.AtomicBoolean
@@ -29,7 +30,12 @@ class BTellyApplication : Application() {
         instance = this
         
         initKoin()
+        initSettings()
         initNetwork()
+    }
+
+    private fun initSettings() {
+        org.koin.core.context.GlobalContext.get().get<AppSettingsDataStore>().initCache()
     }
     
     private fun initKoin() {
