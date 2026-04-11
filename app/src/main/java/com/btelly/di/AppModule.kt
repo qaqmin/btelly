@@ -2,6 +2,7 @@ package com.btelly.di
 
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
+import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.event.AppEventHub
 import com.btelly.network.NetworkManager
 import com.btelly.network.api.ApiService
@@ -90,6 +91,7 @@ val viewModelModule = module {
 
 val eventModule = module {
     single { AppEventHub() }
+    single { AppSettingsDataStore(androidContext()) }
 }
 
 val appModules = listOf(
