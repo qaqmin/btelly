@@ -1,12 +1,9 @@
 package com.btelly.feature.home
 
-interface HomeTabPage {
+import com.btelly.core.ui.focus.TabContentFocusTarget
+
+interface HomeTabPage : TabContentFocusTarget {
     fun scrollToTop()
     fun refresh()
     fun onTabSelected() {}
-    fun focusPrimaryContent(): Boolean = false
-
-    fun focusPrimaryContent(anchorView: android.view.View?, preferSpatialEntry: Boolean): Boolean {
-        return focusPrimaryContent()
-    }
 }

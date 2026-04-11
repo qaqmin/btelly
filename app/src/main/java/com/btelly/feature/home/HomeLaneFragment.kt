@@ -20,6 +20,7 @@ import com.btelly.feature.series.AllSeriesFragment
 import com.btelly.feature.series.SeriesDetailFragment
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.focus.SpatialFocusNavigator
+import com.btelly.core.ui.focus.TabContentFocusHelper
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
@@ -290,10 +291,9 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
         if (!isAdded || view == null) {
             return false
         }
-        if (viewError?.visibility == View.VISIBLE && buttonRetry?.isShown == true) {
-            val handled = buttonRetry?.requestFocus() == true
-            AppLog.d(ENTRY_TAG, "HomeLaneFragment.focusPrimaryContent retry: handled=$handled")
-            return handled
+        if (TabContentFocusHelper.requestVisibleFocus(buttonRetry, viewError)) {
+            AppLog.d(ENTRY_TAG, "HomeLaneFragment.focusPrimaryContent stateTarget: handled=true")
+            return true
         }
         val recycler = recyclerView ?: return false
         val restored = laneAdapter?.requestFocusedView() == true
@@ -305,9 +305,9 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
             AppLog.d(ENTRY_TAG, "HomeLaneFragment.focusPrimaryContent failed: itemCount=0")
             return false
         }
-        val result = RecyclerViewFocusRestoreHelper.requestFocusAtPosition(
+        val result = TabContentFocusHelper.requestRecyclerPrimaryFocus(
             recyclerView = recycler,
-            position = 0,
+            itemCount = adapter?.contentCount() ?: 0,
             focusRequester = { holder ->
                 when (holder) {
                     is HomeLaneAdapter.ScrollableViewHolder -> holder.requestPrimaryFocus()
@@ -318,9 +318,9 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
         )
         AppLog.d(
             ENTRY_TAG,
-            "HomeLaneFragment.focusPrimaryContent pos0: handled=${result.handled} deferred=${result.deferred}"
+            "HomeLaneFragment.focusPrimaryContent recycler: handled=${result.handled} deferred=${result.deferred} pos=${result.position} source=${result.source}"
         )
-        return result.handled || result.deferred
+        return result.resolved
     }
 
     override fun focusPrimaryContent(anchorView: View?, preferSpatialEntry: Boolean): Boolean {

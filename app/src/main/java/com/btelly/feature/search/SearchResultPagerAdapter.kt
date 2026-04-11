@@ -15,6 +15,7 @@ import com.btelly.model.search.SearchType
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.ui.focus.SpatialFocusNavigator
+import com.btelly.core.ui.focus.TabContentFocusHelper
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
 
 class SearchResultPagerAdapter(
@@ -200,15 +201,16 @@ class SearchResultPagerAdapter(
             if (currentAdapter?.itemCount.orZero() <= 0) {
                 return false
             }
-            return SpatialFocusNavigator.requestBestDescendant(
+            return TabContentFocusHelper.requestSpatialOrPrimary(
                 anchorView = anchorView,
                 root = binding.recyclerViewResult,
-                direction = View.FOCUS_DOWN,
-                fallback = {
-                    binding.recyclerViewResult.findViewHolderForAdapterPosition(0)?.itemView?.requestFocus() == true ||
-                        binding.recyclerViewResult.getChildAt(0)?.requestFocus() == true
-                }
-            )
+                direction = View.FOCUS_DOWN
+            ) {
+                TabContentFocusHelper.requestRecyclerPrimaryFocus(
+                    recyclerView = binding.recyclerViewResult,
+                    itemCount = currentAdapter?.itemCount.orZero()
+                ).resolved
+            }
         }
     }
 
