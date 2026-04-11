@@ -30,8 +30,8 @@ import com.btelly.model.search.SearchVideoOrder
 import com.btelly.ui.activity.LivePlayerActivity
 import com.btelly.ui.base.BaseFragment
 import com.btelly.ui.fragment.main.MainTabFocusTarget
-import com.btelly.ui.fragment.detail.UserSpaceFragment
-import com.btelly.ui.fragment.series.SeriesDetailFragment
+import com.btelly.feature.detail.UserSpaceFragment
+import com.btelly.feature.series.SeriesDetailFragment
 import com.btelly.ui.view.keyboard.KeyboardView
 import com.btelly.utils.SpatialFocusNavigator
 import com.btelly.utils.ViewUtils

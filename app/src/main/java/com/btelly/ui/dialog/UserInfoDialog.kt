@@ -15,8 +15,8 @@ import com.btelly.model.user.UserStatModel
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.UserRepository
 import com.btelly.ui.activity.MainActivity
-import com.btelly.ui.fragment.detail.UserSpaceFragment
-import com.btelly.ui.fragment.user.FollowUserListFragment
+import com.btelly.feature.detail.UserSpaceFragment
+import com.btelly.feature.user.FollowUserListFragment
 import com.btelly.utils.ImageLoader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

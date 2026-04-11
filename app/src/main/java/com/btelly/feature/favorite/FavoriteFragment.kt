@@ -1,4 +1,4 @@
-package com.btelly.ui.fragment.favorite
+package com.btelly.feature.favorite
 
 import android.view.LayoutInflater
 import android.view.KeyEvent

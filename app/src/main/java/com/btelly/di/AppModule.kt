@@ -32,7 +32,7 @@ import com.btelly.feature.me.MeViewModel
 import com.btelly.feature.search.SearchViewModel
 import com.btelly.feature.player.LivePlayerViewModel
 import com.btelly.feature.player.VideoPlayerViewModel
-import com.btelly.ui.fragment.series.SeriesDetailViewModel
+import com.btelly.feature.series.SeriesDetailViewModel
 import com.btelly.utils.CookieManager
 import okhttp3.OkHttpClient
 import org.koin.android.ext.koin.androidContext

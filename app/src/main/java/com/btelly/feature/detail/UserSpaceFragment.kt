@@ -1,4 +1,4 @@
-package com.btelly.ui.fragment.detail
+package com.btelly.feature.detail
 
 import android.view.KeyEvent
 import android.view.LayoutInflater
@@ -23,7 +23,7 @@ import com.btelly.ui.adapter.UserSpaceHeaderAdapter
 import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.ui.base.BaseAdapter
 import com.btelly.ui.base.BaseFragment
-import com.btelly.ui.fragment.user.FollowUserListFragment
+import com.btelly.feature.user.FollowUserListFragment
 import com.btelly.ui.view.WrapContentGridLayoutManager
 import com.btelly.ui.widget.GridSpacingItemDecoration
 import com.btelly.utils.ContentFilter

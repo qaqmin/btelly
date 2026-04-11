@@ -1,4 +1,4 @@
-package com.btelly.ui.fragment.user
+package com.btelly.feature.user
 
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -18,7 +18,7 @@ import com.btelly.model.user.FollowingModel
 import com.btelly.repository.UserRepository
 import com.btelly.ui.adapter.FollowUserAdapter
 import com.btelly.ui.base.BaseFragment
-import com.btelly.ui.fragment.detail.UserSpaceFragment
+import com.btelly.feature.detail.UserSpaceFragment
 import com.btelly.ui.view.WrapContentGridLayoutManager
 import com.btelly.ui.widget.GridSpacingItemDecoration
 import kotlinx.coroutines.flow.collectLatest

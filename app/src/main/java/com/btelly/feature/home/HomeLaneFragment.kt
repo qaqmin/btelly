@@ -16,8 +16,8 @@ import com.btelly.ui.base.BaseAdapter
 import com.btelly.ui.base.BaseListFragment
 import com.btelly.ui.base.RecyclerViewFocusRestoreHelper
 import com.btelly.ui.fragment.main.MainNavigationViewModel
-import com.btelly.ui.fragment.series.AllSeriesFragment
-import com.btelly.ui.fragment.series.SeriesDetailFragment
+import com.btelly.feature.series.AllSeriesFragment
+import com.btelly.feature.series.SeriesDetailFragment
 import com.btelly.utils.AppLog
 import com.btelly.utils.SpatialFocusNavigator
 import kotlinx.coroutines.Job

@@ -5,7 +5,7 @@ import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.Lifecycle
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import com.btelly.R
-import com.btelly.ui.fragment.favorite.FavoriteFragment
+import com.btelly.feature.favorite.FavoriteFragment
 
 class MeFragmentAdapter(
     fragmentManager: FragmentManager,

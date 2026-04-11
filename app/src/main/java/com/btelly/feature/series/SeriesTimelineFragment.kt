@@ -1,4 +1,4 @@
-package com.btelly.ui.fragment.series
+package com.btelly.feature.series
 
 import android.os.Parcelable
 import android.view.KeyEvent

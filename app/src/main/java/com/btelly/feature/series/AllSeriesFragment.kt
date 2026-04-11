@@ -1,4 +1,4 @@
-package com.btelly.ui.fragment.series
+package com.btelly.feature.series
 
 import android.animation.ValueAnimator
 import android.os.Parcelable

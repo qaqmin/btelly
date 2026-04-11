@@ -1,4 +1,4 @@
-package com.btelly.ui.fragment.detail
+package com.btelly.feature.detail
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
