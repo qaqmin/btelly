@@ -28,6 +28,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
 import com.btelly.databinding.FragmentVideoPlayerBinding
+import com.btelly.event.AppEventHub
 import com.btelly.model.video.detail.VideoDetailModel
 import com.btelly.model.video.quality.AudioQuality
 import com.btelly.model.video.quality.VideoCodecEnum
@@ -46,7 +47,7 @@ import com.btelly.utils.PlayerSettings
 import com.btelly.utils.PlayerSettingsStore
 import com.btelly.utils.TimeUtils
 import com.btelly.utils.ViewUtils
-import org.greenrobot.eventbus.EventBus
+import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 import java.util.Locale
 
@@ -106,6 +107,7 @@ class VideoPlayerFragment : Fragment() {
     private var _binding: FragmentVideoPlayerBinding? = null
     private val binding get() = _binding!!
 
+    private val appEventHub: AppEventHub by inject()
     private val viewModel: VideoPlayerViewModel by viewModel()
 
     private var player: ExoPlayer? = null
@@ -1234,13 +1236,23 @@ class VideoPlayerFragment : Fragment() {
         if (episodes.isNotEmpty() && selectedIndex in episodes.indices) {
             val episode = episodes[selectedIndex]
             if (episode.epId > 0L) {
-                EventBus.getDefault().post(
-                    "playEpisode|${episode.epId}|${positionMs.coerceAtLeast(0L).plus(1L)}|${episode.title}"
+                appEventHub.dispatch(
+                    AppEventHub.Event.EpisodePlaybackProgressUpdated(
+                        episodeId = episode.epId,
+                        progressMs = positionMs.coerceAtLeast(0L).plus(1L),
+                        episodeIndex = episode.title
+                    )
                 )
                 return
             }
         }
         val progressMs = positionMs.coerceAtLeast(0L).plus(1L)
-        EventBus.getDefault().post("playUgc|${info.aid}|${info.cid}|$progressMs")
+        appEventHub.dispatch(
+            AppEventHub.Event.PlaybackProgressUpdated(
+                aid = info.aid,
+                cid = info.cid,
+                progressMs = progressMs
+            )
+        )
     }
 }

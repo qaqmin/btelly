@@ -7,6 +7,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.btelly.R
+import com.btelly.event.AppEventHub
 import com.btelly.model.video.VideoModel
 import com.btelly.repository.cache.HomeCacheStore
 import com.btelly.ui.adapter.VideoAdapter
@@ -18,10 +19,8 @@ import com.btelly.utils.VideoRouteNavigator
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
-import org.greenrobot.eventbus.EventBus
-import org.greenrobot.eventbus.Subscribe
-import org.greenrobot.eventbus.ThreadMode
 
 class RecommendListFragment : BaseListFragment<VideoModel>(), HomeTabPage {
 
@@ -34,6 +33,7 @@ class RecommendListFragment : BaseListFragment<VideoModel>(), HomeTabPage {
         }
     }
 
+    private val appEventHub: AppEventHub by inject()
     private val viewModel: RecommendViewModel by viewModel()
     private val mainNavigationViewModel: MainNavigationViewModel by activityViewModels()
     private var loadingPage = 1
@@ -41,11 +41,6 @@ class RecommendListFragment : BaseListFragment<VideoModel>(), HomeTabPage {
     private var cacheRestoreJob: Job? = null
 
     override val autoLoad: Boolean = false
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        EventBus.getDefault().register(this)
-    }
 
     override fun createAdapter(): VideoAdapter {
         return VideoAdapter(
@@ -210,6 +205,16 @@ class RecommendListFragment : BaseListFragment<VideoModel>(), HomeTabPage {
                 }
             }
         }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                appEventHub.events.collectLatest { event ->
+                    if (event == AppEventHub.Event.UserSessionChanged && isResumed && !isLoading) {
+                        refresh()
+                    }
+                }
+            }
+        }
     }
 
     override fun onRetryClick() {
@@ -228,25 +233,6 @@ class RecommendListFragment : BaseListFragment<VideoModel>(), HomeTabPage {
 
     override fun focusPrimaryContent(anchorView: View?, preferSpatialEntry: Boolean): Boolean {
         return super<BaseListFragment>.focusPrimaryContent(anchorView, preferSpatialEntry)
-    }
-
-    @Subscribe(threadMode = ThreadMode.MAIN)
-    fun onMessageEvent(event: String) {
-        if (!isResumed || view == null) {
-            return
-        }
-        when (event) {
-            "signIn", "updateUserInfo" -> {
-                if (!isLoading) {
-                    refresh()
-                }
-            }
-        }
-    }
-
-    override fun onDestroy() {
-        EventBus.getDefault().unregister(this)
-        super.onDestroy()
     }
 
     private fun cacheVideos(videos: List<VideoModel>) {

@@ -9,6 +9,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
 import com.btelly.R
 import com.btelly.databinding.DialogUserInfoBinding
+import com.btelly.event.AppEventHub
 import com.btelly.model.user.UserDetailInfoModel
 import com.btelly.model.user.UserStatModel
 import com.btelly.network.NetworkManager
@@ -22,13 +23,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import org.greenrobot.eventbus.EventBus
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
 class UserInfoDialog(context: Context) : AppCompatDialog(context, R.style.DialogTheme), KoinComponent {
 
     private val binding = DialogUserInfoBinding.inflate(LayoutInflater.from(context))
+    private val appEventHub: AppEventHub by inject()
     private val userRepository: UserRepository by inject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -77,7 +78,7 @@ class UserInfoDialog(context: Context) : AppCompatDialog(context, R.style.Dialog
         binding.buttonSignOut.setOnClickListener {
             NetworkManager.getCookieManager().clearCookies()
             NetworkManager.updateUserSession(null)
-            EventBus.getDefault().post("updateUserInfo")
+            appEventHub.dispatch(AppEventHub.Event.UserSessionChanged)
             dismiss()
         }
     }

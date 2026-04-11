@@ -2,6 +2,7 @@ package com.btelly.di
 
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
+import com.btelly.event.AppEventHub
 import com.btelly.network.NetworkManager
 import com.btelly.network.api.ApiService
 import com.btelly.repository.AllSeriesRepository
@@ -73,8 +74,13 @@ val viewModelModule = module {
     viewModel { SeriesDetailViewModel(get()) }
 }
 
+val eventModule = module {
+    single { AppEventHub() }
+}
+
 val appModules = listOf(
     networkModule,
     repositoryModule,
+    eventModule,
     viewModelModule
 )

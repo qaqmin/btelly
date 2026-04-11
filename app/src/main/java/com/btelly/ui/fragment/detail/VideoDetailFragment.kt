@@ -8,13 +8,16 @@ import android.view.ViewGroup
 import androidx.core.os.bundleOf
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.flexbox.FlexboxLayout
 import com.btelly.R
 import com.btelly.databinding.CellSeriesLaneBinding
 import com.btelly.databinding.CellVideoDetailHeadBinding
 import com.btelly.databinding.FragmentVideoDetailBinding
+import com.btelly.event.AppEventHub
 import com.btelly.model.video.VideoModel
 import com.btelly.model.video.VideoPvModel
 import com.btelly.model.video.detail.Tag
@@ -36,10 +39,8 @@ import com.btelly.utils.ContentFilter
 import com.btelly.utils.ImageLoader
 import com.btelly.utils.TimeUtils
 import com.btelly.utils.VideoRouteNavigator
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import org.greenrobot.eventbus.EventBus
-import org.greenrobot.eventbus.Subscribe
-import org.greenrobot.eventbus.ThreadMode
 import org.koin.android.ext.android.inject
 import java.util.Locale
 
@@ -74,6 +75,7 @@ class VideoDetailFragment : BaseFragment<FragmentVideoDetailBinding>() {
     private var aid: Long? = null
     private var bvid: String? = null
 
+    private val appEventHub: AppEventHub by inject()
     private val videoRepository: VideoRepository by inject()
     private val favoriteRepository: FavoriteRepository by inject()
 
@@ -246,40 +248,24 @@ class VideoDetailFragment : BaseFragment<FragmentVideoDetailBinding>() {
         loadVideoDetail()
     }
 
-    override fun onResume() {
-        super.onResume()
-        EventBus.getDefault().register(this)
-    }
-
-    override fun onPause() {
-        super.onPause()
-        EventBus.getDefault().unregister(this)
-    }
-
-    @Subscribe(threadMode = ThreadMode.MAIN)
-    fun onMessageEvent(event: String) {
-        if (!event.startsWith("playUgc|")) {
-            return
-        }
-        try {
-            val parts = event.split("|")
-            if (parts.size != 4) {
-                return
+    override fun initObserver() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                appEventHub.events.collectLatest { event ->
+                    if (event !is AppEventHub.Event.PlaybackProgressUpdated) {
+                        return@collectLatest
+                    }
+                    val currentVideo = videoModel
+                    if (currentVideo == null || event.aid != currentVideo.aid) {
+                        return@collectLatest
+                    }
+                    videoModel = currentVideo.copy(
+                        cid = event.cid,
+                        historyProgress = event.progressMs.coerceAtLeast(0L)
+                    )
+                    videoView = videoView?.copy(cid = event.cid)
+                }
             }
-            val aid = parts[1].toLongOrNull() ?: return
-            val cid = parts[2].toLongOrNull() ?: return
-            val progressMs = parts[3].toLongOrNull() ?: return
-            val currentVideo = videoModel
-            if (currentVideo == null || aid != currentVideo.aid) {
-                return
-            }
-            videoModel = currentVideo.copy(
-                cid = cid,
-                historyProgress = progressMs.coerceAtLeast(0L)
-            )
-            videoView = videoView?.copy(cid = cid)
-        } catch (e: Exception) {
-            // Keep detail UI resilient to malformed playback events.
         }
     }
 
