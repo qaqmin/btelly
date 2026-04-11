@@ -25,7 +25,7 @@ import com.btelly.ui.base.OnBackPressedHandler
 import com.btelly.model.video.VideoModel
 import com.btelly.ui.fragment.main.category.CategoryFragment
 import com.btelly.ui.fragment.main.dynamic.DynamicFragment
-import com.btelly.ui.fragment.main.home.HomeFragment
+import com.btelly.feature.home.HomeFragment
 import com.btelly.ui.fragment.main.live.LiveFragment
 import com.btelly.ui.fragment.main.me.MeFragment
 import com.btelly.ui.fragment.main.MainNavigationViewModel
@@ -34,8 +34,8 @@ import com.btelly.ui.fragment.main.search.SearchNewFragment
 import com.btelly.ui.fragment.main.settings.SettingsFragment
 import com.btelly.ui.fragment.main.settings.SignInFragment
 import com.btelly.ui.dialog.UserInfoDialog
-import com.btelly.ui.fragment.player.PlayerLaunchContext
-import com.btelly.ui.fragment.player.VideoPlayerFragment
+import com.btelly.feature.player.PlayerLaunchContext
+import com.btelly.feature.player.VideoPlayerFragment
 import com.btelly.ui.view.TabBarView
 import com.btelly.utils.AppLog
 import kotlinx.coroutines.delay

@@ -13,8 +13,8 @@ import com.btelly.R
 import com.btelly.ui.base.BaseActivity
 import com.btelly.databinding.ActivityPlayerBinding
 import com.btelly.model.video.VideoModel
-import com.btelly.ui.fragment.player.PlayerLaunchContext
-import com.btelly.ui.fragment.player.VideoPlayerFragment
+import com.btelly.feature.player.PlayerLaunchContext
+import com.btelly.feature.player.VideoPlayerFragment
 import com.btelly.utils.AppLog
 import java.io.Serializable
 
