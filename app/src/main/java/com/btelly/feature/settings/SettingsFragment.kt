@@ -1,7 +1,5 @@
 package com.btelly.feature.settings
 
-import android.media.MediaCodecList
-import android.media.MediaCodecInfo
 import android.os.Build
 import android.view.LayoutInflater
 import android.view.View
@@ -11,6 +9,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.BuildConfig
 import com.btelly.R
+import com.btelly.core.common.media.VideoCodecSupport
 import com.btelly.databinding.FragmentSettingsBinding
 import com.btelly.model.SettingModel
 import com.btelly.ui.adapter.SettingAdapter
@@ -649,26 +648,9 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
     private fun toggleOptions(): Array<String> = arrayOf("开", "关")
 
     private fun buildCodecSupportText(): String {
-        val decoderTypes = setOf("video/avc", "video/hevc", "video/av01")
-        val supported = mutableSetOf<String>()
-        val mcl = MediaCodecList(MediaCodecList.REGULAR_CODECS)
-        for (info in mcl.codecInfos) {
-            if (info.isEncoder) continue
-            try {
-                for (type in info.supportedTypes) {
-                    val lower = type.lowercase()
-                    when {
-                        lower == "video/avc" && lower in decoderTypes -> supported.add("AVC")
-                        lower == "video/hevc" && lower in decoderTypes -> supported.add("HEVC")
-                        lower == "video/av01" && lower in decoderTypes -> supported.add("AV1")
-                    }
-                }
-            } catch (_: Exception) {
-            }
-        }
-        return listOf("AVC", "HEVC", "AV1").joinToString("  ") {
-            if (it in supported) "✓$it" else "✗$it"
-        }
+        return VideoCodecSupport.buildSupportSummary(
+            VideoCodecSupport.getHardwareSupportedCodecs()
+        )
     }
 
     private fun createExtraSpaceLayoutManager(extraLayoutSpacePx: Int): LinearLayoutManager {
