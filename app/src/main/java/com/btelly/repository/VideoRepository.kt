@@ -7,6 +7,7 @@ import com.btelly.model.common.TripleActionResultModel
 import com.btelly.model.recommend.RecommendListDataModel
 import com.btelly.model.video.VideoModel
 import com.btelly.model.video.detail.VideoDetailModel
+import com.btelly.network.response.BaseBaseResponse
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.remote.VideoRepository as NetworkVideoRepository
 
@@ -81,5 +82,15 @@ class VideoRepository(
                 hasMore = data?.hasMore == true
             )
         }
+    }
+
+    suspend fun addWatchLater(aid: Long): BaseBaseResponse {
+        val csrf = sessionGateway.getCsrfToken()
+        return delegate.addWatchLater(aid, csrf).getOrThrow()
+    }
+
+    suspend fun removeWatchLater(aid: Long): BaseBaseResponse {
+        val csrf = sessionGateway.getCsrfToken()
+        return delegate.removeWatchLater(aid, csrf).getOrThrow()
     }
 }

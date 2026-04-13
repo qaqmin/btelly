@@ -12,6 +12,7 @@ import com.btelly.model.video.detail.VideoDetailModel
 import com.btelly.model.video.VideoPvModel
 import com.btelly.model.player.PlayInfoModel
 import com.btelly.network.api.ApiService
+import com.btelly.network.response.BaseBaseResponse
 import com.btelly.network.security.NetworkSecurityGateway
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.network.response.ListDataModel
@@ -157,6 +158,22 @@ class VideoRepository(
             } else {
                 firstResponse
             }
+        }
+
+    suspend fun addWatchLater(aid: Long, csrf: String): Result<BaseBaseResponse> =
+        runCatching {
+            sessionGateway.syncAuthState(
+                apiService.addWatchLater(aid, csrf),
+                source = "video.addWatchLater"
+            )
+        }
+
+    suspend fun removeWatchLater(aid: Long, csrf: String): Result<BaseBaseResponse> =
+        runCatching {
+            sessionGateway.syncAuthState(
+                apiService.removeWatchLater(aid, csrf),
+                source = "video.removeWatchLater"
+            )
         }
 
     private fun BaseResponse<ListDataModel<VideoModel>>.mapListData(): BaseResponse<List<VideoModel>> {
