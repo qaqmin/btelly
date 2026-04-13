@@ -3,6 +3,7 @@ package com.btelly.model.search
 import androidx.annotation.StringRes
 import com.google.gson.annotations.SerializedName
 import com.btelly.R
+import com.btelly.model.user.OfficialVerifySimple
 import java.io.Serializable
 
 data class SearchAllResponseData(
@@ -122,5 +123,8 @@ data class SearchItemModel(
     @SerializedName("pgc_season_id")
     val pgcSeasonId: Long = 0,
     @SerializedName("roomid")
-    val roomId: Long = 0
+    val roomId: Long = 0,
+
+    @SerializedName("official_verify")
+    val officialVerify: OfficialVerifySimple? = null
 ) : Serializable

@@ -23,6 +23,7 @@ import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.UserRepository
 import com.btelly.core.ui.base.BaseActivity
 import com.btelly.core.ui.base.OnBackPressedHandler
+import com.btelly.model.user.UserDetailInfoModel
 import com.btelly.model.video.VideoModel
 import com.btelly.feature.category.CategoryFragment
 import com.btelly.feature.dynamic.DynamicFragment
@@ -298,12 +299,14 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     private fun refreshAvatar(allowNetworkFetch: Boolean = true) {
         if (!sessionGateway.isLoggedIn()) {
             binding.myTabView.setAvatarUrl(null)
+            binding.myTabView.setAvatarBadge(officialVerifyType = -1)
             return
         }
 
-        val cachedAvatar = sessionGateway.getUserInfo()?.face
-        if (!cachedAvatar.isNullOrBlank()) {
-            binding.myTabView.setAvatarUrl(cachedAvatar)
+        val cachedInfo = sessionGateway.getUserInfo()
+        if (!cachedInfo?.face.isNullOrBlank()) {
+            binding.myTabView.setAvatarUrl(cachedInfo?.face)
+            setTabBarBadge(cachedInfo)
             return
         }
 
@@ -312,7 +315,23 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         lifecycleScope.launch {
             val refreshed = userRepository.refreshCurrentUserInfo().getOrNull()
             binding.myTabView.setAvatarUrl(refreshed?.face)
+            setTabBarBadge(refreshed)
         }
+    }
+
+    private fun setTabBarBadge(info: UserDetailInfoModel?) {
+        if (info == null) {
+            binding.myTabView.setAvatarBadge(officialVerifyType = -1)
+            return
+        }
+        val oType = info.officialVerify?.type ?: info.official?.let { if (it.role > 0) it.type else -1 } ?: -1
+        val vStatus = info.vipStatus.coerceAtLeast(info.vip?.vipStatus ?: 0)
+        val vType = info.vipType.coerceAtLeast(info.vip?.vipType ?: 0)
+        binding.myTabView.setAvatarBadge(
+            officialVerifyType = oType,
+            vipStatus = vStatus,
+            vipType = vType
+        )
     }
 
     private fun scheduleDeferredStartupTasks() {
