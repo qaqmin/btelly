@@ -32,6 +32,7 @@ import com.btelly.feature.me.MeListViewModel
 import com.btelly.feature.me.MeViewModel
 import com.btelly.feature.search.SearchViewModel
 import com.btelly.feature.player.LivePlayerViewModel
+import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.feature.player.VideoPlayerViewModel
 import com.btelly.feature.series.SeriesDetailViewModel
 import com.btelly.network.cookie.CookieManager
@@ -78,7 +79,8 @@ val repositoryModule = module {
 val viewModelModule = module {
     viewModel { RecommendViewModel(get()) }
     viewModel { HotViewModel(get()) }
-    viewModel { VideoPlayerViewModel(get(), get(), get(), get(), get(), get(), get(named("noCookie")), androidContext()) }
+    viewModel { MainNavigationViewModel(get()) }
+    viewModel { VideoPlayerViewModel(get(), get(), get(), get(), get(), get(), get(named("noCookie")), androidContext(), get()) }
     viewModel { CategoryViewModel(get()) }
     viewModel { DynamicViewModel(get()) }
     viewModel { LiveViewModel(get()) }
