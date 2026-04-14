@@ -3,13 +3,13 @@ package com.btelly.feature.player.view
 import android.content.Context
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.model.dm.DmScreenArea
-import org.koin.core.context.GlobalContext
+import org.koin.mp.KoinPlatform
 
 internal class MyPlayerSettingPreferenceStore(
     context: Context
 ) {
 
-    private val appSettings: AppSettingsDataStore get() = GlobalContext.get().get()
+    private val appSettings: AppSettingsDataStore get() = KoinPlatform.getKoin().get()
 
     fun loadDanmakuState(
         state: MyPlayerSettingMenuBuilder.PanelState

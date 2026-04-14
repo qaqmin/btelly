@@ -34,7 +34,7 @@ import com.btelly.feature.player.cache.PlayerMediaCache
 import com.btelly.core.common.ext.normalizeDanmakuSmartFilterValue
 import com.btelly.network.cookie.CookieManager
 import com.btelly.ui.activity.GaiaVgateActivity
-import org.koin.core.context.GlobalContext
+import org.koin.android.ext.android.inject
 import java.util.Locale
 
 class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
@@ -93,8 +93,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
     private lateinit var playerSettings: MutableList<SettingModel>
     private lateinit var dmSettings: MutableList<SettingModel>
     private val deviceSettings = mutableListOf<SettingModel>()
-    private val appSettings: AppSettingsDataStore get() = GlobalContext.get().get()
-    private val cookieManager: CookieManager get() = GlobalContext.get().get()
+    private val appSettings: AppSettingsDataStore by inject()
+    private val cookieManager: CookieManager by inject()
 
     private lateinit var adapter: SettingAdapter
     private var currentCategory = -1

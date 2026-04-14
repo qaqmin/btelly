@@ -14,6 +14,7 @@ import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.core.context.startKoin
 import org.koin.core.logger.Level
+import org.koin.mp.KoinPlatform
 
 class BTellyApplication : Application() {
 
@@ -35,7 +36,7 @@ class BTellyApplication : Application() {
     }
 
     private fun initSettings() {
-        org.koin.core.context.GlobalContext.get().get<AppSettingsDataStore>().initCache()
+        KoinPlatform.getKoin().get<AppSettingsDataStore>().initCache()
     }
     
     private fun initKoin() {
