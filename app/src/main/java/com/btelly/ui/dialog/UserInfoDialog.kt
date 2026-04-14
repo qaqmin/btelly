@@ -18,6 +18,7 @@ import com.btelly.ui.activity.MainActivity
 import com.btelly.feature.detail.UserSpaceFragment
 import com.btelly.feature.user.FollowUserListFragment
 import com.btelly.core.ui.image.ImageLoader
+import com.btelly.core.common.format.NumberUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -130,14 +131,16 @@ class UserInfoDialog(context: Context) : AppCompatDialog(context, R.style.Dialog
     }
 
     private fun bindUserStat(stat: UserStatModel?) {
-        binding.textFollowing.text = context.getString(
-            R.string.following_count_,
-            stat?.following ?: 0
-        )
-        binding.textFollower.text = context.getString(
-            R.string.follower_count_,
-            stat?.follower ?: 0
-        )
+        binding.textFollowing.text = buildString {
+            append(NumberUtils.formatCount((stat?.following ?: 0).toLong()))
+            append("\n")
+            append(context.getString(R.string.user_following))
+        }
+        binding.textFollower.text = buildString {
+            append(NumberUtils.formatCount((stat?.follower ?: 0).toLong()))
+            append("\n")
+            append(context.getString(R.string.user_follower))
+        }
         binding.textDynamic.text = context.getString(
             R.string.dynamic_count_,
             stat?.dynamicCount ?: 0
