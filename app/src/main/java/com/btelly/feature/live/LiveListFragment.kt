@@ -15,6 +15,7 @@ import com.btelly.ui.activity.LivePlayerActivity
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.common.content.ContentFilter
+import com.btelly.core.ui.navigation.navigateBackFromUi
 import com.btelly.core.ui.refresh.SwipeRefreshHelper
 import com.btelly.core.common.ext.toast
 import kotlinx.coroutines.flow.collectLatest
@@ -73,7 +74,7 @@ class LiveListFragment : BaseFragment<FragmentLiveListBinding>(), LiveTabPage {
         binding.recyclerView.setHasFixedSize(true)
         binding.tvTitle.text = title
         binding.buttonBack.setOnClickListener {
-            requireActivity().onBackPressedDispatcher.onBackPressed()
+            navigateBackFromUi()
         }
         binding.btnRetry.setOnClickListener {
             reload()

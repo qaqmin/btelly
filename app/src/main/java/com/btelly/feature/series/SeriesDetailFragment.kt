@@ -25,6 +25,7 @@ import com.btelly.model.video.VideoModel
 import com.btelly.ui.adapter.SeriesDetailContentAdapter
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.navigation.VideoRouteNavigator
+import com.btelly.core.ui.navigation.navigateBackFromUi
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
@@ -122,7 +123,7 @@ class SeriesDetailFragment : Fragment() {
             }
         })
         binding.buttonBack1.setOnClickListener {
-            requireActivity().onBackPressedDispatcher.onBackPressed()
+            navigateBackFromUi()
         }
         binding.buttonBack1.setOnFocusChangeListener { _, hasFocus ->
             if (hasFocus) {

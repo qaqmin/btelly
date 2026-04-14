@@ -29,6 +29,7 @@ import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.cache.FileCacheManager
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.core.ui.image.ImageLoader
+import com.btelly.core.ui.navigation.navigateBackFromUi
 import com.btelly.feature.player.cache.PlayerMediaCache
 import com.btelly.core.common.ext.normalizeDanmakuSmartFilterValue
 import com.btelly.network.cookie.CookieManager
@@ -118,7 +119,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
     override fun initView() {
         binding.tvTitle.text = getString(R.string.setting)
         binding.buttonBack.setOnClickListener {
-            requireActivity().onBackPressedDispatcher.onBackPressed()
+            navigateBackFromUi()
         }
         initSettings()
         setupRecyclerView()
