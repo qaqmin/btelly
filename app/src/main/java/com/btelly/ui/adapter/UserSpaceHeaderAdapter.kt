@@ -11,6 +11,7 @@ import com.btelly.R
 import com.btelly.databinding.CellUserSpaceHeaderBinding
 import com.btelly.model.user.UserSpaceInfo
 import com.btelly.core.ui.image.ImageLoader
+import com.btelly.core.common.format.NumberUtils
 
 class UserSpaceHeaderAdapter(
     private val onFollowClick: () -> Unit,
@@ -175,14 +176,16 @@ class UserSpaceHeaderAdapter(
             binding.userSpaceTop.buttonFollow.setBackgroundResource(state.followBackgroundRes)
             binding.layoutStatActions.visibility =
                 if (state.followingCount != null && state.followerCount != null) View.VISIBLE else View.GONE
-            binding.tvFollowing.text = binding.root.context.getString(
-                R.string.following_count_,
-                state.followingCount ?: 0
-            )
-            binding.tvFollower.text = binding.root.context.getString(
-                R.string.follower_count_,
-                state.followerCount ?: 0
-            )
+            binding.tvFollowing.text = buildString {
+                append(NumberUtils.formatCount((state.followingCount ?: 0).toLong()))
+                append("\n")
+                append(binding.root.context.getString(R.string.user_following))
+            }
+            binding.tvFollower.text = buildString {
+                append(NumberUtils.formatCount((state.followerCount ?: 0).toLong()))
+                append("\n")
+                append(binding.root.context.getString(R.string.user_follower))
+            }
             binding.tvVideoCount.text = binding.root.context.getString(
                 R.string.user_space_video_count,
                 state.videoCount
