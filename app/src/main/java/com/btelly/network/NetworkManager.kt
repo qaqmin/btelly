@@ -13,9 +13,11 @@ import com.btelly.network.security.BiliSecurityCoordinator
 import com.btelly.network.session.NetworkSessionStore
 import com.btelly.network.ua.DesktopUserAgentStore
 import com.btelly.core.common.log.AppLog
+import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.network.cookie.CookieManager
 import okhttp3.OkHttpClient
 import org.json.JSONObject
+import org.koin.mp.KoinPlatform
 import retrofit2.Retrofit
 
 object NetworkManager {
@@ -43,11 +45,15 @@ object NetworkManager {
     private val internalCookieManager: CookieManager by lazy { CookieManager() }
 
     private val internalOkHttpClient: OkHttpClient by lazy {
+        val settings: AppSettingsDataStore? = runCatching {
+            KoinPlatform.getKoin().get<AppSettingsDataStore>()
+        }.getOrNull()
         NetworkClientFactory.createOkHttpClient(
             cookieManager = internalCookieManager,
             userAgentProvider = { currentUserAgentValue },
             acceptLanguageProvider = { getAcceptLanguage() },
-            cacheDir = appContext?.cacheDir
+            cacheDir = appContext?.cacheDir,
+            ipv4OnlyEnabled = { settings?.getCachedString("ipv4_only") != "关" }
         )
     }
 
