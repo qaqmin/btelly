@@ -5,7 +5,6 @@ import com.google.gson.GsonBuilder
 import com.btelly.BuildConfig
 import com.btelly.model.adapter.FlexibleIntAdapter
 import com.btelly.model.adapter.FlexibleLongAdapter
-import com.btelly.network.interceptor.DebugResponseInterceptor
 import com.btelly.network.interceptor.HeaderInterceptor
 import com.btelly.network.interceptor.HttpCacheInterceptor
 import com.btelly.network.cookie.CookieManager
@@ -45,7 +44,6 @@ object NetworkClientFactory {
                 )
             )
             .addInterceptor(HttpCacheInterceptor(cookieManager))
-            .apply { if (BuildConfig.DEBUG) addInterceptor(DebugResponseInterceptor()) }
             .retryOnConnectionFailure(true)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)

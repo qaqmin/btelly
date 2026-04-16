@@ -12,6 +12,7 @@ import com.btelly.R
 import com.btelly.databinding.FragmentSignInBinding
 import com.btelly.event.AppEventHub
 import com.btelly.core.common.log.AppLog
+import com.btelly.network.NetworkManager
 import com.btelly.network.cookie.CookieManager
 import com.btelly.repository.AuthRepository
 import com.btelly.repository.UserRepository
@@ -135,6 +136,9 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
             if (data != null && data.isSuccess()) {
                 pollingJob?.cancel()
                 saveCookiesFromLoginUrl(data.url)
+                if (data.refreshToken.isNotBlank()) {
+                    NetworkManager.saveLoginRefreshToken(data.refreshToken)
+                }
                 Toast.makeText(requireContext(), "登录成功", Toast.LENGTH_SHORT).show()
                 onLoginSuccess()
             } else if (data != null && data.code == 86038) {
