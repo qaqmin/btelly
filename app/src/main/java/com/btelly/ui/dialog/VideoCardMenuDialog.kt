@@ -11,6 +11,7 @@ import androidx.core.content.ContextCompat
 import com.btelly.R
 import com.btelly.core.common.log.AppLog
 import com.btelly.databinding.DialogVideoCardMenuBinding
+import com.btelly.event.AppEventHub
 import com.btelly.model.video.VideoModel
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.VideoRepository
@@ -38,6 +39,7 @@ class VideoCardMenuDialog(
     private val binding = DialogVideoCardMenuBinding.inflate(LayoutInflater.from(context))
     private val videoRepository: VideoRepository by inject()
     private val sessionGateway: NetworkSessionGateway by inject()
+    private val appEventHub: AppEventHub by inject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private var isInWatchLater = false
@@ -199,6 +201,7 @@ class VideoCardMenuDialog(
                     isInWatchLater = true
                     renderWatchLaterState()
                     toast(context.getString(R.string.toast_add_watch_later_success))
+                    dismiss()
                 } else {
                     val msg = response.errorMessage
                     if (msg.contains("90001") || msg.contains("上限") || msg.contains("已满")) {
@@ -224,6 +227,13 @@ class VideoCardMenuDialog(
                     isInWatchLater = false
                     renderWatchLaterState()
                     toast(context.getString(R.string.toast_remove_watch_later_success))
+                    appEventHub.dispatch(
+                        AppEventHub.Event.WatchLaterVideoRemoved(
+                            aid = video.aid,
+                            bvid = video.bvid
+                        )
+                    )
+                    dismiss()
                 } else {
                     toast(context.getString(R.string.toast_remove_watch_later_failed))
                 }
