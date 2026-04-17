@@ -4,6 +4,7 @@ import android.util.Log
 import com.btelly.model.series.EpisodesDetailModel
 import com.btelly.model.series.FollowSeriesResult
 import com.btelly.model.series.MyFollowingResponseWrapper
+import com.btelly.model.series.RelatedRecommendResult
 import com.btelly.model.series.timeline.TimeLineADayModel
 import com.btelly.network.api.ApiService
 import com.btelly.network.session.NetworkSessionGateway
@@ -127,6 +128,17 @@ class SeriesRepository(
                 }
             } else {
                 throw IllegalStateException(response.message.ifEmpty { "时间线加载失败" })
+            }
+        }
+    }
+
+    suspend fun getRelatedRecommend(seasonId: Long): Result<RelatedRecommendResult> {
+        return runCatching {
+            val response = apiService.getRelatedRecommend(seasonId)
+            if (response.isSuccess && response.data != null) {
+                response.data
+            } else {
+                throw IllegalStateException(response.errorMessage.ifEmpty { "推荐加载失败" })
             }
         }
     }
