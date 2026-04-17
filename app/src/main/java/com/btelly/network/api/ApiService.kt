@@ -40,6 +40,7 @@ import com.btelly.model.series.CheckUserSeriesResult
 import com.btelly.model.series.EpisodesDetailModel
 import com.btelly.model.series.FollowSeriesResult
 import com.btelly.model.series.MyFollowingResponseWrapper
+import com.btelly.model.series.RelatedRecommendResult
 import com.btelly.model.series.SeasonSectionResult
 import com.btelly.model.series.timeline.GetTimeLineWrapper
 import com.btelly.network.response.Base2Response
@@ -462,6 +463,11 @@ interface ApiService {
     suspend fun getVideoEpisodeSections(
         @Query("season_id") seasonId: Long
     ): Base2Response<SeasonSectionResult>
+
+    @GET("pgc/season/web/related/recommend")
+    suspend fun getRelatedRecommend(
+        @Query("season_id") seasonId: Long
+    ): BaseResponse<RelatedRecommendResult>
 
     @GET("pgc/player/web/playurl")
     suspend fun getVideoPlayPgcInfo(
