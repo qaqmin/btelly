@@ -39,6 +39,7 @@ import com.btelly.event.AppEventHub
 import com.btelly.feature.player.CdnLatencyProfile
 import com.btelly.feature.player.PlayerInstancePool
 import com.btelly.feature.player.PlaybackUiCoordinator
+import com.btelly.feature.player.UiEvent
 import com.btelly.feature.player.PlayerLaunchContext
 import com.btelly.feature.player.PlayerOverlayCoordinator
 import com.btelly.feature.player.PlayerSessionCoordinator
@@ -1109,6 +1110,9 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
 
     private fun hideContentPanel() {
         overlayCoordinator.onRelatedPanelHidden()
+        if (uiCoordinator.panelState == PlaybackUiCoordinator.PanelState.Related) {
+            uiCoordinator.transition(UiEvent.PanelClosed)
+        }
         viewRelated.visibility = View.GONE
     }
 
