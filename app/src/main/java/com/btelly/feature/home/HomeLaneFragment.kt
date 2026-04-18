@@ -18,6 +18,7 @@ import com.btelly.core.ui.base.RecyclerViewFocusRestoreHelper
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.feature.series.AllSeriesFragment
 import com.btelly.feature.series.SeriesDetailFragment
+import com.btelly.ui.dialog.MyFollowingDialog
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.focus.SpatialFocusNavigator
 import com.btelly.core.ui.focus.TabContentFocusHelper
@@ -88,7 +89,10 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
                 }
             },
             onTopEdgeUp = ::focusTopTab,
-            defaultMoreSeasonType = type
+            defaultMoreSeasonType = type,
+            onFollowSectionClick = { followType ->
+                showMyFollowingDialog(followType)
+            }
         )
     }
 
@@ -419,6 +423,24 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
 
     private fun focusTopTab(): Boolean {
         return (parentFragment as? HomeFragment)?.focusCurrentTab() == true
+    }
+
+    private fun showMyFollowingDialog(followType: Int) {
+        if (!isAdded || view == null) return
+        val dialog = MyFollowingDialog(
+            context = requireContext(),
+            type = followType,
+            onSeriesClick = { series ->
+                if (series.seasonId > 0) {
+                    openInHostContainer(
+                        SeriesDetailFragment.newInstance(
+                            seasonId = series.seasonId
+                        )
+                    )
+                }
+            }
+        )
+        dialog.show()
     }
 
 }
