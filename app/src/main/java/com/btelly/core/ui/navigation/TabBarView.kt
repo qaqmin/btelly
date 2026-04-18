@@ -9,6 +9,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.widget.FrameLayout
 import androidx.appcompat.widget.AppCompatImageView
+import com.bumptech.glide.Glide
 import com.btelly.R
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.image.AvatarBadgeView
@@ -184,7 +185,10 @@ class TabBarView @JvmOverloads constructor(
 
     fun setAvatarUrl(avatarUrl: String?) {
         if (avatarUrl.isNullOrBlank()) {
-            imageAvatar.setImageResource(R.drawable.default_avatar)
+            Glide.with(imageAvatar)
+                .load(R.drawable.default_avatar)
+                .circleCrop()
+                .into(imageAvatar)
             return
         }
 
