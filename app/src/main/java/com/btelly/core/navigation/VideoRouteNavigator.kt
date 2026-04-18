@@ -8,9 +8,7 @@ import com.btelly.ui.activity.LivePlayerActivity
 import com.btelly.ui.activity.MainActivity
 import com.btelly.ui.activity.PlayerActivity
 import com.btelly.feature.detail.VideoDetailFragment
-import com.btelly.feature.series.SeriesDetailFragment
 import com.btelly.core.common.ext.isOpenDetailFirstEnabled
-import java.net.URL
 
 object VideoRouteNavigator {
 
@@ -44,12 +42,6 @@ object VideoRouteNavigator {
         playQueue: List<VideoModel> = emptyList(),
         forcePlayer: Boolean = false
     ) {
-        resolveSeriesRoute(historyVideo)?.let { route ->
-            findMainActivityHost(context)?.openInHostContainer(
-                SeriesDetailFragment.newInstance(route.seasonId, route.epId)
-            )
-            return
-        }
         resolveLiveRoomId(historyVideo)?.let { roomId ->
             LivePlayerActivity.start(context, roomId)
             return
@@ -80,32 +72,6 @@ object VideoRouteNavigator {
         return history.oid.takeIf { it > 0L }
     }
 
-    private fun resolveSeriesRoute(historyVideo: HistoryVideoModel): SeriesRoute? {
-        val rawUri = historyVideo.uri.takeIf { it.isNotBlank() } ?: return null
-        return runCatching {
-            val path = URL(rawUri).path.orEmpty()
-            val segment = path.substringAfterLast('/', "")
-            when {
-                segment.startsWith("ss") -> {
-                    val seasonId = segment.removePrefix("ss").takeWhile(Char::isDigit).toLongOrNull()
-                    seasonId?.let { SeriesRoute(seasonId = it, epId = historyVideo.history?.epid ?: 0L) }
-                }
-                segment.startsWith("ep") -> {
-                    val epId = segment.removePrefix("ep").takeWhile(Char::isDigit).toLongOrNull() ?: 0L
-                    if (epId > 0L) {
-                        SeriesRoute(
-                            seasonId = historyVideo.toVideoModel().playbackSeasonId,
-                            epId = epId
-                        )
-                    } else {
-                        null
-                    }
-                }
-                else -> null
-            }
-        }.getOrNull()
-    }
-
     private fun findMainActivityHost(context: Context): MainActivity? {
         var current: Context? = context
         while (current != null) {
@@ -122,9 +88,4 @@ object VideoRouteNavigator {
         }
         return null
     }
-
-    private data class SeriesRoute(
-        val seasonId: Long,
-        val epId: Long
-    )
 }
