@@ -19,7 +19,6 @@ import com.btelly.model.CategoryModel
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.ui.fragment.main.MainTabFocusTarget
-import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.tab.enableTouchNavigation
 import com.btelly.core.ui.tab.focusNearestTabTo
 import com.btelly.core.ui.tab.focusSelectedTab
@@ -29,7 +28,6 @@ import kotlinx.coroutines.launch
 class CategoryFragment : BaseFragment<FragmentCategoryBinding>(), MainTabFocusTarget {
 
     companion object {
-        private const val TAG = "MainEntryFocus"
         fun newInstance(): CategoryFragment = CategoryFragment()
     }
 
@@ -175,10 +173,6 @@ class CategoryFragment : BaseFragment<FragmentCategoryBinding>(), MainTabFocusTa
     override fun focusEntryFromMainTab(anchorView: View?, preferSpatialEntry: Boolean): Boolean {
         val handled = focusCurrentPagePrimaryContent(anchorView, preferSpatialEntry) ||
             focusCurrentTab(anchorView)
-        AppLog.d(
-            TAG,
-            "CategoryFragment.focusEntryFromMainTab: currentItem=${viewPager.currentItem} handled=$handled preferSpatialEntry=$preferSpatialEntry anchor=${anchorView?.javaClass?.simpleName ?: "null"} focus=${view?.findFocus()?.javaClass?.simpleName ?: "null"}"
-        )
         return handled
     }
 

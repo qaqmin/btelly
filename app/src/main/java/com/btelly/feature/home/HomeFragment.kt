@@ -16,7 +16,6 @@ import com.btelly.databinding.FragmentHomeBinding
 import com.btelly.ui.activity.MainActivity
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.ui.fragment.main.MainTabFocusTarget
-import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.tab.enableTouchNavigation
 import com.btelly.core.ui.tab.focusNearestTabTo
 import com.btelly.core.common.ext.getHomeDefaultStartPageIndex
@@ -26,8 +25,6 @@ import kotlinx.coroutines.launch
 class HomeFragment : Fragment(), MainTabFocusTarget {
 
     companion object {
-        private const val TAG = "MainEntryFocus"
-
         fun newInstance(): HomeFragment {
             return HomeFragment()
         }
@@ -69,26 +66,21 @@ class HomeFragment : Fragment(), MainTabFocusTarget {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 lastTabSelectedPosition = tab.position
                 lastTabSelectedTime = System.currentTimeMillis()
-                AppLog.d(TAG, "TabLayout onTabSelected: position=${tab.position}")
             }
 
             override fun onTabUnselected(tab: TabLayout.Tab) {
-                AppLog.d(TAG, "TabLayout onTabUnselected: position=${tab.position}")
             }
 
             override fun onTabReselected(tab: TabLayout.Tab) {
                 val elapsed = System.currentTimeMillis() - lastTabSelectedTime
                 if (tab.position == lastTabSelectedPosition && elapsed < 300) {
-                    AppLog.d(TAG, "TabLayout onTabReselected ignored (spurious): position=${tab.position}, elapsed=${elapsed}ms")
                     return
                 }
-                AppLog.d(TAG, "TabLayout onTabReselected: position=${tab.position}")
                 postTopTabEvent(tab.position)
             }
         })
         pageChangeCallback = object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
-                AppLog.d(TAG, "ViewPager2 onPageSelected: position=$position")
                 notifyTabSelected(position)
             }
         }.also { callback ->
@@ -151,10 +143,6 @@ class HomeFragment : Fragment(), MainTabFocusTarget {
     override fun focusEntryFromMainTab(anchorView: View?, preferSpatialEntry: Boolean): Boolean {
         val handled = focusCurrentPagePrimaryContent(anchorView, preferSpatialEntry) ||
             focusCurrentTab(anchorView)
-        AppLog.d(
-            TAG,
-            "HomeFragment.focusEntryFromMainTab: currentItem=${binding.viewPager.currentItem} handled=$handled preferSpatialEntry=$preferSpatialEntry anchor=${anchorView?.javaClass?.simpleName ?: "null"} focus=${view?.findFocus()?.javaClass?.simpleName ?: "null"}"
-        )
         return handled
     }
 

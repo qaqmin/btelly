@@ -15,7 +15,6 @@ import androidx.recyclerview.widget.RecyclerView.NO_POSITION
 import com.btelly.R
 import com.btelly.databinding.CellVideoBinding
 import com.btelly.model.video.VideoModel
-import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.common.time.TimeUtils
@@ -105,12 +104,6 @@ class DynamicVideoAdapter(
             }
             binding.root.setOnFocusChangeListener { view, hasFocus ->
                 val position = bindingAdapterPosition
-                debugTag?.let {
-                    AppLog.d(
-                        it,
-                        "video card focus: position=$position hasFocus=$hasFocus title=${currentTitle().take(30)}"
-                    )
-                }
                 if (hasFocus && position != NO_POSITION) {
                     focusedView = view
                     onItemFocused(position)
@@ -133,11 +126,6 @@ class DynamicVideoAdapter(
                     }
                     false
                 } else {
-                    if (event.action == KeyEvent.ACTION_DOWN) {
-                        debugTag?.let {
-                            AppLog.d(it, "video card key: position=$bindingAdapterPosition key=${keyName(keyCode)}")
-                        }
-                    }
                     false
                 }
             }

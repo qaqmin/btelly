@@ -12,7 +12,6 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
-import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.ui.focus.VideoCardFocusHelper
@@ -92,10 +91,6 @@ class LiveRoomAdapter(
             longPressRunnable = Runnable {
                 val item = currentItem ?: return@Runnable
                 longPressTriggered = true
-                AppLog.d(
-                    "LiveRoomAdapter",
-                    "show live dislike menu: roomId=${item.roomId}, uid=${item.uid}, uname=${item.uname}, title=${item.title.take(30)}"
-                )
                 VideoCardMenuDialog(
                     context = itemView.context,
                     video = item.toFeedbackVideoModel(),

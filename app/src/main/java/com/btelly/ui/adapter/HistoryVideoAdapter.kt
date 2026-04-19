@@ -16,7 +16,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
 import com.btelly.databinding.CellVideoBinding
 import com.btelly.model.video.HistoryVideoModel
-import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.common.time.TimeUtils

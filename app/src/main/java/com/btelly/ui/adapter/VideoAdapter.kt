@@ -13,7 +13,6 @@ import com.btelly.R
 import com.btelly.databinding.CellVideoBinding
 import com.btelly.model.video.VideoModel
 import com.btelly.core.ui.base.BaseAdapter
-import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.common.time.TimeUtils
@@ -257,10 +256,6 @@ class VideoAdapter(
             if (onFocusChange != null) {
                 binding.root.setOnFocusChangeListener { view, hasFocus ->
                     focusDebugTag?.let {
-                        AppLog.d(
-                            it,
-                            "card focus: position=$bindingAdapterPosition hasFocus=$hasFocus title=${currentVideo?.title.orEmpty().take(30)}"
-                        )
                     }
                     onFocusChange.invoke(view, bindingAdapterPosition, hasFocus)
                 }

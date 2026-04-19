@@ -22,7 +22,6 @@ import com.btelly.core.ui.base.RecyclerViewFocusRestoreHelper
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
-import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
 import org.koin.android.ext.android.inject
@@ -30,7 +29,6 @@ import org.koin.android.ext.android.inject
 class SeriesTimelineFragment : BaseFragment<FragmentSeriesTimelineBinding>() {
 
     companion object {
-        private const val TAG = "SeriesTimelineFragment"
         private const val ARG_SEASON_TYPE = "season_type"
 
         fun newInstance(seasonType: Int = SeriesType.ANIME): SeriesTimelineFragment {
@@ -302,7 +300,6 @@ class SeriesTimelineFragment : BaseFragment<FragmentSeriesTimelineBinding>() {
             recyclerView = binding.recyclerView,
             position = 0
         )
-        AppLog.d(TAG, "requestFirstTimelineCardFocus deferred: handled=${result.handled} deferred=${result.deferred}")
         return true
     }
 

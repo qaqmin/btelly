@@ -11,7 +11,6 @@ import com.btelly.databinding.CellLaneScrollableBinding
 import com.btelly.model.live.LiveRecommendSection
 import com.btelly.model.live.LiveRoomItem
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
-import com.btelly.core.common.log.AppLog
 
 class LiveRecommendAdapter(
     private val onRoomClick: (LiveRoomItem) -> Unit,
@@ -32,7 +31,6 @@ class LiveRecommendAdapter(
     }
 
     fun setData(list: List<LiveRecommendSection>) {
-        AppLog.d("LiveRecommendAdapter", "setData: list.size=${list.size}, old size=${currentList.size}")
         submitList(list)
     }
 

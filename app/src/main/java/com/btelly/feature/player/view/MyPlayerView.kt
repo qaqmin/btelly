@@ -38,7 +38,6 @@ import com.btelly.model.video.quality.VideoCodecEnum
 import com.btelly.model.video.quality.VideoQuality
 import com.btelly.core.common.ext.isAdvancedDanmakuEnabled
 import com.btelly.core.common.ext.getDanmakuSmartFilterLevel
-import com.btelly.core.common.log.AppLog
 import com.btelly.feature.player.LiveQualityInfo
 
 @OptIn(UnstableApi::class)

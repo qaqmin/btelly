@@ -18,7 +18,6 @@ import com.btelly.databinding.CellUserBinding
 import com.btelly.databinding.CellVideoBinding
 import com.btelly.model.search.SearchItemModel
 import com.btelly.model.search.SearchType
-import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.common.time.TimeUtils

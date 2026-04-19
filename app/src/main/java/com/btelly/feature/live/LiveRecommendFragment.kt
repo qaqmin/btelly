@@ -16,7 +16,6 @@ import com.btelly.model.live.LiveRecommendSection
 import com.btelly.ui.activity.LivePlayerActivity
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.ui.fragment.main.MainNavigationViewModel
-import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.ui.focus.SpatialFocusNavigator
 import com.btelly.core.ui.focus.TabContentFocusHelper
@@ -28,7 +27,6 @@ import org.koin.androidx.viewmodel.ext.android.viewModel
 
 class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveTabPage {
     companion object {
-        private const val TAG = "MainEntryFocus"
         private const val CACHE_TTL_MS = 10 * 60 * 1000L
 
         fun newInstance(): LiveRecommendFragment = LiveRecommendFragment()
@@ -109,7 +107,6 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
 
     override fun focusPrimaryContent(): Boolean {
         if (!isAdded || view == null || adapter.itemCount == 0) {
-            AppLog.d(TAG, "LiveRecommendFragment.focusPrimaryContent failed: itemCount=${adapter.itemCount}")
             return false
         }
         val result = TabContentFocusHelper.requestRecyclerPrimaryFocus(
@@ -118,10 +115,6 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
             focusRequester = { holder ->
                 (holder as? LiveRecommendAdapter.ViewHolder)?.requestPrimaryFocus() == true
             }
-        )
-        AppLog.d(
-            TAG,
-            "LiveRecommendFragment.focusPrimaryContent recycler: handled=${result.handled} deferred=${result.deferred} pos=${result.position} source=${result.source}"
         )
         return result.resolved
     }
@@ -134,7 +127,6 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
                 direction = View.FOCUS_RIGHT,
                 fallback = null
             )
-            AppLog.d(TAG, "LiveRecommendFragment.focusPrimaryContent spatialEntry: handled=$handled")
             if (handled) {
                 return true
             }
