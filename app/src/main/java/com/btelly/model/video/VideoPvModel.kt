@@ -1,8 +1,6 @@
 package com.btelly.model.video
 
 import com.google.gson.annotations.SerializedName
-import com.btelly.model.video.Owner
-import com.btelly.model.video.Stat
 
 data class VideoPvModel(
     @SerializedName("cid")
@@ -27,5 +25,5 @@ data class VideoPvModel(
     val weblink: String = "",
     
     @SerializedName("dimension")
-    val dimension: com.btelly.model.video.Dimension? = null
+    val dimension: Dimension? = null
 )

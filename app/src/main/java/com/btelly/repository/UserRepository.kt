@@ -1,7 +1,6 @@
 package com.btelly.repository
 
 import com.btelly.model.BaseResponse
-import com.btelly.model.user.UserInfoModel
 import com.btelly.model.user.UserStatModel
 import com.btelly.model.user.UserSpaceInfo
 import com.btelly.model.user.UserDetailInfoModel

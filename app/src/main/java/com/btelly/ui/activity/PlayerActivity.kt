@@ -2,7 +2,6 @@ package com.btelly.ui.activity
 
 import android.app.Activity
 import android.content.Context
-import android.content.ContextWrapper
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -36,7 +35,6 @@ import com.btelly.core.ui.base.BaseActivity
 import com.btelly.core.ui.system.ViewUtils
 import com.btelly.databinding.FragmentVideoPlayerBinding
 import com.btelly.event.AppEventHub
-import com.btelly.feature.player.CdnLatencyProfile
 import com.btelly.feature.player.PlayerInstancePool
 import com.btelly.feature.player.PlaybackUiCoordinator
 import com.btelly.feature.player.UiEvent
@@ -142,6 +140,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         ) {
             start(
                 context = context,
+                aid = 0L,
                 bvid = bvid,
                 cid = cid,
                 epId = epId,

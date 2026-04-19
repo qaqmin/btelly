@@ -19,7 +19,6 @@ import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.ui.fragment.main.MainTabFocusTarget
 import com.btelly.core.ui.tab.enableTouchNavigation
 import com.btelly.core.ui.tab.focusNearestTabTo
-import com.btelly.core.ui.tab.focusSelectedTab
 import com.btelly.core.common.ext.toast
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch

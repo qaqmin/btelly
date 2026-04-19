@@ -13,7 +13,6 @@ import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.focus.SpatialFocusNavigator
 import com.btelly.core.ui.focus.TabContentFocusHelper
 import com.btelly.core.common.ext.serializableCompat
-import androidx.recyclerview.widget.RecyclerView
 
 class LiveAreaFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveTabPage {
 
