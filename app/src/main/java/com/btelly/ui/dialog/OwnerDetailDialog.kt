@@ -8,7 +8,9 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatDialog
 import androidx.core.view.isVisible
 import com.btelly.R
+import com.btelly.core.common.log.AppLog
 import com.btelly.databinding.DialogOwnerDetailBinding
+import com.btelly.event.AppEventHub
 import com.btelly.model.user.CheckRelationModel
 import com.btelly.model.video.Owner
 import com.btelly.model.video.VideoModel
@@ -40,6 +42,7 @@ class OwnerDetailDialog(
     private val binding = DialogOwnerDetailBinding.inflate(LayoutInflater.from(context))
     private val userRepository: UserRepository by inject()
     private val sessionGateway: NetworkSessionGateway by inject()
+    private val appEventHub: AppEventHub by inject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val videoAdapter = VideoAdapter()
 
@@ -251,10 +254,17 @@ class OwnerDetailDialog(
                         )
                         toast(if (action == 1) "关注成功" else "已取消关注")
                     } else {
-                        toast(response.message)
+                        if (sessionGateway.handleResponseAuthError(response.code, response.message)) {
+                            toast(context.getString(R.string.login_expired))
+                        } else {
+                            toast(response.message)
+                        }
                     }
                 }
-                .onFailure { toast(it.message ?: "操作失败") }
+                .onFailure {
+                    AppLog.e("OwnerDetailDialog", "toggleFollow failed", it)
+                    toast(it.message ?: "操作失败")
+                }
         }
     }
 
