@@ -35,6 +35,7 @@ import com.btelly.feature.search.SearchNewFragment
 import com.btelly.feature.settings.SettingsFragment
 import com.btelly.feature.settings.SignInFragment
 import com.btelly.ui.dialog.UserInfoDialog
+import com.btelly.feature.player.PlayerInstancePool
 import com.btelly.feature.player.PlayerLaunchContext
 import com.btelly.feature.player.VideoPlayerFragment
 import com.btelly.core.ui.navigation.TabBarView
@@ -339,6 +340,10 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         startupTasksScheduled = true
         binding.root.post {
             BTellyApplication.instance.scheduleDeferredSessionPrewarm()
+            PlayerInstancePool.prewarm(this@MainActivity)
+            lifecycleScope.launch {
+                runCatching { sessionGateway.ensureWbiKeys() }
+            }
             lifecycleScope.launch {
                 delay(300L)
                 refreshAvatar(allowNetworkFetch = true)
@@ -446,8 +451,6 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
             epId = launchContext.epId,
             seasonId = launchContext.seasonId,
             seekPositionMs = launchContext.seekPositionMs,
-            initialVideo = launchContext.initialVideo,
-            playQueue = launchContext.playQueue,
             startEpisodeIndex = launchContext.startEpisodeIndex
         )
     }
@@ -459,24 +462,18 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         epId: Long = 0L,
         seasonId: Long = 0L,
         seekPositionMs: Long = 0L,
-        initialVideo: VideoModel? = null,
-        playQueue: List<VideoModel> = emptyList(),
         startEpisodeIndex: Int = -1,
         addToBackStack: Boolean = true
     ) {
-        openVideoPlayer(
-            launchContext = PlayerLaunchContext.create(
-                aid = aid,
-                bvid = bvid,
-                cid = cid,
-                epId = epId,
-                seasonId = seasonId,
-                seekPositionMs = seekPositionMs,
-                initialVideo = initialVideo,
-                playQueue = playQueue,
-                startEpisodeIndex = startEpisodeIndex
-            ),
-            addToBackStack = addToBackStack
+        PlayerActivity.start(
+            context = this,
+            aid = aid,
+            bvid = bvid,
+            cid = cid,
+            epId = epId,
+            seasonId = seasonId,
+            seekPositionMs = seekPositionMs,
+            startEpisodeIndex = startEpisodeIndex
         )
     }
 
