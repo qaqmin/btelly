@@ -2,6 +2,7 @@ package com.btelly.feature.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.btelly.core.common.log.HomeVideoCardDebugLogger
 import com.btelly.model.video.VideoModel
 import com.btelly.repository.UserRepository
 import com.btelly.repository.VideoRepository
@@ -39,9 +40,11 @@ class HotViewModel(
                 _loading.value = false
                 if (response.isSuccess) {
                     val items = response.data ?: emptyList()
-                    val validItems = items.filter {
-                        it.title.isNotBlank() && (it.bvid.isNotBlank() || it.aid > 0 || it.cid > 0)
-                    }
+                    HomeVideoCardDebugLogger.logRejectedCards(
+                        source = "hot(page=$page,pageSize=$pageSize)",
+                        items = items
+                    )
+                    val validItems = items.filter { it.isSupportedHomeVideoCard }
                     _videos.value = validItems
                     _hasMore.value = validItems.size >= pageSize
                     enrichFollowStatus(validItems)

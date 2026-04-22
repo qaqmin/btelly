@@ -1,6 +1,7 @@
 package com.btelly.repository.cache
 
 import com.google.gson.reflect.TypeToken
+import com.btelly.core.common.log.HomeVideoCardDebugLogger
 import com.btelly.model.lane.HomeLaneSection
 import com.btelly.model.video.VideoModel
 import com.btelly.core.common.cache.FileCacheManager
@@ -9,11 +10,12 @@ object HomeCacheStore {
 
     suspend fun readVideos(cacheKey: String): List<VideoModel> {
         val type = object : TypeToken<List<VideoModel>>() {}.type
-        return FileCacheManager.getAsync<List<VideoModel>>(cacheKey, type)
-            .orEmpty()
-            .filter {
-                it.title.isNotBlank() && (it.bvid.isNotBlank() || it.aid > 0 || it.cid > 0)
-            }
+        val cachedVideos = FileCacheManager.getAsync<List<VideoModel>>(cacheKey, type).orEmpty()
+        HomeVideoCardDebugLogger.logRejectedCards(
+            source = "home_cache($cacheKey)",
+            items = cachedVideos
+        )
+        return cachedVideos.filter { it.isSupportedHomeVideoCard }
     }
 
     suspend fun writeVideos(cacheKey: String, videos: List<VideoModel>) {
