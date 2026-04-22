@@ -16,6 +16,7 @@ import com.btelly.model.video.VideoModel
 import com.btelly.core.ui.base.BaseAdapter
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.common.format.NumberUtils
+import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.time.TimeUtils
 import com.btelly.core.ui.focus.VideoCardFocusHelper
 import com.btelly.ui.dialog.VideoCardMenuDialog
@@ -232,11 +233,17 @@ class VideoAdapter(
             binding.root.setOnClickListener {
                 if (longPressTriggered) {
                     longPressTriggered = false
+                    AppLog.w("VideoAdapter", "click blocked by longPressTriggered")
                     return@setOnClickListener
                 }
                 val position = bindingAdapterPosition
                 if (position != androidx.recyclerview.widget.RecyclerView.NO_POSITION) {
                     onItemInteracted?.invoke(binding.root, position)
+                }
+                if (currentVideo == null) {
+                    AppLog.e("VideoAdapter", "click but currentVideo is null, pos=$position")
+                } else {
+                    AppLog.d("VideoAdapter", "click: pos=$position, bvid=${currentVideo?.bvid}, title=${currentVideo?.title}")
                 }
                 currentVideo?.let { onItemClick(binding.root, it) }
             }
