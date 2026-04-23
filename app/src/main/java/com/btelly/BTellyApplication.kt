@@ -49,6 +49,9 @@ class BTellyApplication : Application() {
     
     private fun initNetwork() {
         NetworkManager.init(this)
+        appScope.launch {
+            NetworkManager.warmUp()
+        }
     }
 
     fun scheduleDeferredSessionPrewarm(delayMillis: Long = 300L) {

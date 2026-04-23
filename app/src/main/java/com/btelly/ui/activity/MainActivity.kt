@@ -41,6 +41,7 @@ import com.btelly.feature.player.VideoPlayerFragment
 import com.btelly.core.ui.navigation.TabBarView
 import com.btelly.core.common.settings.AppSettingsDataStore
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import java.lang.ref.WeakReference
@@ -339,18 +340,22 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         }
         startupTasksScheduled = true
         binding.root.post {
-            BTellyApplication.instance.scheduleDeferredSessionPrewarm(delayMillis = 2000L)
+            lifecycleScope.launch {
+                delay(300L)
+                refreshAvatar(allowNetworkFetch = true)
+            }
             lifecycleScope.launch {
                 delay(3000L)
                 PlayerInstancePool.prewarm(this@MainActivity)
             }
             lifecycleScope.launch {
-                delay(2000L)
-                runCatching { sessionGateway.ensureWbiKeys() }
+                mainNavigationViewModel.events.first { it == MainNavigationViewModel.Event.HomeContentReady }
+                BTellyApplication.instance.scheduleDeferredSessionPrewarm(delayMillis = 1000L)
             }
             lifecycleScope.launch {
-                delay(300L)
-                refreshAvatar(allowNetworkFetch = true)
+                mainNavigationViewModel.events.first { it == MainNavigationViewModel.Event.HomeContentReady }
+                delay(2000L)
+                runCatching { sessionGateway.ensureWbiKeys() }
             }
         }
     }
