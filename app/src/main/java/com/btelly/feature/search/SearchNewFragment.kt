@@ -38,6 +38,7 @@ import com.btelly.core.ui.focus.SpatialFocusNavigator
 import com.btelly.core.ui.system.ViewUtils
 import com.btelly.core.ui.tab.enableTouchNavigation
 import com.btelly.core.navigation.VideoRouteNavigator
+import com.btelly.core.ui.navigation.navigateBackFromUi
 import com.btelly.core.ui.tab.focusNearestTabTo
 import com.btelly.core.ui.tab.focusSelectedTab
 import kotlinx.coroutines.FlowPreview
@@ -178,6 +179,10 @@ class SearchNewFragment :
     }
 
     private fun setupInput() {
+        binding.buttonSearchBack.setOnClickListener {
+            navigateBackFromUi()
+        }
+
         binding.editText.showSoftInputOnFocus = false
 
         binding.editText.setOnKeyListener { view, keyCode, event ->
