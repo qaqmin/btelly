@@ -11,6 +11,7 @@ import com.kuaishou.akdanmaku.ecs.component.filter.TypeFilter
 import com.kuaishou.akdanmaku.render.SimpleRenderer
 import com.kuaishou.akdanmaku.ui.DanmakuPlayer
 import com.kuaishou.akdanmaku.ui.DanmakuView
+import com.btelly.feature.player.PlaybackStartupTrace
 import com.btelly.model.dm.DmModel
 import com.btelly.core.common.ext.isVipColorfulDanmakuAllowed
 import kotlinx.coroutines.CoroutineScope
@@ -76,7 +77,11 @@ class MyPlayerDanmakuController(
     private var preloadTextureJob: Job? = null
     private var prepareGeneration: Long = 0L
 
-    fun setData(data: List<DmModel>) {
+    fun setData(
+        data: List<DmModel>,
+        startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
+        startupTraceStartElapsedMs: Long = 0L
+    ) {
         prepareJob?.cancel()
         val generation = ++prepareGeneration
         val input = data.toList()
@@ -133,6 +138,12 @@ class MyPlayerDanmakuController(
                 } else {
                     initPlayer()
                 }
+                PlaybackStartupTrace.log(
+                    traceId = startupTraceId,
+                    startElapsedMs = startupTraceStartElapsedMs,
+                    step = "danmaku_player_data_applied",
+                    message = "count=${preparedData.size} raw=${sortedData.size}"
+                )
             }
         }
     }
