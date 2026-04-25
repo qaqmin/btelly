@@ -24,6 +24,10 @@ import com.btelly.repository.VideoRepository
 import com.btelly.feature.category.CategoryViewModel
 import com.btelly.feature.dynamic.DynamicViewModel
 import com.btelly.feature.home.HotViewModel
+import com.btelly.feature.home.HotFeedRepository
+import com.btelly.feature.home.HomeLaneFeedRepository
+import com.btelly.feature.home.HomeLaneViewModel
+import com.btelly.feature.home.RecommendFeedRepository
 import com.btelly.feature.home.RecommendViewModel
 import com.btelly.feature.live.LiveListViewModel
 import com.btelly.feature.live.LiveRecommendViewModel
@@ -73,12 +77,16 @@ val repositoryModule = module {
     single { SeriesRepository(get()) }
     single { VideoRepository(get(), get()) }
     single { UserRepository(get(), get()) }
+    single { RecommendFeedRepository(get()) }
+    single { HotFeedRepository(get()) }
+    single { HomeLaneFeedRepository(get()) }
 }
 
 @OptIn(UnstableApi::class)
 val viewModelModule = module {
-    viewModel { RecommendViewModel(get()) }
-    viewModel { HotViewModel(get(), get()) }
+    viewModel { RecommendViewModel(get(), androidContext()) }
+    viewModel { HotViewModel(get(), get(), androidContext()) }
+    viewModel { (type: Int) -> HomeLaneViewModel(type, get()) }
     viewModel { MainNavigationViewModel(get()) }
     viewModel { VideoPlayerViewModel(get(), get(), get(), get(), get(), get(), get(named("noCookie")), androidContext(), get()) }
     viewModel { CategoryViewModel(get()) }
