@@ -1,6 +1,8 @@
 package com.btelly
 
 import android.app.Application
+import android.os.SystemClock
+import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.di.appModules
 import com.btelly.network.NetworkManager
@@ -22,17 +24,31 @@ class BTellyApplication : Application() {
     private val startupPrewarmScheduled = AtomicBoolean(false)
     
     companion object {
+        private const val TAG = "AppStartup"
+
         lateinit var instance: BTellyApplication
             private set
     }
     
     override fun onCreate() {
+        val startMs = SystemClock.elapsedRealtime()
+        AppLog.i(TAG, "Application.onCreate start")
         super.onCreate()
         instance = this
         
-        initKoin()
-        initSettings()
-        initNetwork()
+        trace("initKoin", startMs) { initKoin() }
+        trace("initSettings", startMs) { initSettings() }
+        trace("initNetwork", startMs) { initNetwork() }
+        AppLog.i(TAG, "Application.onCreate end elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
+    }
+
+    private inline fun trace(name: String, appStartMs: Long, block: () -> Unit) {
+        val stepStartMs = SystemClock.elapsedRealtime()
+        block()
+        AppLog.i(
+            TAG,
+            "$name end step=${SystemClock.elapsedRealtime() - stepStartMs}ms total=${SystemClock.elapsedRealtime() - appStartMs}ms"
+        )
     }
 
     private fun initSettings() {
@@ -48,9 +64,15 @@ class BTellyApplication : Application() {
     }
     
     private fun initNetwork() {
-        NetworkManager.init(this)
+        NetworkManager.init(this, syncWebViewCookies = false)
         appScope.launch {
             NetworkManager.warmUp()
+            val cookieSyncStartMs = SystemClock.elapsedRealtime()
+            NetworkManager.syncCookiesFromWebView()
+            AppLog.i(
+                TAG,
+                "syncCookiesFromWebView end step=${SystemClock.elapsedRealtime() - cookieSyncStartMs}ms"
+            )
         }
     }
 
