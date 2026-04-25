@@ -22,6 +22,7 @@ import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.common.time.TimeUtils
 import com.btelly.core.ui.focus.VideoCardFocusHelper
+import com.btelly.core.ui.focus.tv.TvFocusableAdapter
 import com.btelly.model.video.Owner
 import com.btelly.model.video.VideoModel
 import com.btelly.ui.dialog.VideoCardMenuDialog
@@ -35,11 +36,26 @@ data class SearchResultEntry(
 class SearchItemAdapter(
     private val searchType: SearchType,
     private val onItemClick: (SearchResultEntry) -> Unit,
-    private val onTopEdgeUp: ((View) -> Boolean)? = null
-) : ListAdapter<SearchItemModel, RecyclerView.ViewHolder>(DiffCallback) {
+    private val onTopEdgeUp: ((View) -> Boolean)? = null,
+    private val onItemFocused: ((View, Int) -> Unit)? = null,
+    private val onItemDpad: ((View, Int, KeyEvent) -> Boolean)? = null,
+    private val onItemsChanged: (() -> Unit)? = null
+) : ListAdapter<SearchItemModel, RecyclerView.ViewHolder>(DiffCallback), TvFocusableAdapter {
 
     fun setItems(list: List<SearchItemModel>) {
         submitList(list)
+    }
+
+    override fun focusableItemCount(): Int = itemCount
+
+    override fun stableKeyAt(position: Int): String? {
+        return currentList.getOrNull(position)?.let(::searchItemKey)
+    }
+
+    override fun findPositionByStableKey(key: String): Int {
+        return currentList.indexOfFirst { searchItemKey(it) == key }
+            .takeIf { it >= 0 }
+            ?: RecyclerView.NO_POSITION
     }
 
     private fun removeBlockedItems(blockedName: String) {
@@ -48,7 +64,9 @@ class SearchItemAdapter(
             !authorName.equals(blockedName, ignoreCase = true)
         }
         if (filtered.size == currentList.size) return
-        submitList(filtered)
+        submitList(filtered) {
+            onItemsChanged?.invoke()
+        }
     }
 
     private fun RecyclerView.ViewHolder.showCardMenu() {
@@ -74,7 +92,11 @@ class SearchItemAdapter(
             onDislikeVideo = {
                 val key = searchItemKey(item)
                 val filtered = currentList.filter { searchItemKey(it) != key }
-                if (filtered.size != currentList.size) submitList(filtered)
+                if (filtered.size != currentList.size) {
+                    submitList(filtered) {
+                        onItemsChanged?.invoke()
+                    }
+                }
             },
             onDislikeUp = { upName -> removeBlockedItems(upName) }
         ).show()
@@ -285,7 +307,7 @@ class SearchItemAdapter(
         var longPressRunnable: Runnable? = null
         var longPressTriggered = false
 
-        val keyListener = View.OnKeyListener { _, keyCode, event ->
+        val keyListener = View.OnKeyListener { targetView, keyCode, event ->
             if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
                 when (event.action) {
                     KeyEvent.ACTION_DOWN -> {
@@ -305,7 +327,7 @@ class SearchItemAdapter(
                 }
                 false
             } else {
-                false
+                onItemDpad?.invoke(targetView, keyCode, event) == true
             }
         }
 
@@ -316,7 +338,14 @@ class SearchItemAdapter(
             }
             val position = bindingAdapterPosition
             if (position != RecyclerView.NO_POSITION) {
+                onItemFocused?.invoke(view, position)
                 onItemClick(SearchResultEntry(searchType, getItem(position)))
+            }
+        }
+        view.setOnFocusChangeListener { targetView, hasFocus ->
+            val position = bindingAdapterPosition
+            if (hasFocus && position != RecyclerView.NO_POSITION) {
+                onItemFocused?.invoke(targetView, position)
             }
         }
         view.setOnTouchListener { _, event ->
@@ -341,6 +370,7 @@ class SearchItemAdapter(
             onTopEdgeUp = {
                 onTopEdgeUp?.invoke(view) == true
             },
+            handleListDpadDown = false,
             chainedListener = keyListener
         )
     }
