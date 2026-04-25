@@ -19,6 +19,8 @@ import com.btelly.model.video.VideoModel
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.FavoriteRepository
 import com.btelly.repository.VideoRepository
+import com.btelly.core.navigation.VideoRouteNavigator
+import com.btelly.ui.activity.PlayerActivity
 import com.btelly.ui.adapter.FavoriteFolderDialogAdapter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -72,7 +74,7 @@ class VideoCardMenuDialog(
                 if (supportsWatchLater) {
                     binding.buttonWatchLater.requestFocus()
                 } else {
-                    binding.buttonFavorite.requestFocus()
+                    binding.buttonUpSpace.requestFocus()
                 }
             }
         }
@@ -99,6 +101,29 @@ class VideoCardMenuDialog(
             } else {
                 addWatchLater()
             }
+        }
+
+        binding.buttonUpSpace.setOnClickListener {
+            val owner = video.owner
+            if (owner == null || owner.mid <= 0L) {
+                toast("UP主信息未加载完成")
+                return@setOnClickListener
+            }
+            dismiss()
+            OwnerDetailDialog(
+                context = context,
+                owner = owner,
+                onOpenSpace = { _ -> },
+                onPlayVideo = { v, playQueue ->
+                    VideoRouteNavigator.openVideo(
+                        context = context,
+                        video = v,
+                        playQueue = playQueue
+                    )
+                },
+                currentAid = video.aid,
+                currentVideoId = video.bvid
+            ).show()
         }
 
         binding.buttonFavorite.setOnClickListener {
