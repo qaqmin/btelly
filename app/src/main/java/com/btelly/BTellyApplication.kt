@@ -2,6 +2,7 @@ package com.btelly
 
 import android.app.Application
 import android.os.SystemClock
+import com.btelly.core.common.cache.FileCacheManager
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.di.appModules
@@ -39,6 +40,7 @@ class BTellyApplication : Application() {
         trace("initKoin", startMs) { initKoin() }
         trace("initSettings", startMs) { initSettings() }
         trace("initNetwork", startMs) { initNetwork() }
+        prewarmCaches()
         AppLog.i(TAG, "Application.onCreate end elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
     }
 
@@ -63,6 +65,13 @@ class BTellyApplication : Application() {
         }
     }
     
+    private fun prewarmCaches() {
+        FileCacheManager.prewarmKeys(
+            "recommendCacheList",
+            "hotCacheList"
+        )
+    }
+
     private fun initNetwork() {
         NetworkManager.init(this, syncWebViewCookies = false)
         appScope.launch {
