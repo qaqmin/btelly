@@ -17,6 +17,7 @@ import com.btelly.repository.UserRepository
 import com.btelly.ui.activity.MainActivity
 import com.btelly.feature.detail.UserSpaceFragment
 import com.btelly.feature.user.FollowUserListFragment
+import com.btelly.core.common.cache.FileCacheManager
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.common.format.NumberUtils
 import kotlinx.coroutines.CoroutineScope
@@ -85,6 +86,7 @@ class UserInfoDialog(context: Context) : AppCompatDialog(context, R.style.Dialog
         }
         binding.buttonSignOut.setOnClickListener {
             sessionGateway.clearUserSession(reason = "userInfoDialog.signOut")
+            FileCacheManager.clearUserCaches()
             appEventHub.dispatch(AppEventHub.Event.UserSessionChanged)
             dismiss()
         }

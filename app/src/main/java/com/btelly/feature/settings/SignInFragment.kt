@@ -11,6 +11,7 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.btelly.R
 import com.btelly.databinding.FragmentSignInBinding
 import com.btelly.event.AppEventHub
+import com.btelly.core.common.cache.FileCacheManager
 import com.btelly.core.common.log.AppLog
 import com.btelly.network.NetworkManager
 import com.btelly.network.cookie.CookieManager
@@ -173,6 +174,7 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
     }
 
     private fun onLoginSuccess() {
+        FileCacheManager.clearUserCaches()
         viewLifecycleOwner.lifecycleScope.launch {
             userRepository.refreshCurrentUserInfo()
             parentFragmentManager.popBackStackImmediate()

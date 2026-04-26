@@ -13,6 +13,7 @@ import com.btelly.R
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.base.BaseAdapter
 import com.btelly.core.ui.base.BaseListFragment
+import com.btelly.event.AppEventHub
 import com.btelly.core.ui.focus.SpatialFocusNavigator
 import com.btelly.core.ui.focus.TabContentFocusHelper
 import com.btelly.feature.series.AllSeriesFragment
@@ -24,6 +25,7 @@ import com.btelly.ui.dialog.MyFollowingDialog
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 import org.koin.core.parameter.parametersOf
 
@@ -44,6 +46,7 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
     }
 
     private val mainNavigationViewModel: MainNavigationViewModel by activityViewModels()
+    private val appEventHub: AppEventHub by inject()
     private val viewModel: HomeLaneViewModel by viewModel { parametersOf(type) }
 
     private var type: Int = TYPE_ANIMATION
@@ -198,6 +201,16 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
 
                         MainNavigationViewModel.Event.BackPressed -> scrollToTop()
                         else -> Unit
+                    }
+                }
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                appEventHub.events.collectLatest { event ->
+                    if (event == AppEventHub.Event.UserSessionChanged && isResumed && !isLoading) {
+                        refresh()
                     }
                 }
             }
