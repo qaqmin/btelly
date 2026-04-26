@@ -6,11 +6,13 @@ import com.btelly.model.series.MyFollowingResponseWrapper
 import com.btelly.model.series.RelatedRecommendResult
 import com.btelly.model.series.timeline.TimeLineADayModel
 import com.btelly.network.api.ApiService
+import com.btelly.network.security.NetworkSecurityGateway
 import com.btelly.network.session.NetworkSessionGateway
 
 class SeriesRepository(
     private val apiService: ApiService,
-    private val sessionGateway: NetworkSessionGateway
+    private val sessionGateway: NetworkSessionGateway,
+    private val securityGateway: NetworkSecurityGateway
 ) {
 
     suspend fun getSeriesDetail(seasonId: Long, epId: Long = 0): Result<EpisodesDetailModel> {
@@ -45,6 +47,7 @@ class SeriesRepository(
 
     suspend fun followSeries(seasonId: Long): Result<FollowSeriesResult> {
         return runCatching {
+            securityGateway.ensureHealthyForPlay()
             val csrf = sessionGateway.requireCsrfToken()
                 ?: throw IllegalStateException("csrf token is blank")
             val response = sessionGateway.syncAuthState(
@@ -65,6 +68,7 @@ class SeriesRepository(
 
     suspend fun cancelFollowSeries(seasonId: Long): Result<FollowSeriesResult> {
         return runCatching {
+            securityGateway.ensureHealthyForPlay()
             val csrf = sessionGateway.requireCsrfToken()
                 ?: throw IllegalStateException("csrf token is blank")
             val response = sessionGateway.syncAuthState(

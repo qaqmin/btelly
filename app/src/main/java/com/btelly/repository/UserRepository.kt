@@ -12,6 +12,7 @@ import com.btelly.model.video.UserDynamicResponse
 import com.btelly.model.video.AllDynamicResponse
 import com.btelly.network.WbiGenerator
 import com.btelly.network.api.ApiService
+import com.btelly.network.security.NetworkSecurityGateway
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.network.response.BaseBaseResponse
 import com.btelly.core.common.log.AppLog
@@ -23,7 +24,8 @@ import kotlinx.coroutines.sync.withPermit
 
 class UserRepository(
     private val apiService: ApiService,
-    private val sessionGateway: NetworkSessionGateway
+    private val sessionGateway: NetworkSessionGateway,
+    private val securityGateway: NetworkSecurityGateway
 ) {
 
     private val detailCache = mutableMapOf<String, Any>()
@@ -128,6 +130,7 @@ class UserRepository(
         action: Int
     ): Result<BaseBaseResponse> =
         runCatching {
+            securityGateway.ensureHealthyForPlay()
             val csrf = sessionGateway.requireCsrfToken()
                 ?: return Result.success(BaseBaseResponse(code = -101, message = "csrf token is blank"))
             val params = mapOf(

@@ -4,6 +4,7 @@ import com.google.gson.JsonObject
 import com.btelly.model.BaseResponse
 import com.btelly.model.common.CollectionResultModel
 import com.btelly.model.common.GiveCoinResultModel
+import com.btelly.model.common.ArchiveRelationModel
 import com.btelly.model.common.CheckGiveCoinModel
 import com.btelly.model.common.TripleActionResultModel
 import com.btelly.model.user.UserStatModel
@@ -225,6 +226,12 @@ interface ApiService {
         @Query("avid") avid: Long?,
         @Query("bvid") bvid: String?
     ): BaseResponse<Int>
+
+    @GET("x/web-interface/archive/relation")
+    suspend fun getArchiveRelation(
+        @Query("aid") aid: Long?,
+        @Query("bvid") bvid: String?
+    ): BaseResponse<ArchiveRelationModel>
 
     @POST("x/web-interface/coin/add")
     @FormUrlEncoded

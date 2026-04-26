@@ -1,6 +1,7 @@
 package com.btelly.repository
 
 import com.btelly.model.BaseResponse
+import com.btelly.model.common.ArchiveRelationModel
 import com.btelly.model.common.CheckGiveCoinModel
 import com.btelly.model.common.GiveCoinResultModel
 import com.btelly.model.common.TripleActionResultModel
@@ -49,6 +50,10 @@ class VideoRepository(
 
     suspend fun hasLike(avid: Long?, bvid: String?): BaseResponse<Int> {
         return delegate.hasLike(avid, bvid).getOrThrow()
+    }
+
+    suspend fun getArchiveRelation(aid: Long?, bvid: String?): BaseResponse<ArchiveRelationModel> {
+        return delegate.getArchiveRelation(aid, bvid).getOrThrow()
     }
 
     suspend fun giveCoin(
