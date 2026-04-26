@@ -6,10 +6,9 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.graphics.drawable.DrawableCompat
-import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
+import com.btelly.core.ui.base.BaseVideoAdapter
 import com.btelly.databinding.CellMovieBinding
 import com.btelly.model.lane.LaneItemModel
 import com.btelly.core.ui.image.ImageLoader
@@ -17,33 +16,43 @@ import com.btelly.core.ui.focus.VideoCardFocusHelper
 
 class LaneItemAdapter(
     private val onItemClick: (LaneItemModel) -> Unit = {},
-    private val onItemFocused: ((View) -> Unit)? = null,
-    private val onBottomEdgeDown: (() -> Boolean)? = null
-) : ListAdapter<LaneItemModel, LaneItemAdapter.LaneItemViewHolder>(LaneItemDiffCallback) {
+    private val onItemFocusedView: ((View) -> Unit)? = null,
+    private val onEdgeBottomDown: (() -> Boolean)? = null
+) : BaseVideoAdapter<LaneItemModel, LaneItemAdapter.LaneItemViewHolder>() {
 
     init {
         setHasStableIds(true)
+        setShowLoadMore(false)
     }
 
-    fun setData(newItems: List<LaneItemModel>) {
-        submitList(newItems.toList())
+    override fun itemKey(item: LaneItemModel): String {
+        return when {
+            item.seasonId > 0L -> "season:${item.seasonId}"
+            item.oid > 0L -> "oid:${item.oid}"
+            item.linkValue != 0 -> "link:${item.linkType}:${item.linkValue}"
+            item.link.isNotBlank() -> "url:${item.link}"
+            item.cover.isNotBlank() && item.title.isNotBlank() -> "cover:${item.cover}|title:${item.title}"
+            else -> "title:${item.title}|subtitle:${item.subTitle}"
+        }
     }
+
+    override fun areContentsSame(old: LaneItemModel, new: LaneItemModel): Boolean = old == new
+
 
     fun requestFirstItemFocus(recyclerView: RecyclerView): Boolean {
         val holder = recyclerView.findViewHolderForAdapterPosition(0) as? LaneItemViewHolder
         return holder?.requestFocus() == true
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): LaneItemViewHolder {
+    override fun onCreateContentViewHolder(parent: ViewGroup, viewType: Int): LaneItemViewHolder {
         val binding = CellMovieBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        return LaneItemViewHolder(binding, onItemClick, onItemFocused, onBottomEdgeDown)
+        return LaneItemViewHolder(binding, onItemClick, onItemFocusedView, onEdgeBottomDown)
     }
 
-    override fun onBindViewHolder(holder: LaneItemViewHolder, position: Int) {
-        holder.bind(getItem(position))
+    override fun onBindContentViewHolder(holder: LaneItemViewHolder, position: Int) {
+        val item = getItem(position) ?: return
+        holder.bind(item)
     }
-
-    override fun getItemId(position: Int): Long = getItem(position).stableItemId()
 
     override fun onViewRecycled(holder: LaneItemViewHolder) {
         holder.clearFocusState()
@@ -135,29 +144,4 @@ class LaneItemAdapter(
             }
         }
     }
-
-    private companion object {
-        val LaneItemDiffCallback = object : DiffUtil.ItemCallback<LaneItemModel>() {
-            override fun areItemsTheSame(oldItem: LaneItemModel, newItem: LaneItemModel): Boolean {
-                return oldItem.diffKey() == newItem.diffKey()
-            }
-
-            override fun areContentsTheSame(oldItem: LaneItemModel, newItem: LaneItemModel): Boolean {
-                return oldItem == newItem
-            }
-        }
-    }
 }
-
-private fun LaneItemModel.diffKey(): String {
-    return when {
-        seasonId > 0L -> "season:$seasonId"
-        oid > 0L -> "oid:$oid"
-        linkValue != 0 -> "link:$linkType:$linkValue"
-        link.isNotBlank() -> "url:$link"
-        cover.isNotBlank() && title.isNotBlank() -> "cover:$cover|title:$title"
-        else -> "title:$title|subtitle:$subTitle"
-    }
-}
-
-private fun LaneItemModel.stableItemId(): Long = diffKey().hashCode().toLong()
