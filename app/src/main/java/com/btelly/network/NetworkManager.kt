@@ -10,6 +10,7 @@ import com.btelly.network.http.NetworkClientFactory
 import com.btelly.network.response.Base2Response
 import com.btelly.network.response.BaseBaseResponse
 import com.btelly.network.security.BiliSecurityCoordinator
+import com.btelly.network.session.AuthContext
 import com.btelly.network.session.NetworkSessionStore
 import com.btelly.network.ua.DesktopUserAgentStore
 import com.btelly.core.common.log.AppLog
@@ -98,6 +99,7 @@ object NetworkManager {
         BiliSecurityCoordinator(
             tag = TAG,
             apiService = apiService,
+            noCookieApiService = noCookieApiService,
             okHttpClient = internalOkHttpClient,
             cookieManager = internalCookieManager,
             userAgentProvider = { currentUserAgentValue },
@@ -243,11 +245,12 @@ object NetworkManager {
 
     fun syncUserSession(
         response: BaseResponse<UserDetailInfoModel>,
-        source: String
+        source: String,
+        context: AuthContext = AuthContext.FOREGROUND
     ): UserDetailInfoModel? {
-        val info = sessionStore.syncUserSession(response) {
+        val info = sessionStore.syncUserSession(response, context) {
             resetSessionLifecycleState(
-                clearCookies = true,
+                clearCookies = context.shouldClearSession,
                 reason = "$source code=${response.code}"
             )
         }
@@ -268,11 +271,12 @@ object NetworkManager {
 
     fun <T> syncAuthState(
         response: BaseResponse<T>,
-        source: String
+        source: String,
+        context: AuthContext = AuthContext.FOREGROUND
     ): BaseResponse<T> {
-        return sessionStore.syncAuthState(response) {
+        return sessionStore.syncAuthState(response, context) {
             resetSessionLifecycleState(
-                clearCookies = true,
+                clearCookies = context.shouldClearSession,
                 reason = "$source code=${response.code}"
             )
         }
@@ -280,11 +284,12 @@ object NetworkManager {
 
     fun syncAuthState(
         response: BaseBaseResponse,
-        source: String
+        source: String,
+        context: AuthContext = AuthContext.FOREGROUND
     ): BaseBaseResponse {
-        return sessionStore.syncAuthState(response) {
+        return sessionStore.syncAuthState(response, context) {
             resetSessionLifecycleState(
-                clearCookies = true,
+                clearCookies = context.shouldClearSession,
                 reason = "$source code=${response.code}"
             )
         }
@@ -292,11 +297,12 @@ object NetworkManager {
 
     fun <T> syncAuthState(
         response: Base2Response<T>,
-        source: String
+        source: String,
+        context: AuthContext = AuthContext.FOREGROUND
     ): Base2Response<T> {
-        return sessionStore.syncAuthState(response) {
+        return sessionStore.syncAuthState(response, context) {
             resetSessionLifecycleState(
-                clearCookies = true,
+                clearCookies = context.shouldClearSession,
                 reason = "$source code=${response.code}"
             )
         }
