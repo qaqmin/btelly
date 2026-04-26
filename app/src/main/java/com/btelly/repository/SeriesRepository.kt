@@ -1,5 +1,6 @@
 package com.btelly.repository
 
+import com.btelly.model.series.CheckUserSeriesResult
 import com.btelly.model.series.FollowSeriesResult
 import com.btelly.model.series.RelatedRecommendResult
 import com.btelly.repository.remote.SeriesRepository as NetworkSeriesRepository
@@ -9,6 +10,9 @@ class SeriesRepository(
 ) {
     suspend fun getSeriesDetail(seasonId: Long, epId: Long = 0) =
         delegate.getSeriesDetail(seasonId, epId)
+
+    suspend fun checkUserFollowStatus(seasonId: Long, epId: Long = 0): Result<CheckUserSeriesResult> =
+        delegate.checkUserFollowStatus(seasonId, epId)
 
     suspend fun followSeries(seasonId: Long): Result<FollowSeriesResult> =
         delegate.followSeries(seasonId)
