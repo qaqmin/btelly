@@ -36,6 +36,7 @@ import com.btelly.feature.me.MeListViewModel
 import com.btelly.feature.me.MeViewModel
 import com.btelly.feature.search.SearchViewModel
 import com.btelly.feature.player.LivePlayerViewModel
+import com.btelly.feature.player.danmaku.LiveDanmakuManager
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.feature.player.VideoPlayerViewModel
 import com.btelly.feature.series.SeriesDetailViewModel
@@ -97,7 +98,7 @@ val viewModelModule = module {
     viewModel { MeListViewModel(get()) }
     viewModel { MeViewModel(get(), get()) }
     viewModel { SearchViewModel(get()) }
-    viewModel { LivePlayerViewModel(get()) }
+    viewModel { LivePlayerViewModel(get(), LiveDanmakuManager(get(), get(), get())) }
     viewModel { SeriesDetailViewModel(get(), get()) }
 }
 
