@@ -11,12 +11,13 @@ import com.btelly.core.navigation.VideoRouteNavigator
 import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.core.ui.focus.tv.TvDataChangeReason
 import com.btelly.model.video.VideoModel
+import com.btelly.ui.activity.MainActivity
 import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage {
+abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, MainActivity.OnVideoBlockedListener {
 
     protected abstract val feedViewModel: VideoFeedViewModel
     protected abstract val secondaryTabPosition: Int
@@ -266,5 +267,9 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage {
                 video
             )
         )
+    }
+
+    override fun onVideoBlocked(aid: Long, bvid: String) {
+        (adapter as? VideoAdapter)?.removeByVideoId(aid, bvid)
     }
 }
