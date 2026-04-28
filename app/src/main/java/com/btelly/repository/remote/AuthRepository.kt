@@ -3,6 +3,7 @@ package com.btelly.repository.remote
 import com.btelly.model.BaseResponse
 import com.btelly.model.user.ScanQrModel
 import com.btelly.model.user.SignInResultModel
+import com.btelly.model.user.SsoListModel
 import com.btelly.network.api.ApiService
 import com.btelly.network.session.NetworkSessionGateway
 
@@ -16,8 +17,18 @@ class AuthRepository(
             apiService.getSignInQrCode()
         }
 
-    suspend fun checkSignInResult(qrcodeKey: String): Result<BaseResponse<SignInResultModel>> =
+    suspend fun checkSignInResult(qrcodeKey: String, bRet: String): Result<BaseResponse<SignInResultModel>> =
         runCatching {
-            apiService.checkSignInResult(qrcodeKey)
+            apiService.checkSignInResult(qrcodeKey, bRet = bRet)
+        }
+
+    suspend fun getSsoList(csrf: String): Result<BaseResponse<SsoListModel>> =
+        runCatching {
+            apiService.getSsoList(csrf)
+        }
+
+    suspend fun setSso(url: String, bRet: String): Result<BaseResponse<Any>> =
+        runCatching {
+            apiService.setSso(url, bRet = bRet)
         }
 }
