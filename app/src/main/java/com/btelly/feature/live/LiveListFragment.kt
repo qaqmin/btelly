@@ -13,11 +13,13 @@ import com.btelly.databinding.FragmentLiveListBinding
 import com.btelly.model.live.LiveRoomItem
 import com.btelly.ui.activity.LivePlayerActivity
 import com.btelly.core.ui.base.BaseFragment
+import com.btelly.feature.settings.SignInFragment
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.ui.navigation.navigateBackFromUi
 import com.btelly.core.ui.refresh.SwipeRefreshHelper
 import com.btelly.core.common.ext.toast
+import com.btelly.network.session.NetworkSessionGateway
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
@@ -25,6 +27,7 @@ import org.koin.androidx.viewmodel.ext.android.viewModel
 class LiveListFragment : BaseFragment<FragmentLiveListBinding>(), LiveTabPage {
 
     private val viewModel: LiveListViewModel by viewModel()
+    private val sessionGateway: NetworkSessionGateway by org.koin.android.ext.android.inject()
     private lateinit var adapter: LiveRoomAdapter
     private var swipeRefreshLayout: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null
     private var areaId: Long = 0
@@ -103,6 +106,18 @@ class LiveListFragment : BaseFragment<FragmentLiveListBinding>(), LiveTabPage {
     }
 
     override fun initData() {
+        if (!sessionGateway.isLoggedIn()) {
+            binding.emptyContainer.visibility = View.VISIBLE
+            binding.recyclerView.visibility = View.GONE
+            binding.progressBar.visibility = View.GONE
+            binding.tvEmpty.text = getString(R.string.need_sign_in)
+            binding.btnRetry.text = "登录"
+            binding.btnRetry.setOnClickListener {
+                openInHostContainer(SignInFragment.newInstance())
+            }
+            binding.btnRetry.visibility = View.VISIBLE
+            return
+        }
         viewModel.startArea(parentAreaId, areaId)
     }
 
