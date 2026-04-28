@@ -29,6 +29,7 @@ import com.btelly.model.search.SearchCategoryItem
 import com.btelly.model.search.SearchType
 import com.btelly.model.search.SearchVideoOrder
 import com.btelly.ui.activity.LivePlayerActivity
+import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.ui.fragment.main.MainTabFocusTarget
 import com.btelly.feature.detail.UserSpaceFragment
@@ -374,12 +375,22 @@ class SearchNewFragment :
         }
 
         currentKeyword = normalized
-        pendingHistoryKeyword = normalized
+        pendingHistoryKeyword = null
         pendingResultFocus = true
         updateEditText(normalized, triggerSuggest = false)
         binding.textResultKeyword.text = normalized
         showResultPanel()
         resultPagerAdapter.clearResults()
+
+        if (ContentFilter.isSearchKeywordBlocked(requireContext(), normalized)) {
+            resultPagerAdapter.setPages(emptyList())
+            binding.tabSearchResult.isVisible = false
+            binding.viewPagerResult.isVisible = false
+            binding.textSearchEmpty.isVisible = true
+            return
+        }
+
+        pendingHistoryKeyword = normalized
         viewModel.searchAll(normalized)
     }
 
