@@ -35,6 +35,7 @@ import com.btelly.ui.fragment.main.MainTabFocusTarget
 import com.btelly.feature.search.SearchNewFragment
 import com.btelly.feature.settings.SettingsFragment
 import com.btelly.feature.settings.SignInFragment
+import com.btelly.ui.dialog.UsageTipDialog
 import com.btelly.ui.dialog.UserInfoDialog
 import com.btelly.feature.player.PlayerInstancePool
 import com.btelly.feature.player.PlayerLaunchContext
@@ -159,6 +160,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         binding.root.post {
             AppLog.i(STARTUP_TAG, "MainActivity first root post elapsed=${SystemClock.elapsedRealtime() - activityCreateStartMs}ms")
             dismissSplash()
+            showUsageTipIfNeeded()
         }
         AppLog.i(STARTUP_TAG, "MainActivity.initData end elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
     }
@@ -571,6 +573,14 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
             return
         }
         UserInfoDialog(this).show()
+    }
+
+    private fun showUsageTipIfNeeded() {
+        if (restoredFromSavedState) return
+        if (appSettings.getCachedBoolean("usage_tip_shown")) return
+        if (isFinishing || isDestroyed) return
+        appSettings.putBooleanAsync("usage_tip_shown", true)
+        UsageTipDialog(this).show()
     }
 
     private fun dispatchVideoBlockedEventToCurrentFragment(event: AppEventHub.Event.VideoBlockedByMinorProtection) {
