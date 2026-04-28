@@ -16,6 +16,10 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.btelly.feature.player.extractor.FlvHevcExtractor
+import androidx.media3.extractor.ExtractorsFactory
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.flv.FlvExtractor
 import com.btelly.core.common.log.AppLog
 import com.btelly.databinding.FragmentLivePlayerBinding
 import com.btelly.core.ui.navigation.navigateBackFromUi
@@ -135,8 +139,13 @@ class LivePlayerFragment : Fragment() {
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setBufferDurationsMs(5_000, 50_000, 600, 1200)
             .build()
+        val extractorsFactory = ExtractorsFactory {
+            DefaultExtractorsFactory().createExtractors().map { extractor ->
+                if (extractor is FlvExtractor) FlvHevcExtractor() else extractor
+            }.toTypedArray()
+        }
         player = ExoPlayer.Builder(requireContext())
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory))
             .setLoadControl(loadControl)
             .build()
             .also {
