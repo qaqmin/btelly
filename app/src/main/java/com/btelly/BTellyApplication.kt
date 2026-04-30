@@ -5,6 +5,7 @@ import android.os.SystemClock
 import com.bumptech.glide.Glide
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.settings.AppSettingsDataStore
+import com.btelly.core.lifecycle.AppBackgroundMonitor
 import com.btelly.di.appModules
 import com.btelly.feature.home.RecommendFeedRepository
 import com.btelly.feature.player.PlayerInstancePool
@@ -42,6 +43,7 @@ class BTellyApplication : Application() {
         trace("initKoin", startMs) { initKoin() }
         trace("initSettings", startMs) { initSettings() }
         trace("initNetwork", startMs) { initNetwork() }
+        trace("initBackgroundMonitor", startMs) { AppBackgroundMonitor.init(this) }
         AppLog.i(TAG, "Application.onCreate end elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
     }
 
