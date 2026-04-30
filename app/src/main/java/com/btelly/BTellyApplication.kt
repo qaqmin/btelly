@@ -73,6 +73,10 @@ class BTellyApplication : Application() {
                 TAG,
                 "syncCookiesFromWebView end step=${SystemClock.elapsedRealtime() - cookieSyncStartMs}ms"
             )
+            if (NetworkManager.isLoggedIn()) {
+                KoinPlatform.getKoin().get<com.btelly.event.AppEventHub>()
+                    .dispatch(com.btelly.event.AppEventHub.Event.UserSessionChanged)
+            }
         }
     }
 
