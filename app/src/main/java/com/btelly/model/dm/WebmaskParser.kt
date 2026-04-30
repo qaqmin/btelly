@@ -2,7 +2,7 @@ package com.btelly.model.dm
 
 import android.graphics.Path
 import android.util.Base64
-import com.btelly.core.common.util.AppLog
+import com.btelly.core.common.log.AppLog
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder

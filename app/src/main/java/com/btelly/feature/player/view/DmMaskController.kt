@@ -6,7 +6,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import com.kuaishou.akdanmaku.ui.DanmakuView
-import com.btelly.core.common.util.AppLog
+import com.btelly.core.common.log.AppLog
 import com.btelly.model.dm.DmMaskRepository
 import com.btelly.model.dm.MaskFrame
 

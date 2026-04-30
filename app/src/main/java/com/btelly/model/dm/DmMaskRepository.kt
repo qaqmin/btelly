@@ -1,7 +1,7 @@
 package com.btelly.model.dm
 
 import android.util.LruCache
-import com.btelly.core.common.util.AppLog
+import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
