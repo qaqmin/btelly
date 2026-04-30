@@ -1,6 +1,7 @@
 package com.btelly.model.search
 
 import androidx.annotation.StringRes
+import androidx.core.text.HtmlCompat
 import com.google.gson.annotations.SerializedName
 import com.btelly.R
 import com.btelly.model.user.OfficialVerifySimple
@@ -138,7 +139,7 @@ data class SearchItemModel(
     val decodedTitle: String
         get() = _decodedTitle ?: run {
             val result = if (title.contains('<') || title.contains('&')) {
-                android.text.Html.fromHtml(title, android.text.Html.FROM_HTML_MODE_LEGACY).toString()
+                HtmlCompat.fromHtml(title, HtmlCompat.FROM_HTML_MODE_LEGACY).toString()
             } else {
                 title
             }

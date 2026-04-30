@@ -20,6 +20,7 @@ import com.btelly.feature.player.extractor.FlvHevcExtractor
 import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.flv.FlvExtractor
+import com.btelly.R
 import com.btelly.core.common.log.AppLog
 import com.btelly.databinding.FragmentLivePlayerBinding
 import com.btelly.core.ui.navigation.navigateBackFromUi
@@ -83,7 +84,7 @@ class LivePlayerFragment : Fragment() {
                     isRetrying = false
                 }
             } else {
-                binding.textError.text = "${error.message}\n已重试 $MAX_RETRY_COUNT 次，请手动刷新"
+                binding.textError.text = getString(R.string.live_retry_failed_format, error.message, MAX_RETRY_COUNT)
                 binding.textError.visibility = View.VISIBLE
             }
             syncPlaybackEnvironment()
