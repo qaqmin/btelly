@@ -1,3 +1,5 @@
+@file:Suppress("SpellCheckingInspection")
+
 package com.btelly.feature.dynamic
 
 import android.view.KeyEvent

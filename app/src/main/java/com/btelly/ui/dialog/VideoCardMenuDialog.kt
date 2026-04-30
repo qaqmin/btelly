@@ -1,3 +1,5 @@
+@file:Suppress("SpellCheckingInspection")
+
 package com.btelly.ui.dialog
 
 import android.content.Context
@@ -20,7 +22,6 @@ import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.FavoriteRepository
 import com.btelly.repository.VideoRepository
 import com.btelly.core.navigation.VideoRouteNavigator
-import com.btelly.ui.activity.PlayerActivity
 import com.btelly.ui.adapter.FavoriteFolderDialogAdapter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

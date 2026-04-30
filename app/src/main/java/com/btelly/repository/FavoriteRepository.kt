@@ -5,8 +5,6 @@ import com.btelly.repository.remote.FavoriteRepository as NetworkFavoriteReposit
 class FavoriteRepository(
     private val delegate: NetworkFavoriteRepository
 ) {
-    suspend fun checkFavorite(aid: Long?) = delegate.checkFavorite(aid)
-
     suspend fun getFavoriteFolders(upMid: Long, rid: Long? = null) = delegate.getFavoriteFolders(upMid, rid)
 
     suspend fun getFavoriteFolderInfo(mediaId: Long) = delegate.getFavoriteFolderInfo(mediaId)
