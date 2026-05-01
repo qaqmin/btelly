@@ -16,6 +16,7 @@ import com.btelly.R
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.ui.focus.VideoCardFocusHelper
+import com.btelly.core.ui.focus.tv.TvFocusableAdapter
 import com.btelly.databinding.CellVideoBinding
 import com.btelly.model.live.LiveRoomItem
 import com.btelly.model.video.Owner
@@ -25,7 +26,15 @@ import com.btelly.ui.dialog.VideoCardMenuDialog
 class LiveRoomAdapter(
     private val onItemClick: (LiveRoomItem) -> Unit,
     private val onTopEdgeUp: (() -> Boolean)? = null
-) : ListAdapter<LiveRoomItem, LiveRoomAdapter.ViewHolder>(DiffCallback) {
+) : ListAdapter<LiveRoomItem, LiveRoomAdapter.ViewHolder>(DiffCallback), TvFocusableAdapter {
+
+    override fun focusableItemCount(): Int = itemCount
+
+    override fun stableKeyAt(position: Int): String? = getItem(position)?.roomId?.toString()
+
+    override fun findPositionByStableKey(key: String): Int =
+        currentList.indexOfFirst { it.roomId.toString() == key }
+            .takeIf { it >= 0 } ?: RecyclerView.NO_POSITION
 
     fun setData(list: List<LiveRoomItem>) {
         submitList(list)
