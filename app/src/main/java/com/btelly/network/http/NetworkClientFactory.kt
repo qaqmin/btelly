@@ -7,8 +7,8 @@ import com.google.gson.FieldAttributes
 import com.btelly.BuildConfig
 import com.btelly.model.adapter.FlexibleIntAdapter
 import com.btelly.model.adapter.FlexibleLongAdapter
+import com.btelly.network.interceptor.DeflateInterceptor
 import com.btelly.network.interceptor.HeaderInterceptor
-import com.btelly.network.interceptor.HttpCacheInterceptor
 import com.btelly.network.cookie.CookieManager
 import java.io.File
 import java.net.Inet4Address
@@ -42,7 +42,7 @@ object NetworkClientFactory {
                     acceptLanguageProvider = acceptLanguageProvider
                 )
             )
-            .addInterceptor(HttpCacheInterceptor())
+            .addInterceptor(DeflateInterceptor())
             .connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
             .retryOnConnectionFailure(true)
             .connectTimeout(10, TimeUnit.SECONDS)

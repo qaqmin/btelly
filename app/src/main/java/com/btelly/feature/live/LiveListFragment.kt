@@ -13,6 +13,7 @@ import com.btelly.databinding.FragmentLiveListBinding
 import com.btelly.model.live.LiveRoomItem
 import com.btelly.ui.activity.LivePlayerActivity
 import com.btelly.core.ui.base.BaseFragment
+import com.btelly.core.ui.image.ImageLoader
 import com.btelly.feature.settings.SignInFragment
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.common.content.ContentFilter
@@ -44,6 +45,7 @@ class LiveListFragment : BaseFragment<FragmentLiveListBinding>(), LiveTabPage {
         private const val ARG_AREA_ID = "area_id"
         private const val ARG_PARENT_AREA_ID = "parent_area_id"
         private const val ARG_TITLE = "title"
+        private const val PREFETCH_COVER_COUNT = 8
 
         fun newAreaInstance(areaId: Long, parentAreaId: Long, title: String): LiveListFragment {
             return LiveListFragment().apply {
@@ -140,6 +142,12 @@ class LiveListFragment : BaseFragment<FragmentLiveListBinding>(), LiveTabPage {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.rooms.collectLatest { rawRooms ->
                     val rooms = ContentFilter.filterLiveRooms(requireContext(), rawRooms)
+                    if (rooms.isNotEmpty()) {
+                        ImageLoader.prefetchVideoCovers(
+                            requireContext(),
+                            rooms.asSequence().take(PREFETCH_COVER_COUNT).map { it.cover }.toList()
+                        )
+                    }
                     swipeRefreshLayout?.isRefreshing = false
                     adapter.setData(rooms)
                     if (isFirstPageLoad && rooms.isNotEmpty()) {

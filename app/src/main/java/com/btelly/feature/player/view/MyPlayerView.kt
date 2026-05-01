@@ -36,6 +36,7 @@ import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.kuaishou.akdanmaku.ui.DanmakuView
 import com.btelly.R
+import com.btelly.core.ui.image.ImageLoader
 import com.btelly.model.dm.DmMaskRepository
 import com.btelly.model.dm.DmModel
 import com.btelly.model.dm.SpecialDanmakuModel
@@ -312,7 +313,7 @@ class MyPlayerView @JvmOverloads constructor(
         contentFrame = findViewById(R.id.exo_content_frame)
         shutterView = findViewById(R.id.exo_shutter)
         bufferingView = findViewById<ImageView>(R.id.exo_buffering).also {
-            com.bumptech.glide.Glide.with(context).load(R.drawable.load_data).into(it)
+            ImageLoader.loadDrawableRes(it, R.drawable.load_data)
         }
         errorMessageView = findViewById(R.id.exo_error_message)
         dmkView = findViewById(R.id.dmk_view)
