@@ -1,6 +1,5 @@
 package com.btelly.model.player
 
-import com.btelly.model.interaction.InteractionInfo
 import com.google.gson.JsonElement
 import com.google.gson.annotations.SerializedName
 
@@ -60,10 +59,7 @@ data class PlayInfoModel(
     val lastPlayCid: Long = 0,
 
     @SerializedName("v_voucher")
-    val vVoucher: String = "",
-
-    @SerializedName("interaction")
-    val interaction: InteractionInfo? = null
+    val vVoucher: String = ""
 )
 
 data class Dash(
