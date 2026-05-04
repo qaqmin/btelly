@@ -4,8 +4,8 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:paddingTop="@dimen/px8"
-    android:paddingBottom="@dimen/px8">
+    android:paddingTop="@dimen/px2"
+    android:paddingBottom="@dimen/px2">
 
     <androidx.appcompat.widget.LinearLayoutCompat
         android:id="@+id/click_view"
@@ -17,12 +17,12 @@
         android:clickable="true"
         android:focusable="true"
         android:gravity="center_vertical"
-        android:minHeight="@dimen/px80"
+        android:minHeight="@dimen/px64"
         android:orientation="horizontal"
         android:paddingStart="@dimen/px50"
-        android:paddingTop="@dimen/px22"
+        android:paddingTop="@dimen/px14"
         android:paddingEnd="@dimen/px50"
-        android:paddingBottom="@dimen/px22">
+        android:paddingBottom="@dimen/px14">
 
         <androidx.appcompat.widget.AppCompatTextView
             android:id="@+id/tvTitle"
