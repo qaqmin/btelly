@@ -40,7 +40,8 @@ class BTellyApplication : Application() {
         AppLog.i(TAG, "Application.onCreate start")
         super.onCreate()
         instance = this
-        
+        AppLog.init(this)
+
         trace("initKoin", startMs) { initKoin() }
         trace("initSettings", startMs) { initSettings() }
         trace("initNetwork", startMs) { initNetwork() }

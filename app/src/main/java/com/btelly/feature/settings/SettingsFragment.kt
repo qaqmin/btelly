@@ -34,8 +34,10 @@ import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.ui.navigation.navigateBackFromUi
 import com.btelly.feature.player.cache.PlayerMediaCache
+import com.btelly.feature.player.sponsor.SponsorBlockRepository
 import com.btelly.core.common.ext.normalizeDanmakuSmartFilterValue
 import com.btelly.network.cookie.CookieManager
+import com.btelly.ui.activity.MainActivity
 import com.btelly.ui.activity.GaiaVgateActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -203,7 +205,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.show_dm_switch), "关"),
             SettingModel(getString(R.string.ipv4_only), "开"),
             SettingModel(getString(R.string.resume_playback), "开"),
-            SettingModel("空降助手", "关")
+            SettingModel("空降助手", "开")
         )
 
         dmSettings = mutableListOf(
@@ -229,6 +231,10 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         deviceSettings.add(SettingModel("CPU架构", Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown"))
         deviceSettings.add(SettingModel("屏幕分辨率", "${resources.displayMetrics.widthPixels}x${resources.displayMetrics.heightPixels}"))
         deviceSettings.add(SettingModel("硬解支持", ""))
+
+        if (BuildConfig.DEBUG) {
+            commonSettings.add(SettingModel("调试日志", ""))
+        }
 
         restoreSavedSettings()
         updateCacheSizeAsync()
@@ -341,6 +347,12 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
                 }
             }
             COMMON_POSITION_RISK_CONTROL -> showRiskControlDialog()
+            commonSettings.lastIndex -> {
+                if (BuildConfig.DEBUG && item.title == "调试日志") {
+                    val activity = activity as? MainActivity
+                    activity?.openOverlayFragment(DebugLogFragment.newInstance(), "debug_log")
+                }
+            }
         }
     }
 
@@ -362,7 +374,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             13 -> toggleSetting(playerSettings, 13, KEY_SHOW_DM_SWITCH)
             14 -> toggleSetting(playerSettings, 14, KEY_IPV4_ONLY)
             15 -> toggleSetting(playerSettings, 15, KEY_RESUME_PLAYBACK)
-            16 -> toggleSetting(playerSettings, 16, KEY_SPONSOR_BLOCK_ENABLED)
+            16 -> toggleSponsorBlock()
         }
     }
 
@@ -1029,6 +1041,36 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         updateSetting(target, position, newValue)
         persist(newValue)
         Toast.makeText(requireContext(), "${setting.title}：$newValue", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun toggleSponsorBlock() {
+        val setting = playerSettings.getOrNull(16) ?: return
+        val currentValue = setting.info
+        val newValue = if (currentValue == "开") "关" else "开"
+        updateSetting(playerSettings, 16, newValue)
+        appSettings.putStringAsync(KEY_SPONSOR_BLOCK_ENABLED, newValue)
+
+        if (newValue == "关") {
+            Toast.makeText(requireContext(), "空降助手：关", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        Toast.makeText(requireContext(), "空降助手：开，正在测试…", Toast.LENGTH_SHORT).show()
+        updateScope.launch {
+            val connError = SponsorBlockRepository.testConnection()
+            withContext(Dispatchers.Main) {
+                if (!isAdded) return@withContext
+                if (connError != null) {
+                    Toast.makeText(requireContext(), connError, Toast.LENGTH_LONG).show()
+                    return@withContext
+                }
+            }
+            val fetchResult = SponsorBlockRepository.testFetch()
+            withContext(Dispatchers.Main) {
+                if (!isAdded) return@withContext
+                Toast.makeText(requireContext(), fetchResult, Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun getRiskControlStatus(): String {

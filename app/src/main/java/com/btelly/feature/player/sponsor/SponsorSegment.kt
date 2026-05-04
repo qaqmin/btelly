@@ -5,6 +5,7 @@ data class SponsorSegment(
     val UUID: String = "",
     val category: String = "",
     val actionType: String = "skip",
+    val cid: String = "",
     val locked: Int = 0,
     val votes: Int = 0,
     val videoDuration: Float = 0f
@@ -14,23 +15,41 @@ data class SponsorSegment(
     val isSkipType: Boolean get() = actionType == "skip"
 
     fun categoryName(): String = when (category) {
-        CATEGORY_SPONSOR -> "恰饭片段"
-        CATEGORY_INTRO -> "开场动画"
-        CATEGORY_OUTRO -> "片尾动画"
+        CATEGORY_SPONSOR -> "赞助/恰饭"
+        CATEGORY_INTRO -> "过场/开场动画"
+        CATEGORY_OUTRO -> "鸣谢/结束画面"
+        CATEGORY_SELF_PROMO -> "无偿/自我推广"
+        CATEGORY_INTERACTION -> "三连/互动提醒"
+        CATEGORY_PREVIEW -> "回顾/概要"
+        CATEGORY_MUSIC_OFFTOPIC -> "音乐:非音乐部分"
+        CATEGORY_POI_HIGHLIGHT -> "精彩时刻/重点"
+        CATEGORY_FILLER -> "离题闲聊/玩笑"
         else -> category
     }
 
     fun categoryColor(): Long = when (category) {
-        CATEGORY_SPONSOR -> 0xFFFFA500
-        CATEGORY_INTRO -> 0xFF42A5F5
-        CATEGORY_OUTRO -> 0xFFAB47BC
-        else -> 0xFFFFA500
+        CATEGORY_SPONSOR -> 0xFF00D400
+        CATEGORY_INTRO -> 0xFF00FFFF
+        CATEGORY_OUTRO -> 0xFF0202ED
+        CATEGORY_SELF_PROMO -> 0xFFFFFF00
+        CATEGORY_INTERACTION -> 0xFFCC00FF
+        CATEGORY_PREVIEW -> 0xFF008FD6
+        CATEGORY_MUSIC_OFFTOPIC -> 0xFFFF9900
+        CATEGORY_POI_HIGHLIGHT -> 0xFFFF1684
+        CATEGORY_FILLER -> 0xFF7300FF
+        else -> 0xFF00D400
     }
 
     companion object {
         const val CATEGORY_SPONSOR = "sponsor"
         const val CATEGORY_INTRO = "intro"
         const val CATEGORY_OUTRO = "outro"
+        const val CATEGORY_SELF_PROMO = "selfpromo"
+        const val CATEGORY_INTERACTION = "interaction"
+        const val CATEGORY_PREVIEW = "preview"
+        const val CATEGORY_MUSIC_OFFTOPIC = "music_offtopic"
+        const val CATEGORY_POI_HIGHLIGHT = "poi_highlight"
+        const val CATEGORY_FILLER = "filler"
         val ALL_CATEGORIES = listOf(CATEGORY_SPONSOR, CATEGORY_INTRO, CATEGORY_OUTRO)
     }
 }

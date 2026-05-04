@@ -105,3 +105,4 @@ PLAN_LISTADAPTER_MIGRATION.md
 PLAN_WITHCONTEXT_CLEANUP.md
 CLAUDE.md
 AGENTS.md
+app/debug/output-metadata.json

@@ -1,14 +1,108 @@
 package com.btelly.core.common.log
 
+import android.content.Context
 import android.util.Log
 import com.btelly.BuildConfig
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 object AppLog {
 
     private const val ENABLE_DEBUG_LOGS = true
+    private const val CRASH_LOG_FILE = "crash_log.txt"
+
+    private lateinit var crashLogFile: File
+
+    data class LogEntry(
+        val timestamp: Long,
+        val level: Int,
+        val tag: String,
+        val message: String
+    ) {
+        companion object {
+            const val LEVEL_VERBOSE = 0
+            const val LEVEL_DEBUG = 1
+            const val LEVEL_INFO = 2
+            const val LEVEL_WARN = 3
+            const val LEVEL_ERROR = 4
+        }
+    }
+
+    object LogBuffer {
+        private const val MAX_SIZE = 2000
+        private val buffer = ArrayDeque<LogEntry>()
+
+        fun add(entry: LogEntry) {
+            synchronized(buffer) {
+                buffer.addLast(entry)
+                while (buffer.size > MAX_SIZE) {
+                    buffer.removeFirst()
+                }
+            }
+        }
+
+        fun getLogs(): List<LogEntry> {
+            synchronized(buffer) {
+                return buffer.toList()
+            }
+        }
+
+        fun clear() {
+            synchronized(buffer) {
+                buffer.clear()
+            }
+        }
+    }
+
+    fun init(context: Context) {
+        if (!BuildConfig.DEBUG) return
+        crashLogFile = File(context.filesDir, CRASH_LOG_FILE)
+        installCrashHandler()
+    }
+
+    fun getCrashLog(): String? {
+        if (!::crashLogFile.isInitialized) return null
+        if (!crashLogFile.exists()) return null
+        return runCatching { crashLogFile.readText() }.getOrNull()
+    }
+
+    fun clearCrashLog() {
+        if (!::crashLogFile.isInitialized) return
+        runCatching { crashLogFile.delete() }
+    }
+
+    private fun installCrashHandler() {
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler() ?: return
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            runCatching {
+                val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
+                val time = timeFormat.format(System.currentTimeMillis())
+                val stackTrace = android.util.Log.getStackTraceString(throwable)
+                val content = buildString {
+                    append("=== CRASH ===\n")
+                    append("Time: $time\n")
+                    append("Thread: ${thread.name}\n")
+                    append("Exception: ${throwable.javaClass.name}: ${throwable.message}\n")
+                    append("Stack:\n")
+                    append(stackTrace)
+                    append("\n")
+                }
+                crashLogFile.writeText(content)
+            }
+            defaultHandler.uncaughtException(thread, throwable)
+        }
+    }
+
+    private fun logToBuffer(level: Int, tag: String, message: String) {
+        if (BuildConfig.DEBUG) {
+            LogBuffer.add(LogEntry(System.currentTimeMillis(), level, tag, message))
+        }
+    }
 
     fun d(tag: String, message: String) {
         if (!BuildConfig.DEBUG || !ENABLE_DEBUG_LOGS) return
+        logToBuffer(LogEntry.LEVEL_DEBUG, tag, message)
         runCatching {
             Log.d(tag, message)
         }
@@ -16,6 +110,7 @@ object AppLog {
 
     fun i(tag: String, message: String) {
         if (!BuildConfig.DEBUG || !ENABLE_DEBUG_LOGS) return
+        logToBuffer(LogEntry.LEVEL_INFO, tag, message)
         runCatching {
             Log.i(tag, message)
         }
@@ -23,6 +118,7 @@ object AppLog {
 
     fun e(tag: String, message: String, throwable: Throwable? = null) {
         if (!BuildConfig.DEBUG) return
+        logToBuffer(LogEntry.LEVEL_ERROR, tag, message)
         runCatching {
             Log.e(tag, message, throwable)
         }
@@ -30,6 +126,7 @@ object AppLog {
 
     fun w(tag: String, message: String, throwable: Throwable? = null) {
         if (!BuildConfig.DEBUG) return
+        logToBuffer(LogEntry.LEVEL_WARN, tag, message)
         runCatching {
             Log.w(tag, message, throwable)
         }
@@ -37,9 +134,9 @@ object AppLog {
 
     fun v(tag: String, message: String) {
         if (!BuildConfig.DEBUG || !ENABLE_DEBUG_LOGS) return
+        logToBuffer(LogEntry.LEVEL_VERBOSE, tag, message)
         runCatching {
             Log.v(tag, message)
         }
     }
 }
-
