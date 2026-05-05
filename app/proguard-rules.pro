@@ -39,6 +39,9 @@
 # Model classes
 -keep class com.btelly.model.** { *; }
 
+# SponsorBlock / 空降助手
+-keep class com.btelly.feature.player.sponsor.** { *; }
+
 # Koin DI
 -keep class com.btelly.di.** { *; }
 -keep class com.btelly.repository.** { *; }
