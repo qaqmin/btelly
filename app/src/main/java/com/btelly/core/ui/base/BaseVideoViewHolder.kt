@@ -1,5 +1,6 @@
 package com.btelly.core.ui.base
 
+import android.app.Activity
 import android.os.Handler
 import android.os.Looper
 import android.view.ViewConfiguration
@@ -13,12 +14,19 @@ abstract class BaseVideoViewHolder(itemView: android.view.View) : RecyclerView.V
 
     protected open fun showCardMenu() {}
 
+    protected fun isActivityAlive(): Boolean {
+        val activity = itemView.context as? Activity ?: return false
+        return !activity.isFinishing && !activity.isDestroyed
+    }
+
     protected fun startLongPress() {
         cancelLongPress()
         longPressTriggered = false
         longPressRunnable = Runnable {
             longPressTriggered = true
-            showCardMenu()
+            if (isActivityAlive()) {
+                showCardMenu()
+            }
         }
         handler.postDelayed(longPressRunnable!!, ViewConfiguration.getLongPressTimeout().toLong())
     }
