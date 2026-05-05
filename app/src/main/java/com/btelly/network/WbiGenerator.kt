@@ -33,7 +33,8 @@ object WbiGenerator {
     fun generateWbiParams(
         params: Map<String, String>,
         imgKey: String,
-        subKey: String
+        subKey: String,
+        includeDmParams: Boolean = true
     ): Map<String, String> {
         if (imgKey.isBlank() || subKey.isBlank()) {
             return params
@@ -51,6 +52,9 @@ object WbiGenerator {
 
         val withWts = params.toMutableMap()
         withWts["wts"] = wts.toString()
+        if (includeDmParams) {
+            withWts.putAll(dmParams)
+        }
 
         val sorted = withWts.entries.sortedBy { it.key }
             .associate { it.key to filterValue(it.value) }
@@ -61,6 +65,9 @@ object WbiGenerator {
         val result = params.toMutableMap()
         result["wts"] = wts.toString()
         result["w_rid"] = wRid
+        if (includeDmParams) {
+            result.putAll(dmParams)
+        }
         return result
     }
 
@@ -114,12 +121,17 @@ object WbiGenerator {
     }
 
     // dm_* anti-bot params from browser capture
-    fun getSpaceDmParams(): Map<String, String> = mapOf(
-        "dm_img_list" to "[]",
-        "dm_img_str" to "V2ViR0wgMS4wIChPcGVuR0wgRVMgMi4wIENocm9taXVtKQ",
-        "dm_cover_img_str" to "QU5HTEUgKEludGVsLCBJbnRlbChSKSBJcmlzKFIpIFhlIEdyYXBoaWNzICgweDAwMDA0NkE2KSBEaXJlY3QzRDExIHZzXzVfMCBwc181XzAsIEQzRDExKUdvb2dsZSBJbmMuIChJbnRlbC",
-        "dm_img_inter" to "{\"ds\":[],\"wh\":[5032,6004,10],\"of\":[425,850,425]}"
-    )
+    private val dmParams: Map<String, String> by lazy {
+        mapOf(
+            "dm_img_list" to "[]",
+            "dm_img_str" to "V2ViR0wgMS4wIChPcGVuR0wgRVMgMi4wIENocm9taXVtKQ",
+            "dm_cover_img_str" to "QU5HTEUgKEludGVsLCBJbnRlbChSKSBJcmlzKFIpIFhlIEdyYXBoaWNzICgweDAwMDA0NkE2KSBEaXJlY3QzRDExIHZzXzVfMCBwc181XzAsIEQzRDExKUdvb2dsZSBJbmMuIChJbnRlbC",
+            "dm_img_inter" to "{\"ds\":[],\"wh\":[5032,6004,10],\"of\":[425,850,425]}"
+        )
+    }
+
+    @Deprecated("dm_* params are now auto-injected by generateWbiParams(includeDmParams = true)")
+    fun getSpaceDmParams(): Map<String, String> = dmParams
 
     fun extractKeyFromUrl(url: String): String {
         val wbiIndex = url.indexOf("wbi/")

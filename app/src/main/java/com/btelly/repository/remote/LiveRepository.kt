@@ -53,26 +53,31 @@ class LiveRepository(
                 throw IllegalStateException("当前直播间未开播")
             }
 
-            val v2Response = apiService.getLiveRoomPlayInfoV2(
-                buildWbiParams(
-                    mapOf(
-                        "room_id" to roomInfo.realRoomId.toString(),
-                        "protocol" to "0,1",
-                        "format" to "0,1,2",
-                        "codec" to "0,1,2",
-                        "qn" to quality.toString(),
-                        "platform" to "web",
-                        "ptype" to "8",
-                        "dolby" to "5",
-                        "panorama" to "1",
-                        "hdr_type" to "0,1,6",
-                        "req_reason" to "0",
-                        "supported_drms" to "0,1,2,3",
-                        "special_scenario" to "2",
-                        "web_location" to WEB_LOCATION_LIVE_HOME
+            val v2Response = sessionGateway.executeWithRiskControlRetry(
+                key = "live_play_$roomId",
+                source = "live.getLivePlayInfo"
+            ) {
+                apiService.getLiveRoomPlayInfoV2(
+                    buildWbiParams(
+                        mapOf(
+                            "room_id" to roomInfo.realRoomId.toString(),
+                            "protocol" to "0,1",
+                            "format" to "0,1,2",
+                            "codec" to "0,1,2",
+                            "qn" to quality.toString(),
+                            "platform" to "web",
+                            "ptype" to "8",
+                            "dolby" to "5",
+                            "panorama" to "1",
+                            "hdr_type" to "0,1,6",
+                            "req_reason" to "0",
+                            "supported_drms" to "0,1,2,3",
+                            "special_scenario" to "2",
+                            "web_location" to WEB_LOCATION_LIVE_HOME
+                        )
                     )
                 )
-            )
+            }
             if (v2Response.code == 0 && v2Response.data != null) {
                 val liveTime = v2Response.data.long("live_time")?.toString()
                     ?: roomInfo.liveTime
@@ -450,7 +455,7 @@ class LiveRepository(
                 .onFailure { AppLog.w(TAG, "buildWbiParams ensureWbiKeys failed: ${it.message}") }
         }
         val (imgKey, subKey) = sessionGateway.getWbiKeys()
-        return WbiGenerator.generateWbiParams(params, imgKey, subKey)
+        return WbiGenerator.generateWbiParams(params, imgKey, subKey, includeDmParams = false)
     }
 
     private suspend fun buildLiveHeartbeatInitParams(roomInfo: ResolvedRoomInfo): Map<String, String> {

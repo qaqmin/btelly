@@ -15,13 +15,15 @@ import com.btelly.model.series.SeriesType
 import com.btelly.model.series.timeline.SeriesTimeLineModel
 import com.btelly.model.series.timeline.TimeLineADayModel
 import com.btelly.network.api.ApiService
+import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.UserRepository
 import com.btelly.core.common.log.AppLog
 
 class HomeLaneRepository(
     private val apiService: ApiService,
     private val seriesRepository: SeriesRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val sessionGateway: NetworkSessionGateway
 ) {
 
     companion object {
@@ -117,16 +119,20 @@ class HomeLaneRepository(
         isRefresh: Boolean
     ): HomeLanePage {
         val apiRefresh = if (isRefresh) 0 else 1
-        val response = when (type) {
-            TYPE_CINEMA -> apiService.getCinema(
-                isRefresh = apiRefresh,
-                cursor = cursor
-            )
-
-            else -> apiService.getAnimations(
-                isRefresh = apiRefresh,
-                cursor = cursor
-            )
+        val response = sessionGateway.executeWithRiskControlRetry(
+            key = "home_lane_$type",
+            source = "homeLane.fetchLegacy"
+        ) {
+            when (type) {
+                TYPE_CINEMA -> apiService.getCinema(
+                    isRefresh = apiRefresh,
+                    cursor = cursor
+                )
+                else -> apiService.getAnimations(
+                    isRefresh = apiRefresh,
+                    cursor = cursor
+                )
+            }
         }
 
         if (response.code != 0 || response.data == null) {

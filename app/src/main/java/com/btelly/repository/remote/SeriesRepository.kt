@@ -19,11 +19,19 @@ class SeriesRepository(
     suspend fun getSeriesDetail(seasonId: Long, epId: Long = 0): Result<EpisodesDetailModel> {
         return runCatching {
             securityGateway.ensureHealthyForPlay()
-            val response = apiService.getVideoEpisodes(
-                if (seasonId > 0) seasonId else null,
-                if (epId > 0) epId else null
-            ).let {
-                sessionGateway.syncAuthState(it, source = "series.getSeriesDetail")
+            val response = sessionGateway.retryOnRiskControl(
+                key = "series_detail_$seasonId",
+                source = "series.getSeriesDetail",
+                getCode = { it.code },
+                getMessage = { it.message },
+                getIsSuccess = { it.isSuccess }
+            ) {
+                apiService.getVideoEpisodes(
+                    if (seasonId > 0) seasonId else null,
+                    if (epId > 0) epId else null
+                ).let {
+                    sessionGateway.syncAuthState(it, source = "series.getSeriesDetail")
+                }
             }
             val detail = response.result
             if (response.isSuccess && detail != null) {
@@ -49,11 +57,19 @@ class SeriesRepository(
 
     suspend fun checkUserFollowStatus(seasonId: Long, epId: Long = 0): Result<CheckUserSeriesResult> {
         return runCatching {
-            val response = apiService.getSeriesUserStatus(
-                if (seasonId > 0) seasonId else null,
-                if (epId > 0) epId else null
-            ).let {
-                sessionGateway.syncAuthState(it, source = "series.checkUserFollowStatus")
+            val response = sessionGateway.retryOnRiskControl(
+                key = "series_status_$seasonId",
+                source = "series.checkUserFollowStatus",
+                getCode = { it.code },
+                getMessage = { it.message },
+                getIsSuccess = { it.isSuccess }
+            ) {
+                apiService.getSeriesUserStatus(
+                    if (seasonId > 0) seasonId else null,
+                    if (epId > 0) epId else null
+                ).let {
+                    sessionGateway.syncAuthState(it, source = "series.checkUserFollowStatus")
+                }
             }
             val result = response.result
             if (response.isSuccess && result != null) {
@@ -127,14 +143,19 @@ class SeriesRepository(
         vmid: Long
     ): Result<MyFollowingResponseWrapper> {
         return runCatching {
-            val response = apiService.getMyFollowingSeries(
-                type = type,
-                page = page,
-                pageSize = pageSize,
-                vmid = vmid,
-                ts = System.currentTimeMillis()
-            ).let {
-                sessionGateway.syncAuthState(it, source = "series.getMyFollowingSeries")
+            val response = sessionGateway.executeWithRiskControlRetry(
+                key = "series_following_${type}_$vmid",
+                source = "series.getMyFollowingSeries"
+            ) {
+                apiService.getMyFollowingSeries(
+                    type = type,
+                    page = page,
+                    pageSize = pageSize,
+                    vmid = vmid,
+                    ts = System.currentTimeMillis()
+                ).let {
+                    sessionGateway.syncAuthState(it, source = "series.getMyFollowingSeries")
+                }
             }
             if (response.code == 0 && response.data != null) {
                 response.data

@@ -16,7 +16,6 @@ import com.btelly.network.security.NetworkSecurityGateway
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.network.response.ListDataModel
 import com.btelly.core.common.log.AppLog
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -64,7 +63,6 @@ class VideoRepository(
         private const val WEB_ACTION_FROM_SPMID = "333.1007.tianma.1-2-2.click"
         private const val WEB_ACTION_STATISTICS = "{\"appId\":100,\"platform\":5}"
         private const val WEB_ACTION_SOURCE = "web_normal"
-        private val FEEDBACK_RETRY_CODES = setOf(-352, -401)
     }
 
     suspend fun getRecommendList(
@@ -85,15 +83,12 @@ class VideoRepository(
 
     suspend fun getRanking(rid: Int): Result<BaseResponse<List<VideoModel>>> =
         runCatching {
-            val firstResponse = apiService.getRanking(rid)
-            if (firstResponse.code == -352) {
-                AppLog.e(TAG, "getRanking first attempt hit risk control: rid=$rid")
-                delay(1500L)
-                securityGateway.prewarmWebSession(forceUaRefresh = true)
-                apiService.getRanking(rid).mapListData()
-            } else {
-                firstResponse.mapListData()
-            }
+            sessionGateway.executeWithRiskControlRetry(
+                key = "ranking_$rid",
+                source = "video.getRanking"
+            ) {
+                apiService.getRanking(rid)
+            }.mapListData()
         }
 
     suspend fun getVideoByChannel(
@@ -117,7 +112,7 @@ class VideoRepository(
     suspend fun like(avid: Long?, bvid: String?, like: Int, csrf: String): Result<BaseResponse<Int>> =
         runCatching {
             securityGateway.ensureHealthyForPlay()
-            sessionGateway.syncAuthState(
+            val firstResponse: BaseResponse<Int> = sessionGateway.syncAuthState(
                 apiService.like(
                     buildWebActionForm(avid, bvid, csrf, ramval = 3).apply {
                         put("like", like.toString())
@@ -125,6 +120,23 @@ class VideoRepository(
                 ),
                 source = "video.like"
             )
+            if (!sessionGateway.isRetryableError(firstResponse.code, firstResponse.message)) {
+                firstResponse
+            } else {
+                sessionGateway.getCooldownManager().recordFailure("like_${avid ?: bvid}", firstResponse.code)
+                val cooldownMs = sessionGateway.getCooldownManager().checkCooldown("like_${avid ?: bvid}")
+                if (cooldownMs > 0) kotlinx.coroutines.delay(cooldownMs)
+                sessionGateway.prewarmWebSession(forceUaRefresh = true)
+                val freshCsrf = sessionGateway.requireCsrfToken() ?: csrf
+                sessionGateway.syncAuthState(
+                    apiService.like(
+                        buildWebActionForm(avid, bvid, freshCsrf, ramval = 3).apply {
+                            put("like", like.toString())
+                        }
+                    ),
+                    source = "video.like.retry"
+                )
+            }
         }
 
     suspend fun hasLike(avid: Long?, bvid: String?): Result<BaseResponse<Int>> =
@@ -146,7 +158,7 @@ class VideoRepository(
     suspend fun giveCoin(avid: Long?, bvid: String?, multiply: Int, selectLike: Int, csrf: String): Result<BaseResponse<GiveCoinResultModel>> =
         runCatching {
             securityGateway.ensureHealthyForPlay()
-            sessionGateway.syncAuthState(
+            val firstResponse: BaseResponse<GiveCoinResultModel> = sessionGateway.syncAuthState(
                 apiService.giveCoin(
                     buildWebActionForm(avid, bvid, csrf, ramval = 6).apply {
                         put("multiply", multiply.coerceIn(1, 2).toString())
@@ -156,6 +168,25 @@ class VideoRepository(
                 ),
                 source = "video.giveCoin"
             )
+            if (!sessionGateway.isRetryableError(firstResponse.code, firstResponse.message)) {
+                firstResponse
+            } else {
+                sessionGateway.getCooldownManager().recordFailure("coin_${avid ?: bvid}", firstResponse.code)
+                val cooldownMs = sessionGateway.getCooldownManager().checkCooldown("coin_${avid ?: bvid}")
+                if (cooldownMs > 0) kotlinx.coroutines.delay(cooldownMs)
+                sessionGateway.prewarmWebSession(forceUaRefresh = true)
+                val freshCsrf = sessionGateway.requireCsrfToken() ?: csrf
+                sessionGateway.syncAuthState(
+                    apiService.giveCoin(
+                        buildWebActionForm(avid, bvid, freshCsrf, ramval = 6).apply {
+                            put("multiply", multiply.coerceIn(1, 2).toString())
+                            put("select_like", selectLike.coerceIn(0, 1).toString())
+                            put("cross_domain", "true")
+                        }
+                    ),
+                    source = "video.giveCoin.retry"
+                )
+            }
         }
 
     suspend fun hasGiveCoin(avid: Long?, bvid: String?): Result<BaseResponse<CheckGiveCoinModel>> =
@@ -169,25 +200,22 @@ class VideoRepository(
     suspend fun tripleAction(avid: Long?, bvid: String?, csrf: String): Result<BaseResponse<TripleActionResultModel>> =
         runCatching {
             securityGateway.ensureHealthyForPlay()
-            val firstResponse = sessionGateway.syncAuthState(
+            val firstResponse: BaseResponse<TripleActionResultModel> = sessionGateway.syncAuthState(
                 apiService.tripleAction(buildWebActionForm(avid, bvid, csrf, ramval = 6)),
-                source = "video.tripleAction.first"
+                source = "video.tripleAction"
             )
-            if (firstResponse.code == -352 || firstResponse.code == -401) {
-                AppLog.e(TAG, "tripleAction first attempt hit risk control/401: aid=$avid, bvid=$bvid, code=${firstResponse.code}")
-                delay(1500L)
-                securityGateway.prewarmWebSession(forceUaRefresh = true)
-                val freshCsrf = sessionGateway.requireCsrfToken()
-                if (freshCsrf == null) {
-                    firstResponse
-                } else {
-                    sessionGateway.syncAuthState(
-                        apiService.tripleAction(buildWebActionForm(avid, bvid, freshCsrf, ramval = 6)),
-                        source = "video.tripleAction.second"
-                    )
-                }
-            } else {
+            if (!sessionGateway.isRetryableError(firstResponse.code, firstResponse.message)) {
                 firstResponse
+            } else {
+                sessionGateway.getCooldownManager().recordFailure("triple_${avid ?: bvid}", firstResponse.code)
+                val cooldownMs = sessionGateway.getCooldownManager().checkCooldown("triple_${avid ?: bvid}")
+                if (cooldownMs > 0) kotlinx.coroutines.delay(cooldownMs)
+                sessionGateway.prewarmWebSession(forceUaRefresh = true)
+                val freshCsrf = sessionGateway.requireCsrfToken() ?: csrf
+                sessionGateway.syncAuthState(
+                    apiService.tripleAction(buildWebActionForm(avid, bvid, freshCsrf, ramval = 6)),
+                    source = "video.tripleAction.retry"
+                )
             }
         }
 
@@ -249,33 +277,19 @@ class VideoRepository(
     suspend fun dislikeFeed(video: VideoModel, reasonId: Int, csrf: String): Result<BaseBaseResponse> =
         runCatching {
             securityGateway.ensureHealthyForPlay()
-            val firstParams = buildFeedbackWbiParams()
-            val firstForm = buildDislikeForm(video = video, reasonId = reasonId, csrf = csrf)
-            val firstResponse = sessionGateway.syncAuthState(
-                apiService.dislikeFeed(
-                    params = firstParams,
-                    form = firstForm
-                ),
-                source = "video.dislikeFeed.first"
-            )
-            if (firstResponse.code in FEEDBACK_RETRY_CODES) {
-                AppLog.e(
-                    TAG,
-                    "dislikeFeed first attempt hit risk control/auth: aid=${video.aid}, bvid=${video.bvid}, code=${firstResponse.code}"
-                )
-                delay(1500L)
-                securityGateway.prewarmWebSession(forceUaRefresh = true)
-                val secondParams = buildFeedbackWbiParams()
-                val secondForm = buildDislikeForm(video = video, reasonId = reasonId, csrf = csrf)
+            sessionGateway.retryOnRiskControl(
+                key = "dislike_${video.aid}_${video.bvid}",
+                source = "video.dislikeFeed",
+                getCode = { it.code },
+                getMessage = { it.message },
+                getIsSuccess = { it.isSuccess }
+            ) {
+                val params = buildFeedbackWbiParams()
+                val form = buildDislikeForm(video = video, reasonId = reasonId, csrf = csrf)
                 sessionGateway.syncAuthState(
-                    apiService.dislikeFeed(
-                        params = secondParams,
-                        form = secondForm
-                    ),
-                    source = "video.dislikeFeed.second"
+                    apiService.dislikeFeed(params = params, form = form),
+                    source = "video.dislikeFeed"
                 )
-            } else {
-                firstResponse
             }
         }
 

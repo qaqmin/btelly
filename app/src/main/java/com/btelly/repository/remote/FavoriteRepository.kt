@@ -25,26 +25,41 @@ class FavoriteRepository(
 
     suspend fun checkFavorite(aid: Long?): Result<BaseResponse<CheckFavoriteModel>> =
         runCatching {
-            sessionGateway.syncAuthState(
-                apiService.checkFavorite(aid),
+            sessionGateway.executeWithRiskControlRetry(
+                key = "check_fav_$aid",
                 source = "favorite.checkFavorite"
-            )
+            ) {
+                sessionGateway.syncAuthState(
+                    apiService.checkFavorite(aid),
+                    source = "favorite.checkFavorite"
+                )
+            }
         }
 
     suspend fun getFavoriteFolders(upMid: Long, rid: Long? = null): Result<BaseResponse<FavoriteFoldersWrapper>> =
         runCatching {
-            sessionGateway.syncAuthState(
-                apiService.getFavoriteFolders(upMid, rid = rid),
+            sessionGateway.executeWithRiskControlRetry(
+                key = "fav_folders_$upMid",
                 source = "favorite.getFavoriteFolders"
-            )
+            ) {
+                sessionGateway.syncAuthState(
+                    apiService.getFavoriteFolders(upMid, rid = rid),
+                    source = "favorite.getFavoriteFolders"
+                )
+            }
         }
 
     suspend fun getFavoriteFolderInfo(mediaId: Long): Result<BaseResponse<FolderDetailModel>> =
         runCatching {
-            sessionGateway.syncAuthState(
-                apiService.getFavoriteFolderInfo(mediaId),
+            sessionGateway.executeWithRiskControlRetry(
+                key = "fav_info_$mediaId",
                 source = "favorite.getFavoriteFolderInfo"
-            )
+            ) {
+                sessionGateway.syncAuthState(
+                    apiService.getFavoriteFolderInfo(mediaId),
+                    source = "favorite.getFavoriteFolderInfo"
+                )
+            }
         }
 
     suspend fun getFavoriteFolderDetail(
@@ -53,10 +68,15 @@ class FavoriteRepository(
         pageSize: Int
     ): Result<BaseResponse<FavoriteFolderDetailWrapper>> =
         runCatching {
-            sessionGateway.syncAuthState(
-                apiService.getFavoriteFolderDetail(mediaId, page, pageSize),
+            sessionGateway.executeWithRiskControlRetry(
+                key = "fav_detail_${mediaId}_$page",
                 source = "favorite.getFavoriteFolderDetail"
-            )
+            ) {
+                sessionGateway.syncAuthState(
+                    apiService.getFavoriteFolderDetail(mediaId, page, pageSize),
+                    source = "favorite.getFavoriteFolderDetail"
+                )
+            }
         }
 
     suspend fun addFavorite(rid: Long, addMediaIds: String): Result<BaseResponse<CollectionResultModel>> =
@@ -64,15 +84,20 @@ class FavoriteRepository(
             securityGateway.ensureHealthyForPlay()
             val csrf = sessionGateway.requireCsrfToken()
                 ?: return Result.success(BaseResponse(code = -111, message = "csrf token is blank"))
-            sessionGateway.syncAuthState(
-                apiService.dealFavorite(buildFavoriteDealForm(
-                    rid = rid,
-                    addMediaIds = addMediaIds,
-                    delMediaIds = null,
-                    csrf = csrf
-                )),
+            sessionGateway.executeWithRiskControlRetry(
+                key = "fav_add_$rid",
                 source = "favorite.addFavorite"
-            )
+            ) {
+                sessionGateway.syncAuthState(
+                    apiService.dealFavorite(buildFavoriteDealForm(
+                        rid = rid,
+                        addMediaIds = addMediaIds,
+                        delMediaIds = null,
+                        csrf = csrf
+                    )),
+                    source = "favorite.addFavorite"
+                )
+            }
         }
 
     suspend fun removeFavorite(rid: Long, delMediaIds: String): Result<BaseResponse<CollectionResultModel>> =
@@ -80,15 +105,20 @@ class FavoriteRepository(
             securityGateway.ensureHealthyForPlay()
             val csrf = sessionGateway.requireCsrfToken()
                 ?: return Result.success(BaseResponse(code = -111, message = "csrf token is blank"))
-            sessionGateway.syncAuthState(
-                apiService.dealFavorite(buildFavoriteDealForm(
-                    rid = rid,
-                    addMediaIds = null,
-                    delMediaIds = delMediaIds,
-                    csrf = csrf
-                )),
+            sessionGateway.executeWithRiskControlRetry(
+                key = "fav_remove_$rid",
                 source = "favorite.removeFavorite"
-            )
+            ) {
+                sessionGateway.syncAuthState(
+                    apiService.dealFavorite(buildFavoriteDealForm(
+                        rid = rid,
+                        addMediaIds = null,
+                        delMediaIds = delMediaIds,
+                        csrf = csrf
+                    )),
+                    source = "favorite.removeFavorite"
+                )
+            }
         }
 
     private fun buildFavoriteDealForm(

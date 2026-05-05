@@ -21,7 +21,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -86,13 +85,12 @@ class UserRepository(
         if (!isLoggedIn()) {
             return apiService.getUserSpaceNoWbi(mid)
         }
-        val params = mutableMapOf(
+        val params = mapOf(
             "mid" to mid.toString(),
             "token" to "",
             "platform" to "web",
             "web_location" to "1550101"
         )
-        params.putAll(WbiGenerator.getSpaceDmParams())
         val response = doWbiRequest(params, "getUserSpace") { signedParams ->
             sessionGateway.syncAuthState(
                 apiService.getUserSpace(signedParams),
@@ -108,10 +106,15 @@ class UserRepository(
     
     suspend fun getHistory(viewAt: Long, pageSize: Int): Result<BaseResponse<HistoryListResponse>> =
         runCatching {
-            sessionGateway.syncAuthState(
-                apiService.getHistory(viewAt, pageSize),
+            sessionGateway.executeWithRiskControlRetry(
+                key = "history",
                 source = "getHistory"
-            )
+            ) {
+                sessionGateway.syncAuthState(
+                    apiService.getHistory(viewAt, pageSize),
+                    source = "getHistory"
+                )
+            }
         }
 
     /**
@@ -153,10 +156,15 @@ class UserRepository(
         pageSize: Int = 50
     ): Result<BaseResponse<GetFollowUserWrapper>> =
         runCatching {
-            sessionGateway.syncAuthState(
-                apiService.getFollowing(mid, page, pageSize),
+            sessionGateway.executeWithRiskControlRetry(
+                key = "following_$mid",
                 source = "getFollowing"
-            )
+            ) {
+                sessionGateway.syncAuthState(
+                    apiService.getFollowing(mid, page, pageSize),
+                    source = "getFollowing"
+                )
+            }
         }
 
     suspend fun getFollower(
@@ -165,10 +173,15 @@ class UserRepository(
         pageSize: Int = 50
     ): Result<BaseResponse<GetFollowUserWrapper>> =
         runCatching {
-            sessionGateway.syncAuthState(
-                apiService.getFollower(mid, page, pageSize),
+            sessionGateway.executeWithRiskControlRetry(
+                key = "follower_$mid",
                 source = "getFollower"
-            )
+            ) {
+                sessionGateway.syncAuthState(
+                    apiService.getFollower(mid, page, pageSize),
+                    source = "getFollower"
+                )
+            }
         }
 
     suspend fun checkUserRelation(
@@ -207,7 +220,7 @@ class UserRepository(
     ): Result<BaseResponse<UserDynamicResponse>> =
         runCatching {
             if (isLoggedIn()) {
-                val params = mutableMapOf(
+                val params = mapOf(
                     "mid" to mid.toString(),
                     "pn" to page.toString(),
                     "ps" to pageSize.toString(),
@@ -217,7 +230,6 @@ class UserRepository(
                     "order_avoided" to "true",
                     "index" to "1"
                 )
-                params.putAll(WbiGenerator.getSpaceDmParams())
                 doWbiRequest(params, "getUserDynamic") { signedParams ->
                     sessionGateway.syncAuthState(
                         apiService.getUserArcSearch(signedParams),
@@ -266,20 +278,15 @@ class UserRepository(
         source: String,
         block: suspend (Map<String, String>) -> BaseResponse<T>
     ): BaseResponse<T> {
-        ensureWbiKeysIfNeeded()
-        val wbiKeys = sessionGateway.getWbiKeys()
-        val signedParams = WbiGenerator.generateWbiParams(params, wbiKeys.first, wbiKeys.second)
-        val response = block(signedParams)
-        if (response.code == -352) {
-            AppLog.w("UserRepository", "$source hit -352 risk control, retrying with prewarm")
-            delay(1500L)
-            sessionGateway.prewarmWebSession(forceUaRefresh = true)
+        return sessionGateway.executeWithRiskControlRetry(
+            key = "wbi_$source",
+            source = source
+        ) {
             ensureWbiKeysIfNeeded()
-            val newKeys = sessionGateway.getWbiKeys()
-            val retryParams = WbiGenerator.generateWbiParams(params, newKeys.first, newKeys.second)
-            return block(retryParams)
+            val wbiKeys = sessionGateway.getWbiKeys()
+            val signedParams = WbiGenerator.generateWbiParams(params, wbiKeys.first, wbiKeys.second)
+            block(signedParams)
         }
-        return response
     }
 
     @Suppress("UNCHECKED_CAST")

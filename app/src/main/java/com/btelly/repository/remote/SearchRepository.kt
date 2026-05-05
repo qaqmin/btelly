@@ -122,20 +122,25 @@ class SearchRepository(
 
     suspend fun searchAll(keyword: String): Result<SearchAllResponseData> =
         runCatching {
-            val response = if (hasWbiKeys()) {
-                searchApiService.searchAllWbi(
-                    buildWbiParams(
-                        mapOf(
-                            "keyword" to keyword,
-                            "platform" to "pc",
-                            "highlight" to "1",
-                            "page_size" to "20",
-                            "page" to "1"
+            val response = sessionGateway.executeWithRiskControlRetry(
+                key = "search_all_$keyword",
+                source = "search.searchAll"
+            ) {
+                if (hasWbiKeys()) {
+                    searchApiService.searchAllWbi(
+                        buildWbiParams(
+                            mapOf(
+                                "keyword" to keyword,
+                                "platform" to "pc",
+                                "highlight" to "1",
+                                "page_size" to "20",
+                                "page" to "1"
+                            )
                         )
                     )
-                )
-            } else {
-                searchApiService.searchAll(keyword = keyword)
+                } else {
+                    searchApiService.searchAll(keyword = keyword)
+                }
             }
 
             if (!response.isSuccess) {
@@ -153,30 +158,35 @@ class SearchRepository(
         order: SearchVideoOrder = SearchVideoOrder.TotalRank
     ): Result<SearchResponseWrapper> =
         runCatching {
-            val response = if (hasWbiKeys()) {
-                searchApiService.searchByTypeWbi(
-                    buildWbiParams(
-                        mapOf(
-                            "search_type" to searchType.value,
-                            "keyword" to keyword,
-                            "order" to order.orderValue,
-                            "duration" to "0",
-                            "tids" to "0",
-                            "page" to page.toString(),
-                            "page_size" to pageSize.toString(),
-                            "platform" to "pc",
-                            "highlight" to "0"
+            val response = sessionGateway.executeWithRiskControlRetry(
+                key = "search_type_${searchType.value}_$keyword",
+                source = "search.searchByType"
+            ) {
+                if (hasWbiKeys()) {
+                    searchApiService.searchByTypeWbi(
+                        buildWbiParams(
+                            mapOf(
+                                "search_type" to searchType.value,
+                                "keyword" to keyword,
+                                "order" to order.orderValue,
+                                "duration" to "0",
+                                "tids" to "0",
+                                "page" to page.toString(),
+                                "page_size" to pageSize.toString(),
+                                "platform" to "pc",
+                                "highlight" to "0"
+                            )
                         )
                     )
-                )
-            } else {
-                searchApiService.searchByType(
-                    searchType = searchType.value,
-                    keyword = keyword,
-                    order = order.orderValue,
-                    page = page,
-                    pageSize = pageSize
-                )
+                } else {
+                    searchApiService.searchByType(
+                        searchType = searchType.value,
+                        keyword = keyword,
+                        order = order.orderValue,
+                        page = page,
+                        pageSize = pageSize
+                    )
+                }
             }
 
             if (!response.isSuccess) {
