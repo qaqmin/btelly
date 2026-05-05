@@ -611,9 +611,6 @@ class VideoPlayerPlayInfoGateway(
         securityGateway.prewarmWebSession()
         ensureWbiKeys()
         val hasWbi = hasWbiKeys()
-        AppLog.i(logTag, "requestPgcPlayInfo: epId=$epId cid=$cid qn=$qualityId fnval=$fnval fourk=$fourk hasWbi=$hasWbi hasSession=${cookieManager.hasSessionCookie()} sessData=${cookieManager.getCookieValue("SESSDATA")?.take(8)}...")
-        val cookieHeader = cookieManager.getCookieHeaderFor("https://api.bilibili.com/pgc/player/web/v2/playurl")
-        AppLog.i(logTag, "requestPgcPlayInfo cookies: ${cookieHeader?.take(120)}")
 
         val baseAttempts = listOf(
             "simple" to buildPgcPlayParams(
