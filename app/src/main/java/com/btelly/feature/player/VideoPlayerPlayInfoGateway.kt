@@ -614,16 +614,6 @@ class VideoPlayerPlayInfoGateway(
         AppLog.i(logTag, "requestPgcPlayInfo: epId=$epId cid=$cid qn=$qualityId fnval=$fnval fourk=$fourk hasWbi=$hasWbi hasSession=${cookieManager.hasSessionCookie()} sessData=${cookieManager.getCookieValue("SESSDATA")?.take(8)}...")
         val cookieHeader = cookieManager.getCookieHeaderFor("https://api.bilibili.com/pgc/player/web/v2/playurl")
         AppLog.i(logTag, "requestPgcPlayInfo cookies: ${cookieHeader?.take(120)}")
-        // Check VIP status
-        try {
-            val navResponse = apiService.getUserDetailInfo()
-            val vipType = navResponse.data?.vipType ?: 0
-            val vipStatus = navResponse.data?.vipStatus ?: 0
-            val isLogin = navResponse.data?.isLogin ?: false
-            AppLog.i(logTag, "requestPgcPlayInfo auth: isLogin=$isLogin mid=${navResponse.data?.mid} vipType=$vipType vipStatus=$vipStatus")
-        } catch (e: Exception) {
-            AppLog.e(logTag, "requestPgcPlayInfo auth check failed: ${e.message}")
-        }
 
         val baseAttempts = listOf(
             "simple" to buildPgcPlayParams(
@@ -665,32 +655,6 @@ class VideoPlayerPlayInfoGateway(
         attempts.forEachIndexed { index, (label, params) ->
             if (index > 0) {
                 securityGateway.prewarmWebSession(forceUaRefresh = true)
-            }
-            // Debug: log raw PGC API response for first attempt
-            if (index == 0) {
-                try {
-                    val debugUrl = buildPgcDebugUrl(params)
-                    val debugRequest = Request.Builder().url(debugUrl).build()
-                    val debugResponse = okHttpClient.newCall(debugRequest).execute()
-                    val debugBody = debugResponse.body?.string()
-                    if (debugBody != null) {
-                        val rootObj = com.google.gson.JsonParser.parseString(debugBody).asJsonObject
-                        val resultObj = rootObj.getAsJsonObject("result")
-                        val videoInfoRaw = resultObj?.getAsJsonObject("video_info")
-                        val dashRaw = videoInfoRaw?.getAsJsonObject("dash")
-                        val videoArray = dashRaw?.getAsJsonArray("video")
-                        val videoSummary = videoArray?.map { v ->
-                            val obj = v.asJsonObject
-                            "id=${obj.get("id")?.asInt} w=${obj.get("width")?.asInt} h=${obj.get("height")?.asInt} codecId=${obj.get("codecid")?.asInt} bw=${obj.get("bandwidth")?.asLong}"
-                        }?.toString() ?: "null"
-                        val qualityRaw = videoInfoRaw?.get("quality")?.asInt ?: -1
-                        val acceptQ = videoInfoRaw?.getAsJsonArray("accept_quality")?.toString() ?: "null"
-                        val resultKeys = resultObj?.keySet()?.toList()?.toString() ?: "null"
-                        AppLog.i(logTag, "PGC_RAW result.keys=$resultKeys quality=$qualityRaw acceptQ=$acceptQ videos=$videoSummary")
-                    }
-                } catch (e: Exception) {
-                    AppLog.e(logTag, "PGC_RAW debug failed: ${e.message}", e)
-                }
             }
             val response = runCatching {
                 apiService.getVideoPlayPgcInfo(params)
@@ -816,15 +780,6 @@ class VideoPlayerPlayInfoGateway(
             message = message,
             data = result?.videoInfo
         )
-    }
-
-    private fun buildPgcDebugUrl(params: Map<String, String>): String {
-        val sb = StringBuilder("https://api.bilibili.com/pgc/player/web/v2/playurl?")
-        params.entries.forEachIndexed { i, (k, v) ->
-            if (i > 0) sb.append("&")
-            sb.append(k).append("=").append(java.net.URLEncoder.encode(v, "UTF-8"))
-        }
-        return sb.toString()
     }
 
     private fun hasPlayableMedia(playInfo: PlayInfoModel?): Boolean {
