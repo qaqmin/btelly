@@ -30,6 +30,7 @@ import com.btelly.model.video.GetVideoByChannelWrapper
 import com.btelly.model.player.PgcV2Result
 import com.btelly.model.player.PlayInfoModel
 import com.btelly.model.player.VideoSnapshotData
+import com.btelly.model.recommend.AppFeedDataModel
 import com.btelly.model.recommend.RecommendListDataModel
 import com.btelly.model.favorite.FavoriteFolderModel
 import com.btelly.model.favorite.CheckFavoriteModel
@@ -119,6 +120,11 @@ interface ApiService {
         @Query("plat") plat: Int = 1
     ): BaseResponse<RecommendListDataModel<VideoModel>>
 
+    @GET("https://app.bilibili.com/x/v2/feed/index")
+    suspend fun getAppRecommendList(
+        @QueryMap params: Map<String, String>
+    ): BaseResponse<AppFeedDataModel>
+
     @GET("x/web-interface/popular")
     suspend fun getHotList(
         @Query("pn") page: Int,
@@ -142,6 +148,11 @@ interface ApiService {
     suspend fun getVideoDetail(
         @Query("avid") avid: Long?,
         @Query("bvid") bvid: String?
+    ): BaseResponse<VideoDetailModel>
+
+    @GET("x/web-interface/view")
+    suspend fun getVideoDetailByAid(
+        @Query("aid") aid: Long
     ): BaseResponse<VideoDetailModel>
 
     @GET("x/player/pagelist")
