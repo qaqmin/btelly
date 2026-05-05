@@ -5,6 +5,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.ViewGroup
+import com.btelly.R
 import com.btelly.databinding.CellEpisodeBinding
 import com.btelly.model.video.VideoModel
 import com.btelly.core.ui.base.BaseAdapter

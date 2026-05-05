@@ -2,6 +2,7 @@ package com.btelly.ui.adapter
 
 import android.graphics.Color
 import android.graphics.Outline
+import android.view.ViewOutlineProvider
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
