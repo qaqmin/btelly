@@ -1,7 +1,9 @@
 package com.btelly.ui.adapter
 
+import android.graphics.Outline
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewOutlineProvider
 import android.view.ViewGroup
 import com.btelly.databinding.CellEpisodeBinding
 import com.btelly.model.video.VideoModel
@@ -37,6 +39,13 @@ class EpisodeListAdapter : BaseAdapter<VideoModel, EpisodeListAdapter.EpisodeVie
         private var currentItem: VideoModel? = null
 
         init {
+            val coverRadiusPx = binding.imageView.resources.getDimension(R.dimen.px15)
+            binding.imageView.clipToOutline = true
+            binding.imageView.outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, coverRadiusPx)
+                }
+            }
             binding.root.setOnClickListener {
                 currentItem?.let { onItemClick(binding.root, it) }
             }

@@ -1,6 +1,7 @@
 package com.btelly.ui.adapter
 
 import android.graphics.Color
+import android.graphics.Outline
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -100,6 +101,16 @@ class EpisodeAdapter(
     ) : RecyclerView.ViewHolder(binding.root) {
 
         var nextFocusUpId: Int? = null
+
+        init {
+            val coverRadiusPx = binding.imageView.resources.getDimension(R.dimen.px15)
+            binding.imageView.clipToOutline = true
+            binding.imageView.outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, coverRadiusPx)
+                }
+            }
+        }
 
         fun requestFocus(): Boolean = binding.clickView.requestFocus()
 

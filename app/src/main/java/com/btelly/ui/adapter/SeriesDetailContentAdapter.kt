@@ -558,6 +558,13 @@ class SeriesDetailContentAdapter(
             fun requestFocus(): Boolean = binding.clickView.requestFocus()
 
             init {
+                val coverRadiusPx = binding.imageView.resources.getDimension(R.dimen.px15)
+                binding.imageView.clipToOutline = true
+                binding.imageView.outlineProvider = object : ViewOutlineProvider() {
+                    override fun getOutline(view: View, outline: Outline) {
+                        outline.setRoundRect(0, 0, view.width, view.height, coverRadiusPx)
+                    }
+                }
                 binding.clickView.setOnClickListener {
                     currentItem?.let(onItemClick)
                 }

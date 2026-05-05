@@ -8,7 +8,9 @@ import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewOutlineProvider
 import android.view.ViewGroup
+import android.graphics.Outline
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -121,6 +123,13 @@ class LiveRoomAdapter(
         }
 
         init {
+            val coverRadiusPx = binding.imageView.resources.getDimension(R.dimen.px15)
+            binding.imageView.clipToOutline = true
+            binding.imageView.outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, coverRadiusPx)
+                }
+            }
             binding.root.setOnClickListener {
                 if (longPressTriggered) {
                     longPressTriggered = false
