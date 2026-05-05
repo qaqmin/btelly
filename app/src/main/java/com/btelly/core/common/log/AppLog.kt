@@ -1,6 +1,7 @@
 package com.btelly.core.common.log
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
 import com.btelly.BuildConfig
 import java.io.File
@@ -9,9 +10,14 @@ import java.util.Locale
 
 object AppLog {
 
-    private const val ENABLE_DEBUG_LOGS = true
-    private const val CRASH_LOG_FILE = "crash_log.txt"
+    private const val PREFS_NAME = "app_log_prefs"
+    private const val KEY_ENABLED = "log_enabled"
+    private const val CRASH_LOG_FILE = "debug.txt"
 
+    var isEnabled = false
+        private set
+
+    private lateinit var prefs: SharedPreferences
     private lateinit var crashLogFile: File
 
     data class LogEntry(
@@ -56,9 +62,17 @@ object AppLog {
     }
 
     fun init(context: Context) {
-        if (!BuildConfig.DEBUG) return
+        prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        isEnabled = prefs.getBoolean(KEY_ENABLED, false)
         crashLogFile = File(context.filesDir, CRASH_LOG_FILE)
         installCrashHandler()
+    }
+
+    fun setEnabled(enabled: Boolean) {
+        isEnabled = enabled
+        if (::prefs.isInitialized) {
+            prefs.edit().putBoolean(KEY_ENABLED, enabled).apply()
+        }
     }
 
     fun getCrashLog(): String? {
@@ -95,48 +109,36 @@ object AppLog {
     }
 
     private fun logToBuffer(level: Int, tag: String, message: String) {
-        if (BuildConfig.DEBUG) {
-            LogBuffer.add(LogEntry(System.currentTimeMillis(), level, tag, message))
-        }
+        LogBuffer.add(LogEntry(System.currentTimeMillis(), level, tag, message))
     }
 
     fun d(tag: String, message: String) {
-        if (!BuildConfig.DEBUG || !ENABLE_DEBUG_LOGS) return
+        if (!isEnabled) return
         logToBuffer(LogEntry.LEVEL_DEBUG, tag, message)
-        runCatching {
-            Log.d(tag, message)
-        }
+        if (BuildConfig.DEBUG) runCatching { Log.d(tag, message) }
     }
 
     fun i(tag: String, message: String) {
-        if (!BuildConfig.DEBUG || !ENABLE_DEBUG_LOGS) return
+        if (!isEnabled) return
         logToBuffer(LogEntry.LEVEL_INFO, tag, message)
-        runCatching {
-            Log.i(tag, message)
-        }
+        if (BuildConfig.DEBUG) runCatching { Log.i(tag, message) }
     }
 
     fun e(tag: String, message: String, throwable: Throwable? = null) {
-        if (!BuildConfig.DEBUG) return
+        if (!isEnabled) return
         logToBuffer(LogEntry.LEVEL_ERROR, tag, message)
-        runCatching {
-            Log.e(tag, message, throwable)
-        }
+        if (BuildConfig.DEBUG) runCatching { Log.e(tag, message, throwable) }
     }
 
     fun w(tag: String, message: String, throwable: Throwable? = null) {
-        if (!BuildConfig.DEBUG) return
+        if (!isEnabled) return
         logToBuffer(LogEntry.LEVEL_WARN, tag, message)
-        runCatching {
-            Log.w(tag, message, throwable)
-        }
+        if (BuildConfig.DEBUG) runCatching { Log.w(tag, message, throwable) }
     }
 
     fun v(tag: String, message: String) {
-        if (!BuildConfig.DEBUG || !ENABLE_DEBUG_LOGS) return
+        if (!isEnabled) return
         logToBuffer(LogEntry.LEVEL_VERBOSE, tag, message)
-        runCatching {
-            Log.v(tag, message)
-        }
+        if (BuildConfig.DEBUG) runCatching { Log.v(tag, message) }
     }
 }

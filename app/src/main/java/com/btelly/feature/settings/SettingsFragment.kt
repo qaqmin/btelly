@@ -232,9 +232,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         deviceSettings.add(SettingModel("屏幕分辨率", "${resources.displayMetrics.widthPixels}x${resources.displayMetrics.heightPixels}"))
         deviceSettings.add(SettingModel("硬解支持", ""))
 
-        if (BuildConfig.DEBUG) {
-            commonSettings.add(SettingModel("调试日志", ""))
-        }
+        commonSettings.add(SettingModel("日志记录", if (AppLog.isEnabled) "开" else "关"))
+        commonSettings.add(SettingModel("调试日志", ""))
 
         restoreSavedSettings()
         updateCacheSizeAsync()
@@ -347,8 +346,14 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
                 }
             }
             COMMON_POSITION_RISK_CONTROL -> showRiskControlDialog()
+            commonSettings.lastIndex - 1 -> {
+                val newValue = if (AppLog.isEnabled) "关" else "开"
+                AppLog.setEnabled(newValue == "开")
+                updateSetting(commonSettings, position, newValue)
+                Toast.makeText(requireContext(), "日志记录：$newValue", Toast.LENGTH_SHORT).show()
+            }
             commonSettings.lastIndex -> {
-                if (BuildConfig.DEBUG && item.title == "调试日志") {
+                if (item.title == "调试日志") {
                     val activity = activity as? MainActivity
                     activity?.openOverlayFragment(DebugLogFragment.newInstance(), "debug_log")
                 }

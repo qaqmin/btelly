@@ -1,9 +1,12 @@
 package com.btelly.feature.settings
 
 import android.graphics.Color
+import android.net.Uri
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -19,11 +22,22 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 class DebugLogFragment : BaseFragment<FragmentDebugLogBinding>() {
 
     companion object {
         fun newInstance() = DebugLogFragment()
+
+        private val LEVEL_LABELS = mapOf(
+            AppLog.LogEntry.LEVEL_VERBOSE to "V",
+            AppLog.LogEntry.LEVEL_DEBUG to "D",
+            AppLog.LogEntry.LEVEL_INFO to "I",
+            AppLog.LogEntry.LEVEL_WARN to "W",
+            AppLog.LogEntry.LEVEL_ERROR to "E"
+        )
 
         private data class FilterOption(val label: String, val level: Int?) {
             companion object {
@@ -45,12 +59,17 @@ class DebugLogFragment : BaseFragment<FragmentDebugLogBinding>() {
     private var filterButtons: List<AppCompatTextView> = emptyList()
     private var refreshJob: Job? = null
 
+    private val folderPicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) exportLogs(uri)
+    }
+
     override fun getViewBinding(inflater: LayoutInflater, container: ViewGroup?): FragmentDebugLogBinding {
         return FragmentDebugLogBinding.inflate(inflater, container, false)
     }
 
     override fun initView() {
         binding.buttonBack.setOnClickListener { navigateBackFromUi() }
+        binding.buttonExport.setOnClickListener { folderPicker.launch(null) }
 
         adapter = DebugLogAdapter()
         val layoutManager = object : LinearLayoutManager(requireContext()) {
@@ -170,6 +189,50 @@ class DebugLogFragment : BaseFragment<FragmentDebugLogBinding>() {
                 if (currentSize != lastLogCount) {
                     refreshLogs()
                 }
+            }
+        }
+    }
+
+    private fun exportLogs(folderUri: Uri) {
+        scope.launch {
+            runCatching {
+                val fileName = "btelly_log_${
+                    SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+                        .format(System.currentTimeMillis())
+                }.txt"
+
+                withContext(Dispatchers.IO) {
+                    val logs = AppLog.LogBuffer.getLogs()
+                    val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
+                    val sb = StringBuilder()
+                    for (entry in logs) {
+                        val level = LEVEL_LABELS[entry.level] ?: "?"
+                        val time = timeFormat.format(entry.timestamp)
+                        sb.appendLine("$time $level ${entry.tag}: ${entry.message}")
+                    }
+                    val crashLog = AppLog.getCrashLog()
+                    if (crashLog != null) {
+                        sb.appendLine()
+                        sb.appendLine("========== CRASH LOG ==========")
+                        sb.append(crashLog)
+                    }
+
+                    val resolver = requireContext().contentResolver
+                    resolver.takePersistableUriPermission(
+                        folderUri, android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    )
+                    val fileUri = android.provider.DocumentsContract.createDocument(
+                        resolver, folderUri, "text/plain", fileName
+                    ) ?: throw IllegalStateException("无法创建文件")
+                    resolver.openOutputStream(fileUri)?.use { os ->
+                        os.write(sb.toString().toByteArray(Charsets.UTF_8))
+                    }
+                    fileName
+                }
+            }.onSuccess { name ->
+                Toast.makeText(requireContext(), "已导出: $name", Toast.LENGTH_LONG).show()
+            }.onFailure { e ->
+                Toast.makeText(requireContext(), "导出失败: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
