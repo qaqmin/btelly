@@ -231,6 +231,13 @@ class SearchItemAdapter(
     ) : RecyclerView.ViewHolder(binding.root) {
 
         init {
+            val coverRadiusPx = binding.imageView.resources.getDimension(R.dimen.px15)
+            binding.imageView.clipToOutline = true
+            binding.imageView.outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, coverRadiusPx)
+                }
+            }
             bindInteraction(binding.root)
         }
 
@@ -239,7 +246,6 @@ class SearchItemAdapter(
             binding.textPlayCount.text = NumberUtils.formatCount(item.online)
 
             val ownerName = item.uname.ifBlank { item.author }
-            val avatar = normalizeUrl(item.upic)
             val hasOwner = ownerName.isNotBlank()
             binding.imageAvatar.visibility = if (hasOwner) View.VISIBLE else View.GONE
             binding.textViewOwner.visibility = if (hasOwner) View.VISIBLE else View.GONE
@@ -252,18 +258,6 @@ class SearchItemAdapter(
                 url = normalizeUrl(item.cover.ifBlank { item.pic }),
                 placeholder = R.color.thirdBackgroundColor
             )
-
-            if (hasOwner) {
-                ImageLoader.loadCircle(
-                    imageView = binding.imageAvatar,
-                    url = avatar,
-                    placeholder = R.drawable.default_avatar,
-                    error = R.drawable.default_avatar
-                )
-                binding.imageAvatar.setBadge(
-                    officialVerifyType = item.officialVerify?.type ?: -1
-                )
-            }
         }
     }
 
