@@ -8,6 +8,7 @@ import com.btelly.BuildConfig
 import com.btelly.model.adapter.FlexibleIntAdapter
 import com.btelly.model.adapter.FlexibleLongAdapter
 import com.btelly.network.interceptor.DeflateInterceptor
+import com.btelly.network.interceptor.TvLoginInterceptor
 import com.btelly.network.interceptor.HeaderInterceptor
 import com.btelly.network.cookie.CookieManager
 import java.io.File
@@ -31,7 +32,8 @@ object NetworkClientFactory {
         userAgentProvider: () -> String,
         acceptLanguageProvider: () -> String,
         cacheDir: File? = null,
-        ipv4OnlyEnabled: () -> Boolean = { true }
+        ipv4OnlyEnabled: () -> Boolean = { true },
+        deviceBuvidProvider: () -> String = { "" }
     ): OkHttpClient {
         val builder = OkHttpClient.Builder()
             .cookieJar(cookieManager)
@@ -42,6 +44,7 @@ object NetworkClientFactory {
                     acceptLanguageProvider = acceptLanguageProvider
                 )
             )
+            .addInterceptor(TvLoginInterceptor(deviceBuvidProvider))
             .addInterceptor(DeflateInterceptor())
             .connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
             .retryOnConnectionFailure(true)
