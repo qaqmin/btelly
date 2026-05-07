@@ -743,7 +743,7 @@ class VideoPlayerFragment : Fragment() {
                 }
                 progressCoordinator.reset()
                 if (!playbackRequest.replaceInPlace) {
-                    playerView.hideController()
+                    playerView.getController()?.hideImmediately()
                     playerView.prepareForPlaybackTransition()
                     viewModel.resetPlaybackProgress()
                     latestPlaybackPositionMs = 0L

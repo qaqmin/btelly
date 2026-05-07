@@ -179,5 +179,6 @@
         android:max="100"
         android:progress="0"
         android:progressDrawable="@drawable/progress_bar_horizontal"
+        android:visibility="gone"
         style="?android:attr/progressBarStyleHorizontal"/>
 </FrameLayout>

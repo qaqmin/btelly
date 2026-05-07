@@ -472,7 +472,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         startupTraceId: String,
         startupTraceStartElapsedMs: Long
     ) {
-        playerView.hideController()
+        playerView.getController()?.hideImmediately()
         playerView.pauseDanmaku()
         tagCheckDoneForCurrentVideo = false
         sessionCoordinator.replacePlayQueue(playQueue)
@@ -806,7 +806,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 }
                 progressCoordinator.reset()
                 if (!playbackRequest.replaceInPlace) {
-                    playerView.hideController()
+                    playerView.getController()?.hideImmediately()
                     playerView.prepareForPlaybackTransition()
                     viewModel.resetPlaybackProgress()
                     latestPlaybackPositionMs = 0L
