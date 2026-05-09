@@ -168,7 +168,7 @@ class LivePlayerFragment : Fragment() {
             )
             .setDefaultRequestProperties(liveHeaders)
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
-            .setBufferDurationsMs(4_000, 15_000, 800, 1_500)
+            .setBufferDurationsMs(8_000, 30_000, 1_000, 2_000)
             .build()
         val extractorsFactory = ExtractorsFactory {
             DefaultExtractorsFactory().createExtractors().map { extractor ->
@@ -176,6 +176,7 @@ class LivePlayerFragment : Fragment() {
             }.toTypedArray()
         }
         player = ExoPlayer.Builder(requireContext())
+            .setRenderersFactory(PlayerInstancePool.createRenderersFactory(requireContext()))
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory))
             .setLoadControl(loadControl)
             .build()

@@ -8,8 +8,8 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSourceException
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.TransferListener
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
@@ -33,9 +33,9 @@ class VideoPlayerDashMediaSourceFactory(
 
         override fun getRetryDelayMsFor(
             errorInfo: LoadErrorHandlingPolicy.LoadErrorInfo
-        ): Long = 1000L
+        ): Long = 500L
 
-        override fun getMinimumLoadableRetryCount(dataType: Int): Int = 2
+        override fun getMinimumLoadableRetryCount(dataType: Int): Int = 5
     }
 
     fun createMediaSource(route: DashRoute): MediaSource {
@@ -96,7 +96,7 @@ class VideoPlayerDashMediaSourceFactory(
     }
 
     private fun buildHttpDataSourceFactory(defaultUrl: String?): DataSource.Factory {
-        val upstreamFactory = DefaultHttpDataSource.Factory()
+        val upstreamFactory = OkHttpDataSource.Factory(okHttpClient)
             .setUserAgent(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                     "(KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
@@ -107,9 +107,6 @@ class VideoPlayerDashMediaSourceFactory(
                     "Referer" to "https://www.bilibili.com"
                 )
             )
-            .setConnectTimeoutMs(5000)
-            .setReadTimeoutMs(15000)
-            .setAllowCrossProtocolRedirects(true)
         return LoggingDataSourceFactory(upstreamFactory)
     }
 
@@ -140,6 +137,7 @@ class VideoPlayerDashMediaSourceFactory(
                 val remaining = upstream.open(dataSpec)
                 val actualUri = upstream.uri
                 val cdnConnectMs = System.currentTimeMillis() - openStartMs
+                CdnLatencyProfile.recordTtfb(dataSpec.uri.toString(), cdnConnectMs)
                 remaining
             } catch (e: IOException) {
                 throw e

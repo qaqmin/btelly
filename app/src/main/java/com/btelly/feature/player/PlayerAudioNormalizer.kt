@@ -1,6 +1,8 @@
 package com.btelly.feature.player
 
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -90,10 +92,15 @@ internal object PlayerAudioNormalizer {
             private const val FALLBACK_TARGET_GAIN_MB = 180
         }
 
+        private val backgroundHandler by lazy {
+            val thread = HandlerThread("AudioNormalizer").apply { start() }
+            Handler(thread.looper)
+        }
+
         private var currentAudioSessionId = AUDIO_SESSION_ID_UNSET
-        private var dynamicsProcessing: Any? = null
-        private var loudnessEnhancer: Any? = null
-        private var released = false
+        @Volatile private var dynamicsProcessing: Any? = null
+        @Volatile private var loudnessEnhancer: Any? = null
+        @Volatile private var released = false
 
         fun attach() {
             player.addListener(this)
@@ -108,11 +115,11 @@ internal object PlayerAudioNormalizer {
             if (audioSessionId <= 0) {
                 return
             }
-            if (Build.VERSION.SDK_INT >= 28 && attachDynamicsProcessing(audioSessionId)) {
-                return
-            }
-            if (Build.VERSION.SDK_INT >= 26) {
-                attachLoudnessEnhancer(audioSessionId)
+            val id = audioSessionId
+            backgroundHandler.post {
+                if (released) return@post
+                if (Build.VERSION.SDK_INT >= 28 && attachDynamicsProcessing(id)) return@post
+                if (Build.VERSION.SDK_INT >= 26) attachLoudnessEnhancer(id)
             }
         }
 
@@ -123,7 +130,7 @@ internal object PlayerAudioNormalizer {
             released = true
             player.removeListener(this)
             currentAudioSessionId = AUDIO_SESSION_ID_UNSET
-            releaseEffects()
+            backgroundHandler.post { releaseEffects() }
         }
 
         private fun attachDynamicsProcessing(audioSessionId: Int): Boolean {

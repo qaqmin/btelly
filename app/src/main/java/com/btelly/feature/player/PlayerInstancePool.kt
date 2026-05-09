@@ -28,8 +28,8 @@ object PlayerInstancePool {
     // WiFi 下的缓冲参数：更快起播
     private const val WIFI_MIN_BUFFER_MS = 8_000
     private const val WIFI_MAX_BUFFER_MS = 30_000
-    private const val WIFI_BUFFER_FOR_PLAYBACK_MS = 500
-    private const val WIFI_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 1_000
+    private const val WIFI_BUFFER_FOR_PLAYBACK_MS = 1_500
+    private const val WIFI_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 2_500
 
     // 移动数据下的缓冲参数：更保守，减少卡顿
     private const val CELLULAR_MIN_BUFFER_MS = 12_000
@@ -141,9 +141,17 @@ object PlayerInstancePool {
             .setTargetBufferBytes(TARGET_BUFFER_BYTES)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
-        val renderersFactory = object : DefaultRenderersFactory(context) {
+        return ExoPlayer.Builder(context)
+            .setRenderersFactory(createRenderersFactory(context))
+            .setLoadControl(loadControl)
+            .build()
+            .also(PlayerPlaybackPolicy::apply)
+            .also(PlayerAudioNormalizer::attach)
+    }
+
+    fun createRenderersFactory(context: Context): DefaultRenderersFactory {
+        return object : DefaultRenderersFactory(context.applicationContext) {
             init {
-                // 硬件解码器初始化失败时自动回退到备选解码器（如软解）
                 setEnableDecoderFallback(true)
             }
 
@@ -168,12 +176,6 @@ object PlayerInstancePool {
                     .build()
             }
         }
-        return ExoPlayer.Builder(context)
-            .setRenderersFactory(renderersFactory)
-            .setLoadControl(loadControl)
-            .build()
-            .also(PlayerPlaybackPolicy::apply)
-            .also(PlayerAudioNormalizer::attach)
     }
 
     private fun isOnFastNetwork(context: Context): Boolean {

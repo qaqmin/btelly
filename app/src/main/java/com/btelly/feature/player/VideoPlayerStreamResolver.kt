@@ -621,9 +621,9 @@ internal class VideoPlayerStreamResolver(
 
         override fun getRetryDelayMsFor(
             errorInfo: LoadErrorHandlingPolicy.LoadErrorInfo
-        ): Long = 1000L
+        ): Long = 500L
 
-        override fun getMinimumLoadableRetryCount(dataType: Int): Int = 2
+        override fun getMinimumLoadableRetryCount(dataType: Int): Int = 5
     }
 
     private fun createMediaSource(
