@@ -12,7 +12,7 @@ import android.os.SystemClock
 import android.util.TypedValue
 import android.view.View
 import android.widget.FrameLayout
-import android.widget.ProgressBar
+import com.btelly.feature.player.sponsor.SponsorProgressMarkerView
 import android.widget.TextClock
 import android.widget.TextView
 import android.widget.Toast
@@ -224,7 +224,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     private var backgroundListener: AppBackgroundMonitor.BackgroundStateListener? = null
 
     private lateinit var playerView: MyPlayerView
-    private lateinit var bottomProgressBar: ProgressBar
+    private lateinit var bottomProgressBar: SponsorProgressMarkerView
     private lateinit var textClock: TextClock
     private lateinit var textSubtitle: TextView
     private lateinit var textDebug: TextView
@@ -1074,11 +1074,18 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 val controller = playerView.getController()
                 controller?.setSponsorSegments(segments)
                 controller?.setSponsorDuration(viewModel.duration.value)
+                if (::slimTimelineRenderer.isInitialized) {
+                    slimTimelineRenderer.setSegments(segments)
+                    slimTimelineRenderer.setSponsorDuration(viewModel.duration.value)
+                }
             }
         }
         lifecycleScope.launch {
             viewModel.duration.collect { durationMs ->
                 playerView.getController()?.setSponsorDuration(durationMs)
+                if (::slimTimelineRenderer.isInitialized) {
+                    slimTimelineRenderer.setSponsorDuration(durationMs)
+                }
             }
         }
     }

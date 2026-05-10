@@ -80,7 +80,8 @@
             app:scrubber_dragged_size="23dp"
             app:scrubber_focus_peak_size="30dp"
             app:scrubber_enabled_size="16dp"
-            app:scrubber_drawable="@drawable/ic_progress_head"/>
+            app:scrubber_drawable="@drawable/ic_progress_head"
+            app:played_color="#FF0088BB"/>
         <FrameLayout
             android:id="@+id/view_bottom_controller"
             android:layout_width="match_parent"

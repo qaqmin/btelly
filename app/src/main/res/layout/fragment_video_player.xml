@@ -171,14 +171,10 @@
         android:layout_marginBottom="@dimen/px60"
         android:paddingStart="@dimen/px30"
         android:paddingEnd="@dimen/px30"/>
-    <ProgressBar
+    <com.btelly.feature.player.sponsor.SponsorProgressMarkerView
         android:layout_gravity="bottom"
         android:id="@+id/bottom_progress_bar"
         android:layout_width="match_parent"
         android:layout_height="2.5dp"
-        android:max="100"
-        android:progress="0"
-        android:progressDrawable="@drawable/progress_bar_horizontal"
-        android:visibility="gone"
-        style="?android:attr/progressBarStyleHorizontal"/>
+        android:visibility="gone"/>
 </FrameLayout>

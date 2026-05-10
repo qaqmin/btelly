@@ -45,6 +45,8 @@ class SponsorBlockUseCase {
 
         val isGracePeriod = System.currentTimeMillis() - lastAutoSkipTime < GRACE_PERIOD_MS
 
+        val prevMs = lastPositionMs
+
         if (!isGracePeriod) {
             if (positionMs < lastPositionMs - SEEK_BACK_THRESHOLD_MS) {
                 resetSkippedForSeek(positionMs)
@@ -69,7 +71,10 @@ class SponsorBlockUseCase {
             ?.takeIf { positionMs in it.startTimeMs..it.endTimeMs }
             ?: return null
 
-        val action = if (autoSkip) {
+        // 只在向前播放跨入片段起点时自动跳过，回退进片段内不触发
+        val justEntered = !isGracePeriod && prevMs <= segment.startTimeMs && positionMs > segment.startTimeMs
+
+        val action = if (autoSkip && justEntered) {
             skippedIds.add(segment.UUID)
             lastAutoSkipTime = System.currentTimeMillis()
             nextSegmentIndex++

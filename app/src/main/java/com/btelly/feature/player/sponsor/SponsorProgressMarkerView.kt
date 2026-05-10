@@ -14,33 +14,52 @@ class SponsorProgressMarkerView @JvmOverloads constructor(
 
     private var segments: List<SponsorSegment> = emptyList()
     private var durationMs: Long = 0L
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var positionMs: Long = 0L
+    private var sponsorDurationMs: Long = 0L
+
+    private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x33FFFFFF }
+    private val playedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF0088BB.toInt() }
+    private val segmentPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     fun setSegments(segments: List<SponsorSegment>) {
         this.segments = segments
         invalidate()
     }
 
-    fun setDuration(durationMs: Long) {
+    fun setSponsorDuration(durationMs: Long) {
+        this.sponsorDurationMs = durationMs
+        invalidate()
+    }
+
+    fun setProgress(positionMs: Long, durationMs: Long) {
+        this.positionMs = positionMs
         this.durationMs = durationMs
         invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (segments.isEmpty() || durationMs <= 0L) return
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0f || h <= 0f) return
 
-        val width = width.toFloat()
-        val height = height.toFloat()
+        // 背景
+        canvas.drawRect(0f, 0f, w, h, bgPaint)
 
-        for (segment in segments) {
-            val startRatio = segment.startTimeMs.toFloat() / durationMs
-            val endRatio = segment.endTimeMs.toFloat() / durationMs
-            val left = startRatio * width
-            val right = endRatio * width
+        // 已播放进度
+        if (durationMs > 0L) {
+            val progressEnd = (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) * w
+            canvas.drawRect(0f, 0f, progressEnd, h, playedPaint)
+        }
 
-            paint.color = (segment.categoryColor() and 0x00FFFFFFL).toInt() or 0x99000000.toInt()
-            canvas.drawRect(left, 0f, right, height, paint)
+        // 空降分段色块（在进度之上，始终可见）
+        if (segments.isNotEmpty() && sponsorDurationMs > 0L) {
+            for (segment in segments) {
+                val left = (segment.startTimeMs.toFloat() / sponsorDurationMs) * w
+                val right = (segment.endTimeMs.toFloat() / sponsorDurationMs) * w
+                segmentPaint.color = (segment.categoryColor() and 0x00FFFFFFL).toInt() or 0x99000000.toInt()
+                canvas.drawRect(left, 0f, right, h, segmentPaint)
+            }
         }
     }
 }
