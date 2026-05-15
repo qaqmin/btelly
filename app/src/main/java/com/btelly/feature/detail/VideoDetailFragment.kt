@@ -380,16 +380,7 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
         )
 
         if (ugcEpisodes.isNotEmpty()) {
-            val videos = ugcEpisodes.mapNotNull { episode ->
-                episode.arc?.let { arc ->
-                    arc.copy(
-                        pic = episode.displayCover.ifBlank { arc.coverUrl },
-                        aid = episode.displayAid,
-                        bvid = episode.displayBvid,
-                        cid = episode.cid.takeIf { it > 0 } ?: arc.cid
-                    )
-                }
-            }
+            val videos = buildUgcSeasonVideos()
             val ordered = if (ugcReverseOrder) {
                 videos.sortedByDescending { it.pubDate }
             } else {
@@ -589,16 +580,7 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
             it is VideoDetailContentAdapter.Row.UgcSeason
         }
         if (ugcSeasonIndex >= 0) {
-            val videos = ugcEpisodes.mapNotNull { episode ->
-                episode.arc?.let { arc ->
-                    arc.copy(
-                        pic = episode.displayCover.ifBlank { arc.coverUrl },
-                        aid = episode.displayAid,
-                        bvid = episode.displayBvid,
-                        cid = episode.cid.takeIf { it > 0 } ?: arc.cid
-                    )
-                }
-            }
+            val videos = buildUgcSeasonVideos()
             val ordered = if (ugcReverseOrder) {
                 videos.sortedByDescending { it.pubDate }
             } else {
@@ -622,6 +604,43 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
             )
             contentAdapter.submitList(newList)
         }
+    }
+
+    private fun buildUgcSeasonVideos(): List<VideoModel> {
+        if (ugcEpisodes.isEmpty()) return emptyList()
+        val episodes = LinkedHashMap<String, UgcEpisode>()
+        ugcEpisodes.forEachIndexed { index, episode ->
+            val key = episode.archiveKey(index)
+            val existing = episodes[key]
+            if (existing == null || episode.preferredOver(existing)) {
+                episodes[key] = episode
+            }
+        }
+        return episodes.values.mapNotNull { it.toMergedVideoModel() }
+    }
+
+    private fun UgcEpisode.toMergedVideoModel(): VideoModel? {
+        val source = arc ?: return null
+        return source.copy(
+            pic = displayCover.ifBlank { source.coverUrl },
+            aid = displayAid,
+            bvid = displayBvid,
+            cid = displayCid
+        )
+    }
+
+    private fun UgcEpisode.archiveKey(index: Int): String {
+        return when {
+            displayBvid.isNotBlank() -> "bvid:$displayBvid"
+            displayAid > 0L -> "aid:$displayAid"
+            else -> "episode:$index"
+        }
+    }
+
+    private fun UgcEpisode.preferredOver(other: UgcEpisode): Boolean {
+        val page = displayPage.takeIf { it > 0 } ?: Int.MAX_VALUE
+        val otherPage = other.displayPage.takeIf { it > 0 } ?: Int.MAX_VALUE
+        return page < otherPage
     }
 
     private fun onTagClicked(tag: Tag) {
