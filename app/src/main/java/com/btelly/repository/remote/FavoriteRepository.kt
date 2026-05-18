@@ -4,13 +4,13 @@ import com.btelly.model.BaseResponse
 import com.btelly.model.common.CollectionResultModel
 import com.btelly.model.favorite.CheckFavoriteModel
 import com.btelly.model.favorite.FavoriteFolderDetailWrapper
-import com.btelly.model.favorite.FavoriteFolderModel
 import com.btelly.model.favorite.FavoriteFoldersWrapper
 import com.btelly.model.favorite.FolderDetailModel
 import com.btelly.network.api.ApiService
 import com.btelly.network.security.NetworkSecurityGateway
 import com.btelly.network.session.NetworkSessionGateway
 
+@Suppress("SpellCheckingInspection")
 class FavoriteRepository(
     private val apiService: ApiService,
     private val sessionGateway: NetworkSessionGateway,
@@ -23,6 +23,7 @@ class FavoriteRepository(
         const val WEB_ACTION_STATISTICS = "{\"appId\":100,\"platform\":5}"
     }
 
+    @Suppress("unused")
     suspend fun checkFavorite(aid: Long?): Result<BaseResponse<CheckFavoriteModel>> =
         runCatching {
             sessionGateway.executeWithRiskControlRetry(
