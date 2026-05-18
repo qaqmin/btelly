@@ -72,12 +72,26 @@ object ImageLoader {
         placeholder: Int = 0,
         error: Int = 0
     ) {
+        val normalizedUrl = normalizeUrl(url)
+        val optimizedUrl = buildOptimizedCommonImageUrl(imageView, url)
+        val canFallbackToRawUrl = canFallbackToRawUrl(optimizedUrl, normalizedUrl)
         enqueue(
             imageView = imageView,
-            url = buildOptimizedCommonImageUrl(imageView, url),
+            url = optimizedUrl,
             placeholderRes = placeholder,
-            errorRes = error,
-            crossfade = true
+            errorRes = if (canFallbackToRawUrl) 0 else error,
+            crossfade = true,
+            onError = if (canFallbackToRawUrl) {
+                {
+                    enqueue(
+                        imageView = imageView,
+                        url = normalizedUrl,
+                        placeholderRes = placeholder,
+                        errorRes = error,
+                        crossfade = true
+                    )
+                }
+            } else null
         )
     }
 
@@ -87,12 +101,26 @@ object ImageLoader {
         placeholder: Drawable?,
         error: Drawable?
     ) {
+        val normalizedUrl = normalizeUrl(url)
+        val optimizedUrl = buildOptimizedCommonImageUrl(imageView, url)
+        val canFallbackToRawUrl = canFallbackToRawUrl(optimizedUrl, normalizedUrl)
         enqueue(
             imageView = imageView,
-            url = buildOptimizedCommonImageUrl(imageView, url),
+            url = optimizedUrl,
             placeholderDrawable = placeholder,
-            errorDrawable = error,
-            crossfade = true
+            errorDrawable = if (canFallbackToRawUrl) null else error,
+            crossfade = true,
+            onError = if (canFallbackToRawUrl) {
+                {
+                    enqueue(
+                        imageView = imageView,
+                        url = normalizedUrl,
+                        placeholderDrawable = placeholder,
+                        errorDrawable = error,
+                        crossfade = true
+                    )
+                }
+            } else null
         )
     }
 
@@ -190,13 +218,28 @@ object ImageLoader {
         placeholder: Int = 0,
         error: Int = 0
     ) {
+        val normalizedUrl = normalizeUrl(url)
+        val optimizedUrl = buildOptimizedCommonImageUrl(imageView, url)
+        val canFallbackToRawUrl = canFallbackToRawUrl(optimizedUrl, normalizedUrl)
         enqueue(
             imageView = imageView,
-            url = buildOptimizedCommonImageUrl(imageView, url),
+            url = optimizedUrl,
             placeholderRes = placeholder,
-            errorRes = error,
+            errorRes = if (canFallbackToRawUrl) 0 else error,
             scale = Scale.FILL,
-            crossfade = true
+            crossfade = true,
+            onError = if (canFallbackToRawUrl) {
+                {
+                    enqueue(
+                        imageView = imageView,
+                        url = normalizedUrl,
+                        placeholderRes = placeholder,
+                        errorRes = error,
+                        scale = Scale.FILL,
+                        crossfade = true
+                    )
+                }
+            } else null
         )
     }
 
@@ -211,7 +254,9 @@ object ImageLoader {
         error: Int = R.drawable.default_video,
         onPortraitDetected: ((Boolean) -> Unit)? = null
     ) {
+        val normalizedUrl = normalizeUrl(url)
         val optimizedUrl = buildOptimizedVideoCoverUrl(imageView, url)
+        val canFallbackToRawUrl = canFallbackToRawUrl(optimizedUrl, normalizedUrl)
         val cachedBitmap = CoverLoader.get(optimizedUrl)
         if (cachedBitmap != null && !cachedBitmap.isRecycled) {
             if (placeholder != 0) {
@@ -229,7 +274,7 @@ object ImageLoader {
             imageView = imageView,
             url = optimizedUrl,
             placeholderRes = placeholder,
-            errorRes = error,
+            errorRes = if (canFallbackToRawUrl) 0 else error,
             scale = Scale.FILL,
             crossfade = false,
             onSuccess = { drawable ->
@@ -240,8 +285,26 @@ object ImageLoader {
                 }
             },
             onError = {
-                if (onPortraitDetected != null) {
-                    AppLog.e(TAG, "loadVideoCover FAILED: url=$optimizedUrl")
+                AppLog.w(TAG, "loadVideoCover optimized failed: url=$optimizedUrl")
+                if (canFallbackToRawUrl) {
+                    enqueue(
+                        imageView = imageView,
+                        url = normalizedUrl,
+                        placeholderRes = placeholder,
+                        errorRes = error,
+                        scale = Scale.FILL,
+                        crossfade = false,
+                        onSuccess = { drawable ->
+                            if (onPortraitDetected != null) {
+                                val w = drawable.intrinsicWidth
+                                val h = drawable.intrinsicHeight
+                                onPortraitDetected(w > 0 && h > 0 && h > w)
+                            }
+                        },
+                        onError = {
+                            AppLog.w(TAG, "loadVideoCover raw failed: url=$normalizedUrl")
+                        }
+                    )
                 }
             }
         )
@@ -253,15 +316,35 @@ object ImageLoader {
         placeholder: Int = R.drawable.default_video,
         error: Int = R.drawable.default_video
     ) {
+        val normalizedUrl = normalizeUrl(url)
+        val optimizedUrl = buildOptimizedSeriesCoverUrl(imageView, url)
+        val canFallbackToRawUrl = canFallbackToRawUrl(optimizedUrl, normalizedUrl)
         val radiusPx = imageView.context.resources.getDimensionPixelSize(R.dimen.px15).toFloat()
         enqueue(
             imageView = imageView,
-            url = buildOptimizedSeriesCoverUrl(imageView, url),
+            url = optimizedUrl,
             placeholderRes = placeholder,
-            errorRes = error,
+            errorRes = if (canFallbackToRawUrl) 0 else error,
             scale = Scale.FILL,
             transformations = listOf(RoundedCornersTransformation(radiusPx)),
-            crossfade = false
+            crossfade = false,
+            onError = if (canFallbackToRawUrl) {
+                {
+                    AppLog.w(TAG, "loadSeriesCover optimized failed: url=$optimizedUrl")
+                    enqueue(
+                        imageView = imageView,
+                        url = normalizedUrl,
+                        placeholderRes = placeholder,
+                        errorRes = error,
+                        scale = Scale.FILL,
+                        transformations = listOf(RoundedCornersTransformation(radiusPx)),
+                        crossfade = false,
+                        onError = {
+                            AppLog.w(TAG, "loadSeriesCover raw failed: url=$normalizedUrl")
+                        }
+                    )
+                }
+            } else null
         )
     }
 
@@ -330,30 +413,12 @@ object ImageLoader {
      */
     fun prefetchVideoCovers(context: Context, urls: List<String?>) {
         if (urls.isEmpty()) return
-        val appContext = context.applicationContext
-        val finalUrls = urls.asSequence()
-            .mapNotNull { it?.takeIf { url -> url.isNotBlank() } }
-            .distinct()
-            .map { url ->
-                val normalized = normalizeUrl(url)
-                if (isBilibiliImageUrl(normalized)) {
-                    appendImageSuffix(normalized, "@480w_270h_1c.webp")
-                } else {
-                    normalized
-                }
-            }
-            .toList()
-        if (finalUrls.isEmpty()) return
-        val loader = SingletonImageLoader.get(appContext)
-        finalUrls.forEach { finalUrl ->
-            val request = ImageRequest.Builder(appContext)
-                .data(finalUrl)
-                .applyBilibiliHeadersIfNeeded(finalUrl)
-                .memoryCachePolicy(CachePolicy.ENABLED)
-                .diskCachePolicy(CachePolicy.ENABLED)
-                .build()
-            loader.enqueue(request)
-        }
+        prefetchCovers(context, urls, ::buildVideoCoverUrl)
+    }
+
+    fun prefetchSeriesCovers(context: Context, urls: List<String?>) {
+        if (urls.isEmpty()) return
+        prefetchCovers(context, urls, ::buildSeriesCoverUrl)
     }
 
     fun invalidateImageQualityCache() {
@@ -485,6 +550,13 @@ object ImageLoader {
         return appendImageSuffix(normalized, suffix)
     }
 
+    private fun canFallbackToRawUrl(optimizedUrl: String, normalizedUrl: String): Boolean {
+        return optimizedUrl.isNotBlank() &&
+            normalizedUrl.isNotBlank() &&
+            optimizedUrl != normalizedUrl &&
+            isBilibiliImageUrl(normalizedUrl)
+    }
+
     private fun resolveImageQualityLevel(): Int {
         cachedImageQualityLevel?.let { return it }
         ensureImageQualityFlowCollection()
@@ -509,6 +581,42 @@ object ImageLoader {
             else -> "@480w_270h_1c.webp"
         }
         return appendImageSuffix(normalized, suffix)
+    }
+
+    fun buildSeriesCoverUrl(url: String?): String {
+        val normalized = normalizeUrl(url)
+        if (!isBilibiliImageUrl(normalized)) return normalized
+        val suffix = when (resolveImageQualityLevel()) {
+            0 -> "@160w_213h_1c.webp"
+            2 -> "@466w_622h_1c.webp"
+            else -> "@320w_426h_1c.webp"
+        }
+        return appendImageSuffix(normalized, suffix)
+    }
+
+    private fun prefetchCovers(
+        context: Context,
+        urls: List<String?>,
+        buildUrl: (String?) -> String
+    ) {
+        val appContext = context.applicationContext
+        val finalUrls = urls.asSequence()
+            .mapNotNull { it?.takeIf { url -> url.isNotBlank() } }
+            .distinct()
+            .map(buildUrl)
+            .filter { it.isNotBlank() }
+            .toList()
+        if (finalUrls.isEmpty()) return
+        val loader = SingletonImageLoader.get(appContext)
+        finalUrls.forEach { finalUrl ->
+            val request = ImageRequest.Builder(appContext)
+                .data(finalUrl)
+                .applyBilibiliHeadersIfNeeded(finalUrl)
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .build()
+            loader.enqueue(request)
+        }
     }
 
     @Synchronized
