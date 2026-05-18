@@ -410,7 +410,7 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
             .map { it.cover }
             .toList()
         if (urls.isEmpty()) return
-        ImageLoader.prefetchVideoCovers(ctx, urls)
+        ImageLoader.prefetchSeriesCovers(ctx, urls)
     }
 
     private fun showMyFollowingDialog(followType: Int) {
