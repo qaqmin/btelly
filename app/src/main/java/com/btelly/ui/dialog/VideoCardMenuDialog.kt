@@ -36,13 +36,16 @@ class VideoCardMenuDialog(
     private val video: VideoModel,
     private val onDislikeVideo: (() -> Unit)? = null,
     private val onDislikeUp: ((String) -> Unit)? = null,
-    private val onFavoriteRemoved: (() -> Unit)? = null
+    private val onFavoriteRemoved: (() -> Unit)? = null,
+    private val onHistoryRecordDeleted: (() -> Unit)? = null
 ) : AppCompatDialog(context, R.style.DialogTheme), KoinComponent {
 
     companion object {
         private const val TAG = "VideoCardMenuDialog"
         private const val REASON_ID_NOT_INTERESTED = 1
         private const val REASON_ID_DISLIKE_UP = 4
+        private const val MAX_TITLE_CHARS = 30
+        private const val TITLE_ELLIPSIS = "···"
     }
 
     private val binding = DialogVideoCardMenuBinding.inflate(LayoutInflater.from(context))
@@ -61,6 +64,8 @@ class VideoCardMenuDialog(
         video.historyBusiness == "live"
     private val supportsWatchLater = !isLiveFeedbackCard &&
         (video.aid > 0L || video.bvid.isNotBlank())
+    private val supportsHistoryRecordDelete = onHistoryRecordDeleted != null &&
+        video.historyRecordKid.isNotBlank()
 
     init {
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -72,7 +77,9 @@ class VideoCardMenuDialog(
         refreshFavoriteState()
         setOnShowListener {
             binding.root.post {
-                if (supportsWatchLater) {
+                if (supportsHistoryRecordDelete) {
+                    binding.buttonDeleteHistoryRecord.requestFocus()
+                } else if (supportsWatchLater) {
                     binding.buttonWatchLater.requestFocus()
                 } else {
                     binding.buttonUpSpace.requestFocus()
@@ -102,6 +109,14 @@ class VideoCardMenuDialog(
             } else {
                 addWatchLater()
             }
+        }
+
+        binding.buttonDeleteHistoryRecord.setOnClickListener {
+            if (isActionInProgress) return@setOnClickListener
+            if (!checkCsrfAndLogin()) return@setOnClickListener
+            if (!supportsHistoryRecordDelete) return@setOnClickListener
+            setActionInProgress(true)
+            deleteHistoryRecord()
         }
 
         binding.buttonUpSpace.setOnClickListener {
@@ -218,6 +233,37 @@ class VideoCardMenuDialog(
                         }
                     )
                 )
+                setActionInProgress(false)
+            }
+        }
+    }
+
+    private fun deleteHistoryRecord() {
+        val kid = video.historyRecordKid
+        if (kid.isBlank()) {
+            toast(context.getString(R.string.toast_delete_history_record_failed))
+            setActionInProgress(false)
+            return
+        }
+        scope.launch {
+            runCatching {
+                videoRepository.deleteHistoryRecord(kid)
+            }.onSuccess { response ->
+                if (response.isSuccess) {
+                    toast(context.getString(R.string.toast_delete_history_record_success))
+                    onHistoryRecordDeleted?.invoke()
+                    dismiss()
+                } else {
+                    handleActionError(response.code, response.errorMessage)
+                    setActionInProgress(false)
+                }
+            }.onFailure {
+                AppLog.e(
+                    TAG,
+                    "deleteHistoryRecord failure: kid=$kid, aid=${video.aid}, bvid=${video.bvid}, message=${it.message}",
+                    it
+                )
+                toast(context.getString(R.string.toast_delete_history_record_failed))
                 setActionInProgress(false)
             }
         }
@@ -492,8 +538,23 @@ class VideoCardMenuDialog(
     }
 
     private fun configureContent() {
-        binding.textTitle.text = video.title.ifBlank { context.getString(R.string.video) }.take(60)
+        binding.textTitle.text = formatDialogTitle(
+            video.title.ifBlank { context.getString(R.string.video) }
+        )
+        binding.buttonDeleteHistoryRecord.visibility =
+            if (supportsHistoryRecordDelete) View.VISIBLE else View.GONE
         binding.buttonWatchLater.visibility = if (supportsWatchLater) View.VISIBLE else View.GONE
+        binding.buttonDeleteHistoryRecord.nextFocusDownId = when {
+            supportsWatchLater -> R.id.button_watch_later
+            else -> R.id.button_up_space
+        }
+        binding.buttonWatchLater.nextFocusUpId =
+            if (supportsHistoryRecordDelete) R.id.button_delete_history_record else View.NO_ID
+        binding.buttonUpSpace.nextFocusUpId = when {
+            supportsWatchLater -> R.id.button_watch_later
+            supportsHistoryRecordDelete -> R.id.button_delete_history_record
+            else -> View.NO_ID
+        }
         binding.textFavoriteSummary.text = context.getString(R.string.menu_favorite_summary)
         binding.textSubtitle.text = context.getString(
             if (isLiveFeedbackCard) {
@@ -552,6 +613,9 @@ class VideoCardMenuDialog(
         val watchLaterEnabled = supportsWatchLater && !inProgress
         val favoriteEnabled = !inProgress
         val dislikeVideoEnabled = !inProgress
+        val deleteHistoryEnabled = supportsHistoryRecordDelete && !inProgress
+        binding.buttonDeleteHistoryRecord.isEnabled = deleteHistoryEnabled
+        binding.buttonDeleteHistoryRecord.isClickable = deleteHistoryEnabled
         binding.buttonWatchLater.isEnabled = watchLaterEnabled
         binding.buttonWatchLater.isClickable = watchLaterEnabled
         binding.buttonFavorite.isEnabled = favoriteEnabled
@@ -559,6 +623,7 @@ class VideoCardMenuDialog(
         binding.buttonDislikeVideo.isEnabled = dislikeVideoEnabled
         binding.buttonDislikeVideo.isClickable = dislikeVideoEnabled
         binding.buttonWatchLater.alpha = if (watchLaterEnabled) 1f else 0.6f
+        binding.buttonDeleteHistoryRecord.alpha = if (deleteHistoryEnabled) 1f else 0.6f
         binding.buttonFavorite.alpha = if (favoriteEnabled) 1f else 0.6f
         binding.buttonDislikeVideo.alpha = if (dislikeVideoEnabled) 1f else 0.6f
         renderDislikeUpState()
@@ -599,6 +664,15 @@ class VideoCardMenuDialog(
 
     private fun canDislikeUp(): Boolean {
         return video.owner?.mid?.let { it > 0L } == true
+    }
+
+    private fun formatDialogTitle(title: String): String {
+        val trimmed = title.trim()
+        return if (trimmed.length <= MAX_TITLE_CHARS) {
+            trimmed
+        } else {
+            trimmed.take(MAX_TITLE_CHARS - TITLE_ELLIPSIS.length) + TITLE_ELLIPSIS
+        }
     }
 
     private fun toast(message: String) {

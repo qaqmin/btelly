@@ -79,6 +79,7 @@ class VideoAdapter(
         old.historyBadge == new.historyBadge &&
         old.historyBusiness == new.historyBusiness &&
         old.historyDevice == new.historyDevice &&
+        old.historyRecordKid == new.historyRecordKid &&
         old.historyViewAt == new.historyViewAt &&
         old.isSteinsGate == new.isSteinsGate
 

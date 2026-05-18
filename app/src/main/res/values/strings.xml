@@ -247,6 +247,10 @@
     <string name="menu_favorite_summary">短按收藏/取消收藏，长按选择收藏夹</string>
     <string name="menu_up_space">UP主主页</string>
     <string name="menu_up_space_summary">展示UP视频列表</string>
+    <string name="menu_delete_history_record">删除该记录</string>
+    <string name="menu_delete_history_record_summary">从历史记录中移除这条观看记录</string>
+    <string name="toast_delete_history_record_success">已删除该历史记录</string>
+    <string name="toast_delete_history_record_failed">删除历史记录失败</string>
     <string name="toast_add_watch_later_success">已加入稍后观看</string>
     <string name="toast_add_watch_later_failed">加入稍后观看失败，请重试</string>
     <string name="toast_remove_watch_later_success">已移出稍后观看</string>

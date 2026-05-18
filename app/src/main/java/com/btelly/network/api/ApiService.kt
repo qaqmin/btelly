@@ -317,6 +317,13 @@ interface ApiService {
         @Field("csrf") csrf: String
     ): BaseBaseResponse
 
+    @POST("x/v2/history/delete")
+    @FormUrlEncoded
+    suspend fun deleteHistoryRecord(
+        @Field("kid") kid: String,
+        @Field("csrf") csrf: String
+    ): BaseBaseResponse
+
     @POST("x/relation/modify")
     @FormUrlEncoded
     suspend fun userRelationModify(
