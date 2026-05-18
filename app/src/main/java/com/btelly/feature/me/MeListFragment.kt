@@ -102,6 +102,9 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                 },
                 onItemsChanged = {
                     tvFocusController?.onDataChanged(TvDataChangeReason.REMOVE_ITEM)
+                },
+                onHistoryRecordDeleted = { deleted ->
+                    removeHistoryRecordFromCache(deleted)
                 }
             )
         } else {
@@ -683,12 +686,18 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     }
 
     private fun cacheHistoryVideos(videos: List<HistoryVideoModel>) {
-        if (videos.isEmpty()) {
-            return
-        }
         runCatching {
             FileCacheManager.put(HISTORY_CACHE_KEY, videos)
         }
+    }
+
+    private fun removeHistoryRecordFromCache(deleted: HistoryVideoModel) {
+        val deletedKey = historyItemKey(deleted)
+        val remaining = historyAdapter
+            ?.getItemsSnapshot()
+            .orEmpty()
+            .filterNot { historyItemKey(it) == deletedKey }
+        cacheHistoryVideos(remaining)
     }
 
     private fun cacheLaterVideos(videos: List<VideoModel>) {

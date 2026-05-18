@@ -255,6 +255,15 @@ class VideoRepository(
             result
         }
 
+    suspend fun deleteHistoryRecord(kid: String, csrf: String): Result<BaseBaseResponse> =
+        runCatching {
+            securityGateway.ensureHealthyForPlay()
+            sessionGateway.syncAuthState(
+                apiService.deleteHistoryRecord(kid, csrf),
+                source = "video.deleteHistoryRecord"
+            )
+        }
+
     suspend fun checkWatchLater(aid: Long?, bvid: String?): Result<Boolean> =
         runCatching {
             val list = getWatchLaterList()

@@ -129,6 +129,7 @@ data class VideoModel(
     val historyBadge: String = "",
     val historyBusiness: String = "",
     val historyDevice: Int = 0,
+    val historyRecordKid: String = "",
 
     @SerializedName("rights")
     val rights: VideoRights? = null,

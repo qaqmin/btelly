@@ -117,6 +117,7 @@ data class HistoryVideoModel(
             historyBadge = badge,
             historyBusiness = historyInfo?.business.orEmpty(),
             historyDevice = historyInfo?.dt ?: 0,
+            historyRecordKid = resolveHistoryRecordKid(),
             isUpowerExclusive = isUpowerExclusive,
             isChargingArc = isChargingArc,
             elecArcType = elecArcType,
@@ -124,6 +125,21 @@ data class HistoryVideoModel(
             privilegeType = privilegeType
         )
         return model
+    }
+
+    fun resolveHistoryRecordKid(): String {
+        val business = history?.business.orEmpty()
+        val id = when (business) {
+            "archive", "live" -> history?.oid?.takeIf { it > 0L } ?: kid
+            "pgc" -> kid.takeIf { it > 0L } ?: history?.epid ?: history?.oid ?: 0L
+            "article", "article-list" -> kid.takeIf { it > 0L } ?: history?.oid ?: 0L
+            else -> kid.takeIf { it > 0L } ?: history?.oid ?: 0L
+        }
+        return if (business.isNotBlank() && id > 0L) {
+            "${business}_${id}"
+        } else {
+            ""
+        }
     }
 }
 

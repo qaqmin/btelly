@@ -108,6 +108,12 @@ class VideoRepository(
         return delegate.removeWatchLater(aid, bvid, csrf).getOrThrow()
     }
 
+    suspend fun deleteHistoryRecord(kid: String): BaseBaseResponse {
+        val csrf = sessionGateway.requireCsrfToken()
+            ?: return BaseBaseResponse(code = -111, message = "csrf token is blank")
+        return delegate.deleteHistoryRecord(kid, csrf).getOrThrow()
+    }
+
     suspend fun checkWatchLater(aid: Long?, bvid: String? = null): Boolean {
         return runCatching {
             delegate.checkWatchLater(aid, bvid).getOrThrow()

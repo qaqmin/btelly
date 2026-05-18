@@ -27,7 +27,8 @@ class HistoryVideoAdapter(
     onItemFocused: ((Int) -> Unit)? = null,
     onItemFocusedWithView: ((View, Int) -> Unit)? = null,
     onItemDpad: ((View, Int, KeyEvent) -> Boolean)? = null,
-    onItemsChanged: (() -> Unit)? = null
+    onItemsChanged: (() -> Unit)? = null,
+    private val onHistoryRecordDeleted: ((HistoryVideoModel) -> Unit)? = null
 ) : BaseVideoAdapter<HistoryVideoModel, HistoryVideoAdapter.ViewHolder>() {
 
     init {
@@ -125,7 +126,11 @@ class HistoryVideoAdapter(
                 context = itemView.context,
                 video = video,
                 onDislikeVideo = { removeItems { itemKey(it) == itemKey(item) } },
-                onDislikeUp = { upName -> removeItems { it.displayAuthorName.equals(upName, ignoreCase = true) } }
+                onDislikeUp = { upName -> removeItems { it.displayAuthorName.equals(upName, ignoreCase = true) } },
+                onHistoryRecordDeleted = {
+                    onHistoryRecordDeleted?.invoke(item)
+                    removeItems { itemKey(it) == itemKey(item) }
+                }
             ).show()
         }
 
