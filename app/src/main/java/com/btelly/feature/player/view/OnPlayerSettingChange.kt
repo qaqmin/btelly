@@ -1,5 +1,6 @@
 package com.btelly.feature.player.view
 
+import com.btelly.feature.player.settings.AfterPlayMode
 import com.btelly.model.video.quality.VideoQuality
 import com.btelly.model.video.quality.AudioQuality
 import com.btelly.model.video.quality.VideoCodecEnum
@@ -13,4 +14,5 @@ interface OnPlayerSettingChange {
     fun onAspectRatioChange(ratio: Int)
     fun onScreenMirrorChange(enabled: Boolean) {}
     fun onLiveQualityChange(qn: Int) {}
+    fun onAfterPlayModeChange(mode: AfterPlayMode) {}
 }
