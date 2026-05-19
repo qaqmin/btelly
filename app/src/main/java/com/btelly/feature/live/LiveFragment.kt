@@ -58,6 +58,13 @@ class LiveFragment : BaseFragment<FragmentLiveBinding>(), MainTabFocusTarget {
         )
         viewPager.adapter = adapter
         viewPager.offscreenPageLimit = 1
+
+        // 立即展示"推荐"tab，不等分区列表返回
+        val recommendCategory = LiveAreaCategoryParent(id = 0, name = "推荐")
+        categories.clear()
+        categories.add(recommendCategory)
+        adapter.setCategories(categories)
+
         TabLayoutMediator(tabLayout, viewPager) { tab, position ->
             tab.text = adapter.getPageTitle(position)
         }.attach()
@@ -82,6 +89,7 @@ class LiveFragment : BaseFragment<FragmentLiveBinding>(), MainTabFocusTarget {
     }
 
     override fun initData() {
+        AppLog.d("LivePerf", "LiveFragment.initData: 触发加载分区")
         viewModel.loadLiveAreas()
     }
 
@@ -90,6 +98,7 @@ class LiveFragment : BaseFragment<FragmentLiveBinding>(), MainTabFocusTarget {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.categories.collectLatest { list ->
                     if (list.isNotEmpty()) {
+                        AppLog.d("LivePerf", "LiveFragment: 收到分区数据, 数量=${list.size}, 首个=${list.first().name}")
                         val previousItem = viewPager.currentItem
                         categories.clear()
                         categories.addAll(list)

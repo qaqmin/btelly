@@ -22,6 +22,7 @@ import com.btelly.core.ui.focus.SpatialFocusNavigator
 import com.btelly.core.ui.focus.TabContentFocusHelper
 import com.btelly.core.ui.refresh.SwipeRefreshHelper
 import com.btelly.core.common.ext.toast
+import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
@@ -31,6 +32,7 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
         private const val CACHE_TTL_MS = 10 * 60 * 1000L
         private const val PREFETCH_SECTION_COUNT = 2
         private const val PREFETCH_PER_SECTION = 8
+        private const val FIRST_RENDER_SECTIONS = 3
 
         fun newInstance(): LiveRecommendFragment = LiveRecommendFragment()
     }
@@ -40,6 +42,7 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
     private lateinit var adapter: LiveRecommendAdapter
     private var swipeRefreshLayout: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null
     private var capturedRoomId: Long? = null
+    private var hasLoadedData = false
 
     override fun getViewBinding(
         inflater: LayoutInflater,
@@ -64,6 +67,7 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
     }
 
     override fun initData() {
+        AppLog.d("LivePerf", "LiveRecommendFragment.initData: 触发加载推荐")
         viewModel.loadData()
     }
 
@@ -72,9 +76,30 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.recommendData.collectLatest { data ->
                     swipeRefreshLayout?.isRefreshing = false
+                    if (data == null && hasLoadedData) return@collectLatest
+                    val t0 = System.currentTimeMillis()
+                    AppLog.d("LivePerf", "LiveRecommendFragment: 推荐数据到达UI, data=${data != null}")
                     val sections = buildSections(data)
-                    prefetchFirstScreenCovers(sections)
-                    adapter.setData(sections)
+                    if (sections.isEmpty()) return@collectLatest
+                    hasLoadedData = true
+                    AppLog.d("LivePerf", "LiveRecommendFragment: buildSections完成, section数=${sections.size}, 耗时=${System.currentTimeMillis() - t0}ms")
+
+                    if (sections.size <= FIRST_RENDER_SECTIONS) {
+                        prefetchFirstScreenCovers(sections)
+                        adapter.setData(sections)
+                    } else {
+                        // 先渲染前几个可见 section，让首屏尽快显示
+                        val firstBatch = sections.take(FIRST_RENDER_SECTIONS)
+                        prefetchFirstScreenCovers(firstBatch)
+                        adapter.setData(firstBatch)
+                        // 首帧渲染后，追加剩余 section
+                        binding.recyclerView.post {
+                            if (!isAdded || view == null) return@post
+                            adapter.setData(sections)
+                            AppLog.d("LivePerf", "LiveRecommendFragment: 全部section追加完成, 总耗时=${System.currentTimeMillis() - t0}ms")
+                        }
+                    }
+                    AppLog.d("LivePerf", "LiveRecommendFragment: 首批setData完成, 耗时=${System.currentTimeMillis() - t0}ms")
                 }
             }
         }
