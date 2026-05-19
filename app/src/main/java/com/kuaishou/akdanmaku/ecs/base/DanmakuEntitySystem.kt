@@ -32,7 +32,7 @@ import com.kuaishou.akdanmaku.utils.DanmakuTimer
 /**
  *
  *
- * @author Xana
+ * Maintained by project contributors.
  * @since 2021-07-15
  */
 internal abstract class DanmakuEntitySystem(

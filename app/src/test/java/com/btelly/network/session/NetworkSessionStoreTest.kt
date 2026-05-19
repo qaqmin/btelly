@@ -1,3 +1,5 @@
+@file:Suppress("SpellCheckingInspection")
+
 package com.btelly.network.session
 
 import com.btelly.model.BaseResponse
@@ -16,15 +18,15 @@ class NetworkSessionStoreTest {
 
         store.updateUserSession(
             UserDetailInfoModel(
-                face = "//i0.hdslb.com/avatar.jpg",
+                face = "//cdn.example.com/avatar.jpg",
                 wbiImg = WbiImg(
-                    imgUrl = "https://i0.hdslb.com/bfs/wbi/abc123.png",
-                    subUrl = "https://i0.hdslb.com/bfs/wbi/def456.png"
+                    imgUrl = "https://cdn.example.com/bfs/wbi/abc123.png",
+                    subUrl = "https://cdn.example.com/bfs/wbi/def456.png"
                 )
             )
         )
 
-        assertEquals("https://i0.hdslb.com/avatar.jpg", store.getUserInfo()?.face)
+        assertEquals("https://cdn.example.com/avatar.jpg", store.getUserInfo()?.face)
         assertEquals(Pair("abc123", "def456"), store.getWbiKeys())
     }
 
@@ -33,10 +35,10 @@ class NetworkSessionStoreTest {
         val store = NetworkSessionStore(authInvalidCode = -101)
         store.updateUserSession(
             UserDetailInfoModel(
-                face = "http://i0.hdslb.com/avatar.jpg",
+                face = "http://cdn.example.com/avatar.jpg",
                 wbiImg = WbiImg(
-                    imgUrl = "https://i0.hdslb.com/bfs/wbi/abc123.png",
-                    subUrl = "https://i0.hdslb.com/bfs/wbi/def456.png"
+                    imgUrl = "https://cdn.example.com/bfs/wbi/abc123.png",
+                    subUrl = "https://cdn.example.com/bfs/wbi/def456.png"
                 )
             )
         )
@@ -51,7 +53,7 @@ class NetworkSessionStoreTest {
     fun syncUserSession_clears_state_and_invokes_callback_on_auth_invalid() {
         val store = NetworkSessionStore(authInvalidCode = -101)
         var callbackInvoked = false
-        store.updateUserSession(UserDetailInfoModel(face = "https://i0.hdslb.com/avatar.jpg"))
+        store.updateUserSession(UserDetailInfoModel(face = "https://cdn.example.com/avatar.jpg"))
 
         val result = store.syncUserSession(
             response = BaseResponse(code = -101, message = "expired"),
