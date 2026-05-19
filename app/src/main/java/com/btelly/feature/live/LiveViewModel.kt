@@ -2,6 +2,7 @@ package com.btelly.feature.live
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.btelly.core.common.log.AppLog
 import com.btelly.model.live.LiveAreaCategoryParent
 import com.btelly.repository.LiveRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,11 +30,17 @@ class LiveViewModel(
         viewModelScope.launch {
             _loading.value = true
             _error.value = null
-            
+
+            val t0 = System.currentTimeMillis()
+            AppLog.d("LivePerf", "loadLiveAreas: 开始请求分区列表")
+
             val result = liveRepository.getLiveAreas()
-            
+
+            AppLog.d("LivePerf", "loadLiveAreas: 分区列表返回, 耗时=${System.currentTimeMillis() - t0}ms")
+
             result.fold(
                 onSuccess = { areaList ->
+                    AppLog.d("LivePerf", "loadLiveAreas: 分区数量=${areaList.size}")
                     val recommendCategory = LiveAreaCategoryParent(
                         id = 0,
                         name = "推荐"
@@ -42,10 +49,11 @@ class LiveViewModel(
                     lastLoadedAt = System.currentTimeMillis()
                 },
                 onFailure = { exception ->
+                    AppLog.e("LivePerf", "loadLiveAreas: 失败, ${exception.message}")
                     _error.value = exception.message
                 }
             )
-            
+
             _loading.value = false
         }
     }

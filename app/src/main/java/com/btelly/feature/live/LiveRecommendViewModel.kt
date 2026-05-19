@@ -36,6 +36,7 @@ class LiveRecommendViewModel(
 
     fun loadData(forceRefresh: Boolean = false) {
         if (_loading.value && !forceRefresh) {
+            AppLog.d("LivePerf", "LiveRecommendVM.loadData: 已在加载中, 跳过")
             return
         }
 
@@ -44,8 +45,15 @@ class LiveRecommendViewModel(
             _error.value = null
             _status.value = LiveRecommendStatus.Idle
 
+            val t0 = System.currentTimeMillis()
+            AppLog.d("LivePerf", "LiveRecommendVM.loadData: 开始请求推荐数据, forceRefresh=$forceRefresh")
+
             liveRepository.getLiveRecommend(forceRefresh = forceRefresh).fold(
                 onSuccess = { data ->
+                    val elapsed = System.currentTimeMillis() - t0
+                    AppLog.d("LivePerf", "LiveRecommendVM.loadData: 推荐数据返回, 耗时=${elapsed}ms, " +
+                        "recommendRoomCount=${data.recommendRoomList?.size ?: 0}, " +
+                        "sectionCount=${data.roomList?.size ?: 0}")
                     _recommendData.value = data
                     lastLoadedAt = System.currentTimeMillis()
                     val hasContent = hasContent(data)
@@ -56,7 +64,7 @@ class LiveRecommendViewModel(
                     }
                 },
                 onFailure = { exception ->
-                    AppLog.e("LiveRecommendVM", "loadData failed: ${exception.message}", exception)
+                    AppLog.e("LivePerf", "LiveRecommendVM.loadData: 失败, 耗时=${System.currentTimeMillis() - t0}ms, ${exception.message}")
                     _recommendData.value = null
                     _error.value = exception.message
                     _status.value = LiveRecommendStatus.Error

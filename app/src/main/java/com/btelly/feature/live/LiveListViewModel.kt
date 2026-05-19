@@ -68,11 +68,18 @@ class LiveListViewModel(
                 _status.value = LiveListStatus.Idle
             }
 
+            val t0 = System.currentTimeMillis()
+            AppLog.d("LivePerf", "LiveListVM.loadNextPage: 请求分区直播 parentAreaId=$currentParentAreaId areaId=$currentAreaId page=$nextPage")
+
             liveRepository.getAreaLive(currentParentAreaId, currentAreaId, nextPage).fold(
                 onSuccess = { roomPage ->
+                    AppLog.d("LivePerf", "LiveListVM.loadNextPage: 返回, 耗时=${System.currentTimeMillis() - t0}ms, 房间数=${roomPage.rooms.size}, hasMore=${roomPage.hasMore}")
                     applyRoomPage(nextPage = nextPage, roomPage = roomPage)
                 },
-                onFailure = ::handleLoadFailure
+                onFailure = { e ->
+                    AppLog.e("LivePerf", "LiveListVM.loadNextPage: 失败, 耗时=${System.currentTimeMillis() - t0}ms, ${e.message}")
+                    handleLoadFailure(e)
+                }
             )
 
             _loading.value = false

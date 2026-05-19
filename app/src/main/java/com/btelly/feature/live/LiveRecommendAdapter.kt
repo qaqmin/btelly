@@ -30,6 +30,8 @@ class LiveRecommendAdapter(
         }
     }
 
+    private val sharedRoomViewPool = RecyclerView.RecycledViewPool()
+
     fun setData(list: List<LiveRecommendSection>) {
         submitList(list)
     }
@@ -40,7 +42,7 @@ class LiveRecommendAdapter(
             parent,
             false
         )
-        return ViewHolder(binding, onRoomClick, onTopEdgeUp, onLeftEdge)
+        return ViewHolder(binding, onRoomClick, onTopEdgeUp, onLeftEdge, sharedRoomViewPool)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
@@ -51,7 +53,8 @@ class LiveRecommendAdapter(
         private val binding: CellLaneScrollableBinding,
         onRoomClick: (LiveRoomItem) -> Unit,
         private val onTopEdgeUp: () -> Boolean,
-        private val onLeftEdge: () -> Boolean
+        private val onLeftEdge: () -> Boolean,
+        sharedViewPool: RecyclerView.RecycledViewPool
     ) : RecyclerView.ViewHolder(binding.root) {
 
         private val roomAdapter = LiveRoomAdapter(onRoomClick)
@@ -61,7 +64,10 @@ class LiveRecommendAdapter(
                 override fun canScrollVertically(): Boolean = false
             }
             binding.recyclerView.adapter = roomAdapter
+            binding.recyclerView.setRecycledViewPool(sharedViewPool)
             binding.recyclerView.isNestedScrollingEnabled = false
+            binding.recyclerView.setHasFixedSize(true)
+            binding.recyclerView.itemAnimator = null
             binding.topTitle.setOnKeyListener { _, keyCode, event ->
                 if (event.action != KeyEvent.ACTION_DOWN) {
                     return@setOnKeyListener false

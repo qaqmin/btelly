@@ -3,6 +3,7 @@ package com.btelly.repository
 import com.google.gson.JsonObject
 import com.btelly.model.live.LiveAreaCategoryParent
 import com.btelly.model.live.LiveListWrapper
+import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.btelly.repository.remote.LiveRepository as NetworkLiveRepository
@@ -60,15 +61,24 @@ class LiveRepository(
         if (!forceRefresh) {
             cachedRecommend
                 ?.takeIf { System.currentTimeMillis() - it.ts < RECOMMEND_CACHE_TTL_MS }
-                ?.let { return Result.success(it.data) }
+                ?.let {
+                    AppLog.d("LivePerf", "LiveRepository.getLiveRecommend: 缓存命中")
+                    return Result.success(it.data)
+                }
         }
         return recommendMutex.withLock {
             if (!forceRefresh) {
                 cachedRecommend
                     ?.takeIf { System.currentTimeMillis() - it.ts < RECOMMEND_CACHE_TTL_MS }
-                    ?.let { return@withLock Result.success(it.data) }
+                    ?.let {
+                        AppLog.d("LivePerf", "LiveRepository.getLiveRecommend: 缓存命中(锁内)")
+                        return@withLock Result.success(it.data)
+                    }
             }
+            AppLog.d("LivePerf", "LiveRepository.getLiveRecommend: 缓存未命中, 发起网络请求")
+            val t0 = System.currentTimeMillis()
             val result = delegate.getLiveRecommend()
+            AppLog.d("LivePerf", "LiveRepository.getLiveRecommend: 网络请求返回, 耗时=${System.currentTimeMillis() - t0}ms")
             result.onSuccess { data ->
                 cachedRecommend = CachedRecommend(data, System.currentTimeMillis())
             }
@@ -83,15 +93,24 @@ class LiveRepository(
         if (!forceRefresh) {
             cachedAreas
                 ?.takeIf { System.currentTimeMillis() - it.ts < AREAS_CACHE_TTL_MS }
-                ?.let { return Result.success(it.data) }
+                ?.let {
+                    AppLog.d("LivePerf", "LiveRepository.getLiveAreas: 缓存命中")
+                    return Result.success(it.data)
+                }
         }
         return areasMutex.withLock {
             if (!forceRefresh) {
                 cachedAreas
                     ?.takeIf { System.currentTimeMillis() - it.ts < AREAS_CACHE_TTL_MS }
-                    ?.let { return@withLock Result.success(it.data) }
+                    ?.let {
+                        AppLog.d("LivePerf", "LiveRepository.getLiveAreas: 缓存命中(锁内)")
+                        return@withLock Result.success(it.data)
+                    }
             }
+            AppLog.d("LivePerf", "LiveRepository.getLiveAreas: 缓存未命中, 发起网络请求")
+            val t0 = System.currentTimeMillis()
             val result = delegate.getLiveAreas()
+            AppLog.d("LivePerf", "LiveRepository.getLiveAreas: 网络请求返回, 耗时=${System.currentTimeMillis() - t0}ms")
             result.onSuccess { data ->
                 cachedAreas = CachedAreas(data, System.currentTimeMillis())
             }

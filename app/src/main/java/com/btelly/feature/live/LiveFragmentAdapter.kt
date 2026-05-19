@@ -5,6 +5,7 @@ import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.Lifecycle
 import androidx.recyclerview.widget.DiffUtil
 import androidx.viewpager2.adapter.FragmentStateAdapter
+import com.btelly.core.common.log.AppLog
 import com.btelly.model.live.LiveAreaCategoryParent
 
 class LiveFragmentAdapter(
@@ -42,6 +43,7 @@ class LiveFragmentAdapter(
 
     override fun createFragment(position: Int): Fragment {
         val category = categories[position]
+        AppLog.d("LivePerf", "LiveFragmentAdapter.createFragment: position=$position, name=${category.name}")
         val fragment: Fragment = if (position == 0) {
             LiveRecommendFragment.newInstance()
         } else {
