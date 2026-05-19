@@ -11,33 +11,33 @@ class DmProtoParserTest {
     @Test
     fun parseSegment_readsExtendedDanmakuFields() {
         val elemBytes = protoMessage(
-            varintField(1, 123L),
-            varintField(2, 456),
-            varintField(3, 7),
-            varintField(4, 32),
+            numberField(1, 123L),
+            numberField(2, 456),
+            numberField(3, 7),
+            numberField(4, 32),
             uint32Field(5, 0x00FF99FF),
             stringField(6, "mid_hash"),
             stringField(7, "[\"0\",\"0\",\"1-1\",\"4.5\",\"高级弹幕\"]"),
-            varintField(8, 1_717_171_717L),
-            varintField(9, 11),
+            numberField(8, 1_717_171_717L),
+            numberField(9, 11),
             stringField(10, "action"),
-            varintField(11, 1),
+            numberField(11, 1),
             stringField(12, "id_str"),
-            varintField(13, 2),
+            numberField(13, 2),
             stringField(14, "animation")
         )
         val aiFlagBytes = protoMessage(
             bytesField(
                 1,
                 protoMessage(
-                    varintField(1, 123L),
+                    numberField(1, 123L),
                     uint32Field(2, 9)
                 )
             )
         )
         val segmentBytes = protoMessage(
             bytesField(1, elemBytes),
-            varintField(2, 3),
+            numberField(2, 3),
             bytesField(3, aiFlagBytes)
         )
 
@@ -68,13 +68,13 @@ class DmProtoParserTest {
             bytesField(
                 4,
                 protoMessage(
-                    varintField(1, 360000),
-                    varintField(2, 6)
+                    numberField(1, 360000),
+                    numberField(2, 6)
                 )
             ),
             stringField(6, "http://example.com/special-1.bin"),
             stringField(6, "http://example.com/special-2.bin"),
-            varintField(8, 6000L)
+            numberField(8, 6000L)
         )
 
         val result = DmProtoParser.parseView(viewBytes)
@@ -93,7 +93,7 @@ class DmProtoParserTest {
         }
     }
 
-    private fun varintField(fieldNumber: Int, value: Long): ByteArray {
+    private fun numberField(fieldNumber: Int, value: Long): ByteArray {
         return ByteArrayOutputStream().use { output ->
             val codedOutput = CodedOutputStream.newInstance(output)
             codedOutput.writeUInt32NoTag(fieldNumber shl 3)

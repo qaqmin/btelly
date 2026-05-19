@@ -27,10 +27,10 @@ import java.util.*
 import kotlin.math.max
 
 /**
- * A [List] implementation that is optimised for fast insertions and
+ * A [List] implementation that is optimized for fast insertions and
  * removals at any index in the list.
  *
- * This list implementation utilises a tree structure internally to ensure that
+ * This list implementation utilizes a tree structure internally to ensure that
  * all insertions and removals are O(log n).
  *
  * @since 3.1
@@ -41,7 +41,7 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
     private var root: AVLNode<E>? = null
 
     init {
-        if (coll != null && coll.isNotEmpty()) {
+        if (!coll.isNullOrEmpty()) {
             root = AVLNode(coll)
         }
     }
@@ -51,7 +51,7 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
         return root!!.get(index).value
     }
 
-    private var _size: Int = if (coll != null && coll.isNotEmpty()) coll.size else 0
+    private var _size: Int = coll?.size ?: 0
 
     override val size: Int get() = _size
 
@@ -80,10 +80,10 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
     override fun add(index: Int, element: E) {
         modCount++
         checkInterval(index, 0, _size)
-        if (root == null) {
-            root = AVLNode(index, element, null, null)
+        root = if (root == null) {
+            AVLNode(index, element, null, null)
         } else {
-            root = root!!.insert(index, element)
+            root!!.insert(index, element)
         }
         _size++
     }
@@ -121,7 +121,7 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
     }
 
     private fun checkInterval(index: Int, startIndex: Int, endIndex: Int) {
-        if (index < startIndex || index > endIndex) {
+        if (index !in startIndex..endIndex) {
             throw IndexOutOfBoundsException("Invalid index:$index, size=${_size}")
         }
     }
@@ -159,7 +159,7 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
             this.rightIsNext = false
             this.relativePosition = 0
             this.value = coll.first()
-            initFromCollection(coll.iterator(), 0, coll.size - 1, 0, null, null)
+            initFromCollection(coll.iterator(), coll.size - 1)
         }
 
         private constructor(
@@ -168,8 +168,7 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
             end: Int,
             absolutePositionOfParent: Int,
             prev: AVLNode<E>?,
-            next: AVLNode<E>?,
-            dummy: Unit
+            next: AVLNode<E>?
         ) {
             this.left = null
             this.leftIsPrevious = false
@@ -180,14 +179,14 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
 
             val mid = start + (end - start) / 2
             if (start < mid) {
-                left = AVLNode(iterator, start, mid - 1, mid, prev, this, Unit)
+                left = AVLNode(iterator, start, mid - 1, mid, prev, this)
             } else {
                 leftIsPrevious = true
                 left = prev
             }
             relativePosition = mid - absolutePositionOfParent
             if (mid < end) {
-                right = AVLNode(iterator, mid + 1, end, mid, this, next, Unit)
+                right = AVLNode(iterator, mid + 1, end, mid, this, next)
             } else {
                 rightIsNext = true
                 right = next
@@ -195,28 +194,22 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
             recalcHeight()
         }
 
-        private fun initFromCollection(
-            iterator: Iterator<E>,
-            start: Int,
-            end: Int,
-            absolutePositionOfParent: Int,
-            prev: AVLNode<E>?,
-            next: AVLNode<E>?
-        ) {
+        private fun initFromCollection(iterator: Iterator<E>, end: Int) {
+            val start = 0
             val mid = start + (end - start) / 2
             if (start < mid) {
-                left = AVLNode(iterator, start, mid - 1, mid, prev, this, Unit)
+                left = AVLNode(iterator, start, mid - 1, mid, null, this)
             } else {
                 leftIsPrevious = true
-                left = prev
+                left = null
             }
             value = iterator.next()
-            relativePosition = mid - absolutePositionOfParent
+            relativePosition = mid
             if (mid < end) {
-                right = AVLNode(iterator, mid + 1, end, mid, this, next, Unit)
+                right = AVLNode(iterator, mid + 1, end, mid, this, null)
             } else {
                 rightIsNext = true
-                right = next
+                right = null
             }
             recalcHeight()
         }
@@ -498,10 +491,10 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
                     sAncestor.setLeft(s, null)
                     s = sAncestor.balance()
                 }
-                return s!!
+                return checkNotNull(s)
             }
 
-            var otherTreeVar: AVLNode<E>? = otherTree.removeMin()
+            val otherTreeVar: AVLNode<E>? = otherTree.removeMin()
             val otherTreeMinVar = otherTree.min()
 
             val sAncestors = ArrayDeque<AVLNode<E>>()
@@ -535,11 +528,11 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
                 sAncestor.setRight(s, null)
                 s = sAncestor.balance()
             }
-            return s!!
+            return checkNotNull(s)
         }
 
         override fun toString(): String {
-            return "AVLNode($relativePosition,${left != null},$value,${rightSubTree != null}, faedelung $rightIsNext )"
+            return "AVLNode($relativePosition,${left != null},$value,${rightSubTree != null}, threaded=$rightIsNext)"
         }
     }
 
@@ -587,10 +580,10 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
             if (!hasPrevious()) {
                 throw NoSuchElementException("Already at start of list.")
             }
-            if (next == null) {
-                next = parent.root!!.get(nextIndex - 1)
+            next = if (next == null) {
+                parent.root!!.get(nextIndex - 1)
             } else {
-                next = next!!.previous()
+                next!!.previous()
             }
             val value = next!!.value
             current = next

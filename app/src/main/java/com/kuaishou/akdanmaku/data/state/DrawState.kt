@@ -31,7 +31,7 @@ import com.kuaishou.akdanmaku.utils.onChange
 /**
  * 绘图状态
  *
- * @author Xana
+ * Maintained by project contributors.
  * @since 2021-07-16
  */
 internal class DrawState : State() {

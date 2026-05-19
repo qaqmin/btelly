@@ -33,7 +33,7 @@ import com.kuaishou.akdanmaku.ext.EMPTY_BITMAP
 /**
  * 绘制缓存
  *
- * @author Xana
+ * Maintained by project contributors.
  * @since 2021-06-22
  */
 class DrawingCache {

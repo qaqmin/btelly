@@ -1,3 +1,5 @@
+@file:Suppress("SpellCheckingInspection")
+
 /*
  * The MIT License (MIT)
  *
@@ -29,9 +31,10 @@ import java.util.*
 /**
  * 有序范围列表，其中持有并维护一个有序连续的线段
  *
- * @author Xana
+ * Maintained by project contributors.
  * @since 2021-07-05
  */
+@Suppress("unused")
 class OrderedRangeList<T>(var start: Int, var end: Int, private val margin: Int = 0) {
 
   private val holderPool = Pools.SimplePool<Holder<T>>(100).apply {
@@ -69,7 +72,7 @@ class OrderedRangeList<T>(var start: Int, var end: Int, private val margin: Int 
     if (holders.isEmpty()) return Collections.emptyList()
     // 寻找第一个满足条件的作为起始点
     var startIndex = holders.indexOfFirst { predicate(it.data) }
-    var endIndex = startIndex
+    var endIndex = 0
     while (endIndex >= 0 && endIndex < holders.size) {
       val start = holders[startIndex].start
       val end = holders[endIndex].end
@@ -235,12 +238,9 @@ class OrderedRangeList<T>(var start: Int, var end: Int, private val margin: Int 
 
   private fun checkContinuous(holders: List<Holder<T>>): Boolean {
     // 检查连续性
-    if (holders.zipWithNext().any { (last, next) ->
-        last.end != next.start || last.start >= next.start
-      }) {
-      return false
+    return holders.zipWithNext().none { (last, next) ->
+      last.end != next.start || last.start >= next.start
     }
-    return true
   }
 
   class Holder<T>(

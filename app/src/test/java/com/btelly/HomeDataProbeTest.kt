@@ -41,8 +41,17 @@ class HomeDataProbeTest {
 
         val homeLaneRepository = HomeLaneRepository(
             apiService = NetworkManager.apiService,
-            seriesRepository = RemoteSeriesRepository(NetworkManager.apiService, sessionGateway),
-            userRepository = UserRepository(NetworkManager.apiService, sessionGateway)
+            seriesRepository = RemoteSeriesRepository(
+                NetworkManager.apiService,
+                sessionGateway,
+                securityGateway
+            ),
+            userRepository = UserRepository(
+                NetworkManager.apiService,
+                sessionGateway,
+                securityGateway
+            ),
+            sessionGateway = sessionGateway
         )
         val anime = kotlinx.coroutines.runBlocking {
             homeLaneRepository.getHomeLanes(

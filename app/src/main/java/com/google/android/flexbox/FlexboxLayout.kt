@@ -115,9 +115,9 @@ class FlexboxLayout @JvmOverloads constructor(
         var currentLine = FlexLine(width = paddingLeft + paddingRight)
         var maxLineWidth = paddingLeft + paddingRight
 
-        orderedChildren().forEach { orderedChild ->
+        for (orderedChild in orderedChildren()) {
             val child = orderedChild.child
-            if (child.visibility == View.GONE) return@forEach
+            if (child.visibility == GONE) continue
 
             val params = orderedChild.params
             measureChildWithMargins(child, widthMeasureSpec, 0, heightMeasureSpec, 0)

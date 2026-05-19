@@ -21,6 +21,8 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+@file:Suppress("SpellCheckingInspection")
+
 package com.kuaishou.akdanmaku.cache
 
 import android.os.*
@@ -41,7 +43,7 @@ import java.util.*
 /**
  * 缓存管理器，用于完成后台缓存绘制与管理缓存相关对象
  *
- * @author Xana
+ * Maintained by project contributors.
  * @since 2021-06-24
  */
 @Suppress("unused")

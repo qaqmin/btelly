@@ -63,7 +63,7 @@ class SpecialDanmakuParserTest {
     fun parse_usesActionColorWhenBodyIsWhite() {
         val script = """
             def text a {
-                content = "Hello Bilibili!"
+                content = "Hello Video!"
                 fontSize = 5%
                 x = 0
                 y = 90%
