@@ -259,6 +259,7 @@ object ImageLoader {
         val canFallbackToRawUrl = canFallbackToRawUrl(optimizedUrl, normalizedUrl)
         val cachedBitmap = CoverLoader.get(optimizedUrl)
         if (cachedBitmap != null && !cachedBitmap.isRecycled) {
+            imageView.dispose()
             if (placeholder != 0) {
                 imageView.setImageResource(placeholder)
             }
