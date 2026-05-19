@@ -8,6 +8,9 @@ import com.btelly.core.ui.image.ImageLoader
 import com.btelly.model.video.VideoModel
 import com.btelly.repository.VideoRepository
 import com.btelly.repository.cache.HomeCacheStore
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 
 class RecommendFeedRepository(
     private val videoRepository: VideoRepository,
@@ -24,21 +27,37 @@ class RecommendFeedRepository(
         private const val COVER_PREFETCH_COUNT = 8
     }
 
-    @Volatile
-    private var preloadedFirstPage: NetworkPage? = null
+    private val firstPageDeferred = CompletableDeferred<NetworkPage>()
 
     suspend fun preloadFirstPage() {
         val startMs = SystemClock.elapsedRealtime()
-        AppLog.i(TAG, "APP_STARTUP recommend preload start")
+        AppLog.i(TAG, "STARTUP T2 preloadFirstPage start")
         val preloadSize = PRELOAD_PAGE_SIZE
-        loadNetworkPage(page = 1, pageSize = preloadSize, freshIdx = 0)
-            .getOrNull()?.let { page ->
-                AppLog.i(TAG, "APP_STARTUP recommend preload got ${page.items.size} items, hasMore=${page.hasMore}")
-                preloadedFirstPage = page
-                writeCache(page.items)
-                prefetchCovers(page.items)
-            }
-        AppLog.i(TAG, "APP_STARTUP recommend preload end elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
+        val result = loadNetworkPage(page = 1, pageSize = preloadSize, freshIdx = 0)
+        val page = result.getOrNull()
+        if (page != null) {
+            AppLog.i(TAG, "STARTUP T3 preload api done items=${page.items.size} hasMore=${page.hasMore}")
+            writeCache(page.items)
+            prefetchCovers(page.items)
+            firstPageDeferred.complete(page)
+        } else {
+            firstPageDeferred.completeExceptionally(
+                result.exceptionOrNull() ?: IllegalStateException("preload failed")
+            )
+        }
+        AppLog.i(TAG, "STARTUP T3b preload end elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
+    }
+
+    suspend fun awaitFirstPage(timeoutMs: Long): NetworkPage? {
+        return try {
+            withTimeout(timeoutMs) { firstPageDeferred.await() }
+        } catch (e: TimeoutCancellationException) {
+            AppLog.w(TAG, "STARTUP awaitFirstPage timeout after ${timeoutMs}ms")
+            null
+        } catch (e: Exception) {
+            AppLog.w(TAG, "STARTUP awaitFirstPage failed: ${e.message}")
+            null
+        }
     }
 
     private fun prefetchCovers(items: List<VideoModel>) {
@@ -48,12 +67,6 @@ class RecommendFeedRepository(
             .map { it.bangumi?.cover?.takeIf { c -> c.isNotBlank() } ?: it.coverUrl }
             .toList()
         ImageLoader.prefetchVideoCovers(appContext, urls)
-    }
-
-    fun takePreloadedFirstPage(): NetworkPage? {
-        val result = preloadedFirstPage
-        preloadedFirstPage = null
-        return result
     }
 
     data class CachedFeed(

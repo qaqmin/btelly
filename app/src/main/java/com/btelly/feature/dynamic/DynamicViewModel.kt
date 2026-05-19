@@ -11,7 +11,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import com.btelly.core.ui.image.CoverLoader
+import android.os.SystemClock
+import com.btelly.core.common.log.AppLog
+import com.btelly.core.ui.image.ImageLoader
+import com.btelly.BTellyApplication
 
 class DynamicViewModel(
     private val userRepository: UserRepository
@@ -34,6 +37,7 @@ class DynamicViewModel(
     }
 
     companion object {
+        private const val TAG = "DynamicVM"
         private const val ALL_DYNAMIC_ID = "0"
         private const val FOLLOWING_PAGE_SIZE = 50
     }
@@ -112,6 +116,8 @@ class DynamicViewModel(
         }
 
         followingLoadJob = viewModelScope.launch {
+            val startMs = SystemClock.elapsedRealtime()
+            AppLog.i(TAG, "DYN D0 loadFollowingList start")
             _loading.value = true
             _error.value = null
             _status.value = DynamicStatus.Idle
@@ -130,13 +136,16 @@ class DynamicViewModel(
                 )
             )
 
+            val midStartMs = SystemClock.elapsedRealtime()
             userRepository.resolveCurrentUserMid()
                 .onSuccess { mid ->
                     currentUserMid = mid
+                    AppLog.i(TAG, "DYN D1 resolveMid end elapsed=${SystemClock.elapsedRealtime() - midStartMs}ms mid=$mid")
                     launch { loadFollowingPage(mid, 1, defaultItems) }
                     launch { selectUp(ALL_DYNAMIC_ID, lastPageSize) }
                 }
                 .onFailure { exception ->
+                    AppLog.w(TAG, "DYN D1 resolveMid failed elapsed=${SystemClock.elapsedRealtime() - midStartMs}ms err=${exception.message}")
                     _loading.value = false
                     _followingList.value = defaultItems
                     _videos.value = emptyList()
@@ -153,8 +162,11 @@ class DynamicViewModel(
         page: Int,
         defaultItems: List<FollowingModel>
     ) {
+        val startMs = SystemClock.elapsedRealtime()
+        AppLog.i(TAG, "DYN D2 getFollowing start mid=$mid page=$page")
         userRepository.getFollowing(mid, page, FOLLOWING_PAGE_SIZE)
             .onSuccess { followingResponse ->
+                AppLog.i(TAG, "DYN D3 getFollowing end elapsed=${SystemClock.elapsedRealtime() - startMs}ms success=${followingResponse.isSuccess}")
                 _loading.value = false
                 if (followingResponse.isSuccess) {
                     val wrapper = followingResponse.data
@@ -181,6 +193,7 @@ class DynamicViewModel(
                 }
             }
             .onFailure { exception ->
+                AppLog.w(TAG, "DYN D3 getFollowing failed elapsed=${SystemClock.elapsedRealtime() - startMs}ms err=${exception.message}")
                 _loading.value = false
                     _followingList.value = defaultItems
                     hasFollowingUsers = false
@@ -249,6 +262,7 @@ class DynamicViewModel(
         if (!forceRefresh) {
             val cached = videoCache.get(upId)
             if (cached != null) {
+                AppLog.i(TAG, "DYN D4 selectUp cache hit upId=$upId items=${cached.videos.size}")
                 loadJob = null
                 currentVideoItems = cached.videos
                 currentPage = cached.page
@@ -277,6 +291,8 @@ class DynamicViewModel(
         val nextPage = currentPage + 1
         val gen = loadGeneration
         loadJob = viewModelScope.launch {
+            val startMs = SystemClock.elapsedRealtime()
+            AppLog.i(TAG, "DYN D4 selectUp network start upId=$currentUpId page=$nextPage")
             _loading.value = true
             _error.value = null
             if (currentPage == 0) {
@@ -293,6 +309,7 @@ class DynamicViewModel(
                         offset = if (nextPage > 1) currentAllDynamicOffset else null
                     ).onSuccess { response ->
                         val items = response.data?.items.orEmpty()
+                        AppLog.i(TAG, "DYN D5 getAllDynamic end elapsed=${SystemClock.elapsedRealtime() - startMs}ms items=${items.size} hasMore=${response.data?.hasMore}")
 
                         if (response.isSuccess) {
                             currentVideoItems = if (nextPage == 1) {
@@ -305,7 +322,7 @@ class DynamicViewModel(
                             currentAllDynamicOffset = response.data?.offset
                             currentPage = nextPage
                             _loadedPage.value = nextPage
-                            CoverLoader.preload(items.take(6).map { it.effectiveCoverUrl })
+                            ImageLoader.prefetchVideoCovers(BTellyApplication.instance, items.take(6).map { it.effectiveCoverUrl })
                             _videos.value = items
                             _status.value = resolveStatus(currentUpId, currentVideoItems)
                             _screenState.value = ScreenState.Content
@@ -337,6 +354,7 @@ class DynamicViewModel(
                 userRepository.getUserDynamic(currentUpId.toLongOrNull() ?: 0L, nextPage, pageSize)
                     .onSuccess { response ->
                         val items = response.data?.archives.orEmpty()
+                        AppLog.i(TAG, "DYN D5 getUserDynamic end elapsed=${SystemClock.elapsedRealtime() - startMs}ms items=${items.size} hasMore=${response.data?.hasMore}")
 
                         if (response.isSuccess) {
                             currentVideoItems = if (nextPage == 1) {
@@ -348,7 +366,7 @@ class DynamicViewModel(
                             _hasMoreVideos.value = response.data?.hasMore == true
                             currentPage = nextPage
                             _loadedPage.value = nextPage
-                            CoverLoader.preload(items.take(6).map { it.effectiveCoverUrl })
+                            ImageLoader.prefetchVideoCovers(BTellyApplication.instance, items.take(6).map { it.effectiveCoverUrl })
                             _videos.value = items
                             _status.value = resolveStatus(currentUpId, currentVideoItems)
                             _screenState.value = ScreenState.Content
@@ -450,7 +468,7 @@ class DynamicViewModel(
         preloadJob?.cancel()
         followingLoadJob?.cancel()
         videoCache.evictAll()
-        CoverLoader.evictAll()
+        ImageLoader.clearMemory(BTellyApplication.instance)
         _followingList.value = emptyList()
         _videos.value = emptyList()
         currentVideoItems = emptyList()

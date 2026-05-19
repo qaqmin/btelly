@@ -44,6 +44,8 @@ class SearchItemAdapter(
     private val onItemsChanged: (() -> Unit)? = null
 ) : ListAdapter<SearchItemModel, RecyclerView.ViewHolder>(DiffCallback), TvFocusableAdapter {
 
+    private val portraitDetectedUrls = mutableSetOf<String>()
+
     fun setItems(list: List<SearchItemModel>) {
         submitList(list)
     }
@@ -197,7 +199,8 @@ class SearchItemAdapter(
             }
 
             val coverUrl = item.pic.ifBlank { item.cover }
-            val needPortraitDetect = item.dimension?.isPortrait != true
+            val cachedPortrait = coverUrl in portraitDetectedUrls
+            val needPortraitDetect = item.dimension?.isPortrait != true && !cachedPortrait
             if (item.dimension?.isPortrait == true) {
                 binding.imageAvatar.visibility = View.GONE
                 binding.textBadge.text = "竖屏"
@@ -217,6 +220,7 @@ class SearchItemAdapter(
                     if (bindingAdapterPosition != RecyclerView.NO_POSITION
                         && currentItem === item && isPortrait
                     ) {
+                        portraitDetectedUrls.add(coverUrl)
                         binding.imageAvatar.visibility = View.GONE
                         binding.textBadge.text = "竖屏"
                         binding.textBadge.visibility = View.VISIBLE

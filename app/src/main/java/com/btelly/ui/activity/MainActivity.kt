@@ -62,10 +62,25 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         private const val SETTINGS_OVERLAY_EXIT_ANIM_MS = 275L
         private const val SEARCH_TAB_INDEX = 5
         private const val STARTUP_TAG = "AppStartup"
-        private const val SPLASH_TIMEOUT_MS = 1400L
+        // 正常路径下 RecommendListFragment.applyReplacedVideosNow 会发出 HomeContentReady
+        // 让 splash 自然消失（实测 T+1.7s 左右）；timeout 只是兜底，防止网络全挂时永远黑屏。
+        // 之前 300ms 太短，splash 会在内容贴上 RecyclerView 之前就消失，用户先看到一段空白
+        // 再看到卡片，体感反而比 splash 多挂 500ms 更糟。设到 2.5s 覆盖 99% 正常启动情况。
+        private const val SPLASH_TIMEOUT_MS = 2500L
     }
 
-    private val fragments = mutableListOf<Fragment>()
+    // tab 顺序固定（与 fragmentFactories 一一对应）：
+    // 0 推荐 / 1 分类 / 2 动态 / 3 直播 / 4 我的 / 5 搜索。
+    // 用 lazy factory 让 4 个非首屏 tab 真正点中时再构造，省去 1.1s 的 onCreate 大段时间。
+    private val fragmentFactories: List<() -> Fragment> = listOf(
+        { HomeFragment.newInstance() },
+        { CategoryFragment.newInstance() },
+        { DynamicFragment.newInstance() },
+        { LiveFragment.newInstance() },
+        { MeFragment.newInstance() },
+        { SearchNewFragment.newInstance() }
+    )
+    private val fragments: MutableList<Fragment?> = MutableList(fragmentFactories.size) { null }
     private val appEventHub: AppEventHub by inject()
     private val mainNavigationViewModel: MainNavigationViewModel by viewModels()
     private val sessionGateway: NetworkSessionGateway by inject()
@@ -86,7 +101,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     override fun getViewBinding(): ActivityMainBinding = ActivityMainBinding.inflate(layoutInflater)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        AppLog.i(STARTUP_TAG, "MainActivity.onCreate start")
+        AppLog.i(STARTUP_TAG, "STARTUP T1b MainActivity.onCreate start")
         if (savedInstanceState == null && shouldFinishDuplicateLauncherLaunch()) {
             super.onCreate(savedInstanceState)
             finish()
@@ -137,7 +152,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
                 }
             }
         }
-        AppLog.i(STARTUP_TAG, "MainActivity.onCreate end elapsed=${SystemClock.elapsedRealtime() - activityCreateStartMs}ms")
+        AppLog.i(STARTUP_TAG, "STARTUP T1c MainActivity.onCreate end elapsed=${SystemClock.elapsedRealtime() - activityCreateStartMs}ms")
     }
 
     override fun initView() {
@@ -199,7 +214,17 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
 
     private fun applyBackgroundImage() {
         val themeIndex = appSettings.getCachedInt("theme", 1)
-        binding.mainBackgroundImage.visibility = if (themeIndex == 3) View.VISIBLE else View.GONE
+        if (themeIndex == 3) {
+            binding.mainBackgroundImage.apply {
+                setBackgroundResource(R.drawable.background_image)
+                visibility = View.VISIBLE
+            }
+        } else {
+            binding.mainBackgroundImage.apply {
+                background = null
+                visibility = View.GONE
+            }
+        }
     }
 
     fun applyCategoryEntryVisibility() {
@@ -220,13 +245,13 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     }
 
     private fun initFragments() {
-        fragments.clear()
-        fragments.add(HomeFragment.newInstance())
-        fragments.add(CategoryFragment.newInstance())
-        fragments.add(DynamicFragment.newInstance())
-        fragments.add(LiveFragment.newInstance())
-        fragments.add(MeFragment.newInstance())
-        fragments.add(SearchNewFragment.newInstance())
+        // 不再在这里同步 new 6 个 Fragment，全部走 [getOrCreateFragment] 按需 lazy 构造。
+        // savedInstanceState 恢复路径下，FragmentManager 自带 restoredFragment，下面 showFragment
+        // 里的 findFragmentByTag 会优先命中，不会触发 factory。
+    }
+
+    private fun getOrCreateFragment(index: Int): Fragment {
+        return fragments[index] ?: fragmentFactories[index]().also { fragments[index] = it }
     }
 
     private fun showFragment(index: Int) {
@@ -238,7 +263,8 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         val fragmentTag = "fragment_$index"
         val previousIndex = currentFragmentIndex
         val currentFragment = supportFragmentManager.findFragmentByTag("fragment_$previousIndex")
-        val targetFragment = supportFragmentManager.findFragmentByTag(fragmentTag) ?: fragments[index]
+        val targetFragment = supportFragmentManager.findFragmentByTag(fragmentTag)
+            ?: getOrCreateFragment(index)
 
         supportFragmentManager.commit {
             setReorderingAllowed(true)
@@ -303,7 +329,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
             ?.let { normalizedKeyword ->
                 val searchFragment = supportFragmentManager
                     .findFragmentByTag("fragment_$SEARCH_TAB_INDEX") as? SearchNewFragment
-                    ?: fragments.getOrNull(SEARCH_TAB_INDEX) as? SearchNewFragment
+                    ?: getOrCreateFragment(SEARCH_TAB_INDEX) as? SearchNewFragment
                 binding.root.post {
                     searchFragment?.openKeyword(normalizedKeyword)
                 }
@@ -328,7 +354,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     private fun dismissSplash() {
         if (splashDismissed) return
         splashDismissed = true
-        AppLog.i(STARTUP_TAG, "dismissSplash elapsed=${SystemClock.elapsedRealtime() - activityCreateStartMs}ms")
+        AppLog.i(STARTUP_TAG, "STARTUP T4 dismissSplash elapsed=${SystemClock.elapsedRealtime() - activityCreateStartMs}ms")
         window.setBackgroundDrawableResource(R.color.systemBackgroundColor)
     }
 

@@ -30,6 +30,8 @@ class DynamicVideoAdapter(
     onItemsChanged: (() -> Unit)? = null
 ) : BaseVideoAdapter<VideoModel, DynamicVideoAdapter.ViewHolder>() {
 
+    private val portraitDetectedBvids = mutableSetOf<String>()
+
     init {
         setShowLoadMore(false)
         this.onItemFocused = onItemFocused
@@ -175,10 +177,11 @@ class DynamicVideoAdapter(
             ImageLoader.loadVideoCover(
                 imageView = binding.imageView,
                 url = coverUrl,
-                onPortraitDetected = if (!item.isPortrait && ownerName.isNotBlank()) { isPortrait ->
+                onPortraitDetected = if (!item.isPortrait && ownerName.isNotBlank() && item.bvid !in portraitDetectedBvids) { isPortrait ->
                     if (bindingAdapterPosition != NO_POSITION
                         && currentItem === item && isPortrait
                     ) {
+                        if (item.bvid.isNotBlank()) portraitDetectedBvids.add(item.bvid)
                         binding.imageAvatar.visibility = View.GONE
                         binding.textBadge.text = "竖屏"
                         binding.textBadge.visibility = View.VISIBLE

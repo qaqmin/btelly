@@ -38,6 +38,10 @@ class VideoAdapter(
 
     var currentPlayingAid: Long = 0
 
+    companion object {
+        private val portraitDetectedBvids = mutableSetOf<String>()
+    }
+
     init {
         this.onTopEdgeUp = onTopEdgeUp
         this.onBottomEdgeDown = onBottomEdgeDown
@@ -159,6 +163,34 @@ class VideoAdapter(
             color
         }
 
+        companion object {
+            // 进度条永远是圆角胶囊，所有 holder 共享一个 ViewOutlineProvider 实例，
+            // 避免 RecyclerView 创建 12 个 holder 时实例化 12 个匿名类 + 12 个 ViewOutline。
+            private val PROGRESS_OUTLINE_PROVIDER = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, view.height / 2f)
+                }
+            }
+
+            // 封面的圆角半径来自 dimen，但每个 holder resources 一致，半径也一致；
+            // 用单例缓存避免每个 holder 创建匿名类。第一次访问时通过 resources 把 px 值算出来锁住。
+            @Volatile
+            private var coverOutlineProvider: ViewOutlineProvider? = null
+
+            fun coverOutlineProviderFor(resources: android.content.res.Resources): ViewOutlineProvider {
+                coverOutlineProvider?.let { return it }
+                synchronized(this) {
+                    coverOutlineProvider?.let { return it }
+                    val radius = resources.getDimension(R.dimen.px15)
+                    return object : ViewOutlineProvider() {
+                        override fun getOutline(view: View, outline: Outline) {
+                            outline.setRoundRect(0, 0, view.width, view.height, radius)
+                        }
+                    }.also { coverOutlineProvider = it }
+                }
+            }
+        }
+
         private val keyListener = View.OnKeyListener { view, keyCode, event ->
             if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
                 when (event.action) {
@@ -193,19 +225,10 @@ class VideoAdapter(
         }
 
         init {
-            val coverRadiusPx = binding.imageView.resources.getDimension(R.dimen.px15)
             binding.imageView.clipToOutline = true
-            binding.imageView.outlineProvider = object : ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: Outline) {
-                    outline.setRoundRect(0, 0, view.width, view.height, coverRadiusPx)
-                }
-            }
+            binding.imageView.outlineProvider = coverOutlineProviderFor(binding.imageView.resources)
             binding.progressBar.clipToOutline = true
-            binding.progressBar.outlineProvider = object : ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: Outline) {
-                    outline.setRoundRect(0, 0, view.width, view.height, view.height / 2f)
-                }
-            }
+            binding.progressBar.outlineProvider = PROGRESS_OUTLINE_PROVIDER
             binding.root.setOnClickListener {
                 if (longPressTriggered) {
                     longPressTriggered = false
@@ -300,9 +323,10 @@ class VideoAdapter(
             }
 
             val coverUrl = resolveCoverUrl(video)
+            val cachedPortrait = video.bvid.isNotBlank() && video.bvid in portraitDetectedBvids
             val needPortraitDetect = detectPortraitFromCover &&
                 displayStyle == DisplayStyle.DEFAULT &&
-                !video.isPortrait
+                !video.isPortrait && !cachedPortrait
             ImageLoader.loadVideoCover(
                 imageView = binding.imageView,
                 url = coverUrl,
@@ -310,6 +334,7 @@ class VideoAdapter(
                     if (bindingAdapterPosition != androidx.recyclerview.widget.RecyclerView.NO_POSITION
                         && currentVideo === video && isPortrait
                     ) {
+                        if (video.bvid.isNotBlank()) portraitDetectedBvids.add(video.bvid)
                         binding.imageAvatar.visibility = View.GONE
                         applyBadge(video.copy(dimension = Dimension(width = 1, height = 2)))
                     }

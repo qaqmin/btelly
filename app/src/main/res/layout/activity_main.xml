@@ -3,9 +3,15 @@
     android:background="?attr/backgroundColor"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
+    <!--
+      ~ 默认不设 background drawable，避免冷启动 inflate 时主线程同步 decode 26KB 全屏 webp
+      ~ (实测在低端 TV / 模拟器上 100~300ms)。
+      ~ 只有 ClassicsTheme (themeIndex == 3) 才需要这张背景，由 MainActivity.applyBackgroundImage()
+      ~ 运行时按需 setBackgroundResource。
+      -->
     <androidx.appcompat.widget.AppCompatImageView
         android:id="@+id/mainBackgroundImage"
-        android:background="@drawable/background_image"
+        android:visibility="gone"
         android:layout_width="match_parent"
         android:layout_height="match_parent"/>
     <com.btelly.core.ui.navigation.TabBarView

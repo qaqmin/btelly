@@ -28,8 +28,6 @@ import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.ui.focus.tv.GridTvFocusStrategy
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import com.btelly.core.ui.focus.tv.OffsetTvFocusableAdapter
 import com.btelly.core.ui.focus.tv.TvDataChangeReason
 import com.btelly.core.ui.focus.tv.TvListFocusController
@@ -263,9 +261,7 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.btelly.u
 
                 if (response.isSuccess) {
                     response.data?.let { page ->
-                        val items = withContext(Dispatchers.Default) {
-                        ContentFilter.filterVideos(requireContext(), page.archives)
-                    }
+                        val items = ContentFilter.filterVideos(requireContext(), page.archives)
                         hasMore = page.hasMore
                         if (currentPage == 1) {
                             videoAdapter.setData(items)

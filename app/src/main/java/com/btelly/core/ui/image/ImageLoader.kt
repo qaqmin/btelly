@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
+import android.os.SystemClock
 import android.widget.ImageView
 import androidx.annotation.DrawableRes
 import coil3.Image
@@ -246,6 +247,9 @@ object ImageLoader {
     /**
      * 视频封面统一只做 CenterCrop。圆角通过 ImageView 的 outlineProvider 在 GPU 层裁出，
      * 既避免了像素级 transform 的 CPU 开销，也让磁盘缓存命中后零成本复用。
+     *
+     * 开启 Coil 磁盘缓存：所有视频封面 URL 都带固定 `_1c` 后缀，命中条件稳定，
+     * 第二次冷启动可以直接从本地磁盘加载，免去网络下载时间。
      */
     fun loadVideoCover(
         imageView: ImageView,
@@ -257,20 +261,6 @@ object ImageLoader {
         val normalizedUrl = normalizeUrl(url)
         val optimizedUrl = buildOptimizedVideoCoverUrl(imageView, url)
         val canFallbackToRawUrl = canFallbackToRawUrl(optimizedUrl, normalizedUrl)
-        val cachedBitmap = CoverLoader.get(optimizedUrl)
-        if (cachedBitmap != null && !cachedBitmap.isRecycled) {
-            imageView.dispose()
-            if (placeholder != 0) {
-                imageView.setImageResource(placeholder)
-            }
-            imageView.setImageBitmap(cachedBitmap)
-            if (onPortraitDetected != null) {
-                val w = cachedBitmap.width
-                val h = cachedBitmap.height
-                onPortraitDetected(w > 0 && h > 0 && h > w)
-            }
-            return
-        }
         enqueue(
             imageView = imageView,
             url = optimizedUrl,
@@ -278,6 +268,7 @@ object ImageLoader {
             errorRes = if (canFallbackToRawUrl) 0 else error,
             scale = Scale.FILL,
             crossfade = false,
+            diskCacheEnabled = true,
             onSuccess = { drawable ->
                 if (onPortraitDetected != null) {
                     val w = drawable.intrinsicWidth
@@ -295,6 +286,7 @@ object ImageLoader {
                         errorRes = error,
                         scale = Scale.FILL,
                         crossfade = false,
+                        diskCacheEnabled = true,
                         onSuccess = { drawable ->
                             if (onPortraitDetected != null) {
                                 val w = drawable.intrinsicWidth
@@ -364,33 +356,6 @@ object ImageLoader {
         )
     }
 
-    fun detectPortraitFromCover(
-        imageView: ImageView,
-        url: String?,
-        callback: (Boolean) -> Unit
-    ) {
-        if (url.isNullOrBlank()) return
-        val rawUrl = normalizeUrl(url)
-        if (!isBilibiliImageUrl(rawUrl)) return
-        // 故意不带 _1c：本探测目的就是读原图 aspect ratio 判断是否竖屏，
-        // 加 _1c 后被强制裁成 1:1，h > w 永远 false，检测直接失效。
-        val probeUrl = appendImageSuffix(rawUrl, "@120w_120h.webp")
-        val request = ImageRequest.Builder(imageView.context)
-            .data(probeUrl)
-            .applyBilibiliHeadersIfNeeded(probeUrl)
-            .listener(
-                onSuccess = { _, result ->
-                    val drawable = result.image.asDrawable(imageView.resources)
-                    if (!imageView.isAttachedToWindow) return@listener
-                    val w = drawable.intrinsicWidth
-                    val h = drawable.intrinsicHeight
-                    callback(w > 0 && h > 0 && h > w)
-                }
-            )
-            .build()
-        SingletonImageLoader.get(imageView.context).enqueue(request)
-    }
-
     fun clearMemory(context: Context) {
         SingletonImageLoader.get(context).memoryCache?.clear()
     }
@@ -426,6 +391,17 @@ object ImageLoader {
         cachedImageQualityLevel = null
     }
 
+    /**
+     * Application 启动时主动调用一次：把图片质量等级提前算好缓存，
+     * 后续每次 RecyclerView bind 不再走 [KoinPlatform] / [AppSettingsDataStore]，
+     * 直接读 [cachedImageQualityLevel]。
+     *
+     * 同时启动 settings flow 订阅，用户在设置里改图片质量时自动失效缓存。
+     */
+    fun prewarm() {
+        resolveImageQualityLevel()
+    }
+
     // ---------- 内部实现 ----------
 
     private fun enqueue(
@@ -438,6 +414,7 @@ object ImageLoader {
         errorDrawable: Drawable? = null,
         scale: Scale = Scale.FILL,
         crossfade: Boolean = true,
+        diskCacheEnabled: Boolean = true,
         transformations: List<Transformation> = emptyList(),
         onSuccess: ((Drawable) -> Unit)? = null,
         onError: (() -> Unit)? = null
@@ -446,16 +423,14 @@ object ImageLoader {
         if (ctx is Activity && ctx.isDestroyed) return
 
         val resolvedData: Any? = data ?: url.ifBlank { null }
+        val enqueueTimeMs = SystemClock.elapsedRealtime()
         val builder = ImageRequest.Builder(ctx)
             .data(resolvedData)
             .target(ImageViewTarget(imageView))
             .scale(scale)
-            // 一律用 INEXACT：B 站 image processor 输出尺寸是「上限不放大」，
-            // 实际 bitmap 经常略小于 ImageView 像素尺寸，EXACT 会让本来命中的内存缓存被
-            // 判 invalid 而重新解码。INEXACT 允许 cache size ≥ 0.5×target 即命中，
-            // 视频卡这种 4~10% 尺寸偏差视觉无感，但帧率收益明显。
             .precision(Precision.INEXACT)
             .crossfade(crossfade)
+            .diskCachePolicy(if (diskCacheEnabled) CachePolicy.ENABLED else CachePolicy.DISABLED)
             .applyBilibiliHeadersIfNeeded(url)
 
         when {
@@ -472,9 +447,13 @@ object ImageLoader {
         if (onSuccess != null || onError != null) {
             builder.listener(
                 onSuccess = { _, result ->
+                    val elapsed = SystemClock.elapsedRealtime() - enqueueTimeMs
+                    AppLog.i(TAG, "STARTUP T9 cover loaded: elapsed=${elapsed}ms url=${url.takeLast(50)}")
                     onSuccess?.invoke(result.image.asDrawable(ctx.resources))
                 },
                 onError = { _, _ ->
+                    val elapsed = SystemClock.elapsedRealtime() - enqueueTimeMs
+                    AppLog.i(TAG, "STARTUP T9 cover error: elapsed=${elapsed}ms url=${url.takeLast(50)}")
                     onError?.invoke()
                 }
             )
@@ -608,6 +587,12 @@ object ImageLoader {
             .filter { it.isNotBlank() }
             .toList()
         if (finalUrls.isEmpty()) return
+        val qualityLevel = resolveImageQualityLevel()
+        val (pw, ph) = when (qualityLevel) {
+            0 -> 240 to 135
+            2 -> 672 to 378
+            else -> 480 to 270
+        }
         val loader = SingletonImageLoader.get(appContext)
         finalUrls.forEach { finalUrl ->
             val request = ImageRequest.Builder(appContext)
@@ -615,6 +600,8 @@ object ImageLoader {
                 .applyBilibiliHeadersIfNeeded(finalUrl)
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .diskCachePolicy(CachePolicy.ENABLED)
+                .precision(Precision.INEXACT)
+                .size(pw, ph)
                 .build()
             loader.enqueue(request)
         }
