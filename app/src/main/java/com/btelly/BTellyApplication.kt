@@ -37,17 +37,21 @@ class BTellyApplication : Application() {
     
     override fun onCreate() {
         val startMs = SystemClock.elapsedRealtime()
-        AppLog.i(TAG, "Application.onCreate start")
+        AppLog.i(TAG, "STARTUP T0 app.onCreate start")
         super.onCreate()
         instance = this
         AppLog.init(this)
 
+        // Koin 必须先初始化（后续所有组件依赖 DI）
         trace("initKoin", startMs) { initKoin() }
+        // Settings 必须在 Network 之前：CookieManager.loadCookiesFromPrefs 依赖 AppSettingsDataStore cache
         trace("initSettings", startMs) { initSettings() }
         trace("initNetwork", startMs) { initNetwork() }
         trace("initCoil", startMs) { BTellyCoilInitializer.bootstrap(this) }
+        // 提前算好图片质量等级缓存，让首屏 RecyclerView bind 时零 DI 查询
+        ImageLoader.prewarm()
         trace("initBackgroundMonitor", startMs) { AppBackgroundMonitor.init(this) }
-        AppLog.i(TAG, "Application.onCreate end elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
+        AppLog.i(TAG, "STARTUP T1 app.onCreate end elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
     }
 
     private inline fun trace(name: String, appStartMs: Long, block: () -> Unit) {
@@ -73,9 +77,10 @@ class BTellyApplication : Application() {
     
     private fun initNetwork() {
         NetworkManager.init(this, syncWebViewCookies = false)
+        // 不再做 api.bilibili.com 预热：实测 preheat 完成比 preloadFirstPage 的 API 返回还晚
+        // （两个 appScope.launch 并发启动，preheat 自己也要走完整套 interceptor 链，
+        // 拿到 connection 时 preloadFirstPage 已经先抢到了），收益为 0 反而多一次无效 HEAD。
         appScope.launch {
-            NetworkManager.warmUp()
-
             // 推荐首页只依赖本地持久化的 cookies。CookieJar 在 NetworkManager.init 阶段
             // 已经从 SP 加载完毕（initSettings 同步阻塞保证 cache 就绪），此处直接发请求即可。
             // 不再做 WebView cookie 同步：webCookieManager 里的 cookie 全部来自 OkHttp

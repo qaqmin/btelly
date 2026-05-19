@@ -1,16 +1,16 @@
 package com.btelly.feature.home
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.btelly.core.common.content.ContentFilter
+import com.btelly.core.common.log.AppLog
 import com.btelly.model.video.VideoModel
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class RecommendViewModel(
     private val repository: RecommendFeedRepository,
@@ -18,6 +18,7 @@ class RecommendViewModel(
 ) : ViewModel(), VideoFeedViewModel {
 
     companion object {
+        private const val TAG = "RecommendVM"
         private const val FIRST_PAGE_SIZE = 12
         private const val NEXT_PAGE_SIZE = 24
     }
@@ -34,6 +35,7 @@ class RecommendViewModel(
     override fun loadInitial() {
         if (hasLoadedInitial) return
         hasLoadedInitial = true
+        AppLog.i(TAG, "STARTUP T5 viewModel.loadInitial")
         viewModelScope.launch {
             loadPage(page = 1, replace = true, fromInitial = true)
         }
@@ -70,8 +72,9 @@ class RecommendViewModel(
         fromRefresh: Boolean = false
     ) {
         if (page == 1 && replace && fromInitial) {
-            val preloaded = repository.takePreloadedFirstPage()
+            val preloaded = repository.awaitFirstPage(timeoutMs = 2000L)
             if (preloaded != null) {
+                AppLog.i(TAG, "STARTUP T6 preload hit items=${preloaded.items.size}")
                 seenBvids.clear()
                 val filteredItems = preloaded.items.filterForDisplay()
                 filteredItems.mapNotNullTo(seenBvids) { it.bvid.takeIf(String::isNotBlank) }
@@ -106,6 +109,7 @@ class RecommendViewModel(
             pageSize = pageSize,
             freshIdx = freshIdx
         ).onSuccess { pageResult ->
+            AppLog.i(TAG, "STARTUP T7 network page=$page ready items=${pageResult.items.size}")
             val filteredItems = pageResult.items.filterForDisplay()
             if (replace) {
                 seenBvids.clear()
@@ -142,8 +146,6 @@ class RecommendViewModel(
     }
 
     private suspend fun List<VideoModel>.filterForDisplay(): List<VideoModel> {
-        return withContext(Dispatchers.Default) {
-            ContentFilter.filterVideos(appContext, this@filterForDisplay)
-        }
+        return ContentFilter.filterVideos(appContext, this@filterForDisplay)
     }
 }

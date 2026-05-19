@@ -54,11 +54,18 @@ object NetworkManager {
         val settings: AppSettingsDataStore? = runCatching {
             KoinPlatform.getKoin().get<AppSettingsDataStore>()
         }.getOrNull()
+        // 显式不挂 okhttp3.Cache：
+        // - HeaderInterceptor 给所有请求强制 Cache-Control: max-age=0，本身就要 revalidate；
+        // - B 站推荐/动态/搜索这些主力 API 不返回 ETag/Last-Modified，服务器只会回 200，
+        //   永远命中不了 304，cache 实际只写不读；
+        // - 但每次冷启动都要付 100~200ms 打开 DiskLruCache journal（debug.txt 实测 175ms
+        //   contention，落在 IO 协程上拉长 getRecommendList 的首包时延）。
+        // 真正需要 disk 缓存的是图片，那边已经走 Coil 的独立 DiskCache，不依赖这里。
         NetworkClientFactory.createOkHttpClient(
             cookieManager = internalCookieManager,
             userAgentProvider = { currentUserAgentValue },
             acceptLanguageProvider = { getAcceptLanguage() },
-            cacheDir = appContext?.cacheDir,
+            cacheDir = null,
             ipv4OnlyEnabled = { settings?.getCachedString("ipv4_only") != "关" },
             deviceBuvidProvider = { internalCookieManager.getCookieValue("buvid3").orEmpty() }
         )
@@ -117,38 +124,43 @@ object NetworkManager {
     fun init(context: Context, syncWebViewCookies: Boolean = true) {
         val applicationContext = context.applicationContext
         appContext = applicationContext
-        maybeMigrateHttpCache(applicationContext)
         internalCookieManager.init(applicationContext, syncWebViewCookies)
         userAgentStore.init(applicationContext)
         sessionStore.initPersistence(
             applicationContext.getSharedPreferences("network_session_store", Context.MODE_PRIVATE)
         )
+        // 在主线程同步构造 OkHttp / Retrofit / ApiService。
+        // 否则后台 warmUp() 协程与主线程上 Koin 注入会争 SynchronizedLazyImpl 的锁，
+        // 实测主线程被阻塞 467ms（debug.txt 里的 Long monitor contention）。
+        // 自身构造耗时只有几十毫秒，提前付清更划算。
+        internalOkHttpClient
+        retrofit
+        apiService
+        // 旧版本（< 这次重构前）的 OkHttp HTTP cache 现已不再使用，残留目录可能占几十 MB。
+        // 异步清理，不阻塞主线程：deleteRecursively 在低端 TV 上同步执行 50~200ms。
+        scheduleHttpCacheCleanup(applicationContext)
     }
 
-    /**
-     * HTTP 协商缓存默认在冷启动间复用，只有 schema 升级时才一次性清空，
-     * 否则像首页推荐这种带 max-age 的接口每次启动都会全量重下，电视上尤其影响首屏。
-     *
-     * 使用 SharedPreferences 同步读写：AppSettingsDataStore 的 initCache 是异步的，
-     * 冷启动早期还未加载完毕时读 schema 会误判为 0 而把缓存删干净。
-     */
-    private fun maybeMigrateHttpCache(applicationContext: Context) {
-        val sp = applicationContext.getSharedPreferences(
-            "network_http_cache_meta",
-            Context.MODE_PRIVATE
-        )
-        val current = sp.getInt(KEY_HTTP_CACHE_SCHEMA, 0)
-        if (current >= HTTP_CACHE_SCHEMA) return
-        runCatching {
-            java.io.File(applicationContext.cacheDir, "http_cache").deleteRecursively()
-        }
-        sp.edit().putInt(KEY_HTTP_CACHE_SCHEMA, HTTP_CACHE_SCHEMA).apply()
+    private fun scheduleHttpCacheCleanup(applicationContext: Context) {
+        Thread({
+            val sp = applicationContext.getSharedPreferences(
+                "network_http_cache_meta",
+                Context.MODE_PRIVATE
+            )
+            if (sp.getInt(KEY_HTTP_CACHE_SCHEMA, 0) >= HTTP_CACHE_SCHEMA) return@Thread
+            runCatching {
+                java.io.File(applicationContext.cacheDir, "http_cache").deleteRecursively()
+            }
+            sp.edit().putInt(KEY_HTTP_CACHE_SCHEMA, HTTP_CACHE_SCHEMA).apply()
+        }, "http-cache-cleanup").apply {
+            priority = Thread.MIN_PRIORITY
+            isDaemon = true
+        }.start()
     }
 
     /**
      * 触发 lazy 字段初始化：OkHttp client、Gson、Retrofit、ApiService。
-     * 不做 DNS / TLS 预连（首次 API 请求自身即承担首包建连，预连接对 TV
-     * 上 connection pool 5min 过期窗口内的复用增益有限，反而占用一次连接配额）。
+     * 实际上 [init] 里已经主线程同步触发过；这里保留是为了向下兼容老代码。
      */
     fun warmUp() {
         internalOkHttpClient
@@ -156,6 +168,9 @@ object NetworkManager {
         retrofit
         apiService
     }
+
+    // 已删除 preheatApiHosts()：实测两个 appScope.launch 并发启动时 preheat 抢不过 preload，
+    // 收益为 0；如果将来想真正预连，需要让 preheat 早于 preloadFirstPage 调用且独占初始 connection。
 
     fun syncCookiesFromWebView() {
         internalCookieManager.syncFromWebView()

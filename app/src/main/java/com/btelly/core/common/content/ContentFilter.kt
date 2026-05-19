@@ -383,6 +383,12 @@ object ContentFilter {
 
     private val CONTEXTUAL_RISK_KEYWORDS_LOWER = normalizeKeywords(CONTEXTUAL_RISK_KEYWORDS)
 
+    private val TITLE_BLOCKED_REGEX = buildKeywordRegex(TITLE_BLOCKED_KEYWORDS_LOWER)
+    private val DESC_BLOCKED_REGEX = buildKeywordRegex(DESC_BLOCKED_KEYWORDS_LOWER)
+    private val TAG_BLOCKED_REGEX = buildKeywordRegex(TAG_BLOCKED_KEYWORDS_LOWER)
+    private val CONTEXTUAL_SUBJECT_REGEX = buildKeywordRegex(CONTEXTUAL_SUBJECT_KEYWORDS_LOWER)
+    private val CONTEXTUAL_RISK_REGEX = buildKeywordRegex(CONTEXTUAL_RISK_KEYWORDS_LOWER)
+
     private val BLOCKED_TYPE_NAMES_LOWER = VIDEO_BLOCKED_TYPE_NAMES
         .map { it.trim().lowercase() }
         .filter { it.isNotEmpty() }
@@ -503,6 +509,45 @@ object ContentFilter {
         return false
     }
 
+    private fun isVideoBlockedFast(
+        blockedVideoKeys: Set<String>,
+        blockedUpNames: Set<String>,
+        minorProtectionEnabled: Boolean,
+        typeName: String?,
+        title: String? = "",
+        teenageMode: Int = 0,
+        desc: String? = "",
+        authorName: String? = "",
+        aid: Long = 0,
+        bvid: String = "",
+        coverUrl: String = "",
+        typeId: Int = 0
+    ): Boolean {
+        if (blockedVideoKeys.isNotEmpty() &&
+            buildVideoBlockKeys(aid, bvid, title.orEmpty(), coverUrl).any(blockedVideoKeys::contains)
+        ) {
+            return true
+        }
+        if (teenageMode != 0) return true
+        val safeAuthorName = authorName.orEmpty()
+        if (safeAuthorName.isNotEmpty()) {
+            val trimmed = safeAuthorName.trim()
+            if (BLOCKED_UP_NAMES.any { it.equals(trimmed, ignoreCase = true) }) return true
+            if (blockedUpNames.any { it.equals(trimmed, ignoreCase = true) }) return true
+        }
+        if (!minorProtectionEnabled) return false
+        if (typeId in BLOCKED_TYPE_IDS) return true
+        val trimmedTypeName = typeName.orEmpty().trim().lowercase()
+        if (trimmedTypeName.isNotEmpty() && trimmedTypeName in BLOCKED_TYPE_NAMES_LOWER) {
+            return true
+        }
+        val safeTitleLower = title.orEmpty().lowercase()
+        val safeDescLower = desc.orEmpty().lowercase()
+        if (shouldBlockTitle(safeTitleLower)) return true
+        if (shouldBlockDesc(safeDescLower)) return true
+        return false
+    }
+
     fun isLiveRoomBlocked(context: Context, areaName: String, parentAreaName: String, anchorName: String = "", title: String = ""): Boolean {
         if (anchorName.isNotEmpty() && isUpNameBlocked(context, anchorName)) {
             return true
@@ -525,9 +570,15 @@ object ContentFilter {
     }
 
     fun filterVideos(context: Context, videos: List<VideoModel>): List<VideoModel> {
+        val blockedVideoKeys = getBlockedVideoKeys(context)
+        val blockedUpNames = getBlockedUpNames(context)
+        val minorProtectionEnabled = isMinorProtectionEnabled(context)
+
         return videos.filter { video ->
-            !isVideoBlocked(
-                context = context,
+            !isVideoBlockedFast(
+                blockedVideoKeys = blockedVideoKeys,
+                blockedUpNames = blockedUpNames,
+                minorProtectionEnabled = minorProtectionEnabled,
                 typeName = video.typeName,
                 title = video.title,
                 teenageMode = video.teenageMode,
@@ -551,7 +602,7 @@ object ContentFilter {
         if (!isMinorProtectionEnabled(context)) return false
         val keywordLower = keyword.trim().lowercase()
         if (keywordLower.isEmpty()) return false
-        return containsAny(keywordLower, TITLE_BLOCKED_KEYWORDS_LOWER)
+        return TITLE_BLOCKED_REGEX.containsMatchIn(keywordLower)
     }
 
     fun isSearchItemBlocked(context: Context, item: SearchItemModel): Boolean {
@@ -577,29 +628,37 @@ object ContentFilter {
         if (tags.isNullOrEmpty()) return false
         return tags.any { tag ->
             val tagName = tag.tagName.trim().lowercase()
-            tagName.isNotEmpty() && containsAny(tagName, TAG_BLOCKED_KEYWORDS_LOWER)
+            tagName.isNotEmpty() && TAG_BLOCKED_REGEX.containsMatchIn(tagName)
         }
     }
 
     private fun shouldBlockTitle(titleLower: String): Boolean {
         if (titleLower.isEmpty()) return false
-        if (containsAny(titleLower, TITLE_BLOCKED_KEYWORDS_LOWER)) return true
-        return containsContextualRisk(titleLower)
+        if (TITLE_BLOCKED_REGEX.containsMatchIn(titleLower)) return true
+        return containsContextualRiskFast(titleLower)
     }
 
     private fun shouldBlockDesc(descLower: String): Boolean {
         if (descLower.isEmpty()) return false
-        if (containsAny(descLower, DESC_BLOCKED_KEYWORDS_LOWER)) return true
-        return containsContextualRisk(descLower)
+        if (DESC_BLOCKED_REGEX.containsMatchIn(descLower)) return true
+        return containsContextualRiskFast(descLower)
     }
 
-    private fun containsContextualRisk(valueLower: String): Boolean {
-        return containsAny(valueLower, CONTEXTUAL_SUBJECT_KEYWORDS_LOWER) &&
-            containsAny(valueLower, CONTEXTUAL_RISK_KEYWORDS_LOWER)
+    private fun containsContextualRiskFast(valueLower: String): Boolean {
+        return CONTEXTUAL_SUBJECT_REGEX.containsMatchIn(valueLower) &&
+            CONTEXTUAL_RISK_REGEX.containsMatchIn(valueLower)
     }
 
     private fun containsAny(valueLower: String, keywordsLower: Collection<String>): Boolean {
         return keywordsLower.any { valueLower.contains(it) }
+    }
+
+    private fun buildKeywordRegex(keywords: Collection<String>): Regex {
+        if (keywords.isEmpty()) return Regex("^$")
+        return keywords
+            .sortedByDescending { it.length }
+            .joinToString("|") { Regex.escape(it) }
+            .let { Regex(it, RegexOption.IGNORE_CASE) }
     }
 
     private fun normalizeKeywords(keywords: Collection<String>): List<String> {

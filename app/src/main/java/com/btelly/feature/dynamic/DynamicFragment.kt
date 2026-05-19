@@ -19,6 +19,8 @@ import com.btelly.model.user.FollowingModel
 import com.btelly.model.video.VideoModel
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.core.ui.base.BaseFragment
+import android.os.SystemClock
+import com.btelly.core.common.log.AppLog
 import com.btelly.ui.fragment.main.MainTabFocusTarget
 import com.btelly.feature.settings.SignInFragment
 import com.btelly.ui.activity.MainActivity
@@ -33,10 +35,8 @@ import com.btelly.core.ui.focus.tv.TvDataChangeReason
 import com.btelly.core.ui.focus.tv.TvListFocusController
 import com.btelly.core.ui.refresh.SwipeRefreshHelper
 import com.btelly.core.navigation.VideoRouteNavigator
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -47,6 +47,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
     }
 
     companion object {
+        private const val TAG = "DynamicFrag"
         private const val CACHE_TTL_MS = 5 * 60 * 1000L
 
         fun newInstance(): DynamicFragment = DynamicFragment()
@@ -184,6 +185,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
     }
 
     override fun initData() {
+        AppLog.i(TAG, "DYN D0 initData start")
         loadData()
         latestScreenState = viewModel.screenState.value
         latestLoading = viewModel.loading.value
@@ -250,6 +252,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.followingList.collectLatest { list ->
+                    AppLog.i(TAG, "DYN D7 followingList collected items=${list.size}")
                     upAdapter.setData(list)
                     if (list.isNotEmpty() && currentUpId == 0L) {
                         currentUpId = list[0].mid
@@ -263,9 +266,9 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.videos.collectLatest { rawVideos ->
-                    val videos = withContext(Dispatchers.Default) {
-                        ContentFilter.filterVideos(requireContext(), rawVideos)
-                    }
+                    val filterStartMs = SystemClock.elapsedRealtime()
+                    val videos = ContentFilter.filterVideos(requireContext(), rawVideos)
+                    AppLog.i(TAG, "DYN D6 filterVideos end elapsed=${SystemClock.elapsedRealtime() - filterStartMs}ms raw=${rawVideos.size} filtered=${videos.size}")
 
                     val page = viewModel.loadedPage.value
                     swipeRefreshLayout?.isRefreshing = false
@@ -280,6 +283,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
                     )
                     if (videos.isNotEmpty()) {
                         showContent()
+                        AppLog.i(TAG, "DYN D8 videos rendered count=${videos.size}")
                         if (pendingScrollToTop) {
                             pendingScrollToTop = false
                             scrollVideoListToTop()

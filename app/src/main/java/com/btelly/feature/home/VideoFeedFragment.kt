@@ -1,5 +1,6 @@
 package com.btelly.feature.home
 
+import android.os.SystemClock
 import android.view.View
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
@@ -7,6 +8,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.btelly.R
 import com.btelly.core.common.ext.toast
+import com.btelly.core.common.log.AppLog
 import com.btelly.core.navigation.VideoRouteNavigator
 import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.core.ui.focus.tv.TvDataChangeReason
@@ -28,6 +30,9 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     private var pendingScrollToTopAfterRefresh = false
 
     override val autoLoad: Boolean = false
+    // TV 项目无触摸下拉刷新，下拉刷新由 MainTabReselected/MenuPressed/BackPressed 等键盘事件触发。
+    // 关掉可省 setupSwipeRefresh 里的 view tree 重排（removeView + addView 两次）+ 多一层 measure。
+    override val enableSwipeRefresh: Boolean = false
     override fun createAdapter(): VideoAdapter {
         return VideoAdapter(
             onItemClick = ::onVideoClick,
@@ -193,6 +198,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     }
 
     private fun applyReplacedVideosNow(videos: List<VideoModel>) {
+        AppLog.i("STARTUP", "T8 applyReplacedVideosNow count=${videos.size}")
         isLoading = false
         setRefreshing(false)
         val wasPendingScrollToTop = pendingScrollToTopAfterRefresh
