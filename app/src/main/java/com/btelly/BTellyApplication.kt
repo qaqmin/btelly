@@ -10,7 +10,6 @@ import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.core.lifecycle.AppBackgroundMonitor
 import com.btelly.core.ui.base.BaseActivity
 import com.btelly.core.ui.image.ImageLoader
-import com.btelly.core.ui.image.BTellyCoilInitializer
 import com.btelly.di.appModules
 import com.btelly.feature.home.RecommendFeedRepository
 import com.btelly.feature.player.PlayerInstancePool
@@ -58,8 +57,7 @@ class BTellyApplication : Application() {
         // Settings 必须在 Network 之前：CookieManager.loadCookiesFromPrefs 依赖 AppSettingsDataStore cache
         trace("initSettings", startMs) { initSettings() }
         trace("initNetwork", startMs) { initNetwork() }
-        trace("initCoil", startMs) { BTellyCoilInitializer.bootstrap(this) }
-        // 提前算好图片质量等级缓存，让首屏 RecyclerView bind 时零 DI 查询
+        // 图片质量预热：提前缓存质量等级，让首屏 RecyclerView bind 时零 DI 查询
         ImageLoader.prewarm()
         trace("initBackgroundMonitor", startMs) { AppBackgroundMonitor.init(this) }
         // Application onCreate 末尾立刻 schedule activity_main 预 inflate：
