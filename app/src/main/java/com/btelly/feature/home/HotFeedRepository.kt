@@ -4,12 +4,10 @@ import android.os.SystemClock
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.log.HomeVideoCardDebugLogger
 import com.btelly.model.video.VideoModel
-import com.btelly.repository.VideoRepository
+import com.btelly.network.api.BiliApi
 import com.btelly.repository.cache.HomeCacheStore
 
-class HotFeedRepository(
-    private val videoRepository: VideoRepository
-) {
+class HotFeedRepository {
 
     companion object {
         private const val TAG = "HotFeedRepository"
@@ -44,11 +42,7 @@ class HotFeedRepository(
     }
 
     suspend fun loadNetworkPage(page: Int, pageSize: Int): Result<NetworkPage> = runCatching {
-        val response = videoRepository.getHotList(page, pageSize)
-        if (!response.isSuccess) {
-            error(response.message.ifBlank { "热门加载失败" })
-        }
-        val rawItems = response.data.orEmpty()
+        val rawItems = BiliApi.hotList(page, pageSize)
         HomeVideoCardDebugLogger.logRejectedCards(
             source = "hot(page=$page,pageSize=$pageSize)",
             items = rawItems

@@ -4,11 +4,13 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.os.SystemClock
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.btelly.databinding.FragmentBaseListBinding
+import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.focus.RecyclerViewLoadMoreFocusController
 import com.btelly.core.ui.focus.SpatialFocusNavigator
@@ -67,8 +69,11 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
     }
 
     override fun initView() {
+        val className = this::class.java.simpleName
+        val t0 = SystemClock.elapsedRealtime()
         recyclerView = binding.recyclerView
         adapter = createAdapter()
+        val t1 = SystemClock.elapsedRealtime()
         recyclerView?.adapter = adapter
         recyclerView?.itemAnimator = null
         recyclerView?.setHasFixedSize(true)
@@ -120,6 +125,10 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
         }
         if (enableSwipeRefresh) {
             setupSwipeRefresh()
+        }
+        val t2 = SystemClock.elapsedRealtime()
+        if (t2 - t0 > 10) {
+            AppLog.i("STARTUP", "$className.initView adapter=${t1 - t0}ms setup=${t2 - t1}ms total=${t2 - t0}ms")
         }
     }
 

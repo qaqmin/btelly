@@ -141,7 +141,7 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
 
     override fun initData() {
         restoreCachedFolders()
-        loadFavoriteFolders()
+        // 不在 initData 里直接 loadFavoriteFolders()，等 onTabSelected() 触发首次加载。
     }
 
     override fun onResume() {

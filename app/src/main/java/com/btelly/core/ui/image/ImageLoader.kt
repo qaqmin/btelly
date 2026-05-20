@@ -113,20 +113,21 @@ object ImageLoader {
         val ctx = imageView.context
         if (ctx is Activity && ctx.isDestroyed) return
 
+        // GIF 资源：用 GifDrawable 解码并自动播放
+        val gifDrawable = runCatching { GifDrawable(ctx.resources, resId) }.getOrNull()
+        if (gifDrawable != null) {
+            gifDrawable.start()
+            imageView.setImageDrawable(gifDrawable)
+            return
+        }
+
+        // 非静态资源
         val drawable = ContextCompat.getDrawable(ctx, resId)
         if (drawable == null) {
             imageView.setImageResource(resId)
             return
         }
 
-        // GIF：用 GifDrawable 直接从资源解码
-        if (drawable is GifDrawable) {
-            drawable.start()
-            imageView.setImageDrawable(drawable)
-            return
-        }
-
-        // 静态资源
         if (circleCrop && drawable is BitmapDrawable) {
             imageView.setImageBitmap(circleCrop(drawable.bitmap))
         } else {
@@ -308,6 +309,13 @@ object ImageLoader {
         return appendImageSuffix(normalized, suffix)
     }
 
+    private fun isGifBytes(bytes: ByteArray): Boolean {
+        return bytes.size >= 6 &&
+            bytes[0] == 'G'.code.toByte() &&
+            bytes[1] == 'I'.code.toByte() &&
+            bytes[2] == 'F'.code.toByte()
+    }
+
     // ---------- 内部实现 ----------
 
     private fun loadInto(
@@ -364,20 +372,30 @@ object ImageLoader {
         val job = scope.launch {
             try {
                 val bytes = withContext(Dispatchers.IO) { fetchBytes(url) }
-                val bmp = withContext(Dispatchers.Default) {
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                }
                 val elapsed = SystemClock.elapsedRealtime() - startMs
-                if (bmp != null) {
-                    cache.put(url, bmp)
+                if (isGifBytes(bytes)) {
                     if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
-                        imageView.setImageBitmap(applyTransform(bmp, circleCrop, cornerRadius))
+                        val gifDrawable = withContext(Dispatchers.IO) {
+                            GifDrawable(bytes).also { it.start() }
+                        }
+                        imageView.setImageDrawable(gifDrawable)
                     }
-                    AppLog.i(TAG, "cover loaded: elapsed=${elapsed}ms url=${url.takeLast(50)}")
-                    onSuccess?.invoke(bmp)
+                    AppLog.i(TAG, "gif loaded: elapsed=${elapsed}ms url=${url.takeLast(50)}")
                 } else {
-                    AppLog.w(TAG, "cover decode null: elapsed=${elapsed}ms url=${url.takeLast(50)}")
-                    handleLoadError(imageView, url, errorRes, fallbackUrl, circleCrop, cornerRadius, onSuccess, onError)
+                    val bmp = withContext(Dispatchers.Default) {
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    }
+                    if (bmp != null) {
+                        cache.put(url, bmp)
+                        if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                            imageView.setImageBitmap(applyTransform(bmp, circleCrop, cornerRadius))
+                        }
+                        AppLog.i(TAG, "cover loaded: elapsed=${elapsed}ms url=${url.takeLast(50)}")
+                        onSuccess?.invoke(bmp)
+                    } else {
+                        AppLog.w(TAG, "cover decode null: elapsed=${elapsed}ms url=${url.takeLast(50)}")
+                        handleLoadError(imageView, url, errorRes, fallbackUrl, circleCrop, cornerRadius, onSuccess, onError)
+                    }
                 }
             } catch (t: Throwable) {
                 val elapsed = SystemClock.elapsedRealtime() - startMs
@@ -430,19 +448,28 @@ object ImageLoader {
         val job = scope.launch {
             try {
                 val bytes = withContext(Dispatchers.IO) { fetchBytes(url) }
-                val bmp = withContext(Dispatchers.Default) {
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                }
-                if (bmp != null) {
-                    cache.put(url, bmp)
+                if (isGifBytes(bytes)) {
                     if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
-                        imageView.setImageBitmap(bmp)
+                        val gifDrawable = withContext(Dispatchers.IO) {
+                            GifDrawable(bytes).also { it.start() }
+                        }
+                        imageView.setImageDrawable(gifDrawable)
                     }
-                } else if (fallbackUrl != null) {
-                    loadIntoDrawable(imageView, fallbackUrl, placeholderDrawable, errorDrawable)
                 } else {
-                    if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
-                        imageView.setImageDrawable(errorDrawable)
+                    val bmp = withContext(Dispatchers.Default) {
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    }
+                    if (bmp != null) {
+                        cache.put(url, bmp)
+                        if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                            imageView.setImageBitmap(bmp)
+                        }
+                    } else if (fallbackUrl != null) {
+                        loadIntoDrawable(imageView, fallbackUrl, placeholderDrawable, errorDrawable)
+                    } else {
+                        if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                            imageView.setImageDrawable(errorDrawable)
+                        }
                     }
                 }
             } catch (t: Throwable) {

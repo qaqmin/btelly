@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 private val Context.appDataStore by preferencesDataStore(name = "app_settings")
 
@@ -26,45 +27,81 @@ class AppSettingsDataStore(private val context: Context) {
     private val dataStore: DataStore<Preferences> get() = context.appDataStore
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val cache = ConcurrentHashMap<String, Any?>()
-
-    @Volatile
-    private var cacheInitialized = false
+    private val cacheInitialized = AtomicBoolean(false)
+    private var initJob: kotlinx.coroutines.Job? = null
 
     /**
-     * 同步把 DataStore 里的全部设置加载进 [cache]。
-     * 调用方默认是 `BTellyApplication.onCreate` 主线程，DataStore 第一次 `data.first()`
-     * 在电视上一般 30~80ms。这部分时间一次性付清，能避免所有 `getCachedXxx` 在冷启动早期
-     * 拿到默认值（CookieJar、HTTP cache schema 都踩过这个坑）。
+     * 非阻塞：启动后台协程从 DataStore 读取全部设置到 [cache]。
+     * DataStore 首次 `data.first()` 在电视上约 30~80ms（磁盘 IO + XML 解析），
+     * 放到后台不阻塞 app.onCreate 主线程。
+     * [getCachedXxx] 在 cache miss 时会同步 fallback，保证正确性。
      */
     fun initCache() {
-        if (cacheInitialized) return
+        if (cacheInitialized.get()) return
+        if (initJob != null) return
         synchronized(this) {
-            if (cacheInitialized) return
-            runBlocking(Dispatchers.IO) {
+            if (cacheInitialized.get()) return
+            if (initJob != null) return
+            initJob = scope.launch {
                 val prefs = dataStore.data.first()
                 prefs.asMap().forEach { (key, value) ->
                     cache[key.name] = value
                 }
+                cacheInitialized.set(true)
             }
-            cacheInitialized = true
+        }
+    }
+
+    /**
+     * 如果后台协程尚未完成，同步等待它完成（只在冷启动早期命中一次）。
+     */
+    private fun ensureCacheReady() {
+        if (cacheInitialized.get()) return
+        val job = initJob
+        if (job != null) {
+            runBlocking { job.join() }
+            return
+        }
+        // initCache 没被调用过，同步读取
+        synchronized(this) {
+            if (!cacheInitialized.get()) {
+                runBlocking(Dispatchers.IO) {
+                    val prefs = dataStore.data.first()
+                    prefs.asMap().forEach { (key, value) ->
+                        cache[key.name] = value
+                    }
+                }
+                cacheInitialized.set(true)
+            }
         }
     }
 
     fun getCachedString(key: String, defaultValue: String? = null): String? {
+        cache[key]?.let { return it as? String ?: defaultValue }
+        ensureCacheReady()
         return cache[key] as? String ?: defaultValue
     }
 
     fun getCachedInt(key: String, defaultValue: Int = 0): Int {
-        return (cache[key] as? Int) ?: defaultValue
+        val cached = cache[key]
+        if (cached != null) return cached as? Int ?: defaultValue
+        ensureCacheReady()
+        return cache[key] as? Int ?: defaultValue
     }
 
     fun getCachedBoolean(key: String, defaultValue: Boolean = false): Boolean {
-        return (cache[key] as? Boolean) ?: defaultValue
+        val cached = cache[key]
+        if (cached != null) return cached as? Boolean ?: defaultValue
+        ensureCacheReady()
+        return cache[key] as? Boolean ?: defaultValue
     }
 
     fun getCachedStringSet(key: String, defaultValue: Set<String> = emptySet()): Set<String> {
         @Suppress("UNCHECKED_CAST")
-        return (cache[key] as? Set<String>) ?: defaultValue
+        cache[key]?.let { return it as? Set<String> ?: defaultValue }
+        ensureCacheReady()
+        @Suppress("UNCHECKED_CAST")
+        return cache[key] as? Set<String> ?: defaultValue
     }
 
     suspend fun getString(key: String, defaultValue: String? = null): String? {
@@ -176,6 +213,7 @@ class AppSettingsDataStore(private val context: Context) {
 
     fun clearAll() {
         cache.clear()
+        cacheInitialized.set(false)
         scope.launch {
             dataStore.edit { it.clear() }
         }

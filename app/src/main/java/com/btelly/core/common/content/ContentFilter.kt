@@ -1,6 +1,8 @@
 package com.btelly.core.common.content
 
 import android.content.Context
+import android.os.SystemClock
+import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.model.live.LiveRoomItem
 import com.btelly.model.search.SearchItemModel
@@ -570,11 +572,11 @@ object ContentFilter {
     }
 
     fun filterVideos(context: Context, videos: List<VideoModel>): List<VideoModel> {
+        val t0 = SystemClock.elapsedRealtime()
         val blockedVideoKeys = getBlockedVideoKeys(context)
         val blockedUpNames = getBlockedUpNames(context)
         val minorProtectionEnabled = isMinorProtectionEnabled(context)
-
-        return videos.filter { video ->
+        val result = videos.filter { video ->
             !isVideoBlockedFast(
                 blockedVideoKeys = blockedVideoKeys,
                 blockedUpNames = blockedUpNames,
@@ -590,6 +592,11 @@ object ContentFilter {
                 typeId = video.typeId
             )
         }
+        val elapsed = SystemClock.elapsedRealtime() - t0
+        if (elapsed > 5) {
+            AppLog.i("ContentFilter", "filterVideos ${videos.size}→${result.size} elapsed=${elapsed}ms")
+        }
+        return result
     }
 
     fun filterLiveRooms(context: Context, rooms: List<LiveRoomItem>): List<LiveRoomItem> {

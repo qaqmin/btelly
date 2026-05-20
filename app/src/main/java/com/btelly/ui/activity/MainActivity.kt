@@ -99,19 +99,24 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     private var restoredTabIndex = -1
 
     override fun getViewBinding(): ActivityMainBinding {
+        val t0 = SystemClock.elapsedRealtime()
         // 优先用 Application 阶段 AsyncLayoutInflater 预 inflate 好的 view，
         // 省去主线程 setContentView 之前那一段 80~150ms 的 inflate 时间（含 view_tab_bar 嵌套 inflate）。
         // 预 inflate 失败 / Activity recreate / 预 inflate 没赶上时自动 fallback 到主线程 inflate。
         val preInflated = BTellyApplication.instance.consumePreInflatedActivityMain()
-        return if (preInflated != null) {
+        val binding = if (preInflated != null) {
             AppLog.i(STARTUP_TAG, "STARTUP activity_main using pre-inflated view")
             ActivityMainBinding.bind(preInflated)
         } else {
+            AppLog.i(STARTUP_TAG, "STARTUP activity_main fallback to inflate")
             ActivityMainBinding.inflate(layoutInflater)
         }
+        AppLog.i(STARTUP_TAG, "STARTUP getViewBinding elapsed=${SystemClock.elapsedRealtime() - t0}ms")
+        return binding
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val createStartMs = SystemClock.elapsedRealtime()
         AppLog.i(STARTUP_TAG, "STARTUP T1b MainActivity.onCreate start")
         if (savedInstanceState == null && shouldFinishDuplicateLauncherLaunch()) {
             super.onCreate(savedInstanceState)
@@ -119,7 +124,9 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
             return
         }
         restoredFromSavedState = savedInstanceState != null
+        val t0 = SystemClock.elapsedRealtime()
         super.onCreate(savedInstanceState)
+        AppLog.i(STARTUP_TAG, "STARTUP super.onCreate elapsed=${SystemClock.elapsedRealtime() - t0}ms")
         restoredTabIndex = mainNavigationViewModel.getSavedTabIndex()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -163,15 +170,17 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
                 }
             }
         }
-        AppLog.i(STARTUP_TAG, "STARTUP T1c MainActivity.onCreate end elapsed=${SystemClock.elapsedRealtime() - activityCreateStartMs}ms")
+        AppLog.i(STARTUP_TAG, "STARTUP T1c MainActivity.onCreate end elapsed=${SystemClock.elapsedRealtime() - createStartMs}ms totalFromActivityMs=${SystemClock.elapsedRealtime() - activityCreateStartMs}ms")
     }
 
     override fun initView() {
+        val t0 = SystemClock.elapsedRealtime()
         initFragments()
         binding.myTabView.setOnTabClickListener(this)
         applyBackgroundImage()
         applyCategoryEntryVisibility()
         applyLiveEntryVisibility()
+        AppLog.i(STARTUP_TAG, "STARTUP MainActivity.initView elapsed=${SystemClock.elapsedRealtime() - t0}ms")
     }
 
     override fun initData() {

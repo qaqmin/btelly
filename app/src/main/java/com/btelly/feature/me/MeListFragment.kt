@@ -181,13 +181,13 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
 
     override fun initData() {
         lastKnownLoggedIn = viewModel.isLoggedIn()
-        val t0 = System.currentTimeMillis()
         AppLog.d("MePerf", "MeListFragment.initData: type=$type, start")
         viewLifecycleOwner.lifecycleScope.launch {
             restoreCachedContentAsync()
-            AppLog.d("MePerf", "MeListFragment.initData: restoreCachedContent完成, 耗时=${System.currentTimeMillis() - t0}ms")
+            AppLog.d("MePerf", "MeListFragment.initData: restoreCachedContent完成, type=$type")
         }
-        loadData()
+        // 不在 initData 里直接 loadData()，等 onTabSelected() 触发首次加载，
+        // 避免相邻 tab 被预加载时也发起网络请求。
     }
 
     override fun onResume() {

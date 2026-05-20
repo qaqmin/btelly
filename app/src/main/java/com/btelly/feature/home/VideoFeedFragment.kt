@@ -72,8 +72,10 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     }
 
     override fun initData() {
+        val t0 = SystemClock.elapsedRealtime()
         showLoading(true)
         feedViewModel.loadInitial()
+        AppLog.i("STARTUP", "${this::class.java.simpleName}.initData elapsed=${SystemClock.elapsedRealtime() - t0}ms")
     }
 
     override fun initObserver() {
@@ -198,6 +200,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     }
 
     private fun applyReplacedVideosNow(videos: List<VideoModel>) {
+        val t0 = SystemClock.elapsedRealtime()
         AppLog.i("STARTUP", "T8 applyReplacedVideosNow count=${videos.size}")
         isLoading = false
         setRefreshing(false)
@@ -230,6 +233,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
         }
         pendingScrollToTopAfterRefresh = false
         feedViewModel.consumeListChange()
+        AppLog.i("STARTUP", "T8 applyReplacedVideosNow done count=${videos.size} elapsed=${SystemClock.elapsedRealtime() - t0}ms")
     }
 
     private fun applyAppendedVideos(items: List<VideoModel>) {

@@ -52,6 +52,12 @@ class BTellyApplication : Application() {
         instance = this
         AppLog.init(this)
 
+        // 预 inflate 前移到所有重初始化之前：
+        // AsyncLayoutInflater 在 worker thread 跑，不阻塞主线程；
+        // 前移后 worker 有整个 app.onCreate（~190ms）+ 系统 Activity 启动（~56ms）的时间来完成 inflate。
+        // 之前放在 initNetwork 之后，worker 只有 ~56ms，每次都来不及。
+        schedulePreInflateActivityMain()
+
         // Koin 必须先初始化（后续所有组件依赖 DI）
         trace("initKoin", startMs) { initKoin() }
         // Settings 必须在 Network 之前：CookieManager.loadCookiesFromPrefs 依赖 AppSettingsDataStore cache
@@ -60,19 +66,14 @@ class BTellyApplication : Application() {
         // 图片质量预热：提前缓存质量等级，让首屏 RecyclerView bind 时零 DI 查询
         ImageLoader.prewarm()
         trace("initBackgroundMonitor", startMs) { AppBackgroundMonitor.init(this) }
-        // Application onCreate 末尾立刻 schedule activity_main 预 inflate：
-        // - AsyncLayoutInflater 在它自己的 worker thread 跑，不阻塞主线程；
-        // - 主线程接下来还要走 ActivityThread.handleLaunchActivity → MainActivity.onCreate，
-        //   中间通常 100~300ms（Activity Token、Window 注册、theme apply 等系统侧工作），
-        //   足够 inflate 完成（实测 activity_main + view_tab_bar 嵌套 inflate 约 80~150ms）。
-        schedulePreInflateActivityMain()
         AppLog.i(TAG, "STARTUP T1 app.onCreate end elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
     }
 
     private fun schedulePreInflateActivityMain() {
         if (!preInflateScheduled.compareAndSet(false, true)) return
+        // 读取主题：此时 Koin 可能还未初始化，直接读 SharedPreferences
         val themeIndex = runCatching {
-            KoinPlatform.getKoin().get<AppSettingsDataStore>().getCachedInt("theme", 1)
+            getSharedPreferences("app_settings", MODE_PRIVATE).getInt("theme", 1)
         }.getOrDefault(1)
         // 用 ContextThemeWrapper 确保子 view 的 ?attr/xxx 能解析到与 MainActivity.applyTheme 一致的 theme。
         val themedContext = ContextThemeWrapper(this, BaseActivity.themeIndexToResId(themeIndex))

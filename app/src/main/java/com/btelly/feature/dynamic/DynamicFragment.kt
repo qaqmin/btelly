@@ -435,6 +435,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
     }
 
     private fun showStateOverlay(imageResId: Int, message: String, retryVisible: Boolean) {
+        ensureErrorView()
         viewError?.visibility = View.VISIBLE
         imageError?.setImageResource(imageResId)
         textError?.text = message

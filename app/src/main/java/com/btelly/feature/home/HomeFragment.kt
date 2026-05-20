@@ -2,6 +2,7 @@ package com.btelly.feature.home
 
 import android.graphics.Rect
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -21,6 +22,7 @@ import com.btelly.core.ui.tab.enableTouchNavigation
 import com.btelly.core.ui.tab.focusNearestTabTo
 import com.btelly.core.ui.focus.SpatialFocusNavigator
 import com.btelly.core.common.ext.getHomeDefaultStartPageIndex
+import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -47,11 +49,14 @@ class HomeFragment : Fragment(), MainTabFocusTarget {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
+        val t0 = SystemClock.elapsedRealtime()
         _binding = FragmentHomeBinding.inflate(inflater, container, false)
+        AppLog.i("STARTUP", "HomeFragment.onCreateView elapsed=${SystemClock.elapsedRealtime() - t0}ms")
         return binding.root
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        val t0 = SystemClock.elapsedRealtime()
         super.onViewCreated(view, savedInstanceState)
         adapter = HomeFragmentStateAdapter(childFragmentManager, viewLifecycleOwner.lifecycle)
         binding.viewPager.adapter = adapter
@@ -108,6 +113,7 @@ class HomeFragment : Fragment(), MainTabFocusTarget {
         }
 
         binding.viewPager.currentItem = getDefaultTabIndex()
+        AppLog.i("STARTUP", "HomeFragment.onViewCreated elapsed=${SystemClock.elapsedRealtime() - t0}ms")
     }
 
     override fun onDestroyView() {

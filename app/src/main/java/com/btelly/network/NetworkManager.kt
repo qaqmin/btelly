@@ -136,6 +136,7 @@ object NetworkManager {
         internalOkHttpClient
         retrofit
         apiService
+        BiliClient.init(internalOkHttpClient)
         // 旧版本（< 这次重构前）的 OkHttp HTTP cache 现已不再使用，残留目录可能占几十 MB。
         // 异步清理，不阻塞主线程：deleteRecursively 在低端 TV 上同步执行 50~200ms。
         scheduleHttpCacheCleanup(applicationContext)

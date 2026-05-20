@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.common.log.AppLog
 import com.btelly.model.video.VideoModel
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,7 +37,7 @@ class RecommendViewModel(
         if (hasLoadedInitial) return
         hasLoadedInitial = true
         AppLog.i(TAG, "STARTUP T5 viewModel.loadInitial")
-        viewModelScope.launch {
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             loadPage(page = 1, replace = true, fromInitial = true)
         }
     }
@@ -72,11 +73,14 @@ class RecommendViewModel(
         fromRefresh: Boolean = false
     ) {
         if (page == 1 && replace && fromInitial) {
+            val awaitStart = SystemClock.elapsedRealtime()
             val preloaded = repository.awaitFirstPage(timeoutMs = 2000L)
+            AppLog.i(TAG, "STARTUP T6 preload ${if (preloaded != null) "hit" else "miss"} await=${SystemClock.elapsedRealtime() - awaitStart}ms items=${preloaded?.items?.size ?: 0}")
             if (preloaded != null) {
-                AppLog.i(TAG, "STARTUP T6 preload hit items=${preloaded.items.size}")
                 seenBvids.clear()
+                val filterStart = SystemClock.elapsedRealtime()
                 val filteredItems = preloaded.items.filterForDisplay()
+                AppLog.i(TAG, "STARTUP preload filterForDisplay=${SystemClock.elapsedRealtime() - filterStart}ms")
                 filteredItems.mapNotNullTo(seenBvids) { it.bvid.takeIf(String::isNotBlank) }
                 freshIndexTracker.markFirstPageLoaded()
                 currentPage = 1
@@ -109,6 +113,7 @@ class RecommendViewModel(
             pageSize = pageSize,
             freshIdx = freshIdx
         ).onSuccess { pageResult ->
+            val filterStart = SystemClock.elapsedRealtime()
             AppLog.i(TAG, "STARTUP T7 network page=$page ready items=${pageResult.items.size}")
             val filteredItems = pageResult.items.filterForDisplay()
             if (replace) {
@@ -131,6 +136,7 @@ class RecommendViewModel(
                 listChange = if (replace) FeedListChange.REPLACE else FeedListChange.APPEND,
                 hasMore = pageResult.hasMore
             )
+            AppLog.i(TAG, "STARTUP network page=$page filterDedup=${SystemClock.elapsedRealtime() - filterStart}ms final=${mergedItems.size}")
             if (mergedItems.isNotEmpty()) {
                 repository.writeCache(repository.trimCacheItems(mergedItems))
             }
@@ -146,6 +152,8 @@ class RecommendViewModel(
     }
 
     private suspend fun List<VideoModel>.filterForDisplay(): List<VideoModel> {
-        return ContentFilter.filterVideos(appContext, this@filterForDisplay)
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            ContentFilter.filterVideos(appContext, this@filterForDisplay)
+        }
     }
 }
