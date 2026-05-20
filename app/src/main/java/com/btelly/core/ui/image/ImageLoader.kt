@@ -12,6 +12,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.widget.ImageView
+import android.os.SystemClock
 import androidx.annotation.DrawableRes
 import androidx.collection.LruCache
 import androidx.core.content.ContextCompat
@@ -58,6 +59,9 @@ object ImageLoader {
 
     // Prefetch 专用去重
     private val prefetchInFlight = mutableMapOf<String, Job>()
+
+    private val preheatScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val preheated = java.util.concurrent.atomic.AtomicBoolean(false)
 
     // ---------- 公开 API ----------
 
@@ -255,6 +259,31 @@ object ImageLoader {
 
     fun prewarm() {
         resolveImageQualityLevel()
+        preheatCdnHosts()
+    }
+
+    /**
+     * 并发 HEAD 请求预热图片 CDN：触发 DNS + TCP + TLS 握手，
+     * 连接放入 ConnectionPool，首屏图片请求 0 RTT 复用。
+     */
+    private fun preheatCdnHosts() {
+        if (!preheated.compareAndSet(false, true)) return
+        val hosts = listOf(
+            "https://i0.hdslb.com/",
+            "https://i1.hdslb.com/",
+            "https://i2.hdslb.com/"
+        )
+        hosts.forEach { url ->
+            preheatScope.launch {
+                runCatching {
+                    val request = Request.Builder().url(url).head().build()
+                    imageOkHttpClient.newCall(request).execute().use { /* discard */ }
+                }.onFailure {
+                    AppLog.w(TAG, "CDN preheat failed: $url ${it.message}")
+                }
+                AppLog.i(TAG, "CDN preheat done: $url")
+            }
+        }
     }
 
     fun buildVideoCoverUrl(url: String?): String {
@@ -331,23 +360,28 @@ object ImageLoader {
         if (placeholderRes != 0) imageView.setImageResource(placeholderRes)
         else if (imageView.drawable !== placeholder) imageView.setImageDrawable(placeholder)
 
+        val startMs = SystemClock.elapsedRealtime()
         val job = scope.launch {
             try {
                 val bytes = withContext(Dispatchers.IO) { fetchBytes(url) }
                 val bmp = withContext(Dispatchers.Default) {
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 }
+                val elapsed = SystemClock.elapsedRealtime() - startMs
                 if (bmp != null) {
                     cache.put(url, bmp)
                     if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
                         imageView.setImageBitmap(applyTransform(bmp, circleCrop, cornerRadius))
                     }
+                    AppLog.i(TAG, "cover loaded: elapsed=${elapsed}ms url=${url.takeLast(50)}")
                     onSuccess?.invoke(bmp)
                 } else {
+                    AppLog.w(TAG, "cover decode null: elapsed=${elapsed}ms url=${url.takeLast(50)}")
                     handleLoadError(imageView, url, errorRes, fallbackUrl, circleCrop, cornerRadius, onSuccess, onError)
                 }
             } catch (t: Throwable) {
-                AppLog.w(TAG, "load failed url=${url.takeLast(50)}", t)
+                val elapsed = SystemClock.elapsedRealtime() - startMs
+                AppLog.w(TAG, "cover error: elapsed=${elapsed}ms url=${url.takeLast(50)}", t)
                 handleLoadError(imageView, url, errorRes, fallbackUrl, circleCrop, cornerRadius, onSuccess, onError)
             }
         }
