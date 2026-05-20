@@ -3,6 +3,7 @@ package com.btelly.feature.me
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.btelly.repository.UserRepository
+import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -65,8 +66,12 @@ class MeListViewModel(
                 historyCursorViewAt = 0
             }
 
+            val t0 = System.currentTimeMillis()
+            AppLog.d("MePerf", "loadHistory: 开始请求, page=$page, viewAt=$historyCursorViewAt")
+
             userRepository.getHistory(historyCursorViewAt, pageSize)
                 .onSuccess { response ->
+                    AppLog.d("MePerf", "loadHistory: 请求返回, 耗时=${System.currentTimeMillis() - t0}ms, code=${response.code}")
                     if (response.isSuccess && response.data != null) {
                         val rawList = response.data.list
                         val pageItems = rawList
@@ -88,6 +93,7 @@ class MeListViewModel(
                     }
                 }
                 .onFailure { exception ->
+                    AppLog.e("MePerf", "loadHistory: 失败, 耗时=${System.currentTimeMillis() - t0}ms, ${exception.message}")
                     _error.value = exception.message
                 }
 

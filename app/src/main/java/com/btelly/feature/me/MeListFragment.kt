@@ -24,6 +24,7 @@ import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.common.cache.FileCacheManager
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.common.content.ContentFilter
+import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.focus.SpatialFocusNavigator
 import com.btelly.core.ui.focus.TabContentFocusHelper
 import com.btelly.core.ui.focus.tv.GridTvFocusStrategy
@@ -32,8 +33,10 @@ import com.btelly.core.ui.focus.tv.TvFocusableAdapter
 import com.btelly.core.ui.focus.tv.TvListFocusController
 import com.btelly.core.ui.refresh.SwipeRefreshHelper
 import com.btelly.core.navigation.VideoRouteNavigator
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -178,7 +181,12 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
 
     override fun initData() {
         lastKnownLoggedIn = viewModel.isLoggedIn()
-        restoreCachedContent()
+        val t0 = System.currentTimeMillis()
+        AppLog.d("MePerf", "MeListFragment.initData: type=$type, start")
+        viewLifecycleOwner.lifecycleScope.launch {
+            restoreCachedContentAsync()
+            AppLog.d("MePerf", "MeListFragment.initData: restoreCachedContent完成, 耗时=${System.currentTimeMillis() - t0}ms")
+        }
         loadData()
     }
 
@@ -310,19 +318,22 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         }
     }
 
-    private fun bindHistoryData(videos: List<HistoryVideoModel>) {
+    private suspend fun bindHistoryData(videos: List<HistoryVideoModel>) {
         swipeRefreshLayout?.isRefreshing = false
         val adapter = historyAdapter ?: return
-        val filtered = videos.filter {
-            !ContentFilter.isVideoBlocked(
-                context = requireContext(),
-                typeName = it.tagName,
-                title = it.title,
-                authorName = it.displayAuthorName,
-                aid = it.history?.oid ?: 0L,
-                bvid = it.bvid,
-                coverUrl = it.cover
-            )
+        val ctx = context ?: return
+        val filtered = withContext(Dispatchers.Default) {
+            videos.filter {
+                !ContentFilter.isVideoBlocked(
+                    context = ctx,
+                    typeName = it.tagName,
+                    title = it.title,
+                    authorName = it.displayAuthorName,
+                    aid = it.history?.oid ?: 0L,
+                    bvid = it.bvid,
+                    coverUrl = it.cover
+                )
+            }
         }
         val shouldRestoreFocus = pendingHistoryReturnRestore && filtered.isNotEmpty()
         val shouldScrollToTop = pendingHistoryScrollToTop && filtered.isNotEmpty()
@@ -338,17 +349,24 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                 }
             }
         }
-        cacheHistoryVideos(videos)
+        withContext(Dispatchers.IO) {
+            cacheHistoryVideos(videos)
+        }
         updateContentState(filtered.isEmpty())
     }
 
-    private fun bindLaterData(videos: List<VideoModel>) {
+    private suspend fun bindLaterData(videos: List<VideoModel>) {
         swipeRefreshLayout?.isRefreshing = false
         val adapter = videoAdapter ?: return
-        val filtered = ContentFilter.filterVideos(requireContext(), videos)
+        val ctx = context ?: return
+        val filtered = withContext(Dispatchers.Default) {
+            ContentFilter.filterVideos(ctx, videos)
+        }
         adapter.setData(filtered)
         tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
-        cacheLaterVideos(videos)
+        withContext(Dispatchers.IO) {
+            cacheLaterVideos(videos)
+        }
         updateContentState(filtered.isEmpty())
     }
 
@@ -642,19 +660,22 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         }
     }
 
-    private fun restoreCachedContent() {
+    private suspend fun restoreCachedContentAsync() {
         if (!viewModel.isLoggedIn()) return
+        val ctx = context ?: return
         when (type) {
             TYPE_HISTORY -> {
                 val cachedVideos = runCatching {
                     val cacheType = object : TypeToken<List<HistoryVideoModel>>() {}.type
-                    FileCacheManager.get<List<HistoryVideoModel>>(HISTORY_CACHE_KEY, cacheType).orEmpty()
+                    withContext(Dispatchers.IO) {
+                        FileCacheManager.get<List<HistoryVideoModel>>(HISTORY_CACHE_KEY, cacheType).orEmpty()
+                    }
                 }.getOrElse { emptyList() }
-                if (cachedVideos.isNotEmpty()) {
-                    historyAdapter?.setData(
+                if (cachedVideos.isNotEmpty() && isAdded && view != null) {
+                    val filtered = withContext(Dispatchers.Default) {
                         cachedVideos.filter {
                             !ContentFilter.isVideoBlocked(
-                                context = requireContext(),
+                                context = ctx,
                                 typeName = it.tagName,
                                 title = it.title,
                                 authorName = it.displayAuthorName,
@@ -663,7 +684,8 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                                 coverUrl = it.cover
                             )
                         }
-                    )
+                    }
+                    historyAdapter?.setData(filtered)
                     showContent()
                 }
             }
@@ -671,10 +693,15 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
             TYPE_LATER -> {
                 val cachedVideos = runCatching {
                     val cacheType = object : TypeToken<List<VideoModel>>() {}.type
-                    FileCacheManager.get<List<VideoModel>>(LATER_CACHE_KEY, cacheType).orEmpty()
+                    withContext(Dispatchers.IO) {
+                        FileCacheManager.get<List<VideoModel>>(LATER_CACHE_KEY, cacheType).orEmpty()
+                    }
                 }.getOrElse { emptyList() }
-                if (cachedVideos.isNotEmpty()) {
-                    videoAdapter?.setData(ContentFilter.filterVideos(requireContext(), cachedVideos))
+                if (cachedVideos.isNotEmpty() && isAdded && view != null) {
+                    val filtered = withContext(Dispatchers.Default) {
+                        ContentFilter.filterVideos(ctx, cachedVideos)
+                    }
+                    videoAdapter?.setData(filtered)
                     showContent()
                 }
             }
