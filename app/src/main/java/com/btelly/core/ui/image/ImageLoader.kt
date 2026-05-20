@@ -529,16 +529,14 @@ object ImageLoader {
         val size = minOf(src.width, src.height)
         val x = (src.width - size) / 2
         val y = (src.height - size) / 2
-        val squared = Bitmap.createBitmap(src, x, y, size, size)
-        if (squared !== src) src.recycle()
 
         val result = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(result)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        paint.shader = BitmapShader(squared, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        paint.shader = BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        canvas.translate(-x.toFloat(), -y.toFloat())
         val r = size / 2f
-        canvas.drawCircle(r, r, r, paint)
-        squared.recycle()
+        canvas.drawCircle(x + r, y + r, r, paint)
         return result
     }
 
