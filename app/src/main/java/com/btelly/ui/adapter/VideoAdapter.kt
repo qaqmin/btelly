@@ -19,6 +19,7 @@ import com.btelly.core.ui.base.BaseVideoViewHolder
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.common.log.AppLog
+import com.btelly.core.common.log.VideoCardPerfLogger
 import com.btelly.core.common.time.TimeUtils
 import com.btelly.core.ui.focus.VideoCardFocusHelper
 import com.btelly.ui.dialog.VideoCardMenuDialog
@@ -100,7 +101,9 @@ class VideoAdapter(
 
 
     override fun onCreateContentViewHolder(parent: ViewGroup, viewType: Int): VideoViewHolder {
-        val binding = CellVideoBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+        val binding = VideoCardPerfLogger.measureInflate("VideoAdapter") {
+            CellVideoBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+        }
         itemWidthPx?.let { width ->
             val layoutParams = binding.root.layoutParams
                 ?: androidx.recyclerview.widget.RecyclerView.LayoutParams(

@@ -20,6 +20,7 @@ import com.btelly.databinding.CellVideoBinding
 import com.btelly.model.video.HistoryVideoModel
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.common.format.NumberUtils
+import com.btelly.core.common.log.VideoCardPerfLogger
 import com.btelly.core.common.time.TimeUtils
 import com.btelly.core.ui.focus.VideoCardFocusHelper
 import com.btelly.core.ui.focus.tv.TvFocusableAdapter
@@ -77,7 +78,9 @@ class FavoriteHistoryAdapter(
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val binding = CellVideoBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+        val binding = VideoCardPerfLogger.measureInflate("FavoriteHistoryAdapter") {
+            CellVideoBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+        }
         return ViewHolder(
             binding = binding,
             onItemClick = onItemClick,

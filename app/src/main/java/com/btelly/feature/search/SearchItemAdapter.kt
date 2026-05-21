@@ -23,6 +23,7 @@ import com.btelly.model.search.SearchItemModel
 import com.btelly.model.search.SearchType
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.common.format.NumberUtils
+import com.btelly.core.common.log.VideoCardPerfLogger
 import com.btelly.core.common.time.TimeUtils
 import com.btelly.core.ui.focus.VideoCardFocusHelper
 import com.btelly.core.ui.focus.tv.TvFocusableAdapter
@@ -118,7 +119,9 @@ class SearchItemAdapter(
         val inflater = LayoutInflater.from(parent.context)
         return when (viewType) {
             VIEW_TYPE_VIDEO -> VideoViewHolder(
-                CellVideoBinding.inflate(inflater, parent, false)
+                VideoCardPerfLogger.measureInflate("SearchItemAdapter") {
+                    CellVideoBinding.inflate(inflater, parent, false)
+                }
             )
 
             VIEW_TYPE_LIVE -> LiveViewHolder(

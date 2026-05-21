@@ -23,6 +23,7 @@ import com.btelly.ui.adapter.UserSpaceHeaderAdapter
 import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.core.ui.base.BaseAdapter
 import com.btelly.core.ui.base.BaseFragment
+import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.feature.user.FollowUserListFragment
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
@@ -142,6 +143,7 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.btelly.u
         binding.recyclerViewVideos.layoutManager = layoutManager
         binding.recyclerViewVideos.adapter = concatAdapter
         binding.recyclerViewVideos.itemAnimator = null
+        binding.recyclerViewVideos.setRecycledViewPool(BaseListFragment.sharedVideoPool)
         if (binding.recyclerViewVideos.itemDecorationCount == 0) {
             binding.recyclerViewVideos.addItemDecoration(
                 GridSpacingItemDecoration(

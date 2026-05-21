@@ -14,6 +14,7 @@ import com.btelly.databinding.FragmentLiveListBinding
 import com.btelly.model.live.LiveRoomItem
 import com.btelly.ui.activity.LivePlayerActivity
 import com.btelly.core.ui.base.BaseFragment
+import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.feature.settings.SignInFragment
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
@@ -87,6 +88,7 @@ class LiveListFragment : BaseFragment<FragmentLiveListBinding>(), LiveTabPage {
         binding.recyclerView.adapter = adapter
         binding.recyclerView.itemAnimator = null
         binding.recyclerView.setHasFixedSize(true)
+        binding.recyclerView.setRecycledViewPool(BaseListFragment.sharedVideoPool)
 
         tvFocusController = TvListFocusController(
             recyclerView = binding.recyclerView,
