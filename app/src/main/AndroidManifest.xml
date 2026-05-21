@@ -39,7 +39,7 @@
             android:screenOrientation="landscape"
             android:configChanges="screenSize|orientation|keyboardHidden"
             android:windowSoftInputMode="adjustResize"
-            android:theme="@style/Theme.BTelly"
+            android:theme="@style/Theme.BTelly.Launcher"
             tools:ignore="DiscouragedApi">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
