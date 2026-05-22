@@ -13,8 +13,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import android.os.SystemClock
 import com.btelly.core.common.log.AppLog
-import com.btelly.core.ui.image.ImageLoader
-import com.btelly.BTellyApplication
 
 class DynamicViewModel(
     private val userRepository: UserRepository
@@ -322,7 +320,6 @@ class DynamicViewModel(
                             currentAllDynamicOffset = response.data?.offset
                             currentPage = nextPage
                             _loadedPage.value = nextPage
-                            ImageLoader.prefetchVideoCovers(BTellyApplication.instance, items.take(6).map { it.effectiveCoverUrl })
                             _videos.value = items
                             _status.value = resolveStatus(currentUpId, currentVideoItems)
                             _screenState.value = ScreenState.Content
@@ -366,7 +363,6 @@ class DynamicViewModel(
                             _hasMoreVideos.value = response.data?.hasMore == true
                             currentPage = nextPage
                             _loadedPage.value = nextPage
-                            ImageLoader.prefetchVideoCovers(BTellyApplication.instance, items.take(6).map { it.effectiveCoverUrl })
                             _videos.value = items
                             _status.value = resolveStatus(currentUpId, currentVideoItems)
                             _screenState.value = ScreenState.Content
@@ -468,7 +464,7 @@ class DynamicViewModel(
         preloadJob?.cancel()
         followingLoadJob?.cancel()
         videoCache.evictAll()
-        ImageLoader.clearMemory(BTellyApplication.instance)
+        AppLog.i(TAG, "onCleared: keep global ImageLoader memory cache, only clear dynamic page cache")
         _followingList.value = emptyList()
         _videos.value = emptyList()
         currentVideoItems = emptyList()

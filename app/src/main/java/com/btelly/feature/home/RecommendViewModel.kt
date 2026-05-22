@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.common.log.AppLog
 import com.btelly.model.video.VideoModel
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,16 +20,17 @@ class RecommendViewModel(
 
     companion object {
         private const val TAG = "RecommendVM"
-        private const val FIRST_PAGE_SIZE = 12
+        private const val FIRST_PAGE_SIZE = 24
         private const val NEXT_PAGE_SIZE = 24
+        private const val FIRST_PAGE_PRELOAD_GRACE_MS = 450L
     }
 
     private val appContext = context.applicationContext
     private val _uiState = MutableStateFlow(FeedUiState<VideoModel>())
     override val uiState: StateFlow<FeedUiState<VideoModel>> = _uiState.asStateFlow()
 
-    private val freshIndexTracker = RecommendFreshIndexTracker()
     private var currentPage = 0
+    private var nextRecommendFetchRow = 1
     private var hasLoadedInitial = false
     private val seenBvids = mutableSetOf<String>()
 
@@ -36,7 +38,7 @@ class RecommendViewModel(
         if (hasLoadedInitial) return
         hasLoadedInitial = true
         AppLog.i(TAG, "STARTUP T5 viewModel.loadInitial")
-        viewModelScope.launch {
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             loadPage(page = 1, replace = true, fromInitial = true)
         }
     }
@@ -72,14 +74,20 @@ class RecommendViewModel(
         fromRefresh: Boolean = false
     ) {
         if (page == 1 && replace && fromInitial) {
-            val preloaded = repository.awaitFirstPage(timeoutMs = 2000L)
+            val peekStart = SystemClock.elapsedRealtime()
+            var preloaded = repository.peekFirstPage()
+            if (preloaded == null) {
+                preloaded = repository.awaitFirstPage(timeoutMs = FIRST_PAGE_PRELOAD_GRACE_MS)
+            }
+            AppLog.i(TAG, "STARTUP T6 preload ${if (preloaded != null) "hit" else "miss"} grace=${FIRST_PAGE_PRELOAD_GRACE_MS}ms elapsed=${SystemClock.elapsedRealtime() - peekStart}ms items=${preloaded?.items?.size ?: 0}")
             if (preloaded != null) {
-                AppLog.i(TAG, "STARTUP T6 preload hit items=${preloaded.items.size}")
                 seenBvids.clear()
-                val filteredItems = preloaded.items.filterForDisplay()
+                val filterStart = SystemClock.elapsedRealtime()
+                val filteredItems = preloaded.items.filterForInitialPreload()
+                AppLog.i(TAG, "STARTUP preload filterForInitial=${SystemClock.elapsedRealtime() - filterStart}ms")
                 filteredItems.mapNotNullTo(seenBvids) { it.bvid.takeIf(String::isNotBlank) }
-                freshIndexTracker.markFirstPageLoaded()
                 currentPage = 1
+                nextRecommendFetchRow = nextFetchRowAfter(preloaded)
                 _uiState.value = FeedUiState(
                     items = filteredItems,
                     source = FeedSource.NETWORK,
@@ -91,6 +99,7 @@ class RecommendViewModel(
                 }
                 return
             }
+            AppLog.i(TAG, "STARTUP T6b preload miss -> start direct first-page request")
         }
 
         val current = _uiState.value
@@ -102,35 +111,41 @@ class RecommendViewModel(
             listChange = FeedListChange.NONE
         )
 
-        val freshIdx = freshIndexTracker.resolve(page)
+        val freshIdx = page.coerceAtLeast(1)
+        val fetchRow = if (page == 1 && replace) {
+            1
+        } else {
+            nextRecommendFetchRow.coerceAtLeast(1)
+        }
         val pageSize = if (page == 1) FIRST_PAGE_SIZE else NEXT_PAGE_SIZE
         repository.loadNetworkPage(
             page = page,
             pageSize = pageSize,
-            freshIdx = freshIdx
+            freshIdx = freshIdx,
+            fetchRow = fetchRow
         ).onSuccess { pageResult ->
-            AppLog.i(TAG, "STARTUP T7 network page=$page ready items=${pageResult.items.size}")
+            val filterStart = SystemClock.elapsedRealtime()
+            AppLog.i(TAG, "STARTUP T7 network page=$page freshIdx=$freshIdx fetchRow=$fetchRow source=${pageResult.source} raw=${pageResult.rawCount} ready items=${pageResult.items.size}")
             val filteredItems = pageResult.items.filterForDisplay()
             if (replace) {
                 seenBvids.clear()
             }
             val dedupedItems = filteredItems.filter { it.bvid.isBlank() || it.bvid !in seenBvids }
             dedupedItems.mapNotNullTo(seenBvids) { it.bvid.takeIf(String::isNotBlank) }
-            if (page == 1) {
-                freshIndexTracker.markFirstPageLoaded()
-            }
             val mergedItems = if (replace) {
                 dedupedItems
             } else {
                 current.items + dedupedItems
             }
             currentPage = page
+            nextRecommendFetchRow = nextFetchRowAfter(pageResult)
             _uiState.value = FeedUiState(
                 items = mergedItems,
                 source = FeedSource.NETWORK,
                 listChange = if (replace) FeedListChange.REPLACE else FeedListChange.APPEND,
                 hasMore = pageResult.hasMore
             )
+            AppLog.i(TAG, "STARTUP network page=$page filterDedup=${SystemClock.elapsedRealtime() - filterStart}ms final=${mergedItems.size}")
             if (mergedItems.isNotEmpty()) {
                 repository.writeCache(repository.trimCacheItems(mergedItems))
             }
@@ -145,7 +160,18 @@ class RecommendViewModel(
         }
     }
 
+    private fun nextFetchRowAfter(page: RecommendFeedRepository.NetworkPage): Int {
+        val step = page.rawCount.coerceAtLeast(page.items.size).coerceAtLeast(1)
+        return page.requestFetchRow + step
+    }
+
     private suspend fun List<VideoModel>.filterForDisplay(): List<VideoModel> {
-        return ContentFilter.filterVideos(appContext, this@filterForDisplay)
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            ContentFilter.filterVideos(appContext, this@filterForDisplay)
+        }
+    }
+
+    private fun List<VideoModel>.filterForInitialPreload(): List<VideoModel> {
+        return ContentFilter.filterVideos(appContext, this)
     }
 }

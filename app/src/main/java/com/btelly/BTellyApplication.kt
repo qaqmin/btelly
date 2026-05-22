@@ -2,21 +2,15 @@ package com.btelly
 
 import android.app.Application
 import android.os.SystemClock
-import android.view.View
-import androidx.asynclayoutinflater.view.AsyncLayoutInflater
-import androidx.appcompat.view.ContextThemeWrapper
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.core.lifecycle.AppBackgroundMonitor
-import com.btelly.core.ui.base.BaseActivity
 import com.btelly.core.ui.image.ImageLoader
-import com.btelly.core.ui.image.BTellyCoilInitializer
 import com.btelly.di.appModules
 import com.btelly.feature.home.RecommendFeedRepository
 import com.btelly.feature.player.PlayerInstancePool
 import com.btelly.network.NetworkManager
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -32,12 +26,13 @@ class BTellyApplication : Application() {
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val startupPrewarmScheduled = AtomicBoolean(false)
-
-    // 预 inflate 出来的 activity_main root view（含 view_tab_bar 嵌套 inflate）。
-    // 使用 AtomicReference 是因为生产/消费跨线程（AsyncLayoutInflater worker thread → MainActivity onCreate main thread）。
-    // 消费 (getAndSet null) 后即使 Activity recreate 也会走原始 inflate 路径，避免错用旧的 detached view。
-    private val preInflatedActivityMain = AtomicReference<View?>(null)
-    private val preInflateScheduled = AtomicBoolean(false)
+    private val uiRuntimeReady = AtomicBoolean(false)
+    private val sessionRuntimeReady = AtomicBoolean(false)
+    private val dataRuntimeReady = AtomicBoolean(false)
+    private val firstPagePreloadScheduled = AtomicBoolean(false)
+    private val uiRuntimeInitLock = Any()
+    private val sessionRuntimeInitLock = Any()
+    private val dataRuntimeInitLock = Any()
     
     companion object {
         private const val TAG = "AppStartup"
@@ -48,46 +43,61 @@ class BTellyApplication : Application() {
     
     override fun onCreate() {
         val startMs = SystemClock.elapsedRealtime()
-        AppLog.i(TAG, "STARTUP T0 app.onCreate start")
         super.onCreate()
         instance = this
         AppLog.init(this)
-
-        // Koin 必须先初始化（后续所有组件依赖 DI）
-        trace("initKoin", startMs) { initKoin() }
-        // Settings 必须在 Network 之前：CookieManager.loadCookiesFromPrefs 依赖 AppSettingsDataStore cache
-        trace("initSettings", startMs) { initSettings() }
-        trace("initNetwork", startMs) { initNetwork() }
-        trace("initCoil", startMs) { BTellyCoilInitializer.bootstrap(this) }
-        // 提前算好图片质量等级缓存，让首屏 RecyclerView bind 时零 DI 查询
-        ImageLoader.prewarm()
-        trace("initBackgroundMonitor", startMs) { AppBackgroundMonitor.init(this) }
-        // Application onCreate 末尾立刻 schedule activity_main 预 inflate：
-        // - AsyncLayoutInflater 在它自己的 worker thread 跑，不阻塞主线程；
-        // - 主线程接下来还要走 ActivityThread.handleLaunchActivity → MainActivity.onCreate，
-        //   中间通常 100~300ms（Activity Token、Window 注册、theme apply 等系统侧工作），
-        //   足够 inflate 完成（实测 activity_main + view_tab_bar 嵌套 inflate 约 80~150ms）。
-        schedulePreInflateActivityMain()
-        AppLog.i(TAG, "STARTUP T1 app.onCreate end elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
+        AppLog.i(TAG, "STARTUP T0 app.onCreate start")
+        AppLog.i(TAG, "STARTUP T1 app.onCreate end minimal elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
     }
 
-    private fun schedulePreInflateActivityMain() {
-        if (!preInflateScheduled.compareAndSet(false, true)) return
-        val themeIndex = runCatching {
-            KoinPlatform.getKoin().get<AppSettingsDataStore>().getCachedInt("theme", 1)
-        }.getOrDefault(1)
-        // 用 ContextThemeWrapper 确保子 view 的 ?attr/xxx 能解析到与 MainActivity.applyTheme 一致的 theme。
-        val themedContext = ContextThemeWrapper(this, BaseActivity.themeIndexToResId(themeIndex))
-        AsyncLayoutInflater(themedContext).inflate(R.layout.activity_main, null) { view, _, _ ->
-            preInflatedActivityMain.set(view)
-            AppLog.i(TAG, "STARTUP activity_main pre-inflated")
+    fun ensureUiRuntimeReady(reason: String) {
+        if (uiRuntimeReady.get()) return
+        synchronized(uiRuntimeInitLock) {
+            if (uiRuntimeReady.get()) return
+            val startMs = SystemClock.elapsedRealtime()
+            AppLog.i(TAG, "STARTUP uiRuntimeInit start reason=$reason")
+            // UI 首帧只需要 DI 和生命周期监听。设置缓存只启动异步读取，不再卡住 Main 首帧。
+            trace("initKoin", startMs) { initKoin() }
+            trace("startSettingsCacheAsync", startMs) { startSettingsCacheAsync() }
+            trace("initBackgroundMonitor", startMs) { AppBackgroundMonitor.init(this) }
+            uiRuntimeReady.set(true)
+            AppLog.i(TAG, "STARTUP uiRuntimeInit end reason=$reason elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
         }
     }
 
-    /**
-     * MainActivity.getViewBinding 调用一次：拿到预 inflate 的 view 后置空（避免 recreate 复用 stale view）。
-     */
-    fun consumePreInflatedActivityMain(): View? = preInflatedActivityMain.getAndSet(null)
+    fun ensureSessionRuntimeReady(reason: String) {
+        if (sessionRuntimeReady.get()) return
+        ensureUiRuntimeReady("$reason/session")
+        synchronized(sessionRuntimeInitLock) {
+            if (sessionRuntimeReady.get()) return
+            val startMs = SystemClock.elapsedRealtime()
+            AppLog.i(TAG, "STARTUP sessionRuntimeInit start reason=$reason")
+            // 登录态只需要设置缓存、Cookie 和持久化用户资料，不需要先构造 OkHttp/Retrofit。
+            trace("initSettingsBlocking", startMs) { initSettingsBlocking(reason) }
+            trace("initNetworkSession", startMs) { initNetworkSession() }
+            trace("initImageSettings", startMs) { ImageLoader.prewarmSettings() }
+            sessionRuntimeReady.set(true)
+            AppLog.i(TAG, "STARTUP sessionRuntimeInit end reason=$reason elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
+        }
+    }
+
+    fun ensureDataRuntimeReady(reason: String) {
+        if (dataRuntimeReady.get()) return
+        ensureSessionRuntimeReady("$reason/data")
+        synchronized(dataRuntimeInitLock) {
+            if (dataRuntimeReady.get()) return
+            val startMs = SystemClock.elapsedRealtime()
+            AppLog.i(TAG, "STARTUP dataRuntimeInit start reason=$reason")
+            // HTTP 客户端和 Retrofit 到 Main 壳可见后再准备，避免拉长 bg_splash。
+            trace("initNetworkCore", startMs) { initNetworkCore() }
+            dataRuntimeReady.set(true)
+            AppLog.i(TAG, "STARTUP dataRuntimeInit end reason=$reason elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
+        }
+    }
+
+    fun ensureMainRuntimeReady(reason: String) {
+        ensureDataRuntimeReady(reason)
+    }
 
     private inline fun trace(name: String, appStartMs: Long, block: () -> Unit) {
         val stepStartMs = SystemClock.elapsedRealtime()
@@ -98,8 +108,12 @@ class BTellyApplication : Application() {
         )
     }
 
-    private fun initSettings() {
+    private fun startSettingsCacheAsync() {
         KoinPlatform.getKoin().get<AppSettingsDataStore>().initCache()
+    }
+
+    private fun initSettingsBlocking(reason: String) {
+        KoinPlatform.getKoin().get<AppSettingsDataStore>().initCacheBlocking(reason)
     }
     
     private fun initKoin() {
@@ -110,12 +124,25 @@ class BTellyApplication : Application() {
         }
     }
     
-    private fun initNetwork() {
+    private fun initNetworkSession() {
+        NetworkManager.initSession(this, syncWebViewCookies = false)
+    }
+
+    private fun initNetworkCore() {
         NetworkManager.init(this, syncWebViewCookies = false)
-        // 不再做 api.bilibili.com 预热：实测 preheat 完成比 preloadFirstPage 的 API 返回还晚
-        // （两个 appScope.launch 并发启动，preheat 自己也要走完整套 interceptor 链，
-        // 拿到 connection 时 preloadFirstPage 已经先抢到了），收益为 0 反而多一次无效 HEAD。
+    }
+
+    fun scheduleStartupFirstPagePreload(delayMillis: Long = 0L) {
+        if (!firstPagePreloadScheduled.compareAndSet(false, true)) {
+            return
+        }
         appScope.launch {
+            if (delayMillis > 0) {
+                delay(delayMillis)
+            }
+            val startMs = SystemClock.elapsedRealtime()
+            AppLog.i(TAG, "STARTUP firstPagePreload schedule start delay=${delayMillis}ms")
+            ensureDataRuntimeReady("firstPagePreload")
             // 推荐首页只依赖本地持久化的 cookies。CookieJar 在 NetworkManager.init 阶段
             // 已经从 SP 加载完毕（initSettings 同步阻塞保证 cache 就绪），此处直接发请求即可。
             // 不再做 WebView cookie 同步：webCookieManager 里的 cookie 全部来自 OkHttp
@@ -127,7 +154,11 @@ class BTellyApplication : Application() {
             }
             runCatching {
                 KoinPlatform.getKoin().get<RecommendFeedRepository>().preloadFirstPage()
+            }.onFailure {
+                firstPagePreloadScheduled.set(false)
+                AppLog.w(TAG, "STARTUP firstPagePreload failed: ${it.message}")
             }
+            AppLog.i(TAG, "STARTUP firstPagePreload schedule end elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
         }
     }
 
@@ -139,9 +170,17 @@ class BTellyApplication : Application() {
             if (delayMillis > 0) {
                 delay(delayMillis)
             }
+            ensureDataRuntimeReady("sessionPrewarm")
+            val startMs = SystemClock.elapsedRealtime()
             if (NetworkManager.isLoggedIn()) {
-                NetworkManager.prewarmWebSession()
+                AppLog.i(TAG, "STARTUP sessionPrewarm start")
+                val success = NetworkManager.prewarmWebSession()
+                AppLog.i(
+                    TAG,
+                    "STARTUP sessionPrewarm end success=$success elapsed=${SystemClock.elapsedRealtime() - startMs}ms"
+                )
             } else {
+                AppLog.i(TAG, "STARTUP sessionPrewarm skip loggedOut")
                 startupPrewarmScheduled.set(false)
             }
         }

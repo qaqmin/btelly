@@ -5,15 +5,14 @@ import android.view.View
 import android.view.ViewGroup
 
 import androidx.core.view.isVisible
-import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.GridLayoutManager
-import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
 import com.btelly.databinding.PageSearchResultBinding
 import com.btelly.model.search.SearchCategoryItem
 import com.btelly.model.search.SearchItemModel
 import com.btelly.model.search.SearchType
+import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.ui.focus.TabContentFocusHelper
@@ -26,10 +25,11 @@ class SearchResultPagerAdapter(
     private val onItemClick: (SearchResultEntry) -> Unit,
     private val onLoadMore: (SearchType) -> Unit,
     private val onTopEdgeUp: ((View) -> Boolean)? = null
-) : ListAdapter<SearchResultPagerAdapter.SearchResultPage, SearchResultPagerAdapter.ViewHolder>(DiffCallback) {
+) : RecyclerView.Adapter<SearchResultPagerAdapter.ViewHolder>() {
 
     private val holders = mutableMapOf<SearchType, ViewHolder>()
     private val pendingStates = mutableMapOf<SearchType, PendingState>()
+    private val pages = mutableListOf<SearchResultPage>()
 
     private data class PendingState(
         val items: List<SearchItemModel>,
@@ -47,10 +47,12 @@ class SearchResultPagerAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val page = getItem(position)
+        val page = pages[position]
         holders[page.type] = holder
         holder.bind(page)
     }
+
+    override fun getItemCount(): Int = pages.size
 
     override fun onViewRecycled(holder: ViewHolder) {
         holder.release()
@@ -58,9 +60,9 @@ class SearchResultPagerAdapter(
         super.onViewRecycled(holder)
     }
 
-    fun getPageTitle(position: Int): String = getItem(position).title
+    fun getPageTitle(position: Int): String = pages.getOrNull(position)?.title.orEmpty()
 
-    fun getPageType(position: Int): SearchType? = currentList.getOrNull(position)?.type
+    fun getPageType(position: Int): SearchType? = pages.getOrNull(position)?.type
 
     fun setPages(
         categories: List<SearchCategoryItem>,
@@ -68,7 +70,7 @@ class SearchResultPagerAdapter(
         initialLoading: Map<SearchType, Boolean> = emptyMap(),
         initialHasMore: Map<SearchType, Boolean> = emptyMap()
     ) {
-        val existing = currentList.associateBy { it.type }
+        val existing = pages.associateBy { it.type }
         val newPages = categories.map { category ->
             val existingItems = existing[category.type]?.items
             val items = initialItems[category.type]?.toMutableList()
@@ -83,13 +85,20 @@ class SearchResultPagerAdapter(
             )
         }
         holders.clear()
-        pendingStates.clear()
-        submitList(newPages)
+        pages.clear()
+        pages.addAll(newPages)
+        for (page in pages) {
+            val state = pendingStates.remove(page.type)
+            if (state != null) {
+                applyStateToPage(page, state)
+            }
+        }
+        notifyDataSetChanged()
     }
 
     fun clearResults() {
         pendingStates.clear()
-        currentList.forEach { page ->
+        pages.forEach { page ->
             page.items.clear()
             page.loading = false
         }
@@ -99,19 +108,19 @@ class SearchResultPagerAdapter(
     }
 
     fun submitResults(type: SearchType, items: List<SearchItemModel>) {
-        val page = currentList.firstOrNull { it.type == type } ?: return
+        val page = pages.firstOrNull { it.type == type } ?: return
         page.items.clear()
         page.items.addAll(items)
-        holders[type]?.submit(page) ?: notifyItemChanged(currentList.indexOf(page))
+        holders[type]?.submit(page) ?: notifyItemChanged(pages.indexOf(page))
     }
 
     fun submitState(type: SearchType, items: List<SearchItemModel>, loading: Boolean, hasMore: Boolean) {
         val state = PendingState(items, loading, hasMore)
         pendingStates[type] = state
-        val page = currentList.firstOrNull { it.type == type }
+        val page = pages.firstOrNull { it.type == type }
         if (page != null) {
             applyStateToPage(page, state)
-            holders[type]?.submit(page) ?: notifyItemChanged(currentList.indexOf(page))
+            holders[type]?.submit(page) ?: notifyItemChanged(pages.indexOf(page))
         }
     }
 
@@ -120,16 +129,6 @@ class SearchResultPagerAdapter(
         page.items.addAll(state.items)
         page.loading = state.loading
         page.hasMore = state.hasMore
-    }
-
-    override fun onCurrentListChanged(previousList: MutableList<SearchResultPage>, currentList: MutableList<SearchResultPage>) {
-        super.onCurrentListChanged(previousList, currentList)
-        for (page in currentList) {
-            val state = pendingStates.remove(page.type)
-            if (state != null) {
-                applyStateToPage(page, state)
-            }
-        }
     }
 
     fun scrollToTop(position: Int) {
@@ -181,6 +180,7 @@ class SearchResultPagerAdapter(
                 binding.recyclerViewResult.layoutManager =
                     WrapContentGridLayoutManager(binding.root.context, spanCount)
                 binding.recyclerViewResult.adapter = currentAdapter
+                binding.recyclerViewResult.setRecycledViewPool(BaseListFragment.sharedVideoPool)
                 while (binding.recyclerViewResult.itemDecorationCount > 0) {
                     binding.recyclerViewResult.removeItemDecorationAt(0)
                 }
@@ -313,15 +313,4 @@ class SearchResultPagerAdapter(
 
     private fun Int?.orZero(): Int = this ?: 0
 
-    companion object {
-        private val DiffCallback = object : DiffUtil.ItemCallback<SearchResultPage>() {
-            override fun areItemsTheSame(oldItem: SearchResultPage, newItem: SearchResultPage): Boolean {
-                return oldItem.type == newItem.type
-            }
-
-            override fun areContentsTheSame(oldItem: SearchResultPage, newItem: SearchResultPage): Boolean {
-                return oldItem == newItem
-            }
-        }
-    }
 }

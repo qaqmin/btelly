@@ -12,7 +12,7 @@ import androidx.constraintlayout.widget.ConstraintSet
 import androidx.core.content.ContextCompat
 import androidx.core.widget.TextViewCompat
 import androidx.media3.common.Player
-import coil3.request.Disposable
+import com.btelly.core.ui.image.SimpleDisposable
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.R
 import com.btelly.model.player.VideoSnapshotData
@@ -57,7 +57,7 @@ class YouTubeOverlay @JvmOverloads constructor(
     private var currentPreviewFrameKey: String? = null
     private var lastQuantizedFrameMs: Long = -1L
     private var previewRequestToken = 0
-    private var currentPreviewDisposable: Disposable? = null
+    private var currentPreviewDisposable: SimpleDisposable? = null
     private val previewBitmapCache = object : LruCache<String, Bitmap>(24) {}
 
     private val hideOverlayRunnable = Runnable {

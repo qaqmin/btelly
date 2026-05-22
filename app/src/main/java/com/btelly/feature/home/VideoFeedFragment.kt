@@ -2,6 +2,7 @@ package com.btelly.feature.home
 
 import android.os.SystemClock
 import android.view.View
+import android.view.ViewTreeObserver
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -25,11 +26,17 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     protected abstract val secondaryTabPosition: Int
     protected open val dispatchHomeContentReady: Boolean = false
     protected open val toastNonEmptyError: Boolean = false
+    protected open val deferInitialLoadUntilFirstDraw: Boolean = false
 
     private val mainNavigationViewModel: MainNavigationViewModel by activityViewModels()
     private var pendingScrollToTopAfterRefresh = false
+    private var initialLoadStarted = false
+    private var initialLoadAfterFirstDrawArmed = false
+    private var contentReadyDispatchScheduled = false
+    private var contentReadyDispatched = false
 
     override val autoLoad: Boolean = false
+    override val initialViewHolderPrewarmCount: Int = 0
     // TV 项目无触摸下拉刷新，下拉刷新由 MainTabReselected/MenuPressed/BackPressed 等键盘事件触发。
     // 关掉可省 setupSwipeRefresh 里的 view tree 重排（removeView + addView 两次）+ 多一层 measure。
     override val enableSwipeRefresh: Boolean = false
@@ -68,12 +75,67 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
 
     override fun initView() {
         super.initView()
-        adapter?.setShowLoadMore(true)
+        adapter?.setShowLoadMore(false)
     }
 
     override fun initData() {
-        showLoading(true)
+        val t0 = SystemClock.elapsedRealtime()
+        if (deferInitialLoadUntilFirstDraw && (adapter?.contentCount() ?: 0) == 0) {
+            showContent()
+            showLoading(false)
+            scheduleInitialLoadAfterFirstDraw()
+        } else {
+            startInitialLoad(showLoading = true, reason = "immediate")
+        }
+        AppLog.i("STARTUP", "${this::class.java.simpleName}.initData elapsed=${SystemClock.elapsedRealtime() - t0}ms")
+    }
+
+    private fun scheduleInitialLoadAfterFirstDraw() {
+        if (initialLoadStarted || initialLoadAfterFirstDrawArmed) return
+        val root = view ?: rootView ?: return startInitialLoad(showLoading = true, reason = "no_root")
+        val className = this::class.java.simpleName
+        val scheduledAtMs = SystemClock.elapsedRealtime()
+        initialLoadAfterFirstDrawArmed = true
+        AppLog.i("STARTUP", "$className.initialLoad deferUntilFirstDraw armed")
+
+        var fired = false
+        lateinit var listener: ViewTreeObserver.OnPreDrawListener
+
+        fun fire(reason: String) {
+            if (fired) return
+            fired = true
+            if (root.viewTreeObserver.isAlive) {
+                root.viewTreeObserver.removeOnPreDrawListener(listener)
+            }
+            root.post {
+                if (!isAdded || view == null) return@post
+                AppLog.i(
+                    "STARTUP",
+                    "$className.initialLoad afterFirstDraw reason=$reason wait=${SystemClock.elapsedRealtime() - scheduledAtMs}ms"
+                )
+                startInitialLoad(showLoading = true, reason = reason)
+            }
+        }
+
+        listener = ViewTreeObserver.OnPreDrawListener {
+            fire("first_pre_draw")
+            true
+        }
+        root.viewTreeObserver.addOnPreDrawListener(listener)
+        root.postDelayed({ fire("fallback") }, 700L)
+    }
+
+    private fun startInitialLoad(showLoading: Boolean, reason: String) {
+        if (initialLoadStarted) return
+        initialLoadStarted = true
+        initialLoadAfterFirstDrawArmed = false
+        val t0 = SystemClock.elapsedRealtime()
+        if (showLoading) {
+            showLoading(true)
+        }
+        AppLog.i("STARTUP", "${this::class.java.simpleName}.initialLoad start reason=$reason")
         feedViewModel.loadInitial()
+        AppLog.i("STARTUP", "${this::class.java.simpleName}.initialLoad invoked elapsed=${SystemClock.elapsedRealtime() - t0}ms")
     }
 
     override fun initObserver() {
@@ -143,7 +205,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
         isLoading = state.loadingInitial || state.refreshing || state.appending
         hasMore = state.hasMore
         setRefreshing(state.refreshing)
-        adapter?.setShowLoadMore(state.hasMore)
+        adapter?.setShowLoadMore(false)
 
         if (state.loadingInitial && state.items.isEmpty()) {
             showLoading(true)
@@ -198,6 +260,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     }
 
     private fun applyReplacedVideosNow(videos: List<VideoModel>) {
+        val t0 = SystemClock.elapsedRealtime()
         AppLog.i("STARTUP", "T8 applyReplacedVideosNow count=${videos.size}")
         isLoading = false
         setRefreshing(false)
@@ -224,12 +287,13 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
         if (videos.isNotEmpty()) {
             showContent()
             showLoading(false)
-            dispatchContentReadyIfNeeded()
+            dispatchContentReadyAfterRecyclerDrawIfNeeded("replace")
         } else {
             showEmpty()
         }
         pendingScrollToTopAfterRefresh = false
         feedViewModel.consumeListChange()
+        AppLog.i("STARTUP", "T8 applyReplacedVideosNow done count=${videos.size} elapsed=${SystemClock.elapsedRealtime() - t0}ms")
     }
 
     private fun applyAppendedVideos(items: List<VideoModel>) {
@@ -241,7 +305,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
             (adapter as? VideoAdapter)?.addData(newItems)
             showContent()
             showLoading(false)
-            dispatchContentReadyIfNeeded()
+            dispatchContentReadyAfterRecyclerDrawIfNeeded("append")
         }
         if (isTvListFocusEnabled()) {
             notifyTvListDataChanged(TvDataChangeReason.APPEND)
@@ -250,9 +314,44 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     }
 
     private fun dispatchContentReadyIfNeeded() {
-        if (dispatchHomeContentReady) {
+        if (dispatchHomeContentReady && !contentReadyDispatched) {
+            contentReadyDispatched = true
             mainNavigationViewModel.dispatch(MainNavigationViewModel.Event.HomeContentReady)
         }
+    }
+
+    private fun dispatchContentReadyAfterRecyclerDrawIfNeeded(reason: String) {
+        if (!dispatchHomeContentReady || contentReadyDispatched || contentReadyDispatchScheduled) return
+        val rv = recyclerView ?: return dispatchContentReadyIfNeeded()
+        val className = this::class.java.simpleName
+        val scheduledAtMs = SystemClock.elapsedRealtime()
+        contentReadyDispatchScheduled = true
+        var fired = false
+        lateinit var listener: ViewTreeObserver.OnPreDrawListener
+
+        fun fire(fireReason: String) {
+            if (fired) return
+            fired = true
+            if (rv.viewTreeObserver.isAlive) {
+                rv.viewTreeObserver.removeOnPreDrawListener(listener)
+            }
+            rv.post {
+                if (!isAdded || view == null) return@post
+                contentReadyDispatchScheduled = false
+                AppLog.i(
+                    "STARTUP",
+                    "$className.contentReady afterRecyclerDraw reason=$reason fire=$fireReason wait=${SystemClock.elapsedRealtime() - scheduledAtMs}ms"
+                )
+                dispatchContentReadyIfNeeded()
+            }
+        }
+
+        listener = ViewTreeObserver.OnPreDrawListener {
+            fire("pre_draw")
+            true
+        }
+        rv.viewTreeObserver.addOnPreDrawListener(listener)
+        rv.postDelayed({ fire("fallback") }, 600L)
     }
 
     private fun focusTopTab(): Boolean {
@@ -273,5 +372,11 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
 
     override fun onVideoBlocked(aid: Long, bvid: String) {
         (adapter as? VideoAdapter)?.removeByVideoId(aid, bvid)
+    }
+
+    override fun onDestroyView() {
+        initialLoadAfterFirstDrawArmed = false
+        contentReadyDispatchScheduled = false
+        super.onDestroyView()
     }
 }

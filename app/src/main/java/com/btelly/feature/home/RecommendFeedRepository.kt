@@ -4,16 +4,14 @@ import android.content.Context
 import android.os.SystemClock
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.log.HomeVideoCardDebugLogger
-import com.btelly.core.ui.image.ImageLoader
 import com.btelly.model.video.VideoModel
-import com.btelly.repository.VideoRepository
+import com.btelly.network.api.BiliApi
 import com.btelly.repository.cache.HomeCacheStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 
 class RecommendFeedRepository(
-    private val videoRepository: VideoRepository,
     context: Context
 ) {
 
@@ -23,23 +21,24 @@ class RecommendFeedRepository(
         private const val TAG = "RecommendFeedRepository"
         private const val CACHE_KEY = "recommendCacheList"
         private const val MAX_CACHED_RECOMMEND_ITEMS = 24
-        private const val PRELOAD_PAGE_SIZE = 12
-        private const val COVER_PREFETCH_COUNT = 8
+        private const val PRELOAD_PAGE_SIZE = 24
     }
 
     private val firstPageDeferred = CompletableDeferred<NetworkPage>()
+    @Volatile
+    private var preloadedFirstPage: NetworkPage? = null
 
     suspend fun preloadFirstPage() {
         val startMs = SystemClock.elapsedRealtime()
         AppLog.i(TAG, "STARTUP T2 preloadFirstPage start")
         val preloadSize = PRELOAD_PAGE_SIZE
-        val result = loadNetworkPage(page = 1, pageSize = preloadSize, freshIdx = 0)
+        val result = loadNetworkPage(page = 1, pageSize = preloadSize, freshIdx = 1, fetchRow = 1)
         val page = result.getOrNull()
         if (page != null) {
             AppLog.i(TAG, "STARTUP T3 preload api done items=${page.items.size} hasMore=${page.hasMore}")
-            writeCache(page.items)
-            prefetchCovers(page.items)
+            preloadedFirstPage = page
             firstPageDeferred.complete(page)
+            writeCache(page.items)
         } else {
             firstPageDeferred.completeExceptionally(
                 result.exceptionOrNull() ?: IllegalStateException("preload failed")
@@ -48,25 +47,26 @@ class RecommendFeedRepository(
         AppLog.i(TAG, "STARTUP T3b preload end elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
     }
 
+    fun peekFirstPage(): NetworkPage? {
+        val page = preloadedFirstPage
+        AppLog.i(TAG, "STARTUP peekFirstPage ${if (page != null) "hit" else "miss"} items=${page?.items?.size ?: 0}")
+        return page
+    }
+
     suspend fun awaitFirstPage(timeoutMs: Long): NetworkPage? {
         return try {
             withTimeout(timeoutMs) { firstPageDeferred.await() }
         } catch (e: TimeoutCancellationException) {
-            AppLog.w(TAG, "STARTUP awaitFirstPage timeout after ${timeoutMs}ms")
-            null
+            preloadedFirstPage.also { page ->
+                AppLog.w(
+                    TAG,
+                    "STARTUP awaitFirstPage timeout after ${timeoutMs}ms fallback=${if (page != null) "hit" else "miss"}"
+                )
+            }
         } catch (e: Exception) {
             AppLog.w(TAG, "STARTUP awaitFirstPage failed: ${e.message}")
-            null
+            preloadedFirstPage
         }
-    }
-
-    private fun prefetchCovers(items: List<VideoModel>) {
-        if (items.isEmpty()) return
-        val urls = items.asSequence()
-            .take(COVER_PREFETCH_COUNT)
-            .map { it.bangumi?.cover?.takeIf { c -> c.isNotBlank() } ?: it.coverUrl }
-            .toList()
-        ImageLoader.prefetchVideoCovers(appContext, urls)
     }
 
     data class CachedFeed(
@@ -77,7 +77,11 @@ class RecommendFeedRepository(
 
     data class NetworkPage(
         val items: List<VideoModel>,
-        val hasMore: Boolean
+        val hasMore: Boolean,
+        val rawCount: Int,
+        val requestFreshIdx: Int,
+        val requestFetchRow: Int,
+        val source: String
     )
 
     suspend fun readCachedFeed(): CachedFeed {
@@ -98,29 +102,60 @@ class RecommendFeedRepository(
     suspend fun loadNetworkPage(
         page: Int,
         pageSize: Int,
-        freshIdx: Int
+        freshIdx: Int,
+        fetchRow: Int
     ): Result<NetworkPage> = runCatching {
-        loadWebFeedPage(page, pageSize, freshIdx)
+        loadWebFeedPage(page, pageSize, freshIdx, fetchRow)
     }
 
     private suspend fun loadWebFeedPage(
         page: Int,
         pageSize: Int,
-        freshIdx: Int
+        freshIdx: Int,
+        fetchRow: Int
     ): NetworkPage {
-        val response = videoRepository.getRecommendList(freshIdx, pageSize)
-        if (!response.isSuccess) {
-            error(response.errorMessage.ifBlank { response.message.ifBlank { "推荐加载失败" } })
+        val t0 = SystemClock.elapsedRealtime()
+        val source = "recommend_v8(page=$page,freshIdx=$freshIdx,fetchRow=$fetchRow,ps=$pageSize)"
+        val recommendResult = runCatching {
+            BiliApi.recommendV8(freshIdx = freshIdx, ps = pageSize, fetchRow = fetchRow)
+        }.getOrElse { throwable ->
+            AppLog.w(TAG, "$source failed: ${throwable.message}; fallback V1")
+            val fallbackItems = BiliApi.recommend(freshIdx, pageSize)
+            BiliApi.RecommendPageResult(
+                items = fallbackItems,
+                rawCount = fallbackItems.size,
+                source = "V1_FALLBACK"
+            )
+        }.let { result ->
+            if (result.items.isNotEmpty()) {
+                result
+            } else {
+                AppLog.w(TAG, "$source empty; fallback V1")
+                val fallbackItems = BiliApi.recommend(freshIdx, pageSize)
+                BiliApi.RecommendPageResult(
+                    items = fallbackItems,
+                    rawCount = fallbackItems.size,
+                    source = "V1_FALLBACK_EMPTY"
+                )
+            }
         }
-        val rawItems = response.data?.items.orEmpty()
-        AppLog.i(TAG, "recommend_web(page=$page,freshIdx=$freshIdx) raw=${rawItems.size}")
+        val rawItems = recommendResult.items
+        val t1 = SystemClock.elapsedRealtime()
+        AppLog.i(TAG, "$source apiSource=${recommendResult.source} raw=${recommendResult.rawCount} parsed=${rawItems.size} api=${t1 - t0}ms")
         HomeVideoCardDebugLogger.logRejectedCards(
-            source = "recommend_web(page=$page,freshIdx=$freshIdx)",
+            source = "$source apiSource=${recommendResult.source}",
             items = rawItems
         )
+        val filtered = rawItems.filter { it.isSupportedHomeVideoCard }
+        val t2 = SystemClock.elapsedRealtime()
+        AppLog.i(TAG, "$source filter=${t2 - t1}ms api=${t1 - t0}ms raw=${recommendResult.rawCount} parsed=${rawItems.size}->${filtered.size}")
         return NetworkPage(
-            items = rawItems.filter { it.isSupportedHomeVideoCard },
-            hasMore = rawItems.size >= pageSize
+            items = filtered,
+            hasMore = recommendResult.rawCount >= pageSize,
+            rawCount = recommendResult.rawCount,
+            requestFreshIdx = freshIdx,
+            requestFetchRow = fetchRow,
+            source = recommendResult.source
         )
     }
 

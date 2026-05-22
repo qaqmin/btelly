@@ -3,53 +3,45 @@ package com.btelly.core.ui.image
 import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.BitmapShader
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Shader
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
-import android.os.SystemClock
 import android.widget.ImageView
+import android.os.SystemClock
 import androidx.annotation.DrawableRes
-import coil3.Image
-import coil3.SingletonImageLoader
-import coil3.asDrawable
-import coil3.dispose
-import coil3.network.NetworkHeaders
-import coil3.network.httpHeaders
-import coil3.request.CachePolicy
-import coil3.request.Disposable
-import coil3.request.ImageRequest
-import coil3.request.crossfade
-import coil3.request.error
-import coil3.request.placeholder
-import coil3.request.target
-import coil3.request.transformations
-import coil3.size.Precision
-import coil3.size.Scale
-import coil3.target.ImageViewTarget
-import coil3.toBitmap
-import coil3.transform.CircleCropTransformation
-import coil3.transform.RoundedCornersTransformation
-import coil3.transform.Transformation
+import androidx.collection.LruCache
+import androidx.core.content.ContextCompat
 import com.btelly.R
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.network.NetworkManager
+import pl.droidsonroids.gif.GifDrawable
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.koin.mp.KoinPlatform
+import java.util.WeakHashMap
 
-/**
- * 项目内统一的图片加载入口。底层走 Coil 3.x，与 [NetworkManager] 共享 OkHttp 栈。
- *
- * 公开 API 与之前的 Glide 实现完全兼容，UI 层无需任何改动。
- */
 object ImageLoader {
 
     private const val TAG = "ImageLoader"
-
     private const val KEY_IMAGE_QUALITY = "image_quality"
     private const val KEY_IMAGE_QUALITY_LEVEL = "imageQualityLevel"
+
+    private val placeholder = ColorDrawable(0xFF2A2A2A.toInt())
 
     private val appSettings: AppSettingsDataStore get() = KoinPlatform.getKoin().get()
 
@@ -58,12 +50,35 @@ object ImageLoader {
     private var imageQualityFlowStarted = false
     private val imageQualityScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val bilibiliHeaders: NetworkHeaders by lazy {
-        NetworkHeaders.Builder()
-            .add("Referer", "https://www.bilibili.com/")
-            .add("User-Agent", NetworkManager.getCurrentUserAgent())
-            .build()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val inFlight = WeakHashMap<ImageView, Job>()
+
+    private val cache = object : LruCache<String, Bitmap>(maxCacheBytes()) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
+
+    // 独立的 OkHttpClient，不走业务 interceptor
+    private val imageOkHttpClient: OkHttpClient by lazy { buildImageOkHttpClient() }
+
+    // 前台 bind 与后台 prefetch 共用同 URL 请求，避免首屏重复下载/解码同一张封面。
+    private val imageDataScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val imageDataInFlight = mutableMapOf<String, Deferred<ImageData>>()
+
+    private val preheatScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val preheated = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private data class ImageData(
+        val bytes: ByteArray,
+        val bitmap: Bitmap?,
+        val isGif: Boolean,
+        val fetchMs: Long,
+        val decodeMs: Long
+    )
+
+    private data class ImageDataRequest(
+        val deferred: Deferred<ImageData>,
+        val reused: Boolean
+    )
 
     // ---------- 公开 API ----------
 
@@ -73,26 +88,10 @@ object ImageLoader {
         placeholder: Int = 0,
         error: Int = 0
     ) {
+        val optimizedUrl = buildOptimizedCommonImageUrl(url)
         val normalizedUrl = normalizeUrl(url)
-        val optimizedUrl = buildOptimizedCommonImageUrl(imageView, url)
-        val canFallbackToRawUrl = canFallbackToRawUrl(optimizedUrl, normalizedUrl)
-        enqueue(
-            imageView = imageView,
-            url = optimizedUrl,
-            placeholderRes = placeholder,
-            errorRes = if (canFallbackToRawUrl) 0 else error,
-            crossfade = true,
-            onError = if (canFallbackToRawUrl) {
-                {
-                    enqueue(
-                        imageView = imageView,
-                        url = normalizedUrl,
-                        placeholderRes = placeholder,
-                        errorRes = error,
-                        crossfade = true
-                    )
-                }
-            } else null
+        loadInto(imageView, optimizedUrl, placeholder, error,
+            fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null
         )
     }
 
@@ -102,26 +101,10 @@ object ImageLoader {
         placeholder: Drawable?,
         error: Drawable?
     ) {
+        val optimizedUrl = buildOptimizedCommonImageUrl(url)
         val normalizedUrl = normalizeUrl(url)
-        val optimizedUrl = buildOptimizedCommonImageUrl(imageView, url)
-        val canFallbackToRawUrl = canFallbackToRawUrl(optimizedUrl, normalizedUrl)
-        enqueue(
-            imageView = imageView,
-            url = optimizedUrl,
-            placeholderDrawable = placeholder,
-            errorDrawable = if (canFallbackToRawUrl) null else error,
-            crossfade = true,
-            onError = if (canFallbackToRawUrl) {
-                {
-                    enqueue(
-                        imageView = imageView,
-                        url = normalizedUrl,
-                        placeholderDrawable = placeholder,
-                        errorDrawable = error,
-                        crossfade = true
-                    )
-                }
-            } else null
+        loadIntoDrawable(imageView, optimizedUrl, placeholder, error,
+            fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null
         )
     }
 
@@ -131,86 +114,79 @@ object ImageLoader {
         placeholder: Int = 0,
         error: Int = 0
     ) {
+        val optimizedUrl = buildOptimizedAvatarUrl(url)
         val normalizedUrl = normalizeUrl(url)
-        val optimizedUrl = buildOptimizedAvatarUrl(imageView, url)
-        val canFallbackToRawUrl = optimizedUrl.isNotBlank() &&
-            normalizedUrl.isNotBlank() &&
-            optimizedUrl != normalizedUrl
-
-        enqueue(
+        loadInto(
             imageView = imageView,
             url = optimizedUrl,
             placeholderRes = placeholder,
-            errorRes = if (canFallbackToRawUrl) 0 else error,
-            transformations = listOf(CircleCropTransformation()),
-            crossfade = false,
-            onError = if (canFallbackToRawUrl) {
-                {
-                    enqueue(
-                        imageView = imageView,
-                        url = normalizedUrl,
-                        placeholderRes = placeholder,
-                        errorRes = error,
-                        transformations = listOf(CircleCropTransformation()),
-                        crossfade = false
-                    )
-                }
-            } else null
+            errorRes = error,
+            circleCrop = true,
+            fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null
         )
     }
 
-    /**
-     * 加载本地 drawable（含 GIF / WebP 动图）。Coil 通过 component 自动识别动图格式。
-     */
     fun loadDrawableRes(
         imageView: ImageView,
         @DrawableRes resId: Int,
         circleCrop: Boolean = false
     ) {
-        enqueue(
-            imageView = imageView,
-            url = "",
-            data = resId,
-            transformations = if (circleCrop) listOf(CircleCropTransformation()) else emptyList(),
-            crossfade = false
-        )
+        val ctx = imageView.context
+        if (ctx is Activity && ctx.isDestroyed) return
+
+        // GIF 资源：用 GifDrawable 解码并自动播放
+        val gifDrawable = runCatching { GifDrawable(ctx.resources, resId) }.getOrNull()
+        if (gifDrawable != null) {
+            gifDrawable.start()
+            imageView.setImageDrawable(gifDrawable)
+            return
+        }
+
+        // 非静态资源
+        val drawable = ContextCompat.getDrawable(ctx, resId)
+        if (drawable == null) {
+            imageView.setImageResource(resId)
+            return
+        }
+
+        if (circleCrop && drawable is BitmapDrawable) {
+            imageView.setImageBitmap(circleCrop(drawable.bitmap))
+        } else {
+            imageView.setImageDrawable(drawable)
+        }
     }
 
-    /**
-     * 取消 ImageView 上正在进行的图片加载，并清空当前显示。
-     *
-     * 这里必须用 Coil 的 [dispose] 而不是 enqueue 一个 `data = null` 的请求：
-     * 后者会让 Coil 把 null 请求保存到 ViewTargetRequestManager，下次 view 重新
-     * attach 时自动 restart，抛 `NullRequestDataException`（实测 RecyclerView
-     * 复用 ItemView 时高频出现）。
-     */
     fun clear(imageView: ImageView) {
-        imageView.dispose()
+        inFlight.remove(imageView)?.cancel()
+        imageView.setTag(R.id.tag_image_loader_url, null)
         imageView.setImageDrawable(null)
     }
 
-    /**
-     * 加载远程图片为 [Bitmap]，主要服务于播放器拖动预览这种需要自行裁剪的场景。
-     * 调用方持有返回的 [Disposable]，需要取消时调用 `dispose()`。
-     */
     fun loadBitmap(
         context: Context,
         url: String,
         applyBilibiliHeaders: Boolean = true,
         onSuccess: (Bitmap) -> Unit,
         onFailed: () -> Unit = {}
-    ): Disposable {
-        val builder = ImageRequest.Builder(context).data(url)
-        if (applyBilibiliHeaders && isBilibiliImageUrl(url)) {
-            builder.httpHeaders(bilibiliHeaders)
+    ): SimpleDisposable {
+        val job = scope.launch {
+            try {
+                val bytes = withContext(Dispatchers.IO) { fetchBytes(url) }
+                val bmp = withContext(Dispatchers.Default) {
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                }
+                if (bmp != null) {
+                    cache.put(url, bmp)
+                    onSuccess(bmp)
+                } else {
+                    onFailed()
+                }
+            } catch (t: Throwable) {
+                AppLog.w(TAG, "loadBitmap failed url=${url.takeLast(50)}", t)
+                onFailed()
+            }
         }
-        builder.target(
-            onSuccess = { image: Image ->
-                onSuccess(image.toBitmap())
-            },
-            onError = { _: Image? -> onFailed() }
-        )
-        return SingletonImageLoader.get(context).enqueue(builder.build())
+        return SimpleDisposable(job)
     }
 
     fun loadCenterCrop(
@@ -219,38 +195,26 @@ object ImageLoader {
         placeholder: Int = 0,
         error: Int = 0
     ) {
+        load(imageView, url, placeholder, error)
+    }
+
+    fun loadSmallSquare(
+        imageView: ImageView,
+        url: String?,
+        placeholder: Int = 0,
+        error: Int = 0
+    ) {
+        val optimizedUrl = buildOptimizedSmallSquareImageUrl(url)
         val normalizedUrl = normalizeUrl(url)
-        val optimizedUrl = buildOptimizedCommonImageUrl(imageView, url)
-        val canFallbackToRawUrl = canFallbackToRawUrl(optimizedUrl, normalizedUrl)
-        enqueue(
+        loadInto(
             imageView = imageView,
             url = optimizedUrl,
             placeholderRes = placeholder,
-            errorRes = if (canFallbackToRawUrl) 0 else error,
-            scale = Scale.FILL,
-            crossfade = true,
-            onError = if (canFallbackToRawUrl) {
-                {
-                    enqueue(
-                        imageView = imageView,
-                        url = normalizedUrl,
-                        placeholderRes = placeholder,
-                        errorRes = error,
-                        scale = Scale.FILL,
-                        crossfade = true
-                    )
-                }
-            } else null
+            errorRes = error,
+            fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null
         )
     }
 
-    /**
-     * 视频封面统一只做 CenterCrop。圆角通过 ImageView 的 outlineProvider 在 GPU 层裁出，
-     * 既避免了像素级 transform 的 CPU 开销，也让磁盘缓存命中后零成本复用。
-     *
-     * 开启 Coil 磁盘缓存：所有视频封面 URL 都带固定 `_1c` 后缀，命中条件稳定，
-     * 第二次冷启动可以直接从本地磁盘加载，免去网络下载时间。
-     */
     fun loadVideoCover(
         imageView: ImageView,
         url: String?,
@@ -258,46 +222,13 @@ object ImageLoader {
         error: Int = R.drawable.default_video,
         onPortraitDetected: ((Boolean) -> Unit)? = null
     ) {
+        val optimizedUrl = buildOptimizedVideoCoverUrl(url)
         val normalizedUrl = normalizeUrl(url)
-        val optimizedUrl = buildOptimizedVideoCoverUrl(imageView, url)
-        val canFallbackToRawUrl = canFallbackToRawUrl(optimizedUrl, normalizedUrl)
-        enqueue(
-            imageView = imageView,
-            url = optimizedUrl,
-            placeholderRes = placeholder,
-            errorRes = if (canFallbackToRawUrl) 0 else error,
-            scale = Scale.FILL,
-            crossfade = false,
-            diskCacheEnabled = true,
-            onSuccess = { drawable ->
+        loadInto(imageView, optimizedUrl, placeholder, error,
+            fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null,
+            onSuccess = { bmp ->
                 if (onPortraitDetected != null) {
-                    val w = drawable.intrinsicWidth
-                    val h = drawable.intrinsicHeight
-                    onPortraitDetected(w > 0 && h > 0 && h > w)
-                }
-            },
-            onError = {
-                AppLog.w(TAG, "loadVideoCover optimized failed: url=$optimizedUrl")
-                if (canFallbackToRawUrl) {
-                    enqueue(
-                        imageView = imageView,
-                        url = normalizedUrl,
-                        placeholderRes = placeholder,
-                        errorRes = error,
-                        scale = Scale.FILL,
-                        crossfade = false,
-                        diskCacheEnabled = true,
-                        onSuccess = { drawable ->
-                            if (onPortraitDetected != null) {
-                                val w = drawable.intrinsicWidth
-                                val h = drawable.intrinsicHeight
-                                onPortraitDetected(w > 0 && h > 0 && h > w)
-                            }
-                        },
-                        onError = {
-                            AppLog.w(TAG, "loadVideoCover raw failed: url=$normalizedUrl")
-                        }
-                    )
+                    onPortraitDetected(bmp.height > bmp.width)
                 }
             }
         )
@@ -309,35 +240,12 @@ object ImageLoader {
         placeholder: Int = R.drawable.default_video,
         error: Int = R.drawable.default_video
     ) {
+        val optimizedUrl = buildOptimizedSeriesCoverUrl(url)
         val normalizedUrl = normalizeUrl(url)
-        val optimizedUrl = buildOptimizedSeriesCoverUrl(imageView, url)
-        val canFallbackToRawUrl = canFallbackToRawUrl(optimizedUrl, normalizedUrl)
         val radiusPx = imageView.context.resources.getDimensionPixelSize(R.dimen.px15).toFloat()
-        enqueue(
-            imageView = imageView,
-            url = optimizedUrl,
-            placeholderRes = placeholder,
-            errorRes = if (canFallbackToRawUrl) 0 else error,
-            scale = Scale.FILL,
-            transformations = listOf(RoundedCornersTransformation(radiusPx)),
-            crossfade = false,
-            onError = if (canFallbackToRawUrl) {
-                {
-                    AppLog.w(TAG, "loadSeriesCover optimized failed: url=$optimizedUrl")
-                    enqueue(
-                        imageView = imageView,
-                        url = normalizedUrl,
-                        placeholderRes = placeholder,
-                        errorRes = error,
-                        scale = Scale.FILL,
-                        transformations = listOf(RoundedCornersTransformation(radiusPx)),
-                        crossfade = false,
-                        onError = {
-                            AppLog.w(TAG, "loadSeriesCover raw failed: url=$normalizedUrl")
-                        }
-                    )
-                }
-            } else null
+        loadInto(imageView, optimizedUrl, placeholder, error,
+            fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null,
+            cornerRadius = radiusPx
         )
     }
 
@@ -347,210 +255,83 @@ object ImageLoader {
         onLoadSuccess: () -> Unit = {},
         onLoadFailed: () -> Unit = {}
     ) {
-        enqueue(
-            imageView = imageView,
-            url = buildOptimizedCommonImageUrl(imageView, url),
-            crossfade = true,
+        val optimizedUrl = buildOptimizedCommonImageUrl(url)
+        loadInto(imageView, optimizedUrl, 0, 0,
             onSuccess = { onLoadSuccess() },
             onError = { onLoadFailed() }
         )
     }
 
     fun clearMemory(context: Context) {
-        SingletonImageLoader.get(context).memoryCache?.clear()
+        cache.evictAll()
     }
 
     fun clearDiskCache(context: Context) {
-        val loader = SingletonImageLoader.get(context)
-        Thread {
-            runCatching { loader.diskCache?.clear() }
-        }.start()
+        // 无磁盘缓存，no-op
     }
 
-    /**
-     * 在卡片真正进入 RecyclerView 之前，把首屏可见的视频封面下到磁盘 + 内存缓存。
-     *
-     * 不指定 [coil3.request.ImageRequest.Builder.size]：让 Coil 用 ORIGINAL 解码原图尺寸，
-     * 既保证后续 ImageView 加载时一定能命中内存缓存（cache size 不小于任何 view target），
-     * 也避免 prefetch 解出的 bitmap 比真实 view 还小（实测 390×219 vs 419×236 时
-     * EXACT 模式下会被判 cache invalid 而重新走网络/磁盘）。
-     *
-     * Coil 的 `enqueue` 任意线程安全，调用方无需担心线程切换。
-     */
     fun prefetchVideoCovers(context: Context, urls: List<String?>) {
         if (urls.isEmpty()) return
-        prefetchCovers(context, urls, ::buildVideoCoverUrl)
+        val finalUrls = urls.asSequence()
+            .mapNotNull { it?.takeIf { u -> u.isNotBlank() } }
+            .distinct()
+            .map { buildVideoCoverUrl(it) }
+            .filter { it.isNotBlank() }
+            .toList()
+        finalUrls.forEach { prefetch(it) }
     }
 
     fun prefetchSeriesCovers(context: Context, urls: List<String?>) {
         if (urls.isEmpty()) return
-        prefetchCovers(context, urls, ::buildSeriesCoverUrl)
+        val finalUrls = urls.asSequence()
+            .mapNotNull { it?.takeIf { u -> u.isNotBlank() } }
+            .distinct()
+            .map { buildSeriesCoverUrl(it) }
+            .filter { it.isNotBlank() }
+            .toList()
+        finalUrls.forEach { prefetch(it) }
     }
 
     fun invalidateImageQualityCache() {
         cachedImageQualityLevel = null
     }
 
-    /**
-     * Application 启动时主动调用一次：把图片质量等级提前算好缓存，
-     * 后续每次 RecyclerView bind 不再走 [KoinPlatform] / [AppSettingsDataStore]，
-     * 直接读 [cachedImageQualityLevel]。
-     *
-     * 同时启动 settings flow 订阅，用户在设置里改图片质量时自动失效缓存。
-     */
     fun prewarm() {
+        prewarmSettings()
+        prewarmCdn()
+    }
+
+    fun prewarmSettings() {
         resolveImageQualityLevel()
     }
 
-    // ---------- 内部实现 ----------
+    fun prewarmCdn() {
+        preheatCdnHosts()
+    }
 
-    private fun enqueue(
-        imageView: ImageView,
-        url: String,
-        data: Any? = null,
-        placeholderRes: Int = 0,
-        errorRes: Int = 0,
-        placeholderDrawable: Drawable? = null,
-        errorDrawable: Drawable? = null,
-        scale: Scale = Scale.FILL,
-        crossfade: Boolean = true,
-        diskCacheEnabled: Boolean = true,
-        transformations: List<Transformation> = emptyList(),
-        onSuccess: ((Drawable) -> Unit)? = null,
-        onError: (() -> Unit)? = null
-    ) {
-        val ctx = imageView.context
-        if (ctx is Activity && ctx.isDestroyed) return
-
-        val resolvedData: Any? = data ?: url.ifBlank { null }
-        val enqueueTimeMs = SystemClock.elapsedRealtime()
-        val builder = ImageRequest.Builder(ctx)
-            .data(resolvedData)
-            .target(ImageViewTarget(imageView))
-            .scale(scale)
-            .precision(Precision.INEXACT)
-            .crossfade(crossfade)
-            .diskCachePolicy(if (diskCacheEnabled) CachePolicy.ENABLED else CachePolicy.DISABLED)
-            .applyBilibiliHeadersIfNeeded(url)
-
-        when {
-            placeholderDrawable != null -> builder.placeholder(placeholderDrawable)
-            placeholderRes != 0 -> builder.placeholder(placeholderRes)
-        }
-        when {
-            errorDrawable != null -> builder.error(errorDrawable)
-            errorRes != 0 -> builder.error(errorRes)
-        }
-        if (transformations.isNotEmpty()) {
-            builder.transformations(transformations)
-        }
-        if (onSuccess != null || onError != null) {
-            builder.listener(
-                onSuccess = { _, result ->
-                    val elapsed = SystemClock.elapsedRealtime() - enqueueTimeMs
-                    AppLog.i(TAG, "STARTUP T9 cover loaded: elapsed=${elapsed}ms url=${url.takeLast(50)}")
-                    onSuccess?.invoke(result.image.asDrawable(ctx.resources))
-                },
-                onError = { _, _ ->
-                    val elapsed = SystemClock.elapsedRealtime() - enqueueTimeMs
-                    AppLog.i(TAG, "STARTUP T9 cover error: elapsed=${elapsed}ms url=${url.takeLast(50)}")
-                    onError?.invoke()
+    /**
+     * 并发 HEAD 请求预热图片 CDN：触发 DNS + TCP + TLS 握手，
+     * 连接放入 ConnectionPool，首屏图片请求 0 RTT 复用。
+     */
+    private fun preheatCdnHosts() {
+        if (!preheated.compareAndSet(false, true)) return
+        val hosts = listOf(
+            "https://i0.hdslb.com/",
+            "https://i1.hdslb.com/",
+            "https://i2.hdslb.com/"
+        )
+        hosts.forEach { url ->
+            preheatScope.launch {
+                runCatching {
+                    val request = Request.Builder().url(url).head().build()
+                    imageOkHttpClient.newCall(request).execute().use { /* discard */ }
+                }.onFailure {
+                    AppLog.w(TAG, "CDN preheat failed: $url ${it.message}")
                 }
-            )
-        }
-        SingletonImageLoader.get(ctx).enqueue(builder.build())
-    }
-
-    private fun ImageRequest.Builder.applyBilibiliHeadersIfNeeded(
-        url: String
-    ): ImageRequest.Builder {
-        return if (isBilibiliImageUrl(url)) httpHeaders(bilibiliHeaders) else this
-    }
-
-    // ---------- URL 规范化 / 尺寸优化 ----------
-
-    private fun normalizeUrl(url: String?): String {
-        if (url.isNullOrBlank()) return ""
-        return when {
-            url.startsWith("https://") -> url
-            url.startsWith("http://") -> "https://${url.removePrefix("http://")}"
-            url.startsWith("//") -> "https:$url"
-            url.startsWith("bfs/") -> "https://i0.hdslb.com/$url"
-            else -> url
+                AppLog.i(TAG, "CDN preheat done: $url")
+            }
         }
     }
-
-    // 所有挡位均使用 _1c（center crop）后缀：
-    // - 不带 _1c 时 B 站 image processor 是 max-fit，原图比例稍偏即吐出非标尺寸
-    //   bitmap（实测出现过 390×219、466×260 这种歪尺寸）；
-    // - 带 _1c 后输出严格按 W×H 等比裁切，所有 cover 出来必然标准 16:9 / 1:1 / 3:4，
-    //   memory cache 命中判定也更稳定。
-
-    private fun buildOptimizedVideoCoverUrl(imageView: ImageView, url: String?): String {
-        val normalized = normalizeUrl(url)
-        if (!isBilibiliImageUrl(normalized)) return normalized
-        val suffix = when (resolveImageQualityLevel(imageView)) {
-            0 -> "@240w_135h_1c.webp"
-            2 -> "@672w_378h_1c.webp"
-            else -> "@480w_270h_1c.webp"
-        }
-        return appendImageSuffix(normalized, suffix)
-    }
-
-    private fun buildOptimizedCommonImageUrl(imageView: ImageView, url: String?): String {
-        val normalized = normalizeUrl(url)
-        if (!isBilibiliImageUrl(normalized)) return normalized
-        val suffix = when (resolveImageQualityLevel(imageView)) {
-            0 -> "@240w_240h_1c.webp"
-            2 -> "@960w_960h_1c.webp"
-            else -> "@480w_480h_1c.webp"
-        }
-        return appendImageSuffix(normalized, suffix)
-    }
-
-    private fun buildOptimizedAvatarUrl(imageView: ImageView, url: String?): String {
-        val normalized = normalizeUrl(url)
-        if (!isBilibiliImageUrl(normalized)) return normalized
-        val suffix = when (resolveImageQualityLevel(imageView)) {
-            0 -> "@120w_120h_1c.webp"
-            2 -> "@360w_360h_1c.webp"
-            else -> "@240w_240h_1c.webp"
-        }
-        return appendImageSuffix(normalized, suffix)
-    }
-
-    private fun buildOptimizedSeriesCoverUrl(imageView: ImageView, url: String?): String {
-        val normalized = normalizeUrl(url)
-        if (!isBilibiliImageUrl(normalized)) return normalized
-        val suffix = when (resolveImageQualityLevel(imageView)) {
-            0 -> "@160w_213h_1c.webp"
-            2 -> "@466w_622h_1c.webp"
-            else -> "@320w_426h_1c.webp"
-        }
-        return appendImageSuffix(normalized, suffix)
-    }
-
-    private fun canFallbackToRawUrl(optimizedUrl: String, normalizedUrl: String): Boolean {
-        return optimizedUrl.isNotBlank() &&
-            normalizedUrl.isNotBlank() &&
-            optimizedUrl != normalizedUrl &&
-            isBilibiliImageUrl(normalizedUrl)
-    }
-
-    private fun resolveImageQualityLevel(): Int {
-        cachedImageQualityLevel?.let { return it }
-        ensureImageQualityFlowCollection()
-        appSettings.getCachedString(KEY_IMAGE_QUALITY)?.let { label ->
-            return qualityLabelToLevel(label).also { cachedImageQualityLevel = it }
-        }
-        val level = appSettings.getCachedInt(KEY_IMAGE_QUALITY_LEVEL, -1)
-        if (level >= 0) {
-            return level.coerceIn(0, 2).also { cachedImageQualityLevel = it }
-        }
-        return 1.also { cachedImageQualityLevel = it }
-    }
-
-    private fun resolveImageQualityLevel(imageView: ImageView): Int = resolveImageQualityLevel()
 
     fun buildVideoCoverUrl(url: String?): String {
         val normalized = normalizeUrl(url)
@@ -574,37 +355,410 @@ object ImageLoader {
         return appendImageSuffix(normalized, suffix)
     }
 
-    private fun prefetchCovers(
-        context: Context,
-        urls: List<String?>,
-        buildUrl: (String?) -> String
+    private fun isGifBytes(bytes: ByteArray): Boolean {
+        return bytes.size >= 6 &&
+            bytes[0] == 'G'.code.toByte() &&
+            bytes[1] == 'I'.code.toByte() &&
+            bytes[2] == 'F'.code.toByte()
+    }
+
+    // ---------- 内部实现 ----------
+
+    private fun loadInto(
+        imageView: ImageView,
+        url: String,
+        placeholderRes: Int,
+        errorRes: Int,
+        circleCrop: Boolean = false,
+        cornerRadius: Float = 0f,
+        fallbackUrl: String? = null,
+        onSuccess: ((Bitmap) -> Unit)? = null,
+        onError: (() -> Unit)? = null
     ) {
-        val appContext = context.applicationContext
-        val finalUrls = urls.asSequence()
-            .mapNotNull { it?.takeIf { url -> url.isNotBlank() } }
-            .distinct()
-            .map(buildUrl)
-            .filter { it.isNotBlank() }
-            .toList()
-        if (finalUrls.isEmpty()) return
-        val qualityLevel = resolveImageQualityLevel()
-        val (pw, ph) = when (qualityLevel) {
-            0 -> 240 to 135
-            2 -> 672 to 378
-            else -> 480 to 270
+        val ctx = imageView.context
+        if (ctx is Activity && ctx.isDestroyed) return
+
+        // URL 为空：清空
+        if (url.isBlank()) {
+            inFlight.remove(imageView)?.cancel()
+            imageView.setTag(R.id.tag_image_loader_url, null)
+            if (placeholderRes != 0) imageView.setImageResource(placeholderRes)
+            else imageView.setImageDrawable(placeholder)
+            return
         }
-        val loader = SingletonImageLoader.get(appContext)
-        finalUrls.forEach { finalUrl ->
-            val request = ImageRequest.Builder(appContext)
-                .data(finalUrl)
-                .applyBilibiliHeadersIfNeeded(finalUrl)
-                .memoryCachePolicy(CachePolicy.ENABLED)
-                .diskCachePolicy(CachePolicy.ENABLED)
-                .precision(Precision.INEXACT)
-                .size(pw, ph)
-                .build()
-            loader.enqueue(request)
+
+        // 同 URL 防复写
+        val lastUrl = imageView.getTag(R.id.tag_image_loader_url) as? String
+        if (lastUrl == url) {
+            val job = inFlight[imageView]
+            if (job != null && job.isActive) return
+        } else {
+            imageView.setTag(R.id.tag_image_loader_url, url)
+            inFlight.remove(imageView)?.cancel()
         }
+
+        // 内存缓存命中
+        val cached = cache.get(url)
+        if (cached != null) {
+            AppLog.i(TAG, "cover memory hit url=${url.takeLast(50)}")
+            imageView.setImageBitmap(applyTransform(cached, circleCrop, cornerRadius))
+            onSuccess?.invoke(cached)
+            return
+        }
+
+        // 设占位图
+        if (placeholderRes != 0) imageView.setImageResource(placeholderRes)
+        else if (imageView.drawable !== placeholder) imageView.setImageDrawable(placeholder)
+
+        val startMs = SystemClock.elapsedRealtime()
+        val job = scope.launch {
+            try {
+                val request = loadImageData(url)
+                val data = request.deferred.await()
+                val bytes = data.bytes
+                val fetchMs = data.fetchMs
+                if (data.isGif) {
+                    if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                        val gifDrawable = withContext(Dispatchers.IO) {
+                            GifDrawable(bytes).also { it.start() }
+                        }
+                        imageView.setImageDrawable(gifDrawable)
+                    }
+                    AppLog.i(TAG, "gif loaded: elapsed=${SystemClock.elapsedRealtime() - startMs}ms fetch=${fetchMs}ms bytes=${bytes.size} url=${url.takeLast(50)}")
+                } else {
+                    val bmp = data.bitmap
+                    val decodeMs = data.decodeMs
+                    if (bmp != null) {
+                        cache.put(url, bmp)
+                        if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                            imageView.setImageBitmap(applyTransform(bmp, circleCrop, cornerRadius))
+                        }
+                        AppLog.i(TAG, "cover loaded: elapsed=${SystemClock.elapsedRealtime() - startMs}ms fetch=${fetchMs}ms decode=${decodeMs}ms shared=${request.reused} bytes=${bytes.size} url=${url.takeLast(50)}")
+                        onSuccess?.invoke(bmp)
+                    } else {
+                        AppLog.w(TAG, "cover decode null: elapsed=${SystemClock.elapsedRealtime() - startMs}ms fetch=${fetchMs}ms decode=${decodeMs}ms url=${url.takeLast(50)}")
+                        handleLoadError(imageView, url, errorRes, fallbackUrl, circleCrop, cornerRadius, onSuccess, onError)
+                    }
+                }
+            } catch (t: Throwable) {
+                if (t is CancellationException) {
+                    return@launch
+                }
+                val elapsed = SystemClock.elapsedRealtime() - startMs
+                AppLog.w(TAG, "cover error: elapsed=${elapsed}ms url=${url.takeLast(50)}", t)
+                handleLoadError(imageView, url, errorRes, fallbackUrl, circleCrop, cornerRadius, onSuccess, onError)
+            }
+        }
+        inFlight[imageView] = job
+    }
+
+    private fun loadIntoDrawable(
+        imageView: ImageView,
+        url: String,
+        placeholderDrawable: Drawable?,
+        errorDrawable: Drawable?,
+        fallbackUrl: String? = null
+    ) {
+        val ctx = imageView.context
+        if (ctx is Activity && ctx.isDestroyed) return
+
+        if (url.isBlank()) {
+            inFlight.remove(imageView)?.cancel()
+            imageView.setTag(R.id.tag_image_loader_url, null)
+            imageView.setImageDrawable(placeholderDrawable ?: placeholder)
+            return
+        }
+
+        val lastUrl = imageView.getTag(R.id.tag_image_loader_url) as? String
+        if (lastUrl == url) {
+            val job = inFlight[imageView]
+            if (job != null && job.isActive) return
+        } else {
+            imageView.setTag(R.id.tag_image_loader_url, url)
+            inFlight.remove(imageView)?.cancel()
+        }
+
+        val cached = cache.get(url)
+        if (cached != null) {
+            imageView.setImageBitmap(cached)
+            return
+        }
+
+        imageView.setImageDrawable(placeholderDrawable ?: placeholder)
+
+        val job = scope.launch {
+            try {
+                val data = loadImageData(url).deferred.await()
+                val bytes = data.bytes
+                if (data.isGif) {
+                    if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                        val gifDrawable = withContext(Dispatchers.IO) {
+                            GifDrawable(bytes).also { it.start() }
+                        }
+                        imageView.setImageDrawable(gifDrawable)
+                    }
+                } else {
+                    val bmp = data.bitmap
+                    if (bmp != null) {
+                        cache.put(url, bmp)
+                        if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                            imageView.setImageBitmap(bmp)
+                        }
+                    } else if (fallbackUrl != null) {
+                        loadIntoDrawable(imageView, fallbackUrl, placeholderDrawable, errorDrawable)
+                    } else {
+                        if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                            imageView.setImageDrawable(errorDrawable)
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                if (t is CancellationException) {
+                    return@launch
+                }
+                AppLog.w(TAG, "load failed url=${url.takeLast(50)}", t)
+                if (fallbackUrl != null) {
+                    loadIntoDrawable(imageView, fallbackUrl, placeholderDrawable, errorDrawable)
+                } else if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                    imageView.setImageDrawable(errorDrawable)
+                }
+            }
+        }
+        inFlight[imageView] = job
+    }
+
+    private fun handleLoadError(
+        imageView: ImageView,
+        url: String,
+        errorRes: Int,
+        fallbackUrl: String?,
+        circleCrop: Boolean,
+        cornerRadius: Float,
+        onSuccess: ((Bitmap) -> Unit)?,
+        onError: (() -> Unit)?
+    ) {
+        if (fallbackUrl != null) {
+            loadInto(imageView, fallbackUrl, errorRes, errorRes,
+                circleCrop = circleCrop,
+                cornerRadius = cornerRadius,
+                onSuccess = onSuccess,
+                onError = onError
+            )
+        } else {
+            if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                if (errorRes != 0) imageView.setImageResource(errorRes)
+            }
+            onError?.invoke()
+        }
+    }
+
+    private fun prefetch(url: String) {
+        if (url.isBlank()) return
+        if (cache.get(url) != null) return
+        imageDataScope.launch {
+            try {
+                val request = loadImageData(url)
+                val data = request.deferred.await()
+                val bmp = data.bitmap
+                if (bmp != null) {
+                    cache.put(url, bmp)
+                    AppLog.i(
+                        TAG,
+                        "prefetch cover cached url=${url.takeLast(50)} shared=${request.reused} bytes=${data.bytes.size}"
+                    )
+                }
+            } catch (t: Throwable) {
+                AppLog.w(TAG, "prefetch failed url=${url.takeLast(50)}", t)
+            }
+        }
+    }
+
+    private fun loadImageData(url: String): ImageDataRequest {
+        synchronized(imageDataInFlight) {
+            imageDataInFlight[url]?.takeIf { it.isActive }?.let {
+                return ImageDataRequest(it, reused = true)
+            }
+            val deferred = imageDataScope.async {
+                val fetchStartMs = SystemClock.elapsedRealtime()
+                val bytes = fetchBytes(url)
+                val fetchMs = SystemClock.elapsedRealtime() - fetchStartMs
+                val isGif = isGifBytes(bytes)
+                val decodeStartMs = SystemClock.elapsedRealtime()
+                val bitmap = if (isGif) {
+                    null
+                } else {
+                    withContext(Dispatchers.Default) {
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    }
+                }
+                ImageData(
+                    bytes = bytes,
+                    bitmap = bitmap,
+                    isGif = isGif,
+                    fetchMs = fetchMs,
+                    decodeMs = SystemClock.elapsedRealtime() - decodeStartMs
+                )
+            }
+            deferred.invokeOnCompletion {
+                synchronized(imageDataInFlight) {
+                    if (imageDataInFlight[url] === deferred) {
+                        imageDataInFlight.remove(url)
+                    }
+                }
+            }
+            imageDataInFlight[url] = deferred
+            return ImageDataRequest(deferred, reused = false)
+        }
+    }
+
+    // ---------- 网络 ----------
+
+    private fun fetchBytes(url: String): ByteArray {
+        val requestBuilder = Request.Builder().url(url)
+        if (isBilibiliImageUrl(url)) {
+            requestBuilder
+                .header("Referer", "https://www.bilibili.com/")
+                .header("User-Agent", NetworkManager.getCurrentUserAgent())
+        }
+        return imageOkHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+            val body = response.body ?: throw IllegalStateException("Empty body for $url")
+            body.bytes()
+        }
+    }
+
+    // ---------- 变换 ----------
+
+    private fun applyTransform(bmp: Bitmap, circleCrop: Boolean, cornerRadius: Float): Bitmap {
+        if (circleCrop) return circleCrop(bmp)
+        if (cornerRadius > 0f) return roundCorners(bmp, cornerRadius)
+        return bmp
+    }
+
+    private fun circleCrop(src: Bitmap): Bitmap {
+        val size = minOf(src.width, src.height)
+        val x = (src.width - size) / 2
+        val y = (src.height - size) / 2
+
+        val result = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(result)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.shader = BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        canvas.translate(-x.toFloat(), -y.toFloat())
+        val r = size / 2f
+        canvas.drawCircle(x + r, y + r, r, paint)
+        return result
+    }
+
+    private fun roundCorners(src: Bitmap, radius: Float): Bitmap {
+        val result = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(result)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.shader = BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        canvas.drawRoundRect(0f, 0f, src.width.toFloat(), src.height.toFloat(), radius, radius, paint)
+        return result
+    }
+
+    // ---------- OkHttpClient ----------
+
+    private fun buildImageOkHttpClient(): OkHttpClient {
+        val mainClient = NetworkManager.getOkHttpClient()
+        return OkHttpClient.Builder()
+            .dns(mainClient.dns)
+            .protocols(mainClient.protocols)
+            .dispatcher(okhttp3.Dispatcher().apply {
+                maxRequests = 64
+                maxRequestsPerHost = 16
+            })
+            .connectionPool(okhttp3.ConnectionPool(16, 5, java.util.concurrent.TimeUnit.MINUTES))
+            .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+
+    // ---------- URL 规范化 / 尺寸优化 ----------
+
+    private fun normalizeUrl(url: String?): String {
+        if (url.isNullOrBlank()) return ""
+        return when {
+            url.startsWith("https://") -> url
+            url.startsWith("http://") -> "https://${url.removePrefix("http://")}"
+            url.startsWith("//") -> "https:$url"
+            url.startsWith("/bfs/") -> "https://i0.hdslb.com$url"
+            url.startsWith("/face/") -> "https://i0.hdslb.com/bfs$url"
+            url.startsWith("face/") -> "https://i0.hdslb.com/bfs/$url"
+            url.startsWith("bfs/") -> "https://i0.hdslb.com/$url"
+            else -> url
+        }
+    }
+
+    private fun buildOptimizedVideoCoverUrl(url: String?): String {
+        val normalized = normalizeUrl(url)
+        if (!isBilibiliImageUrl(normalized)) return normalized
+        val suffix = when (resolveImageQualityLevel()) {
+            0 -> "@240w_135h_1c.webp"
+            2 -> "@672w_378h_1c.webp"
+            else -> "@480w_270h_1c.webp"
+        }
+        return appendImageSuffix(normalized, suffix)
+    }
+
+    private fun buildOptimizedCommonImageUrl(url: String?): String {
+        val normalized = normalizeUrl(url)
+        if (!isBilibiliImageUrl(normalized)) return normalized
+        val suffix = when (resolveImageQualityLevel()) {
+            0 -> "@240w_240h_1c.webp"
+            2 -> "@960w_960h_1c.webp"
+            else -> "@480w_480h_1c.webp"
+        }
+        return appendImageSuffix(normalized, suffix)
+    }
+
+    private fun buildOptimizedAvatarUrl(url: String?): String {
+        val normalized = normalizeUrl(url)
+        if (!isBilibiliImageUrl(normalized)) return normalized
+        val suffix = when (resolveImageQualityLevel()) {
+            0 -> "@80w_80h_1c.webp"
+            2 -> "@160w_160h_1c.webp"
+            else -> "@100w_100h_1c.webp"
+        }
+        return appendImageSuffix(normalized, suffix)
+    }
+
+    private fun buildOptimizedSmallSquareImageUrl(url: String?): String {
+        val normalized = normalizeUrl(url)
+        if (!isBilibiliImageUrl(normalized)) return normalized
+        val suffix = when (resolveImageQualityLevel()) {
+            0 -> "@80w_80h_1c.webp"
+            2 -> "@240w_240h_1c.webp"
+            else -> "@160w_160h_1c.webp"
+        }
+        return appendImageSuffix(normalized, suffix)
+    }
+
+    private fun buildOptimizedSeriesCoverUrl(url: String?): String {
+        val normalized = normalizeUrl(url)
+        if (!isBilibiliImageUrl(normalized)) return normalized
+        val suffix = when (resolveImageQualityLevel()) {
+            0 -> "@160w_213h_1c.webp"
+            2 -> "@466w_622h_1c.webp"
+            else -> "@320w_426h_1c.webp"
+        }
+        return appendImageSuffix(normalized, suffix)
+    }
+
+    private fun resolveImageQualityLevel(): Int {
+        cachedImageQualityLevel?.let { return it }
+        ensureImageQualityFlowCollection()
+        appSettings.getCachedString(KEY_IMAGE_QUALITY)?.let { label ->
+            return qualityLabelToLevel(label).also { cachedImageQualityLevel = it }
+        }
+        val level = appSettings.getCachedInt(KEY_IMAGE_QUALITY_LEVEL, -1)
+        if (level >= 0) {
+            return level.coerceIn(0, 2).also { cachedImageQualityLevel = it }
+        }
+        return 1.also { cachedImageQualityLevel = it }
     }
 
     @Synchronized
@@ -612,7 +766,7 @@ object ImageLoader {
         if (imageQualityFlowStarted) return
         imageQualityFlowStarted = true
         imageQualityScope.launch {
-            combine(
+            kotlinx.coroutines.flow.combine(
                 appSettings.getStringFlow(KEY_IMAGE_QUALITY),
                 appSettings.getIntFlow(KEY_IMAGE_QUALITY_LEVEL, -1)
             ) { _, _ -> }.collect {
@@ -650,5 +804,16 @@ object ImageLoader {
         val processSuffixIndex = url.indexOf('@', startIndex = extensionIndex + 1)
         if (processSuffixIndex == -1) return url
         return url.substring(0, processSuffixIndex)
+    }
+
+    private fun maxCacheBytes(): Int {
+        val maxMemory = Runtime.getRuntime().maxMemory().toInt()
+        return maxMemory / 16
+    }
+}
+
+class SimpleDisposable(private val job: Job) {
+    fun dispose() {
+        job.cancel()
     }
 }

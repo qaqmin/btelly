@@ -9,6 +9,8 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import android.os.SystemClock
+import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -18,6 +20,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 private val Context.appDataStore by preferencesDataStore(name = "app_settings")
 
@@ -26,45 +29,91 @@ class AppSettingsDataStore(private val context: Context) {
     private val dataStore: DataStore<Preferences> get() = context.appDataStore
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val cache = ConcurrentHashMap<String, Any?>()
+    private val cacheInitialized = AtomicBoolean(false)
+    private var initJob: kotlinx.coroutines.Job? = null
 
-    @Volatile
-    private var cacheInitialized = false
+    companion object {
+        private const val TAG = "AppSettingsDataStore"
+    }
 
     /**
-     * 同步把 DataStore 里的全部设置加载进 [cache]。
-     * 调用方默认是 `BTellyApplication.onCreate` 主线程，DataStore 第一次 `data.first()`
-     * 在电视上一般 30~80ms。这部分时间一次性付清，能避免所有 `getCachedXxx` 在冷启动早期
-     * 拿到默认值（CookieJar、HTTP cache schema 都踩过这个坑）。
+     * 非阻塞：启动后台协程从 DataStore 读取全部设置到 [cache]。
+     * DataStore 首次 `data.first()` 在电视上约 30~80ms（磁盘 IO + XML 解析），
+     * 放到后台不阻塞 app.onCreate 主线程。
+     * [getCachedXxx] 在 cache miss 时会同步 fallback，保证正确性。
      */
     fun initCache() {
-        if (cacheInitialized) return
+        if (cacheInitialized.get()) return
+        if (initJob != null) return
         synchronized(this) {
-            if (cacheInitialized) return
+            if (cacheInitialized.get()) return
+            if (initJob != null) return
+            initJob = scope.launch {
+                val startMs = SystemClock.elapsedRealtime()
+                val prefs = dataStore.data.first()
+                prefs.asMap().forEach { (key, value) ->
+                    cache[key.name] = value
+                }
+                cacheInitialized.set(true)
+                AppLog.i(TAG, "initCache async loaded keys=${cache.size} elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
+            }
+        }
+    }
+
+    /**
+     * Application 启动阶段的显式同步初始化。这样所有 getCachedXxx 都只读内存，
+     * 不再在任意页面/任意主线程 getter 中随机等待 DataStore 首读。
+     */
+    fun initCacheBlocking(reason: String = "startup") {
+        if (cacheInitialized.get()) return
+        val startMs = SystemClock.elapsedRealtime()
+        synchronized(this) {
+            if (cacheInitialized.get()) return
+            initJob?.cancel()
+            initJob = null
             runBlocking(Dispatchers.IO) {
                 val prefs = dataStore.data.first()
                 prefs.asMap().forEach { (key, value) ->
                     cache[key.name] = value
                 }
             }
-            cacheInitialized = true
+            cacheInitialized.set(true)
         }
+        AppLog.i(TAG, "initCacheBlocking reason=$reason keys=${cache.size} elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
+    }
+
+    private fun ensureCacheReady(key: String) {
+        if (cacheInitialized.get()) return
+        AppLog.w(TAG, "getCached($key) before cache ready on thread=${Thread.currentThread().name}; starting async cache load and returning fallback if cache miss")
+        initCache()
     }
 
     fun getCachedString(key: String, defaultValue: String? = null): String? {
+        cache[key]?.let { return it as? String ?: defaultValue }
+        ensureCacheReady(key)
         return cache[key] as? String ?: defaultValue
     }
 
     fun getCachedInt(key: String, defaultValue: Int = 0): Int {
-        return (cache[key] as? Int) ?: defaultValue
+        val cached = cache[key]
+        if (cached != null) return cached as? Int ?: defaultValue
+        ensureCacheReady(key)
+        return cache[key] as? Int ?: defaultValue
     }
 
     fun getCachedBoolean(key: String, defaultValue: Boolean = false): Boolean {
-        return (cache[key] as? Boolean) ?: defaultValue
+        val cached = cache[key]
+        if (cached != null) return cached as? Boolean ?: defaultValue
+        ensureCacheReady(key)
+        return cache[key] as? Boolean ?: defaultValue
     }
 
     fun getCachedStringSet(key: String, defaultValue: Set<String> = emptySet()): Set<String> {
         @Suppress("UNCHECKED_CAST")
-        return (cache[key] as? Set<String>) ?: defaultValue
+        cache[key]?.let { return it as? Set<String> ?: defaultValue }
+        ensureCacheReady(key)
+        @Suppress("UNCHECKED_CAST")
+        return cache[key] as? Set<String> ?: defaultValue
     }
 
     suspend fun getString(key: String, defaultValue: String? = null): String? {
@@ -176,6 +225,7 @@ class AppSettingsDataStore(private val context: Context) {
 
     fun clearAll() {
         cache.clear()
+        cacheInitialized.set(false)
         scope.launch {
             dataStore.edit { it.clear() }
         }

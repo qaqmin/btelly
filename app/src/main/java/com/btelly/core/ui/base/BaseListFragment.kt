@@ -4,11 +4,13 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.os.SystemClock
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.btelly.databinding.FragmentBaseListBinding
+import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.focus.RecyclerViewLoadMoreFocusController
 import com.btelly.core.ui.focus.SpatialFocusNavigator
@@ -48,6 +50,7 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
     protected open val enableSwipeRefresh: Boolean = true
     protected open val enableLoadMoreFocusController: Boolean = false
     protected open val enableTvListFocusController: Boolean = false
+    protected open val initialViewHolderPrewarmCount: Int = 0
     private var pendingRecyclerIdleAction: (() -> Unit)? = null
     protected var loadMoreFocusController: RecyclerViewLoadMoreFocusController? = null
     protected var tvFocusController: TvListFocusController? = null
@@ -67,8 +70,11 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
     }
 
     override fun initView() {
+        val className = this::class.java.simpleName
+        val t0 = SystemClock.elapsedRealtime()
         recyclerView = binding.recyclerView
         adapter = createAdapter()
+        val t1 = SystemClock.elapsedRealtime()
         recyclerView?.adapter = adapter
         recyclerView?.itemAnimator = null
         recyclerView?.setHasFixedSize(true)
@@ -77,6 +83,16 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
         recyclerView?.setRecycledViewPool(sharedVideoPool)
         layoutManager = createLayoutManager()
         recyclerView?.layoutManager = layoutManager
+        val rvForPrewarm = recyclerView
+        val adapterForPrewarm = adapter
+        if (rvForPrewarm != null && adapterForPrewarm != null && initialViewHolderPrewarmCount > 0) {
+            RecyclerViewPoolPrewarmer.prewarm(
+                recyclerView = rvForPrewarm,
+                adapter = adapterForPrewarm,
+                count = initialViewHolderPrewarmCount,
+                source = "$className.initial"
+            )
+        }
         if (layoutManager is WrapContentGridLayoutManager) {
             val gridLM = layoutManager as WrapContentGridLayoutManager
             val adapterRef = adapter
@@ -95,7 +111,9 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
         recyclerView?.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 super.onScrolled(recyclerView, dx, dy)
-                checkLoadMore()
+                if (dy > 0) {
+                    checkLoadMore()
+                }
                 if (recyclerView.scrollState == RecyclerView.SCROLL_STATE_DRAGGING) {
                     tvFocusController?.onUserTouchScroll()
                 }
@@ -120,6 +138,10 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
         }
         if (enableSwipeRefresh) {
             setupSwipeRefresh()
+        }
+        val t2 = SystemClock.elapsedRealtime()
+        if (t2 - t0 > 10) {
+            AppLog.i("STARTUP", "$className.initView adapter=${t1 - t0}ms setup=${t2 - t1}ms total=${t2 - t0}ms")
         }
     }
 
@@ -185,6 +207,10 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
         val lastVisiblePosition = lm.findLastVisibleItemPosition()
         if (lastVisiblePosition >= totalItemCount - loadMoreThreshold) {
             currentPage++
+            AppLog.i(
+                "PagePerf",
+                "${this::class.java.simpleName} load_more_trigger page=$currentPage last=$lastVisiblePosition total=$totalItemCount threshold=$loadMoreThreshold"
+            )
             loadData(currentPage)
         }
     }
@@ -318,6 +344,10 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
                         return
                     }
                     currentPage++
+                    AppLog.i(
+                        "PagePerf",
+                        "${this@BaseListFragment::class.java.simpleName} focus_load_more_trigger page=$currentPage"
+                    )
                     loadData(currentPage)
                 }
             }
@@ -365,6 +395,10 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
             loadMore = {
                 if (!isLoading && hasMore) {
                     currentPage++
+                    AppLog.i(
+                        "PagePerf",
+                        "${this::class.java.simpleName} tv_load_more_trigger page=$currentPage"
+                    )
                     loadData(currentPage)
                 }
             }

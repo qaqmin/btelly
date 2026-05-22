@@ -13,6 +13,7 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.flexbox.FlexboxLayout
 import com.btelly.R
+import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.ui.system.ScreenUtils
 import com.btelly.core.common.format.NumberUtils
@@ -517,6 +518,7 @@ class VideoDetailContentAdapter(
             binding.recyclerView.layoutManager =
                 LinearLayoutManager(binding.root.context, RecyclerView.HORIZONTAL, false)
             binding.recyclerView.adapter = videoAdapter
+            binding.recyclerView.setRecycledViewPool(BaseListFragment.sharedVideoPool)
             binding.recyclerView.isFocusable = false
             binding.buttonOrder.visibility = View.VISIBLE
             binding.buttonOrder.setOnClickListener {
@@ -575,6 +577,7 @@ class VideoDetailContentAdapter(
             binding.recyclerView.layoutManager =
                 LinearLayoutManager(binding.root.context, RecyclerView.HORIZONTAL, false)
             binding.recyclerView.adapter = videoAdapter
+            binding.recyclerView.setRecycledViewPool(BaseListFragment.sharedVideoPool)
             binding.recyclerView.isFocusable = false
             binding.buttonOrder.visibility = View.GONE
             videoAdapter.setOnItemClickListener { _, item ->

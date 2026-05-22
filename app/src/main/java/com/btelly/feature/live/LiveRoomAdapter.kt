@@ -11,15 +11,14 @@ import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.ViewGroup
 import android.graphics.Outline
-import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
+import com.btelly.core.common.log.VideoCardPerfLogger
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.ui.focus.VideoCardFocusHelper
 import com.btelly.core.ui.focus.tv.TvFocusableAdapter
-import com.btelly.databinding.CellVideoBinding
+import com.btelly.databinding.CellVideoLightBinding
 import com.btelly.model.live.LiveRoomItem
 import com.btelly.model.video.Owner
 import com.btelly.model.video.VideoModel
@@ -28,51 +27,74 @@ import com.btelly.ui.dialog.VideoCardMenuDialog
 class LiveRoomAdapter(
     private val onItemClick: (LiveRoomItem) -> Unit,
     private val onTopEdgeUp: (() -> Boolean)? = null
-) : ListAdapter<LiveRoomItem, LiveRoomAdapter.ViewHolder>(DiffCallback), TvFocusableAdapter {
+) : RecyclerView.Adapter<LiveRoomAdapter.ViewHolder>(), TvFocusableAdapter {
 
-    override fun focusableItemCount(): Int = itemCount
+    private val items = ArrayList<LiveRoomItem>()
 
-    override fun stableKeyAt(position: Int): String? = getItem(position)?.roomId?.toString()
+    val currentList: List<LiveRoomItem>
+        get() = items
+
+    init {
+        setHasStableIds(true)
+    }
+
+    override fun focusableItemCount(): Int = items.size
+
+    override fun stableKeyAt(position: Int): String? = items.getOrNull(position)?.roomId?.toString()
 
     override fun findPositionByStableKey(key: String): Int =
-        currentList.indexOfFirst { it.roomId.toString() == key }
+        items.indexOfFirst { it.roomId.toString() == key }
             .takeIf { it >= 0 } ?: RecyclerView.NO_POSITION
 
     fun setData(list: List<LiveRoomItem>) {
-        submitList(list)
+        items.clear()
+        items.addAll(list)
+        notifyDataSetChanged()
     }
 
     fun addData(list: List<LiveRoomItem>) {
-        submitList(currentList + list)
+        if (list.isEmpty()) return
+        val start = items.size
+        items.addAll(list)
+        notifyItemRangeInserted(start, list.size)
     }
 
+    override fun getItemCount(): Int = items.size
+
+    override fun getItemId(position: Int): Long = items.getOrNull(position)?.roomId ?: RecyclerView.NO_ID
+
+    override fun getItemViewType(position: Int): Int = VIEW_TYPE_LIVE_ROOM
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val binding = CellVideoBinding.inflate(
-            LayoutInflater.from(parent.context),
-            parent,
-            false
-        )
+        val binding = VideoCardPerfLogger.measureInflate("LiveRoomAdapter.light") {
+            CellVideoLightBinding.inflate(
+                LayoutInflater.from(parent.context),
+                parent,
+                false
+            )
+        }
         return ViewHolder(binding)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.bind(getItem(position))
+        holder.bind(items[position])
     }
 
     private fun removeItemsByAnchorName(blockedName: String) {
-        val filtered = currentList.filter { !it.uname.equals(blockedName, ignoreCase = true) }
-        if (filtered.size == currentList.size) return
-        submitList(filtered)
+        val filtered = items.filter { !it.uname.equals(blockedName, ignoreCase = true) }
+        if (filtered.size == items.size) return
+        setData(filtered)
     }
 
     private fun removeRoom(roomId: Long) {
-        val filtered = currentList.filter { it.roomId != roomId }
-        if (filtered.size == currentList.size) return
-        submitList(filtered)
+        val index = items.indexOfFirst { it.roomId == roomId }
+        if (index < 0) return
+        items.removeAt(index)
+        notifyItemRemoved(index)
     }
 
     inner class ViewHolder(
-        private val binding: CellVideoBinding
+        private val binding: CellVideoLightBinding
     ) : RecyclerView.ViewHolder(binding.root) {
 
         private var currentItem: LiveRoomItem? = null
@@ -137,7 +159,7 @@ class LiveRoomAdapter(
                 }
                 val position = bindingAdapterPosition
                 if (position != RecyclerView.NO_POSITION) {
-                    onItemClick(getItem(position))
+                    items.getOrNull(position)?.let(onItemClick)
                 }
             }
             @SuppressLint("ClickableViewAccessibility")
@@ -195,14 +217,6 @@ class LiveRoomAdapter(
     }
 
     companion object {
-        private val DiffCallback = object : DiffUtil.ItemCallback<LiveRoomItem>() {
-            override fun areItemsTheSame(oldItem: LiveRoomItem, newItem: LiveRoomItem): Boolean {
-                return oldItem.roomId == newItem.roomId
-            }
-
-            override fun areContentsTheSame(oldItem: LiveRoomItem, newItem: LiveRoomItem): Boolean {
-                return oldItem == newItem
-            }
-        }
+        private const val VIEW_TYPE_LIVE_ROOM = 0x4C5200
     }
 }

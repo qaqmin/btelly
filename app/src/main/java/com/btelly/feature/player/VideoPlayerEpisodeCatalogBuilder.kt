@@ -7,6 +7,7 @@ import com.btelly.model.episode.EpisodeStatModel
 import com.btelly.model.series.EpisodesDetailModel
 import com.btelly.model.video.VideoPvModel
 import com.btelly.model.video.detail.VideoDetailModel
+import com.btelly.model.video.detail.UgcEpisode
 import com.btelly.network.api.ApiService
 
 /**
@@ -27,6 +28,7 @@ class VideoPlayerEpisodeCatalogBuilder(
         val ugcEpisodes = view.ugcSeason?.sections
             .orEmpty()
             .flatMap { it.episodes.orEmpty() }
+            .mergedByArchive()
             .mapIndexed { index, episode ->
                 episode.toPlayableEpisode(
                     index = index,
@@ -151,21 +153,50 @@ class VideoPlayerEpisodeCatalogBuilder(
         val displayPart = pageInfo?.part
             ?.takeIf { it.isNotBlank() }
             ?: pages.orEmpty().firstOrNull()?.part?.takeIf { it.isNotBlank() }
+        val archiveTitle = arc?.title?.takeIf { it.isNotBlank() }
             ?: title.takeIf { it.isNotBlank() }
-            ?: arc?.title?.takeIf { it.isNotBlank() }
+            ?: displayPart
             ?: "P${displayPage.takeIf { it > 0 } ?: index + 1}"
+        val pageCount = pages.orEmpty().size.takeIf { it > 1 }
+            ?: arc?.pages.orEmpty().size.takeIf { it > 1 }
         return VideoPlayerViewModel.PlayableEpisode(
             cid = displayCid,
-            title = title.takeIf { it.isNotBlank() }
-                ?: arc?.title?.takeIf { it.isNotBlank() }
-                ?: displayPart,
-            panelTitle = displayPart,
-            subtitle = "第 ${displayPage.takeIf { it > 0 } ?: index + 1} P",
+            title = archiveTitle,
+            panelTitle = archiveTitle,
+            subtitle = pageCount?.let { "共 ${it} P" }.orEmpty(),
             cover = displayCover.ifBlank { fallbackView.pic },
             aid = displayAid,
             bvid = displayBvid,
             source = VideoPlayerViewModel.EpisodeCatalogSource.UGC_SEASON
         )
+    }
+
+    private fun List<UgcEpisode>.mergedByArchive(): List<UgcEpisode> {
+        if (size <= 1) return this
+        // TV selection treats one archive as one item even when Bilibili exposes its pages separately.
+        val merged = LinkedHashMap<String, UgcEpisode>()
+        forEachIndexed { index, episode ->
+            val key = episode.archiveKey(index)
+            val existing = merged[key]
+            if (existing == null || episode.preferredOver(existing)) {
+                merged[key] = episode
+            }
+        }
+        return merged.values.toList()
+    }
+
+    private fun UgcEpisode.archiveKey(index: Int): String {
+        return when {
+            displayBvid.isNotBlank() -> "bvid:$displayBvid"
+            displayAid > 0L -> "aid:$displayAid"
+            else -> "episode:$index"
+        }
+    }
+
+    private fun UgcEpisode.preferredOver(other: UgcEpisode): Boolean {
+        val page = displayPage.takeIf { it > 0 } ?: Int.MAX_VALUE
+        val otherPage = other.displayPage.takeIf { it > 0 } ?: Int.MAX_VALUE
+        return page < otherPage
     }
 
     private fun EpisodeModel.toPlayableEpisode(

@@ -105,12 +105,7 @@ class LiveRepository(
 
     suspend fun getLiveRecommend(): Result<LiveListWrapper> {
         return runCatching {
-            val response = apiService.getLiveHomeList()
-            if (response.code == 0 && response.data != null) {
-                response.data
-            } else {
-                throw IllegalStateException(response.message)
-            }
+            com.btelly.network.api.BiliApi.liveHomeList()
         }
     }
 

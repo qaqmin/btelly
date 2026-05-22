@@ -4,36 +4,52 @@ import android.view.LayoutInflater
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
-import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.databinding.CellLaneScrollableBinding
 import com.btelly.model.live.LiveRecommendSection
 import com.btelly.model.live.LiveRoomItem
+import com.btelly.core.ui.base.RecyclerViewPoolPrewarmer
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 
 class LiveRecommendAdapter(
     private val onRoomClick: (LiveRoomItem) -> Unit,
     private val onTopEdgeUp: () -> Boolean = { false },
     private val onLeftEdge: () -> Boolean = { false }
-) : ListAdapter<LiveRecommendSection, LiveRecommendAdapter.ViewHolder>(DIFF_CALLBACK) {
+) : RecyclerView.Adapter<LiveRecommendAdapter.ViewHolder>() {
 
-    companion object {
-        private val DIFF_CALLBACK = object : DiffUtil.ItemCallback<LiveRecommendSection>() {
-            override fun areItemsTheSame(oldItem: LiveRecommendSection, newItem: LiveRecommendSection): Boolean {
-                return oldItem.title == newItem.title
-            }
+    private val items = ArrayList<LiveRecommendSection>()
+    private val sharedRoomViewPool = RecyclerView.RecycledViewPool()
 
-            override fun areContentsTheSame(oldItem: LiveRecommendSection, newItem: LiveRecommendSection): Boolean {
-                return oldItem == newItem
-            }
-        }
+    val currentList: List<LiveRecommendSection>
+        get() = items
+
+    init {
+        setHasStableIds(true)
     }
 
     private val sharedRoomViewPool = RecyclerView.RecycledViewPool()
 
     fun setData(list: List<LiveRecommendSection>) {
-        submitList(list)
+        items.clear()
+        items.addAll(list)
+        notifyDataSetChanged()
+    }
+
+    fun prewarm(parent: RecyclerView) {
+        RecyclerViewPoolPrewarmer.prewarm(
+            recyclerView = parent,
+            adapter = this,
+            count = 2,
+            source = "LiveRecommend.sections"
+        )
+        RecyclerViewPoolPrewarmer.prewarm(
+            recyclerView = parent,
+            adapter = LiveRoomAdapter(onRoomClick),
+            count = 4,
+            source = "LiveRecommend.rooms",
+            pool = sharedRoomViewPool,
+            maxPoolSize = 24
+        )
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -46,8 +62,13 @@ class LiveRecommendAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.bind(getItem(position))
+        holder.bind(items[position])
     }
+
+    override fun getItemCount(): Int = items.size
+
+    override fun getItemId(position: Int): Long =
+        items.getOrNull(position)?.title?.hashCode()?.toLong() ?: RecyclerView.NO_ID
 
     class ViewHolder(
         private val binding: CellLaneScrollableBinding,

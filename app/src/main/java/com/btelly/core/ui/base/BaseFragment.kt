@@ -1,6 +1,7 @@
 package com.btelly.core.ui.base
 
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -13,6 +14,7 @@ import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.fragment.app.Fragment
 import androidx.viewbinding.ViewBinding
 import com.btelly.R
+import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.navigation.navigateBackFromUi
 import com.btelly.ui.activity.MainActivity
 
@@ -32,6 +34,7 @@ abstract class BaseFragment<VB : ViewBinding> : Fragment() {
     protected var textMainTitle: AppCompatTextView? = null
     protected var loadingProgressBar: ProgressBar? = null
     protected var mainActivity: MainActivity? = null
+    private var viewErrorStub: android.view.ViewStub? = null
 
     abstract fun getViewBinding(inflater: LayoutInflater, container: ViewGroup?): VB
     abstract fun initView()
@@ -53,27 +56,29 @@ abstract class BaseFragment<VB : ViewBinding> : Fragment() {
         savedInstanceState: Bundle?
     ): View? {
         if (rootView == null) {
+            val className = this::class.java.simpleName
+            val t0 = SystemClock.elapsedRealtime()
             val view = inflater.inflate(R.layout.fragment_base, container, false)
+            val t1 = SystemClock.elapsedRealtime()
             rootView = view
             contentContainer = view.findViewById(R.id.contentContainer)
-            textError = view.findViewById(R.id.text_error)
-            imageError = view.findViewById(R.id.image_error)
-            buttonRetry = view.findViewById(R.id.button_retry)
+            viewErrorStub = view.findViewById(R.id.view_error_stub)
             topBar = view.findViewById(R.id.top_bar)
             buttonBack = view.findViewById(R.id.button_back)
             textMainTitle = view.findViewById(R.id.text_main_title)
             loadingProgressBar = view.findViewById(R.id.loading_progress_bar)
-            viewError = view.findViewById(R.id.view_error)
             topBar?.visibility = if (isTopBarVisible()) View.VISIBLE else View.GONE
-            buttonRetry?.setOnClickListener { onRetryClick() }
-            buttonBack?.setOnClickListener {
-                navigateBackFromUi()
-            }
             _binding = getViewBinding(inflater, contentContainer)
+            val t2 = SystemClock.elapsedRealtime()
             if (binding.root.parent == null) {
                 contentContainer?.addView(binding.root)
             }
             initView()
+            val t3 = SystemClock.elapsedRealtime()
+            val totalMs = t3 - t0
+            if (totalMs > 10) {
+                AppLog.i("STARTUP", "$className.onCreateView base_inflate=${t1 - t0}ms binding=${t2 - t1}ms initView=${t3 - t2}ms total=${totalMs}ms")
+            }
         }
         return rootView
     }
@@ -87,6 +92,18 @@ abstract class BaseFragment<VB : ViewBinding> : Fragment() {
     open fun isTopBarVisible(): Boolean = false
 
     open fun onRetryClick() {}
+
+    protected fun ensureErrorView() {
+        if (viewError != null) return
+        val stub = viewErrorStub ?: return
+        val inflated = stub.inflate()
+        viewError = inflated.findViewById(R.id.view_error)
+        textError = inflated.findViewById(R.id.text_error)
+        imageError = inflated.findViewById(R.id.image_error)
+        buttonRetry = inflated.findViewById(R.id.button_retry)
+        buttonRetry?.setOnClickListener { onRetryClick() }
+        viewErrorStub = null
+    }
 
     protected open fun showContent() {
         if (!isAdded) return
@@ -115,6 +132,7 @@ abstract class BaseFragment<VB : ViewBinding> : Fragment() {
     }
 
     private fun showErrorImage(imageResId: Int, text: String) {
+        ensureErrorView()
         viewError?.visibility = View.VISIBLE
         imageError?.setImageResource(imageResId)
         textError?.text = text
@@ -141,6 +159,7 @@ abstract class BaseFragment<VB : ViewBinding> : Fragment() {
         topBar = null
         buttonBack = null
         textMainTitle = null
+        viewErrorStub = null
         contentContainer?.removeAllViews()
         contentContainer = null
         _binding = null

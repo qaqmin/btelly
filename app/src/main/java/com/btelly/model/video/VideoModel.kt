@@ -7,6 +7,7 @@ import com.google.gson.annotations.SerializedName
 import com.btelly.model.adapter.FlexibleBooleanAdapter
 import com.btelly.model.series.UgcSeriesModel
 import com.btelly.model.user.OfficialVerifySimple
+import org.json.JSONObject
 
 data class VideoModel(
     @SerializedName(value = "aid", alternate = ["id"])
@@ -269,21 +270,105 @@ data class VideoModel(
             .takeWhile { it.isDigit() }
         return epId.toLongOrNull() ?: 0L
     }
+
+    companion object {
+        fun fromJson(obj: JSONObject): VideoModel {
+            val statObj = obj.optJSONObject("stat")
+            val ownerObj = obj.optJSONObject("owner")
+            val bangumiObj = obj.optJSONObject("bangumi")
+            val dimensionObj = obj.optJSONObject("dimension")
+            val rightsObj = obj.optJSONObject("rights")
+            return VideoModel(
+                aid = obj.optLong("aid", obj.optLong("id", 0)),
+                bvid = obj.optString("bvid", ""),
+                title = obj.optString("title", ""),
+                pic = obj.optString("pic", ""),
+                cover = obj.optString("cover", ""),
+                desc = obj.optString("desc", obj.optString("description", "")),
+                duration = obj.optLong("duration", 0),
+                length = obj.optString("length", ""),
+                pubDate = obj.optLong("pubdate", obj.optLong("created", 0)),
+                createTime = obj.optLong("ctime", 0),
+                owner = ownerObj?.let { Owner.fromJson(it) },
+                stat = statObj?.let { Stat.fromJson(it) },
+                bangumi = bangumiObj?.let { Bangumi.fromJson(it) },
+                play = obj.optLong("play", 0),
+                videoReview = obj.optLong("video_review", 0),
+                cid = obj.optLong("cid", 0),
+                goto = obj.optString("goto", "av"),
+                trackId = obj.optString("track_id", ""),
+                typeName = obj.optString("tname", ""),
+                typeId = obj.optInt("tid", 0),
+                dynamicText = obj.optString("dynamic", ""),
+                dimension = dimensionObj?.let { Dimension.fromJson(it) },
+                isLive = obj.opt("is_live")?.let { parseFlexibleBool(it) } ?: false,
+                roomId = obj.optLong("room_id", 0),
+                isFollowed = obj.opt("is_followed")?.let { parseFlexibleBool(it) } ?: false,
+                isLike = obj.opt("is_like")?.let { parseFlexibleBool(it) } ?: false,
+                isCoin = obj.opt("is_coin")?.let { parseFlexibleBool(it) } ?: false,
+                isFavorite = obj.opt("is_favorite")?.let { parseFlexibleBool(it) } ?: false,
+                epid = obj.optLong("epid", obj.optLong("ep_id", obj.optLong("episode_id", 0))),
+                sid = obj.optLong("sid", obj.optLong("season_id", obj.optLong("pgc_season_id", 0))),
+                seasonType = obj.optInt("season_type", 0),
+                isOgv = obj.opt("is_ogv")?.let { parseFlexibleBool(it) } ?: false,
+                redirectUrl = obj.optString("redirect_url", obj.optString("uri", obj.optString("link", obj.optString("share_url", "")))),
+                teenageMode = obj.optInt("teenage_mode", 0),
+                historyProgress = obj.optLong("progress", 0),
+                historyViewAt = obj.optLong("history_view_at", 0),
+                historyBadge = obj.optString("history_badge", ""),
+                historyBusiness = obj.optString("history_business", ""),
+                historyDevice = obj.optInt("history_device", 0),
+                historyRecordKid = obj.optString("history_record_kid", ""),
+                rights = rightsObj?.let { VideoRights.fromJson(it) },
+                isUpowerExclusive = obj.opt("is_upower_exclusive")?.let { parseFlexibleBool(it) } ?: false,
+                isChargeableSeason = obj.opt("is_chargeable_season")?.let { parseFlexibleBool(it) } ?: false,
+                elecArcType = obj.optInt("elec_arc_type", 0),
+                isChargingArc = obj.opt("is_charging_arc")?.let { parseFlexibleBool(it) } ?: false,
+                isSteinsGate = obj.opt("is_steins_gate")?.let { parseFlexibleBool(it) } ?: false,
+                privilegeType = obj.optInt("privilege_type", 0),
+                elecArcBadge = obj.optString("elec_arc_badge", "")
+            )
+        }
+
+        private fun parseFlexibleBool(value: Any): Boolean {
+            return when (value) {
+                is Boolean -> value
+                is Int -> value != 0
+                is Long -> value != 0L
+                is String -> value == "1" || value.equals("true", ignoreCase = true)
+                else -> false
+            }
+        }
+    }
 }
 
 data class Owner(
     @SerializedName("mid")
     val mid: Long = 0,
-    
+
     @SerializedName("name")
     val name: String = "",
-    
+
     @SerializedName("face")
     val face: String = "",
 
     @SerializedName("official_verify")
     val officialVerify: OfficialVerifySimple? = null
-)
+) {
+    companion object {
+        fun fromJson(obj: JSONObject): Owner {
+            val verifyObj = obj.optJSONObject("official_verify")
+            return Owner(
+                mid = obj.optLong("mid", 0),
+                name = obj.optString("name", ""),
+                face = obj.optString("face", ""),
+                officialVerify = verifyObj?.let {
+                    OfficialVerifySimple(it.optInt("type", 0), it.optString("desc", ""))
+                }
+            )
+        }
+    }
+}
 
 data class Bangumi(
     @SerializedName("long_title")
@@ -291,42 +376,69 @@ data class Bangumi(
 
     @SerializedName("cover")
     val cover: String = ""
-)
+) {
+    companion object {
+        fun fromJson(obj: JSONObject): Bangumi {
+            return Bangumi(
+                longTitle = obj.optString("long_title", ""),
+                cover = obj.optString("cover", "")
+            )
+        }
+    }
+}
 
 data class Stat(
     @SerializedName("aid")
     val aid: Long = 0,
-    
+
     @SerializedName("view")
     val view: Long = 0,
-    
+
     @SerializedName(value = "danmaku", alternate = ["dm", "danmakus"])
     var danmaku: Long = 0,
-    
+
     @SerializedName("reply")
     val reply: Long = 0,
-    
+
     @SerializedName("favorite")
     val favorite: Long = 0,
-    
+
     @SerializedName("coin")
     val coin: Long = 0,
-    
+
     @SerializedName("share")
     val share: Long = 0,
-    
+
     @SerializedName("now_rank")
     val nowRank: Long = 0,
-    
+
     @SerializedName("his_rank")
     val hisRank: Long = 0,
-    
+
     @SerializedName("like")
     val like: Long = 0,
-    
+
     @SerializedName("dislike")
     val dislike: Long = 0
-)
+) {
+    companion object {
+        fun fromJson(obj: JSONObject): Stat {
+            return Stat(
+                aid = obj.optLong("aid", 0),
+                view = obj.optLong("view", 0),
+                danmaku = obj.optLong("danmaku", obj.optLong("dm", obj.optLong("danmakus", 0))),
+                reply = obj.optLong("reply", 0),
+                favorite = obj.optLong("favorite", 0),
+                coin = obj.optLong("coin", 0),
+                share = obj.optLong("share", 0),
+                nowRank = obj.optLong("now_rank", 0),
+                hisRank = obj.optLong("his_rank", 0),
+                like = obj.optLong("like", 0),
+                dislike = obj.optLong("dislike", 0)
+            )
+        }
+    }
+}
 
 data class VideoRights(
     @SerializedName("elec")
@@ -339,15 +451,27 @@ data class VideoRights(
     val ugcPay: Int = 0,
     @SerializedName("arc_pay")
     val arcPay: Int = 0
-)
+) {
+    companion object {
+        fun fromJson(obj: JSONObject): VideoRights {
+            return VideoRights(
+                elec = obj.optInt("elec", 0),
+                autoplay = obj.optInt("autoplay", 1),
+                pay = obj.optInt("pay", 0),
+                ugcPay = obj.optInt("ugc_pay", 0),
+                arcPay = obj.optInt("arc_pay", 0)
+            )
+        }
+    }
+}
 
 data class Dimension(
     @SerializedName("width")
     val width: Int = 0,
-    
+
     @SerializedName("height")
     val height: Int = 0,
-    
+
     @SerializedName("rotate")
     val rotate: Int = 0
 ) {
@@ -359,4 +483,14 @@ data class Dimension(
                 else -> height > width
             }
         }
+
+    companion object {
+        fun fromJson(obj: JSONObject): Dimension {
+            return Dimension(
+                width = obj.optInt("width", 0),
+                height = obj.optInt("height", 0),
+                rotate = obj.optInt("rotate", 0)
+            )
+        }
+    }
 }

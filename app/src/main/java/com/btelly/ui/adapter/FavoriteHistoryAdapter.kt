@@ -20,6 +20,7 @@ import com.btelly.databinding.CellVideoBinding
 import com.btelly.model.video.HistoryVideoModel
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.common.format.NumberUtils
+import com.btelly.core.common.log.VideoCardPerfLogger
 import com.btelly.core.common.time.TimeUtils
 import com.btelly.core.ui.focus.VideoCardFocusHelper
 import com.btelly.core.ui.focus.tv.TvFocusableAdapter
@@ -77,7 +78,9 @@ class FavoriteHistoryAdapter(
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val binding = CellVideoBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+        val binding = VideoCardPerfLogger.measureInflate("FavoriteHistoryAdapter") {
+            CellVideoBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+        }
         return ViewHolder(
             binding = binding,
             onItemClick = onItemClick,
@@ -104,6 +107,8 @@ class FavoriteHistoryAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         holder.bind(getItem(position), position == focusedPosition)
     }
+
+    override fun getItemViewType(position: Int): Int = VIEW_TYPE_FAVORITE_HISTORY
 
     override fun getItemId(position: Int): Long = favoriteHistoryItemKey(getItem(position)).hashCode().toLong()
 
@@ -315,6 +320,8 @@ class FavoriteHistoryAdapter(
     }
 
     companion object {
+        private const val VIEW_TYPE_FAVORITE_HISTORY = 0x464801
+
         private val DiffCallback = object : DiffUtil.ItemCallback<HistoryVideoModel>() {
             override fun areItemsTheSame(oldItem: HistoryVideoModel, newItem: HistoryVideoModel): Boolean {
                 return favoriteHistoryItemKey(oldItem) == favoriteHistoryItemKey(newItem)

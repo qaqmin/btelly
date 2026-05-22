@@ -17,6 +17,7 @@ import com.btelly.core.ui.base.BaseVideoAdapter
 import com.btelly.core.ui.base.BaseVideoViewHolder
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.common.format.NumberUtils
+import com.btelly.core.common.log.VideoCardPerfLogger
 import com.btelly.core.common.time.TimeUtils
 import com.btelly.core.ui.focus.VideoCardFocusHelper
 import com.btelly.ui.dialog.VideoCardMenuDialog
@@ -71,7 +72,9 @@ class HistoryVideoAdapter(
     fun findPositionByKey(key: String): Int = findPositionByStableKey(key)
 
     override fun onCreateContentViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val binding = CellVideoBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+        val binding = VideoCardPerfLogger.measureInflate("HistoryVideoAdapter") {
+            CellVideoBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+        }
         return ViewHolder(binding)
     }
 

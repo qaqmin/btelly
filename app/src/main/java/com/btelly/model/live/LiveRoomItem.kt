@@ -1,6 +1,7 @@
 package com.btelly.model.live
 
 import com.google.gson.annotations.SerializedName
+import org.json.JSONObject
 import java.io.Serializable
 
 data class LiveRoomItem(
@@ -39,6 +40,7 @@ data class LiveRoomItem(
     @SerializedName("watched_show")
     val watchedShow: WatchedShowModel? = null
 ) : Serializable {
+
     data class WatchedShowModel(
         @SerializedName("num")
         val num: Int = 0,
@@ -47,4 +49,34 @@ data class LiveRoomItem(
         @SerializedName("text_large")
         val textLarge: String = ""
     ) : Serializable
+
+    companion object {
+        fun fromJson(obj: JSONObject): LiveRoomItem {
+            val wsObj = obj.optJSONObject("watched_show")
+            val watchedShow = if (wsObj != null) WatchedShowModel(
+                num = wsObj.optInt("num", 0),
+                textSmall = wsObj.optString("text_small", ""),
+                textLarge = wsObj.optString("text_large", "")
+            ) else null
+            return LiveRoomItem(
+                roomId = obj.optLong("roomid", 0),
+                uid = obj.optLong("uid", 0),
+                title = obj.optString("title", ""),
+                cover = obj.optString("cover", ""),
+                userCover = obj.optString("user_cover", ""),
+                keyframe = obj.optString("keyframe", ""),
+                face = obj.optString("face", ""),
+                uname = obj.optString("uname", ""),
+                online = obj.optInt("online", 0),
+                areaName = obj.optString("area_name", ""),
+                areaV2Name = obj.optString("area_v2_name", ""),
+                parentAreaName = obj.optString("parent_area_name", ""),
+                areaV2Id = obj.optInt("area_v2_id", 0),
+                parentAreaId = obj.optInt("parent_area_id", 0),
+                liveStatus = obj.optInt("live_status", 0),
+                liveTime = obj.optString("live_time", ""),
+                watchedShow = watchedShow
+            )
+        }
+    }
 }

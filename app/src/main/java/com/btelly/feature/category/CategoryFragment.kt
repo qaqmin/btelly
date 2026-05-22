@@ -19,6 +19,7 @@ import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.ui.fragment.main.MainTabFocusTarget
 import com.btelly.core.ui.tab.enableTouchNavigation
 import com.btelly.core.ui.tab.focusNearestTabTo
+import com.btelly.core.ui.tab.disableAdjacentPagePrefetch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -52,7 +53,7 @@ class CategoryFragment : BaseFragment<FragmentCategoryBinding>(), MainTabFocusTa
             lifecycle
         )
         viewPager.adapter = adapter
-        viewPager.offscreenPageLimit = 1
+        viewPager.disableAdjacentPagePrefetch()
         TabLayoutMediator(tabLayout, viewPager) { tab, position ->
             tab.text = adapter.getPageTitle(position)
         }.attach()
