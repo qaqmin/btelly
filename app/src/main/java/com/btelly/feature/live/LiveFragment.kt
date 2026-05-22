@@ -20,6 +20,7 @@ import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.ui.fragment.main.MainTabFocusTarget
 import com.btelly.core.ui.tab.enableTouchNavigation
 import com.btelly.core.ui.tab.focusNearestTabTo
+import com.btelly.core.ui.tab.disableAdjacentPagePrefetch
 import com.btelly.core.common.ext.toast
 import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.flow.collectLatest
@@ -57,7 +58,7 @@ class LiveFragment : BaseFragment<FragmentLiveBinding>(), MainTabFocusTarget {
             lifecycle
         )
         viewPager.adapter = adapter
-        viewPager.offscreenPageLimit = 1
+        viewPager.disableAdjacentPagePrefetch()
 
         // 立即展示"推荐"tab，不等分区列表返回
         val recommendCategory = LiveAreaCategoryParent(id = 0, name = "推荐")

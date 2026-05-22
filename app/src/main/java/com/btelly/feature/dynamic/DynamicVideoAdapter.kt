@@ -11,7 +11,7 @@ import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import com.btelly.R
 import androidx.recyclerview.widget.RecyclerView.NO_POSITION
-import com.btelly.databinding.CellVideoBinding
+import com.btelly.databinding.CellVideoLightBinding
 import com.btelly.model.video.VideoModel
 import com.btelly.core.ui.base.BaseVideoAdapter
 import com.btelly.core.ui.base.BaseVideoViewHolder
@@ -66,8 +66,8 @@ class DynamicVideoAdapter(
     }
 
     override fun onCreateContentViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val binding = VideoCardPerfLogger.measureInflate("DynamicVideoAdapter") {
-            CellVideoBinding.inflate(
+        val binding = VideoCardPerfLogger.measureInflate("DynamicVideoAdapter.light") {
+            CellVideoLightBinding.inflate(
                 LayoutInflater.from(parent.context),
                 parent,
                 false
@@ -82,7 +82,7 @@ class DynamicVideoAdapter(
     }
 
     inner class ViewHolder(
-        private val binding: CellVideoBinding
+        private val binding: CellVideoLightBinding
     ) : BaseVideoViewHolder(binding.root) {
 
         private var currentItem: VideoModel? = null

@@ -20,6 +20,7 @@ import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.ui.fragment.main.MainTabFocusTarget
 import com.btelly.core.ui.tab.enableTouchNavigation
 import com.btelly.core.ui.tab.focusNearestTabTo
+import com.btelly.core.ui.tab.disableAdjacentPagePrefetch
 import com.btelly.core.ui.focus.SpatialFocusNavigator
 import com.btelly.core.common.ext.getHomeDefaultStartPageIndex
 import com.btelly.core.common.log.AppLog
@@ -60,7 +61,7 @@ class HomeFragment : Fragment(), MainTabFocusTarget {
         super.onViewCreated(view, savedInstanceState)
         adapter = HomeFragmentStateAdapter(childFragmentManager, viewLifecycleOwner.lifecycle)
         binding.viewPager.adapter = adapter
-        binding.viewPager.offscreenPageLimit = ViewPager2.OFFSCREEN_PAGE_LIMIT_DEFAULT
+        binding.viewPager.disableAdjacentPagePrefetch()
         tabMediator = TabLayoutMediator(binding.tabLayout, binding.viewPager) { tab, position ->
             tab.text = adapter.getPageTitle(position)
         }.also { it.attach() }
