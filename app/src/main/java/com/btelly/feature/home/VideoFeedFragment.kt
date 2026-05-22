@@ -287,7 +287,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
         if (videos.isNotEmpty()) {
             showContent()
             showLoading(false)
-            dispatchContentReadyAfterRecyclerDrawIfNeeded("replace")
+            dispatchContentReadyAfterContentShownIfNeeded("replace")
         } else {
             showEmpty()
         }
@@ -305,7 +305,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
             (adapter as? VideoAdapter)?.addData(newItems)
             showContent()
             showLoading(false)
-            dispatchContentReadyAfterRecyclerDrawIfNeeded("append")
+            dispatchContentReadyAfterContentShownIfNeeded("append")
         }
         if (isTvListFocusEnabled()) {
             notifyTvListDataChanged(TvDataChangeReason.APPEND)
@@ -320,38 +320,17 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
         }
     }
 
-    private fun dispatchContentReadyAfterRecyclerDrawIfNeeded(reason: String) {
+    private fun dispatchContentReadyAfterContentShownIfNeeded(reason: String) {
         if (!dispatchHomeContentReady || contentReadyDispatched || contentReadyDispatchScheduled) return
-        val rv = recyclerView ?: return dispatchContentReadyIfNeeded()
         val className = this::class.java.simpleName
         val scheduledAtMs = SystemClock.elapsedRealtime()
         contentReadyDispatchScheduled = true
-        var fired = false
-        lateinit var listener: ViewTreeObserver.OnPreDrawListener
-
-        fun fire(fireReason: String) {
-            if (fired) return
-            fired = true
-            if (rv.viewTreeObserver.isAlive) {
-                rv.viewTreeObserver.removeOnPreDrawListener(listener)
-            }
-            rv.post {
-                if (!isAdded || view == null) return@post
-                contentReadyDispatchScheduled = false
-                AppLog.i(
-                    "STARTUP",
-                    "$className.contentReady afterRecyclerDraw reason=$reason fire=$fireReason wait=${SystemClock.elapsedRealtime() - scheduledAtMs}ms"
-                )
-                dispatchContentReadyIfNeeded()
-            }
-        }
-
-        listener = ViewTreeObserver.OnPreDrawListener {
-            fire("pre_draw")
-            true
-        }
-        rv.viewTreeObserver.addOnPreDrawListener(listener)
-        rv.postDelayed({ fire("fallback") }, 600L)
+        contentReadyDispatchScheduled = false
+        AppLog.i(
+            "STARTUP",
+            "$className.contentReady contentShown reason=$reason wait=${SystemClock.elapsedRealtime() - scheduledAtMs}ms"
+        )
+        dispatchContentReadyIfNeeded()
     }
 
     private fun focusTopTab(): Boolean {

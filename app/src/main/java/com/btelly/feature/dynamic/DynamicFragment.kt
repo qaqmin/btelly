@@ -79,6 +79,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
     private var videoFocusController: TvListFocusController? = null
     private var currentOpenStartMs = 0L
     private var latestVideoRequestStartMs = 0L
+    private var latestInitialRequestStartMs = 0L
 
     override fun getViewBinding(
         inflater: LayoutInflater,
@@ -229,7 +230,15 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
     }
 
     private fun loadData() {
-        latestVideoRequestStartMs = PagePerfLogger.now()
+        val nowMs = PagePerfLogger.now()
+        if (currentUpId == 0L && latestInitialRequestStartMs > 0L && nowMs - latestInitialRequestStartMs < 1000L) {
+            PagePerfLogger.markNow("Dynamic", "skip_duplicate_initial_request")
+            return
+        }
+        latestVideoRequestStartMs = nowMs
+        if (currentUpId == 0L) {
+            latestInitialRequestStartMs = nowMs
+        }
         PagePerfLogger.markNow("Dynamic", "request_start", "upId=$currentUpId")
         pendingScrollToTop = true
         lastRefreshTime = System.currentTimeMillis()
@@ -275,6 +284,9 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
                 viewModel.followingList.collectLatest { list ->
                     AppLog.i(TAG, "DYN D7 followingList collected items=${list.size}")
                     upAdapter.setData(list)
+                    if (list.isNotEmpty()) {
+                        upAdapter.setAvatarLoadsEnabled(true)
+                    }
                     if (list.isNotEmpty() && currentUpId == 0L) {
                         currentUpId = list[0].mid
                         upAdapter.setSelectedPosition(0)

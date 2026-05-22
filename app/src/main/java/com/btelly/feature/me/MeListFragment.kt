@@ -352,6 +352,10 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     }
 
     private suspend fun bindHistoryData(videos: List<HistoryVideoModel>) {
+        if (shouldSkipInitialEmptyEmission(videos.size)) {
+            PagePerfLogger.markNow(pageTag(), "skip_empty_initial_history")
+            return
+        }
         val bindStartMs = PagePerfLogger.now()
         PagePerfLogger.mark(
             pageTag(),
@@ -410,6 +414,10 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     }
 
     private suspend fun bindLaterData(videos: List<VideoModel>) {
+        if (shouldSkipInitialEmptyEmission(videos.size)) {
+            PagePerfLogger.markNow(pageTag(), "skip_empty_initial_later")
+            return
+        }
         val bindStartMs = PagePerfLogger.now()
         PagePerfLogger.mark(
             pageTag(),
@@ -444,6 +452,13 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
             cacheLaterVideos(videos)
         }
         updateContentState(filtered.isEmpty())
+    }
+
+    private fun shouldSkipInitialEmptyEmission(rawSize: Int): Boolean {
+        if (rawSize != 0 || hasContentItems()) {
+            return false
+        }
+        return latestRequestStartMs <= 0L || viewModel.loading.value
     }
 
     private fun installTvFocusControllerIfNeeded() {

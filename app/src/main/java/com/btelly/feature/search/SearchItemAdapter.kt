@@ -46,8 +46,6 @@ class SearchItemAdapter(
     private val portraitDetectedUrls = mutableSetOf<String>()
     private val items = mutableListOf<SearchItemModel>()
 
-    private val portraitDetectedUrls = mutableSetOf<String>()
-
     fun setItems(list: List<SearchItemModel>) {
         if (items.isEmpty() && list.isNotEmpty()) {
             items.addAll(list)

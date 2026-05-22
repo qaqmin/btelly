@@ -209,6 +209,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
                 )
                 revealStartupShell("first_pre_draw")
                 scheduleFastStartupAvatarRefresh()
+                (application as? BTellyApplication)?.scheduleStartupFirstPagePreload(delayMillis = 0L)
                 return true
             }
         })
@@ -216,7 +217,6 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
             AppLog.i(STARTUP_TAG, "MainActivity first root post elapsed=${SystemClock.elapsedRealtime() - activityCreateStartMs}ms")
             revealStartupShell("first_root_post")
             scheduleDeferredStartupTasks()
-            (application as? BTellyApplication)?.scheduleStartupFirstPagePreload(delayMillis = 0L)
             attachInitialMainTabAfterShellDraw()
             showUsageTipIfNeeded()
         }

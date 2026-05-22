@@ -27,8 +27,6 @@ class LiveRecommendAdapter(
         setHasStableIds(true)
     }
 
-    private val sharedRoomViewPool = RecyclerView.RecycledViewPool()
-
     fun setData(list: List<LiveRecommendSection>) {
         items.clear()
         items.addAll(list)
