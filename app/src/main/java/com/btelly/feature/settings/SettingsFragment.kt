@@ -659,6 +659,10 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
                                     progressText.text = progress.hint
                                 }
                                 is ApkUpdater.Progress.Done -> {}
+                                is ApkUpdater.Progress.Retrying -> {
+                                    progressText.text = "连接失败，正在重试（${progress.attempt}/${progress.maxAttempts}）…"
+                                    progressBar.isIndeterminate = true
+                                }
                             }
                         }
                     }
@@ -669,7 +673,13 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
                 if (e is kotlinx.coroutines.CancellationException) return@launch
                 dialog.dismiss()
                 AppLog.e("SettingsFragment", "download apk failed", e)
-                Toast.makeText(requireContext(), "下载失败：${e.message ?: "未知错误"}", Toast.LENGTH_LONG).show()
+                val hint = when (e) {
+                    is java.net.SocketTimeoutException -> "网络连接超时，请检查网络后重试"
+                    is java.net.UnknownHostException -> "网络不可用，请检查网络连接"
+                    is java.io.IOException -> "网络异常，请稍后重试"
+                    else -> "下载失败，请稍后重试"
+                }
+                Toast.makeText(requireContext(), hint, Toast.LENGTH_LONG).show()
                 updateCheckState.value = UpdateCheckState.Idle
                 updateUpdateEntry()
             }

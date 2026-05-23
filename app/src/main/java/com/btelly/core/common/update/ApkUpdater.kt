@@ -21,6 +21,7 @@ import java.net.InetAddress
 import java.net.UnknownHostException
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.coroutineContext
 import kotlin.math.roundToInt
 
 object ApkUpdater {
@@ -96,6 +97,8 @@ object ApkUpdater {
         }
 
         data object Done : Progress()
+
+        data class Retrying(val attempt: Int, val maxAttempts: Int) : Progress()
     }
 
     suspend fun fetchLatestRelease(): ReleaseInfo {
@@ -174,8 +177,30 @@ object ApkUpdater {
         url: String,
         onProgress: (Progress) -> Unit,
     ): File {
-        onProgress(Progress.Connecting)
+        var lastError: Throwable? = null
+        val maxAttempts = 3
+        for (attempt in 1..maxAttempts) {
+            coroutineContext.ensureActive()
+            if (attempt == 1) onProgress(Progress.Connecting)
+            try {
+                return downloadApkToCacheOnce(context, url, onProgress)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                lastError = t
+                if (attempt < maxAttempts) {
+                    onProgress(Progress.Retrying(attempt, maxAttempts))
+                    delay(1500L * attempt)
+                }
+            }
+        }
+        throw lastError ?: IllegalStateException("download failed")
+    }
 
+    private suspend fun downloadApkToCacheOnce(
+        context: Context,
+        url: String,
+        onProgress: (Progress) -> Unit,
+    ): File {
         val dir = File(context.cacheDir, "update").apply { mkdirs() }
         val part = File(dir, "update.apk.part")
         val target = File(dir, "update.apk")
