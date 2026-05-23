@@ -14,31 +14,25 @@ class LiveFragmentAdapter(
 ) : FragmentStateAdapter(fragmentManager, lifecycle) {
 
     private val categories = mutableListOf<LiveAreaCategoryParent>()
-    private val fragments = mutableMapOf<Int, LiveTabPage>()
+    private val fragments = mutableMapOf<Long, LiveTabPage>()
 
     fun setCategories(list: List<LiveAreaCategoryParent>) {
         val diffResult = DiffUtil.calculateDiff(LiveFragmentDiff(categories, list))
         categories.clear()
         categories.addAll(list)
-        fragments.clear()
+        val liveItemIds = categories.indices.mapTo(mutableSetOf()) { position -> itemIdFor(position) }
+        fragments.keys.retainAll(liveItemIds)
         diffResult.dispatchUpdatesTo(this)
     }
 
     override fun getItemCount(): Int = categories.size
 
     override fun getItemId(position: Int): Long {
-        val category = categories[position]
-        return if (position == 0) Long.MIN_VALUE else category.id
+        return itemIdFor(position)
     }
 
     override fun containsItem(itemId: Long): Boolean {
-        return categories.anyIndexed { index, category ->
-            if (index == 0) {
-                itemId == Long.MIN_VALUE
-            } else {
-                category.id == itemId
-            }
-        }
+        return categories.indices.any { position -> itemIdFor(position) == itemId }
     }
 
     override fun createFragment(position: Int): Fragment {
@@ -50,7 +44,7 @@ class LiveFragmentAdapter(
             LiveAreaFragment.newInstance(category)
         }
         if (fragment is LiveTabPage) {
-            fragments[position] = fragment
+            fragments[itemIdFor(position)] = fragment
         }
         return fragment
     }
@@ -59,15 +53,12 @@ class LiveFragmentAdapter(
         return if (position < categories.size) categories[position].name else null
     }
 
-    fun getCurrentFragment(position: Int): LiveTabPage? = fragments[position]
+    fun getCurrentFragment(position: Int): LiveTabPage? =
+        if (position in categories.indices) fragments[itemIdFor(position)] else null
 
-    private inline fun <T> List<T>.anyIndexed(predicate: (Int, T) -> Boolean): Boolean {
-        forEachIndexed { index, item ->
-            if (predicate(index, item)) {
-                return true
-            }
-        }
-        return false
+    private fun itemIdFor(position: Int): Long {
+        val category = categories[position]
+        return if (position == 0) Long.MIN_VALUE else category.id
     }
 
     private class LiveFragmentDiff(

@@ -15,6 +15,7 @@ import com.btelly.core.navigation.VideoRouteNavigator
 import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.core.ui.base.RecyclerViewPoolPrewarmer
 import com.btelly.core.ui.focus.tv.TvDataChangeReason
+import com.btelly.core.ui.render.FirstScreenRenderer
 import com.btelly.model.video.VideoModel
 import com.btelly.ui.activity.MainActivity
 import com.btelly.ui.adapter.VideoAdapter
@@ -29,7 +30,6 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     protected open val dispatchHomeContentReady: Boolean = false
     protected open val toastNonEmptyError: Boolean = false
     protected open val deferInitialLoadUntilFirstDraw: Boolean = false
-    protected open val initialRenderBatchSize: Int = 16
 
     private val mainNavigationViewModel: MainNavigationViewModel by activityViewModels()
     private var pendingScrollToTopAfterRefresh = false
@@ -297,13 +297,12 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
         val canBatchInitialRender = !pendingScrollToTopAfterRefresh &&
             !shouldPreserveScroll &&
             (adapter?.contentCount() ?: 0) == 0 &&
-            initialRenderBatchSize > 0 &&
-            videos.size > initialRenderBatchSize
+            videos.size > getSpanCount()
         if (canBatchInitialRender) {
             applyInitialVideoBatch(videos)
             pendingScrollToTopAfterRefresh = false
             feedViewModel.consumeListChange()
-            AppLog.i("STARTUP", "T8 applyReplacedVideosNow batched count=${videos.size} first=${initialRenderBatchSize} elapsed=${SystemClock.elapsedRealtime() - t0}ms")
+            AppLog.i("STARTUP", "T8 applyReplacedVideosNow first_screen count=${videos.size} elapsed=${SystemClock.elapsedRealtime() - t0}ms")
             return
         }
         setAdapterData(
@@ -336,42 +335,31 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     }
 
     private fun applyInitialVideoBatch(videos: List<VideoModel>) {
-        val batchStartMs = PagePerfLogger.now()
-        val firstBatch = videos.take(initialRenderBatchSize)
-        PagePerfLogger.mark(
-            this::class.java.simpleName,
-            "initial_batch_apply_start",
-            batchStartMs,
-            "first=${firstBatch.size} total=${videos.size}"
+        val rv = recyclerView ?: return
+        FirstScreenRenderer.render(
+            recyclerView = rv,
+            page = this::class.java.simpleName,
+            items = videos,
+            startMs = latestOpenStartMs,
+            source = "first_screen",
+            spanCount = getSpanCount(),
+            setItems = { firstBatch, onCommitted ->
+                setAdapterData(firstBatch, preserveScrollOffset = false, onComplete = onCommitted)
+            },
+            appendItems = { remaining ->
+                (adapter as? VideoAdapter)?.addData(remaining)
+            },
+            onFirstBatchCommitted = {
+                latestOpenStartMs = 0L
+                notifyTvListDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
+            },
+            onAppendRest = {
+                notifyTvListDataChanged(TvDataChangeReason.APPEND)
+            }
         )
-        setAdapterData(firstBatch, preserveScrollOffset = false) {
-            PagePerfLogger.mark(
-                this::class.java.simpleName,
-                "initial_batch_commit",
-                batchStartMs,
-                "first=${firstBatch.size} total=${videos.size}"
-            )
-            notifyTvListDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
-            logFirstCardsDraw(firstBatch.size, source = "first_batch")
-        }
         showContent()
         showLoading(false)
-        dispatchContentReadyAfterContentShownIfNeeded("first_batch")
-
-        val rv = recyclerView
-        rv?.postOnAnimation {
-            if (!isAdded || view == null || adapter == null) return@postOnAnimation
-            val fullStartMs = PagePerfLogger.now()
-            setAdapterData(videos, preserveScrollOffset = false) {
-                PagePerfLogger.mark(
-                    this::class.java.simpleName,
-                    "full_batch_commit",
-                    fullStartMs,
-                    "items=${videos.size}"
-                )
-                notifyTvListDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
-            }
-        }
+        dispatchContentReadyAfterContentShownIfNeeded("first_screen")
     }
 
     private fun applyAppendedVideos(items: List<VideoModel>) {
@@ -412,17 +400,17 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
         dispatchContentReadyIfNeeded()
     }
 
-    private fun logFirstCardsDraw(itemCount: Int, source: String) {
+    private fun logFirstCardsDraw(itemCount: Int, source: String, onLogged: (() -> Unit)? = null) {
         val startMs = latestOpenStartMs
         val rv = recyclerView
         if (startMs <= 0L || itemCount <= 0 || rv == null) return
-        PagePerfLogger.logRecyclerPreDraw(
+        FirstScreenRenderer.logFirstFrame(
             recyclerView = rv,
             page = this::class.java.simpleName,
-            event = "first_cards_draw",
             startMs = startMs,
             itemCount = itemCount,
-            extra = "source=$source"
+            source = source,
+            onLogged = onLogged
         )
         latestOpenStartMs = 0L
     }

@@ -19,8 +19,8 @@ object RecyclerViewPoolPrewarmer {
     ) {
         companion object {
             val Disabled = Plan(count = 0, budgetMs = 0L)
-            val VideoFeed = Plan(count = 6, budgetMs = 260L, maxPoolSize = 24)
-            val DynamicFeed = Plan(count = 4, budgetMs = 240L, maxPoolSize = 16)
+            val VideoFeed = Disabled
+            val DynamicFeed = Disabled
             val CacheBackedList = Plan(count = 0, budgetMs = 0L)
         }
     }

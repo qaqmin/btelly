@@ -3,15 +3,12 @@ package com.btelly.ui.adapter
 import android.annotation.SuppressLint
 import android.graphics.Outline
 import android.view.KeyEvent
-import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
-import androidx.appcompat.widget.AppCompatTextView
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
-import com.btelly.databinding.CellVideoBinding
 import com.btelly.model.video.HistoryVideoModel
 import com.btelly.core.ui.base.BaseVideoAdapter
 import com.btelly.core.ui.base.BaseVideoViewHolder
@@ -20,6 +17,8 @@ import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.common.log.VideoCardPerfLogger
 import com.btelly.core.common.time.TimeUtils
 import com.btelly.core.ui.focus.VideoCardFocusHelper
+import com.btelly.core.ui.video.VideoCardViews
+import com.btelly.core.ui.video.VideoLightCardFactory
 import com.btelly.ui.dialog.VideoCardMenuDialog
 
 class HistoryVideoAdapter(
@@ -72,10 +71,10 @@ class HistoryVideoAdapter(
     fun findPositionByKey(key: String): Int = findPositionByStableKey(key)
 
     override fun onCreateContentViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val binding = VideoCardPerfLogger.measureInflate("HistoryVideoAdapter") {
-            CellVideoBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+        val views = VideoCardPerfLogger.measureInflate("HistoryVideoAdapter.light") {
+            VideoLightCardFactory.create(parent, source = "HistoryVideoAdapter.light")
         }
-        return ViewHolder(binding)
+        return ViewHolder(views)
     }
 
     override fun onBindContentViewHolder(holder: ViewHolder, position: Int) {
@@ -96,12 +95,12 @@ class HistoryVideoAdapter(
     private fun applyFocusState(view: View?, focused: Boolean) {
         view ?: return
         view.isSelected = focused
-        view.findViewById<AppCompatTextView>(com.btelly.R.id.textView)?.isSelected = focused
+        view.findViewById<View>(R.id.textView)?.isSelected = focused
     }
 
     inner class ViewHolder(
-        private val binding: CellVideoBinding
-    ) : BaseVideoViewHolder(binding.root) {
+        private val views: VideoCardViews
+    ) : BaseVideoViewHolder(views.root) {
 
         private var currentItem: HistoryVideoModel? = null
 
@@ -139,20 +138,15 @@ class HistoryVideoAdapter(
         }
 
         init {
-            val coverRadiusPx = binding.imageView.resources.getDimension(R.dimen.px15)
-            binding.imageView.clipToOutline = true
-            binding.imageView.outlineProvider = object : android.view.ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: android.graphics.Outline) {
-                    outline.setRoundRect(0, 0, view.width, view.height, coverRadiusPx)
-                }
-            }
-            binding.progressBar.clipToOutline = true
-            binding.progressBar.outlineProvider = object : ViewOutlineProvider() {
+            views.imageView.clipToOutline = true
+            views.imageView.outlineProvider = VideoAdapter.VideoViewHolder.coverOutlineProviderFor(views.imageView.resources)
+            views.progressBar.clipToOutline = true
+            views.progressBar.outlineProvider = object : ViewOutlineProvider() {
                 override fun getOutline(view: View, outline: Outline) {
                     outline.setRoundRect(0, 0, view.width, view.height, view.height / 2f)
                 }
             }
-            binding.root.setOnClickListener {
+            views.root.setOnClickListener {
                 if (longPressTriggered) {
                     longPressTriggered = false
                     return@setOnClickListener
@@ -165,20 +159,20 @@ class HistoryVideoAdapter(
                     if (previous != RecyclerView.NO_POSITION && previous != position) {
                         notifyItemChanged(previous)
                     }
-                    applyFocusState(binding.root, true)
-                    onItemFocusedWithView?.invoke(binding.root, position)
+                    applyFocusState(views.root, true)
+                    onItemFocusedWithView?.invoke(views.root, position)
                 }
                 currentItem?.let(onItemClick)
             }
             @SuppressLint("ClickableViewAccessibility")
-            binding.root.setOnTouchListener { _, event ->
+            views.root.setOnTouchListener { _, event ->
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> startLongPress()
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> cancelLongPress()
                 }
                 false
             }
-            binding.root.setOnFocusChangeListener { view, hasFocus ->
+            views.root.setOnFocusChangeListener { view, hasFocus ->
                 val position = bindingAdapterPosition
                 if (position == RecyclerView.NO_POSITION) {
                     return@setOnFocusChangeListener
@@ -193,44 +187,44 @@ class HistoryVideoAdapter(
                     applyFocusState(view, true)
                     onItemFocusedWithView?.invoke(view, position)
                 } else {
-                    applyFocusState(binding.root, false)
+                    applyFocusState(views.root, false)
                 }
             }
             VideoCardFocusHelper.bindSidebarExit(
-                view = binding.root,
+                view = views.root,
                 onTopEdgeUp = onTopEdgeUp,
                 handleListDpadDown = false,
                 chainedListener = keyListener
             )
-            binding.imageAvatar.visibility = View.GONE
-            binding.textBadge.visibility = View.GONE
-            binding.textHistoryViewTime.visibility = View.VISIBLE
-            binding.iconHistoryDevice.visibility = View.GONE
-            binding.iconPlayCount.visibility = View.GONE
-            binding.textPlayCount.visibility = View.GONE
-            binding.iconDanmaku.visibility = View.GONE
-            binding.textDanmakuCount.visibility = View.GONE
+            views.ownerRow.bind(ownerText = "", showAvatar = false, show = false)
+            views.textHistoryViewTime?.visibility = View.VISIBLE
+            views.iconHistoryDevice?.visibility = View.GONE
+            views.coverMetaOverlay.bind(
+                showPlayCount = false,
+                showDanmakuCount = false,
+                durationText = "",
+                showChargeBadge = false,
+                showInteractionBadge = false
+            )
         }
 
         fun bind(item: HistoryVideoModel, isFocused: Boolean) {
             currentItem = item
 
-            binding.root.isSelected = isFocused
-            binding.textView.isSelected = isFocused
-            binding.textView.text = item.title.ifBlank { item.showTitle }
+            views.root.isSelected = isFocused
+            views.textView.isSelected = isFocused
+            views.textView.text = item.title.ifBlank { item.showTitle }
             val ownerName = item.displayAuthorName
-            binding.imageAvatar.visibility = if (ownerName.isNotBlank()) View.VISIBLE else View.GONE
-            binding.textBadge.visibility = View.GONE
-            binding.iconPlayCount.visibility = View.GONE
-            binding.textPlayCount.visibility = View.GONE
-            binding.iconDanmaku.visibility = View.GONE
-            binding.textDanmakuCount.visibility = View.GONE
+            views.ownerRow.bind(
+                ownerText = ownerName,
+                showAvatar = ownerName.isNotBlank()
+            )
 
-            binding.progressBar.visibility = View.VISIBLE
+            views.progressBar.visibility = View.VISIBLE
             val durationValue = item.duration.coerceAtLeast(0L)
             val progressValue = item.progress.coerceAtLeast(0L).coerceAtMost(durationValue)
-            binding.progressBar.max = durationValue.toInt()
-            binding.progressBar.progress = progressValue.toInt()
+            views.progressBar.max = durationValue.toInt()
+            views.progressBar.progress = progressValue.toInt()
 
             val durationText = when {
                 item.history?.business == "live" && item.badge.isNotBlank() -> item.badge
@@ -238,30 +232,34 @@ class HistoryVideoAdapter(
                 item.tagName.isNotBlank() -> item.tagName
                 else -> ""
             }
-            binding.textDuration.text = durationText
-            binding.textDuration.visibility = if (durationText.isNotBlank()) View.VISIBLE else View.GONE
-            binding.textViewOwner.text = ownerName
-            binding.textHistoryViewTime.text = TimeUtils.formatHistoryViewTime(item.viewAt)
-            binding.textHistoryViewTime.visibility = View.VISIBLE
+            views.textHistoryViewTime?.text = TimeUtils.formatHistoryViewTime(item.viewAt)
+            views.textHistoryViewTime?.visibility = View.VISIBLE
             applyHistoryDeviceIcon(item.history?.dt ?: 0)
-            binding.textChargeBadge.visibility = if (item.isChargingExclusive) View.VISIBLE else View.GONE
-            binding.textInteractionBadge.visibility = if (item.isSteinsGate) View.VISIBLE else View.GONE
+            views.coverMetaOverlay.bind(
+                showPlayCount = false,
+                showDanmakuCount = false,
+                durationText = durationText,
+                showChargeBadge = item.isChargingExclusive,
+                showInteractionBadge = item.isSteinsGate
+            )
 
             ImageLoader.loadVideoCover(
-                imageView = binding.imageView,
-                url = item.cover.ifBlank { item.covers?.firstOrNull().orEmpty() }
+                imageView = views.imageView,
+                url = item.cover.ifBlank { item.covers?.firstOrNull().orEmpty() },
+                deferUntilPreDraw = true
             )
         }
 
         private fun applyHistoryDeviceIcon(dt: Int) {
             val deviceIcon = HistoryDeviceIcon.resolve(dt)
+            val iconHistoryDevice = views.iconHistoryDevice ?: return
             if (deviceIcon == null) {
-                binding.iconHistoryDevice.visibility = View.GONE
-                binding.iconHistoryDevice.contentDescription = null
+                iconHistoryDevice.visibility = View.GONE
+                iconHistoryDevice.contentDescription = null
             } else {
-                binding.iconHistoryDevice.setImageResource(deviceIcon.drawableRes)
-                binding.iconHistoryDevice.contentDescription = deviceIcon.contentDescription
-                binding.iconHistoryDevice.visibility = View.VISIBLE
+                iconHistoryDevice.setImageResource(deviceIcon.drawableRes)
+                iconHistoryDevice.contentDescription = deviceIcon.contentDescription
+                iconHistoryDevice.visibility = View.VISIBLE
             }
         }
     }

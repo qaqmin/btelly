@@ -3,6 +3,7 @@ package com.btelly.core.common.log
 import android.os.SystemClock
 import android.view.ViewTreeObserver
 import androidx.recyclerview.widget.RecyclerView
+import com.btelly.core.common.perf.FirstFrameImageGate
 import java.util.concurrent.atomic.AtomicBoolean
 
 object PagePerfLogger {
@@ -32,22 +33,34 @@ object PagePerfLogger {
         onLogged: (() -> Unit)? = null
     ) {
         val fired = AtomicBoolean(false)
+        val gateLabel = "$page/$event"
+        FirstFrameImageGate.arm(recyclerView, gateLabel)
+
+        fun finish(fire: String) {
+            mark(page, event, startMs, buildExtra("fire=$fire", itemCount, extra))
+            FirstFrameImageGate.release(recyclerView, fire)
+            onLogged?.invoke()
+        }
+
         recyclerView.post {
             if (!recyclerView.isAttachedToWindow) {
-                mark(page, event, startMs, buildExtra("fire=not_attached", itemCount, extra))
+                if (fired.compareAndSet(false, true)) {
+                    finish("not_attached")
+                }
                 return@post
             }
             val observer = recyclerView.viewTreeObserver
             if (!observer.isAlive) {
-                mark(page, event, startMs, buildExtra("fire=no_observer", itemCount, extra))
+                if (fired.compareAndSet(false, true)) {
+                    finish("no_observer")
+                }
                 return@post
             }
             val listener = object : ViewTreeObserver.OnPreDrawListener {
                 override fun onPreDraw(): Boolean {
                     if (fired.compareAndSet(false, true)) {
                         removePreDrawListener(recyclerView, observer, this)
-                        mark(page, event, startMs, buildExtra("fire=pre_draw", itemCount, extra))
-                        onLogged?.invoke()
+                        finish("pre_draw")
                     }
                     return true
                 }
@@ -56,8 +69,7 @@ object PagePerfLogger {
             recyclerView.postDelayed({
                 if (fired.compareAndSet(false, true)) {
                     removePreDrawListener(recyclerView, observer, listener)
-                    mark(page, event, startMs, buildExtra("fire=timeout", itemCount, extra))
-                    onLogged?.invoke()
+                    finish("timeout")
                 }
             }, DRAW_TIMEOUT_MS)
         }

@@ -19,7 +19,6 @@ import com.btelly.core.ui.system.ScreenUtils
 import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.common.time.TimeUtils
 import com.btelly.databinding.CellSeriesLaneBinding
-import com.btelly.databinding.CellVideoBinding
 import com.btelly.databinding.CellVideoDetailHeadBinding
 import com.btelly.model.video.VideoModel
 import com.btelly.model.video.detail.Tag

@@ -35,6 +35,7 @@ import com.btelly.core.ui.focus.tv.TvFocusableAdapter
 import com.btelly.core.ui.focus.tv.TvListFocusController
 import com.btelly.core.ui.refresh.SwipeRefreshHelper
 import com.btelly.core.navigation.VideoRouteNavigator
+import com.btelly.core.ui.render.FirstScreenRenderer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -394,23 +395,52 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         val shouldRestoreFocus = pendingHistoryReturnRestore && filtered.isNotEmpty()
         val shouldScrollToTop = pendingHistoryScrollToTop && filtered.isNotEmpty()
         val applyStartMs = PagePerfLogger.now()
-        adapter.setData(filtered) {
-            PagePerfLogger.mark(
-                pageTag(),
-                "adapter_commit",
-                applyStartMs,
-                "items=${adapter.contentCount()}"
+        if (currentPage <= 1 || adapter.contentCount() == 0) {
+            FirstScreenRenderer.render(
+                recyclerView = binding.recyclerView,
+                page = pageTag(),
+                items = filtered,
+                startMs = currentOpenStartMs.takeIf { it > 0L } ?: latestRequestStartMs,
+                source = "network",
+                spanCount = 4,
+                setItems = { firstBatch, onCommitted ->
+                    adapter.setData(firstBatch, onCommitted)
+                },
+                appendItems = { remaining ->
+                    adapter.addData(remaining)
+                },
+                onFirstBatchCommitted = {
+                    PagePerfLogger.mark(
+                        pageTag(),
+                        "adapter_commit",
+                        applyStartMs,
+                        "items=${adapter.contentCount()}"
+                    )
+                    tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
+                    when {
+                        shouldRestoreFocus -> {
+                            restoreContentFocus()
+                        }
+                        shouldScrollToTop -> {
+                            pendingHistoryScrollToTop = false
+                            scrollHistoryListToTopAfterRefresh()
+                        }
+                    }
+                    currentOpenStartMs = 0L
+                },
+                onAppendRest = {
+                    tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
+                }
             )
-            logMeFirstDraw(adapter.contentCount())
-            tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
-            when {
-                shouldRestoreFocus -> {
-                    restoreContentFocus()
-                }
-                shouldScrollToTop -> {
-                    pendingHistoryScrollToTop = false
-                    scrollHistoryListToTopAfterRefresh()
-                }
+        } else {
+            adapter.setData(filtered) {
+                PagePerfLogger.mark(
+                    pageTag(),
+                    "adapter_commit",
+                    applyStartMs,
+                    "items=${adapter.contentCount()}"
+                )
+                tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
             }
         }
         withContext(Dispatchers.IO) {
@@ -450,16 +480,33 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         )
         lastRenderedLaterSignature = rawSignature
         val applyStartMs = PagePerfLogger.now()
-        adapter.setData(filtered) {
-            PagePerfLogger.mark(
-                pageTag(),
-                "adapter_commit",
-                applyStartMs,
-                "items=${adapter.contentCount()}"
-            )
-            logMeFirstDraw(adapter.contentCount())
-        }
-        tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
+        FirstScreenRenderer.render(
+            recyclerView = binding.recyclerView,
+            page = pageTag(),
+            items = filtered,
+            startMs = currentOpenStartMs.takeIf { it > 0L } ?: latestRequestStartMs,
+            source = "network",
+            spanCount = 4,
+            setItems = { firstBatch, onCommitted ->
+                adapter.setData(firstBatch, onCommitted)
+            },
+            appendItems = { remaining ->
+                adapter.addData(remaining)
+            },
+            onFirstBatchCommitted = {
+                PagePerfLogger.mark(
+                    pageTag(),
+                    "adapter_commit",
+                    applyStartMs,
+                    "items=${adapter.contentCount()}"
+                )
+                tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
+                currentOpenStartMs = 0L
+            },
+            onAppendRest = {
+                tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
+            }
+        )
         withContext(Dispatchers.IO) {
             cacheLaterVideos(videos)
         }
@@ -830,14 +877,34 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                             )
                         }
                     }
-                    historyAdapter?.setData(filtered)
+                    historyAdapter?.let { adapter ->
+                        FirstScreenRenderer.render(
+                            recyclerView = binding.recyclerView,
+                            page = pageTag(),
+                            items = filtered,
+                            startMs = currentOpenStartMs,
+                            source = "cache",
+                            spanCount = 4,
+                            setItems = { firstBatch, onCommitted ->
+                                adapter.setData(firstBatch, onCommitted)
+                            },
+                            appendItems = { remaining ->
+                                adapter.addData(remaining)
+                            },
+                            onFirstBatchCommitted = {
+                                tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
+                            },
+                            onAppendRest = {
+                                tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
+                            }
+                        )
+                    }
                     PagePerfLogger.mark(
                         pageTag(),
                         "cache_restore_commit",
                         cacheStartMs,
                         "raw=${cachedVideos.size} filtered=${filtered.size}"
                     )
-                    logMeFirstDraw(filtered.size, source = "cache")
                     showContent()
                 }
             }
@@ -853,14 +920,34 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                     val filtered = withContext(Dispatchers.Default) {
                         ContentFilter.filterVideos(ctx, cachedVideos)
                     }
-                    videoAdapter?.setData(filtered)
+                    videoAdapter?.let { adapter ->
+                        FirstScreenRenderer.render(
+                            recyclerView = binding.recyclerView,
+                            page = pageTag(),
+                            items = filtered,
+                            startMs = currentOpenStartMs,
+                            source = "cache",
+                            spanCount = 4,
+                            setItems = { firstBatch, onCommitted ->
+                                adapter.setData(firstBatch, onCommitted)
+                            },
+                            appendItems = { remaining ->
+                                adapter.addData(remaining)
+                            },
+                            onFirstBatchCommitted = {
+                                tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
+                            },
+                            onAppendRest = {
+                                tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
+                            }
+                        )
+                    }
                     PagePerfLogger.mark(
                         pageTag(),
                         "cache_restore_commit",
                         cacheStartMs,
                         "raw=${cachedVideos.size} filtered=${filtered.size}"
                     )
-                    logMeFirstDraw(filtered.size, source = "cache")
                     showContent()
                 }
             }
@@ -870,13 +957,12 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     private fun logMeFirstDraw(itemCount: Int, source: String = "network") {
         val openStart = currentOpenStartMs.takeIf { it > 0L } ?: latestRequestStartMs
         if (openStart <= 0L || itemCount <= 0) return
-        PagePerfLogger.logRecyclerPreDraw(
+        FirstScreenRenderer.logFirstFrame(
             recyclerView = binding.recyclerView,
             page = pageTag(),
-            event = "first_cards_draw",
             startMs = openStart,
             itemCount = itemCount,
-            extra = "source=$source"
+            source = source
         )
         currentOpenStartMs = 0L
     }

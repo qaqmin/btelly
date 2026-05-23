@@ -26,9 +26,8 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
     companion object {
         /**
          * 推荐/热门/分区/历史多个 Tab 共用同一个 ViewHolder 池，TV 上首屏就有 8~12 张卡片，
-         * 加上预取与 Tab 切换，原来的 20 个 slot 很容易被挤爆。一旦溢出就要重新 inflate
-         * cell_video.xml（嵌套 ConstraintLayout，TV 上单次 inflate 100ms+），首屏会有
-         * 明显的"卡片逐个出现"。这里调大到 60 个，每个 ViewHolder 仅占用 1~2KB 内存。
+         * 加上 Tab 切换，原来的 20 个 slot 很容易被挤爆。一旦溢出就要重新创建
+         * 视频卡 ViewHolder，首屏会有明显的"卡片逐个出现"。这里调大到 60 个。
          */
         val sharedVideoPool by lazy {
             RecyclerView.RecycledViewPool().apply {
@@ -82,6 +81,7 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
         recyclerView?.setItemViewCacheSize(8)
         adapter?.registerAdapterDataObserver(restoreObserver)
         recyclerView?.setRecycledViewPool(sharedVideoPool)
+        configureSharedPoolFor(adapter)
         layoutManager = createLayoutManager()
         recyclerView?.layoutManager = layoutManager
         val rvForPrewarm = recyclerView
@@ -148,6 +148,12 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
         if (t2 - t0 > 10) {
             AppLog.i("STARTUP", "$className.initView adapter=${t1 - t0}ms setup=${t2 - t1}ms total=${t2 - t0}ms")
         }
+    }
+
+    private fun configureSharedPoolFor(adapter: BaseAdapter<MODEL, *>?) {
+        if (adapter == null) return
+        val viewType = runCatching { adapter.getItemViewType(0) }.getOrNull() ?: return
+        sharedVideoPool.setMaxRecycledViews(viewType, 60)
     }
 
     override fun initData() {

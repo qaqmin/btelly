@@ -23,6 +23,7 @@ import com.btelly.core.ui.refresh.SwipeRefreshHelper
 import com.btelly.core.common.ext.toast
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.log.PagePerfLogger
+import com.btelly.core.ui.render.FirstScreenRenderer
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
@@ -63,7 +64,6 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
             onExplicitRefresh()
         }
         binding.recyclerView.setHasFixedSize(true)
-        adapter.prewarm(binding.recyclerView)
     }
 
     override fun initData() {
@@ -195,59 +195,49 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
     private fun logLiveRecommendFirstDraw(itemCount: Int) {
         val startMs = currentOpenStartMs
         if (startMs <= 0L || itemCount <= 0) return
-        PagePerfLogger.logRecyclerPreDraw(
+        FirstScreenRenderer.logFirstFrame(
             recyclerView = binding.recyclerView,
             page = "LiveRecommend",
             event = "first_sections_draw",
             startMs = startMs,
-            itemCount = itemCount
+            itemCount = itemCount,
+            source = "cache"
         )
         currentOpenStartMs = 0L
     }
 
     private fun applySections(sections: List<LiveRecommendSection>) {
-        val shouldBatch = adapter.itemCount == 0 && sections.size > INITIAL_SECTION_BATCH_SIZE
-        if (!shouldBatch) {
-            val applyStartMs = PagePerfLogger.now()
-            adapter.setData(sections)
-            PagePerfLogger.mark(
-                "LiveRecommend",
-                "adapter_apply",
-                applyStartMs,
-                "sections=${sections.size}"
-            )
-            logLiveRecommendFirstDraw(sections.size)
-            return
-        }
-
-        val firstBatch = sections.take(INITIAL_SECTION_BATCH_SIZE)
-        val firstStartMs = PagePerfLogger.now()
-        PagePerfLogger.mark(
-            "LiveRecommend",
-            "initial_batch_apply_start",
-            firstStartMs,
-            "first=${firstBatch.size} total=${sections.size}"
+        val applyStartMs = PagePerfLogger.now()
+        val laneHeight = FirstScreenRenderer.estimateVideoCardHeight(binding.recyclerView, spanCount = 4) +
+            resources.getDimensionPixelSize(R.dimen.px70)
+        FirstScreenRenderer.render(
+            recyclerView = binding.recyclerView,
+            page = "LiveRecommend",
+            items = sections,
+            startMs = currentOpenStartMs,
+            source = "first_screen",
+            event = "first_sections_draw",
+            spanCount = 1,
+            itemHeightPx = laneHeight,
+            minRows = 2,
+            extraBufferRows = 1,
+            maxRows = INITIAL_SECTION_BATCH_SIZE,
+            setItems = { firstBatch, onCommitted ->
+                adapter.setData(firstBatch, onCommitted)
+            },
+            appendItems = { remaining ->
+                adapter.addData(remaining)
+            },
+            onFirstBatchCommitted = {
+                PagePerfLogger.mark(
+                    "LiveRecommend",
+                    "adapter_apply",
+                    applyStartMs,
+                    "sections=${adapter.itemCount}"
+                )
+                currentOpenStartMs = 0L
+            }
         )
-        adapter.setData(firstBatch)
-        PagePerfLogger.mark(
-            "LiveRecommend",
-            "initial_batch_commit",
-            firstStartMs,
-            "first=${firstBatch.size} total=${sections.size}"
-        )
-        logLiveRecommendFirstDraw(firstBatch.size)
-
-        binding.recyclerView.postOnAnimation {
-            if (!isAdded || view == null) return@postOnAnimation
-            val fullStartMs = PagePerfLogger.now()
-            adapter.setData(sections)
-            PagePerfLogger.mark(
-                "LiveRecommend",
-                "full_batch_commit",
-                fullStartMs,
-                "sections=${sections.size}"
-            )
-        }
     }
 
     private fun onRoomClick(room: com.btelly.model.live.LiveRoomItem) {

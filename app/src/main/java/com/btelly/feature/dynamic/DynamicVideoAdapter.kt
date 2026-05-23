@@ -8,7 +8,6 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView.NO_POSITION
-import com.btelly.databinding.CellVideoLightBinding
 import com.btelly.model.video.VideoModel
 import com.btelly.core.ui.base.BaseVideoAdapter
 import com.btelly.core.ui.base.BaseVideoViewHolder
@@ -17,6 +16,8 @@ import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.common.log.VideoCardPerfLogger
 import com.btelly.core.common.time.TimeUtils
 import com.btelly.core.ui.focus.VideoCardFocusHelper
+import com.btelly.core.ui.video.VideoCardViews
+import com.btelly.core.ui.video.VideoLightCardFactory
 import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.ui.dialog.VideoCardMenuDialog
 
@@ -50,8 +51,8 @@ class DynamicVideoAdapter(
 
     override fun areContentsSame(old: VideoModel, new: VideoModel): Boolean = old == new
 
-    fun setData(list: List<VideoModel>) {
-        setDataDeduplicated(list)
+    override fun setData(list: List<VideoModel>, onCommitted: (() -> Unit)?) {
+        setDataDeduplicated(list, onCommitted)
     }
 
 
@@ -64,24 +65,22 @@ class DynamicVideoAdapter(
     }
 
     override fun onCreateContentViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val binding = VideoCardPerfLogger.measureInflate("DynamicVideoAdapter.light") {
-            CellVideoLightBinding.inflate(
-                LayoutInflater.from(parent.context),
-                parent,
-                false
-            )
+        val views = VideoCardPerfLogger.measureInflate("DynamicVideoAdapter.light") {
+            VideoLightCardFactory.create(parent, source = "DynamicVideoAdapter.light")
         }
-        return ViewHolder(binding)
+        return ViewHolder(views)
     }
 
     override fun onBindContentViewHolder(holder: ViewHolder, position: Int) {
         val item = getItem(position) ?: return
-        holder.bind(item)
+        VideoCardPerfLogger.measureBind("DynamicVideoAdapter.light") {
+            holder.bind(item)
+        }
     }
 
     inner class ViewHolder(
-        private val binding: CellVideoLightBinding
-    ) : BaseVideoViewHolder(binding.root) {
+        private val views: VideoCardViews
+    ) : BaseVideoViewHolder(views.root) {
 
         private var currentItem: VideoModel? = null
 
@@ -104,10 +103,10 @@ class DynamicVideoAdapter(
         }
 
         init {
-            binding.imageView.clipToOutline = true
-            binding.imageView.outlineProvider =
-                VideoAdapter.VideoViewHolder.coverOutlineProviderFor(binding.imageView.resources)
-            binding.root.setOnClickListener {
+            views.imageView.clipToOutline = true
+            views.imageView.outlineProvider =
+                VideoAdapter.VideoViewHolder.coverOutlineProviderFor(views.imageView.resources)
+            views.root.setOnClickListener {
                 if (longPressTriggered) {
                     longPressTriggered = false
                     return@setOnClickListener
@@ -116,12 +115,12 @@ class DynamicVideoAdapter(
                 if (position != NO_POSITION) {
                     focusedPosition = position
                     onItemFocused?.invoke(position)
-                    onItemFocusedWithView?.invoke(binding.root, position)
+                    onItemFocusedWithView?.invoke(views.root, position)
                     val item = getItem(position) ?: return@setOnClickListener
                     onItemClick(item)
                 }
             }
-            binding.root.setOnFocusChangeListener { view, hasFocus ->
+            views.root.setOnFocusChangeListener { view, hasFocus ->
                 val position = bindingAdapterPosition
                 if (hasFocus && position != NO_POSITION) {
                     focusedPosition = position
@@ -130,7 +129,7 @@ class DynamicVideoAdapter(
                 }
             }
             @Suppress("ClickableViewAccessibility")
-            binding.root.setOnTouchListener { _, event ->
+            views.root.setOnTouchListener { _, event ->
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> startLongPress()
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> cancelLongPress()
@@ -138,7 +137,7 @@ class DynamicVideoAdapter(
                 false
             }
             VideoCardFocusHelper.bindSidebarExit(
-                view = binding.root,
+                view = views.root,
                 onLeftEdge = onLeftEdge,
                 handleListDpadDown = false,
                 chainedListener = keyListener
@@ -165,51 +164,61 @@ class DynamicVideoAdapter(
 
             val coverUrl: String
             if (item.bangumi != null) {
-                binding.textView.text = item.bangumi.longTitle
+                views.textView.text = item.bangumi.longTitle
                 coverUrl = item.bangumi.cover
             } else {
-                binding.textView.text = item.title
+                views.textView.text = item.title
                 coverUrl = item.coverUrl
             }
+            val ownerLine = if (ownerName.isNotBlank()) {
+                if (publishText.isNotBlank()) {
+                    "$ownerName · $publishText"
+                } else {
+                    ownerName
+                }
+            } else {
+                publishText
+            }
             ImageLoader.loadVideoCover(
-                imageView = binding.imageView,
+                imageView = views.imageView,
                 url = coverUrl,
+                deferUntilPreDraw = true,
                 onPortraitDetected = if (!item.isPortrait && ownerName.isNotBlank() && item.bvid !in portraitDetectedBvids) { isPortrait ->
                     if (bindingAdapterPosition != NO_POSITION
                         && currentItem === item && isPortrait
                     ) {
                         if (item.bvid.isNotBlank()) portraitDetectedBvids.add(item.bvid)
-                        binding.imageAvatar.visibility = View.GONE
-                        binding.textBadge.text = "竖屏"
-                        binding.textBadge.visibility = View.VISIBLE
+                        views.ownerRow.bind(
+                            ownerText = ownerLine,
+                            showAvatar = false,
+                            badgeText = "竖屏"
+                        )
                     }
                 } else null
             )
 
             if (ownerName.isNotBlank()) {
-                binding.textViewOwner.text = if (publishText.isNotBlank()) {
-                    "$ownerName · $publishText"
-                } else {
-                    ownerName
-                }
-                if (item.isPortrait) {
-                    binding.imageAvatar.visibility = View.GONE
-                    binding.textBadge.text = "竖屏"
-                    binding.textBadge.visibility = View.VISIBLE
-                } else {
-                    binding.imageAvatar.visibility = View.VISIBLE
-                    binding.textBadge.visibility = View.GONE
-                }
+                views.ownerRow.bind(
+                    ownerText = ownerLine,
+                    showAvatar = !item.isPortrait,
+                    badgeText = if (item.isPortrait) "竖屏" else ""
+                )
             } else {
-                binding.textViewOwner.text = publishText
-                binding.imageAvatar.visibility = View.GONE
-                binding.textBadge.visibility = View.GONE
+                views.ownerRow.bind(
+                    ownerText = ownerLine,
+                    showAvatar = false
+                )
             }
 
-            binding.textPlayCount.text = NumberUtils.formatCount(item.viewCount)
-            binding.textDanmakuCount.text = NumberUtils.formatCount(item.danmakuCount)
-            binding.textDuration.text = NumberUtils.formatDuration(item.durationValue.coerceAtLeast(0L))
-            binding.textChargeBadge.visibility = if (item.isChargingExclusive) View.VISIBLE else View.GONE
+            views.coverMetaOverlay.bind(
+                playCountText = NumberUtils.formatCount(item.viewCount),
+                showPlayCount = true,
+                danmakuText = NumberUtils.formatCount(item.danmakuCount),
+                showDanmakuCount = true,
+                durationText = NumberUtils.formatDuration(item.durationValue.coerceAtLeast(0L)),
+                showChargeBadge = item.isChargingExclusive,
+                showInteractionBadge = false
+            )
         }
 
         private fun formatPublishTime(video: VideoModel): String {

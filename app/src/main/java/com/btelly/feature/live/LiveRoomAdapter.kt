@@ -1,27 +1,26 @@
 package com.btelly.feature.live
 
 import android.annotation.SuppressLint
+import android.graphics.Outline
 import android.os.Handler
 import android.os.Looper
-import android.util.TypedValue
 import android.view.KeyEvent
-import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.ViewGroup
-import android.graphics.Outline
 import androidx.recyclerview.widget.RecyclerView
-import com.btelly.R
 import com.btelly.core.common.log.VideoCardPerfLogger
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.ui.focus.VideoCardFocusHelper
 import com.btelly.core.ui.focus.tv.TvFocusableAdapter
-import com.btelly.databinding.CellVideoLightBinding
+import com.btelly.core.ui.video.VideoCardViews
+import com.btelly.core.ui.video.VideoLightCardFactory
 import com.btelly.model.live.LiveRoomItem
 import com.btelly.model.video.Owner
 import com.btelly.model.video.VideoModel
+import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.ui.dialog.VideoCardMenuDialog
 
 class LiveRoomAdapter(
@@ -46,10 +45,11 @@ class LiveRoomAdapter(
         items.indexOfFirst { it.roomId.toString() == key }
             .takeIf { it >= 0 } ?: RecyclerView.NO_POSITION
 
-    fun setData(list: List<LiveRoomItem>) {
+    fun setData(list: List<LiveRoomItem>, onCommitted: (() -> Unit)? = null) {
         items.clear()
         items.addAll(list)
         notifyDataSetChanged()
+        onCommitted?.invoke()
     }
 
     fun addData(list: List<LiveRoomItem>) {
@@ -66,14 +66,10 @@ class LiveRoomAdapter(
     override fun getItemViewType(position: Int): Int = VIEW_TYPE_LIVE_ROOM
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val binding = VideoCardPerfLogger.measureInflate("LiveRoomAdapter.light") {
-            CellVideoLightBinding.inflate(
-                LayoutInflater.from(parent.context),
-                parent,
-                false
-            )
+        val views = VideoCardPerfLogger.measureInflate("LiveRoomAdapter.light") {
+            VideoLightCardFactory.create(parent, source = "LiveRoomAdapter.light")
         }
-        return ViewHolder(binding)
+        return ViewHolder(views)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
@@ -94,8 +90,8 @@ class LiveRoomAdapter(
     }
 
     inner class ViewHolder(
-        private val binding: CellVideoLightBinding
-    ) : RecyclerView.ViewHolder(binding.root) {
+        private val views: VideoCardViews
+    ) : RecyclerView.ViewHolder(views.root) {
 
         private var currentItem: LiveRoomItem? = null
         private val handler = Handler(Looper.getMainLooper())
@@ -145,14 +141,15 @@ class LiveRoomAdapter(
         }
 
         init {
-            val coverRadiusPx = binding.imageView.resources.getDimension(R.dimen.px15)
-            binding.imageView.clipToOutline = true
-            binding.imageView.outlineProvider = object : ViewOutlineProvider() {
+            views.imageView.clipToOutline = true
+            views.imageView.outlineProvider = VideoAdapter.VideoViewHolder.coverOutlineProviderFor(views.imageView.resources)
+            views.progressBar.clipToOutline = true
+            views.progressBar.outlineProvider = object : ViewOutlineProvider() {
                 override fun getOutline(view: View, outline: Outline) {
-                    outline.setRoundRect(0, 0, view.width, view.height, coverRadiusPx)
+                    outline.setRoundRect(0, 0, view.width, view.height, view.height / 2f)
                 }
             }
-            binding.root.setOnClickListener {
+            views.root.setOnClickListener {
                 if (longPressTriggered) {
                     longPressTriggered = false
                     return@setOnClickListener
@@ -163,7 +160,7 @@ class LiveRoomAdapter(
                 }
             }
             @SuppressLint("ClickableViewAccessibility")
-            binding.root.setOnTouchListener { _, event ->
+            views.root.setOnTouchListener { _, event ->
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> startLongPressTimer()
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> cancelLongPressTimer()
@@ -171,7 +168,7 @@ class LiveRoomAdapter(
                 false
             }
             VideoCardFocusHelper.bindSidebarExit(
-                view = binding.root,
+                view = views.root,
                 onTopEdgeUp = onTopEdgeUp,
                 chainedListener = keyListener
             )
@@ -179,25 +176,29 @@ class LiveRoomAdapter(
 
         fun bind(item: LiveRoomItem) {
             currentItem = item
-            binding.textView.setTextSize(TypedValue.COMPLEX_UNIT_PX, binding.root.resources.getDimension(R.dimen.px31))
-            binding.textView.maxLines = 1
-            binding.textView.minLines = 1
-            binding.textView.text = item.title
-            binding.textViewOwner.text = item.uname
-            binding.imageAvatar.visibility = if (item.uname.isBlank()) View.GONE else View.VISIBLE
-            binding.textBadge.visibility = View.GONE
-            binding.textViewOwner.visibility = if (item.uname.isBlank()) View.GONE else View.VISIBLE
-            binding.textPlayCount.text = NumberUtils.formatCount(item.online.toLong())
-            binding.iconPlayCount.visibility = View.VISIBLE
-            binding.textPlayCount.visibility = View.VISIBLE
-            binding.iconDanmaku.visibility = View.GONE
-            binding.textDanmakuCount.visibility = View.GONE
-            binding.textDuration.visibility = View.GONE
-            binding.progressBar.visibility = View.GONE
+            views.textView.maxLines = 1
+            views.textView.minLines = 1
+            views.textView.text = item.title
+            views.ownerRow.bind(
+                ownerText = item.uname,
+                showAvatar = item.uname.isNotBlank(),
+                show = item.uname.isNotBlank()
+            )
+            views.progressBar.visibility = View.GONE
+            views.textOverflow.visibility = View.GONE
+            views.coverMetaOverlay.bind(
+                playCountText = NumberUtils.formatCount(item.online.toLong()),
+                showPlayCount = true,
+                showDanmakuCount = false,
+                durationText = "",
+                showChargeBadge = false,
+                showInteractionBadge = false
+            )
 
             ImageLoader.loadVideoCover(
-                imageView = binding.imageView,
-                url = item.cover
+                imageView = views.imageView,
+                url = item.cover,
+                deferUntilPreDraw = true
             )
         }
     }

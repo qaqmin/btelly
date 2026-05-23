@@ -17,6 +17,7 @@ import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.event.AppEventHub
 import com.btelly.core.ui.focus.SpatialFocusNavigator
 import com.btelly.core.ui.focus.TabContentFocusHelper
+import com.btelly.core.ui.render.FirstScreenRenderer
 import com.btelly.feature.series.AllSeriesFragment
 import com.btelly.feature.series.SeriesDetailFragment
 import com.btelly.model.lane.HomeLaneSection
@@ -282,8 +283,35 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
         setRefreshing(false)
         showLoading(false)
         laneAdapter?.setShowLoadMore(hasMore)
-        adapter?.setData(sections) {
-            logFirstSectionsDraw(sections.size, source = "replace")
+        val rv = recyclerView
+        val adp = adapter
+        if (rv != null && adp != null && (latestOpenStartMs > 0L || adp.contentCount() == 0)) {
+            val laneHeight = FirstScreenRenderer.estimateVideoCardHeight(rv, spanCount = 4) +
+                resources.getDimensionPixelSize(R.dimen.px70)
+            FirstScreenRenderer.render(
+                recyclerView = rv,
+                page = pageTag(),
+                items = sections,
+                startMs = latestOpenStartMs,
+                source = "replace",
+                event = "first_sections_draw",
+                spanCount = 1,
+                itemHeightPx = laneHeight,
+                minRows = 2,
+                extraBufferRows = 1,
+                maxRows = 4,
+                setItems = { firstBatch, onCommitted ->
+                    adp.setData(firstBatch, onCommitted)
+                },
+                appendItems = { remaining ->
+                    adp.addAll(remaining)
+                },
+                onFirstBatchCommitted = {
+                    latestOpenStartMs = 0L
+                }
+            )
+        } else {
+            adapter?.setData(sections)
         }
         if (sections.isNotEmpty()) {
             showContent()
@@ -317,9 +345,7 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
             return
         }
         showContent()
-        adapter?.setData(sections) {
-            logFirstSectionsDraw(sections.size, source = "append")
-        }
+        adapter?.setData(sections)
     }
 
     override fun onRetryClick() {
@@ -432,13 +458,13 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
         val startMs = latestOpenStartMs
         val rv = recyclerView
         if (startMs <= 0L || itemCount <= 0 || rv == null) return
-        PagePerfLogger.logRecyclerPreDraw(
+        FirstScreenRenderer.logFirstFrame(
             recyclerView = rv,
             page = pageTag(),
             event = "first_sections_draw",
             startMs = startMs,
             itemCount = itemCount,
-            extra = "source=$source"
+            source = source
         )
         latestOpenStartMs = 0L
     }

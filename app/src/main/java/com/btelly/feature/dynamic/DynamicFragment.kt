@@ -38,6 +38,7 @@ import com.btelly.core.ui.focus.tv.TvDataChangeReason
 import com.btelly.core.ui.focus.tv.TvListFocusController
 import com.btelly.core.ui.refresh.SwipeRefreshHelper
 import com.btelly.core.navigation.VideoRouteNavigator
+import com.btelly.core.ui.render.FirstScreenRenderer
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -81,6 +82,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
     private var latestVideoRequestStartMs = 0L
     private var latestInitialRequestStartMs = 0L
     private var lastRenderedVideoSignature: String = ""
+    private var pendingInitialVideoFocusAfterFirstDraw = false
 
     override fun getViewBinding(
         inflater: LayoutInflater,
@@ -146,7 +148,10 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
         binding.recyclerViewRight.layoutManager = WrapContentGridLayoutManager(requireContext(), 3)
         binding.recyclerViewRight.adapter = videoAdapter
         binding.recyclerViewRight.itemAnimator = null
+        binding.recyclerViewRight.setHasFixedSize(true)
+        binding.recyclerViewRight.setItemViewCacheSize(8)
         binding.recyclerViewRight.setRecycledViewPool(BaseListFragment.sharedVideoPool)
+        BaseListFragment.sharedVideoPool.setMaxRecycledViews(videoAdapter.getItemViewType(0), 60)
         RecyclerViewPoolPrewarmer.prewarm(
             recyclerView = binding.recyclerViewRight,
             adapter = videoAdapter,
@@ -322,34 +327,60 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
                     )
 
                     swipeRefreshLayout?.isRefreshing = false
-                    val applyStartMs = PagePerfLogger.now()
-                    if (page <= 1 || videoAdapter.itemCount == 0) {
-                        videoAdapter.setData(videos)
-                    } else if (videos.isNotEmpty()) {
-                        videoAdapter.addData(videos)
-                    }
-                    PagePerfLogger.mark(
-                        "Dynamic",
-                        "adapter_apply",
-                        applyStartMs,
-                        "items=${videoAdapter.contentCount()} page=$page"
-                    )
-
-                    videoFocusController?.onDataChanged(
-                        if (page <= 1) TvDataChangeReason.REPLACE_PRESERVE_ANCHOR else TvDataChangeReason.APPEND
-                    )
                     if (videos.isNotEmpty()) {
                         showContent()
                         AppLog.i(TAG, "DYN D8 videos rendered count=${videos.size}")
-                        logDynamicFirstDraw(page, videoAdapter.contentCount())
-                        if (pendingScrollToTop) {
+                        val shouldScrollToTop = pendingScrollToTop
+                        if (shouldScrollToTop) {
                             pendingScrollToTop = false
-                            scrollVideoListToTop()
-                            binding.recyclerViewRight.post {
-                                if (isAdded && view != null && videoAdapter.itemCount > 0) {
-                                    requestPreferredContentFocus(fallbackToAlternate = true)
+                            if (page <= 1) {
+                                pendingInitialVideoFocusAfterFirstDraw = true
+                            } else {
+                                binding.recyclerViewRight.post {
+                                    if (isAdded && view != null && videoAdapter.itemCount > 0) {
+                                        requestPreferredContentFocus(fallbackToAlternate = true)
+                                    }
                                 }
                             }
+                        }
+                        if (page <= 1 || videoAdapter.itemCount == 0) {
+                            FirstScreenRenderer.render(
+                                recyclerView = binding.recyclerViewRight,
+                                page = "Dynamic",
+                                items = videos,
+                                startMs = currentOpenStartMs.takeIf { it > 0L } ?: latestVideoRequestStartMs,
+                                source = "first_screen",
+                                spanCount = 3,
+                                setItems = { firstBatch, onCommitted ->
+                                    videoAdapter.setData(firstBatch, onCommitted)
+                                },
+                                appendItems = { remaining ->
+                                    videoAdapter.addData(remaining)
+                                },
+                                onFirstBatchCommitted = {
+                                    videoFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
+                                    if (shouldScrollToTop) {
+                                        scrollVideoListToTop()
+                                    }
+                                    currentOpenStartMs = 0L
+                                },
+                                onFirstFrame = {
+                                    onDynamicFirstFrame(page)
+                                },
+                                onAppendRest = {
+                                    videoFocusController?.onDataChanged(TvDataChangeReason.APPEND)
+                                }
+                            )
+                        } else {
+                            val applyStartMs = PagePerfLogger.now()
+                            videoAdapter.addData(videos)
+                            PagePerfLogger.mark(
+                                "Dynamic",
+                                "adapter_apply",
+                                applyStartMs,
+                                "items=${videoAdapter.contentCount()} page=$page"
+                            )
+                            videoFocusController?.onDataChanged(TvDataChangeReason.APPEND)
                         }
                     }
                 }
@@ -731,21 +762,32 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
         }
         val startMs = currentOpenStartMs.takeIf { it > 0L } ?: latestVideoRequestStartMs
         if (startMs <= 0L || itemCount <= 0) return
-        PagePerfLogger.logRecyclerPreDraw(
+        FirstScreenRenderer.logFirstFrame(
             recyclerView = binding.recyclerViewRight,
             page = "Dynamic",
-            event = "first_cards_draw",
             startMs = startMs,
             itemCount = itemCount,
-            extra = "page=$page",
+            source = "page=$page",
             onLogged = {
-                if (page <= 1 && ::upAdapter.isInitialized) {
-                    upAdapter.setAvatarLoadsEnabled(true)
-                }
+                onDynamicFirstFrame(page)
             }
         )
         if (page <= 1) {
             currentOpenStartMs = 0L
+        }
+    }
+
+    private fun onDynamicFirstFrame(page: Int) {
+        if (page <= 1 && ::upAdapter.isInitialized) {
+            upAdapter.setAvatarLoadsEnabled(true)
+        }
+        if (pendingInitialVideoFocusAfterFirstDraw) {
+            pendingInitialVideoFocusAfterFirstDraw = false
+            binding.recyclerViewRight.post {
+                if (isAdded && view != null && videoAdapter.itemCount > 0) {
+                    requestPreferredContentFocus(fallbackToAlternate = true)
+                }
+            }
         }
     }
 

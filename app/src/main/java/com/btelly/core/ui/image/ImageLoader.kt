@@ -12,13 +12,16 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.view.View
+import android.view.ViewTreeObserver
 import android.widget.ImageView
 import android.os.SystemClock
 import androidx.annotation.DrawableRes
 import androidx.collection.LruCache
 import androidx.core.content.ContextCompat
+import com.btelly.BTellyApplication
 import com.btelly.R
 import com.btelly.core.common.log.AppLog
+import com.btelly.core.common.perf.FirstFrameImageGate
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.network.NetworkManager
 import pl.droidsonroids.gif.GifDrawable
@@ -34,7 +37,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Cache
 import org.koin.mp.KoinPlatform
+import java.io.File
 import java.util.concurrent.Executors
 import java.util.WeakHashMap
 
@@ -58,7 +63,7 @@ object ImageLoader {
     private val imageIoDispatcher = Executors.newFixedThreadPool(6).asCoroutineDispatcher()
     private val highPriorityImageDispatcher = Executors.newFixedThreadPool(4).asCoroutineDispatcher()
     private val normalPriorityImageDispatcher = Executors.newFixedThreadPool(2).asCoroutineDispatcher()
-    private val lowPriorityImageDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    private val lowPriorityImageDispatcher = Executors.newFixedThreadPool(2).asCoroutineDispatcher()
 
     private val cache = object : LruCache<String, Bitmap>(maxCacheBytes()) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
@@ -87,12 +92,23 @@ object ImageLoader {
         val priority: Priority,
         val queueMs: Long,
         val fetchMs: Long,
-        val decodeMs: Long
+        val decodeMs: Long,
+        val diskCacheHit: Boolean
+    )
+
+    private data class FetchedBytes(
+        val bytes: ByteArray,
+        val diskCacheHit: Boolean
     )
 
     private data class ImageDataRequest(
         val deferred: Deferred<ImageData>,
         val reused: Boolean
+    )
+
+    private data class PreDrawDeferredLoad(
+        val observer: ViewTreeObserver,
+        val listener: ViewTreeObserver.OnPreDrawListener
     )
 
     // ---------- 公开 API ----------
@@ -178,6 +194,7 @@ object ImageLoader {
     fun clear(imageView: ImageView) {
         inFlight.remove(imageView)?.cancel()
         clearAttachDeferredLoad(imageView)
+        clearPreDrawDeferredLoad(imageView)
         imageView.setTag(R.id.tag_image_loader_url, null)
         imageView.setImageDrawable(null)
     }
@@ -191,7 +208,8 @@ object ImageLoader {
     ): SimpleDisposable {
         val job = scope.launch {
             try {
-                val bytes = withContext(imageIoDispatcher) { fetchBytes(url) }
+                val fetched = withContext(imageIoDispatcher) { fetchBytes(url) }
+                val bytes = fetched.bytes
                 val bmp = withContext(Dispatchers.Default) {
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 }
@@ -243,6 +261,7 @@ object ImageLoader {
         placeholder: Int = R.drawable.default_video,
         error: Int = R.drawable.default_video,
         priority: Priority = Priority.HIGH,
+        deferUntilPreDraw: Boolean = false,
         onPortraitDetected: ((Boolean) -> Unit)? = null
     ) {
         val optimizedUrl = buildOptimizedVideoCoverUrl(url)
@@ -250,6 +269,7 @@ object ImageLoader {
         loadInto(imageView, optimizedUrl, placeholder, error,
             fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null,
             priority = priority,
+            deferUntilPreDraw = deferUntilPreDraw,
             onSuccess = { bmp ->
                 if (onPortraitDetected != null) {
                     onPortraitDetected(bmp.height > bmp.width)
@@ -293,7 +313,8 @@ object ImageLoader {
     }
 
     fun clearDiskCache(context: Context) {
-        // 无磁盘缓存，no-op
+        runCatching { imageOkHttpClient.cache?.evictAll() }
+            .onFailure { AppLog.w(TAG, "clearDiskCache failed", it) }
     }
 
     fun prefetchVideoCovers(context: Context, urls: List<String?>) {
@@ -400,7 +421,8 @@ object ImageLoader {
         fallbackUrl: String? = null,
         priority: Priority = Priority.NORMAL,
         onSuccess: ((Bitmap) -> Unit)? = null,
-        onError: (() -> Unit)? = null
+        onError: (() -> Unit)? = null,
+        deferUntilPreDraw: Boolean = false
     ) {
         val ctx = imageView.context
         if (ctx is Activity && ctx.isDestroyed) return
@@ -409,6 +431,7 @@ object ImageLoader {
         if (url.isBlank()) {
             inFlight.remove(imageView)?.cancel()
             clearAttachDeferredLoad(imageView)
+            clearPreDrawDeferredLoad(imageView)
             imageView.setTag(R.id.tag_image_loader_url, null)
             if (placeholderRes != 0) imageView.setImageResource(placeholderRes)
             else imageView.setImageDrawable(placeholder)
@@ -424,13 +447,24 @@ object ImageLoader {
             imageView.setTag(R.id.tag_image_loader_url, url)
             inFlight.remove(imageView)?.cancel()
             clearAttachDeferredLoad(imageView)
+            clearPreDrawDeferredLoad(imageView)
+        }
+
+        transformCacheKey(url, circleCrop, cornerRadius)?.let { key ->
+            val transformedCached = cache.get(key)
+            if (transformedCached != null) {
+                AppLog.i(TAG, "cover transform memory hit url=${url.takeLast(50)}")
+                imageView.setImageBitmap(transformedCached)
+                onSuccess?.invoke(transformedCached)
+                return
+            }
         }
 
         // 内存缓存命中
         val cached = cache.get(url)
         if (cached != null) {
             AppLog.i(TAG, "cover memory hit url=${url.takeLast(50)}")
-            imageView.setImageBitmap(applyTransform(cached, circleCrop, cornerRadius))
+            imageView.setImageBitmap(applyTransform(url, cached, circleCrop, cornerRadius))
             onSuccess?.invoke(cached)
             return
         }
@@ -451,7 +485,48 @@ object ImageLoader {
                     fallbackUrl = fallbackUrl,
                     priority = priority,
                     onSuccess = onSuccess,
-                    onError = onError
+                    onError = onError,
+                    deferUntilPreDraw = deferUntilPreDraw
+                )
+            }
+            return
+        }
+
+        if (deferUntilPreDraw) {
+            if (FirstFrameImageGate.defer(imageView, url) {
+                    if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                        AppLog.i(TAG, "cover deferred_start after_page_first_draw url=${url.takeLast(50)}")
+                        loadInto(
+                            imageView = imageView,
+                            url = url,
+                            placeholderRes = placeholderRes,
+                            errorRes = errorRes,
+                            circleCrop = circleCrop,
+                            cornerRadius = cornerRadius,
+                            fallbackUrl = fallbackUrl,
+                            priority = priority,
+                            onSuccess = onSuccess,
+                            onError = onError,
+                            deferUntilPreDraw = false
+                        )
+                    }
+                }
+            ) {
+                return
+            }
+            deferLoadUntilPreDraw(imageView, url) {
+                loadInto(
+                    imageView = imageView,
+                    url = url,
+                    placeholderRes = placeholderRes,
+                    errorRes = errorRes,
+                    circleCrop = circleCrop,
+                    cornerRadius = cornerRadius,
+                    fallbackUrl = fallbackUrl,
+                    priority = priority,
+                    onSuccess = onSuccess,
+                    onError = onError,
+                    deferUntilPreDraw = false
                 )
             }
             return
@@ -473,7 +548,7 @@ object ImageLoader {
                         }
                         imageView.setImageDrawable(gifDrawable)
                     }
-                    AppLog.i(TAG, "gif loaded: elapsed=${SystemClock.elapsedRealtime() - startMs}ms await=${awaitMs}ms queue=${data.queueMs}ms fetch=${fetchMs}ms priority=${data.priority} bytes=${bytes.size} url=${url.takeLast(50)}")
+                    AppLog.i(TAG, "gif loaded: elapsed=${SystemClock.elapsedRealtime() - startMs}ms await=${awaitMs}ms queue=${data.queueMs}ms fetch=${fetchMs}ms priority=${data.priority} diskCache=${data.diskCacheHit} bytes=${bytes.size} url=${url.takeLast(50)}")
                 } else {
                     val bmp = data.bitmap
                     val decodeMs = data.decodeMs
@@ -482,13 +557,13 @@ object ImageLoader {
                         var applyMs = 0L
                         if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
                             val applyStartMs = SystemClock.elapsedRealtime()
-                            imageView.setImageBitmap(applyTransform(bmp, circleCrop, cornerRadius))
+                            imageView.setImageBitmap(applyTransform(url, bmp, circleCrop, cornerRadius))
                             applyMs = SystemClock.elapsedRealtime() - applyStartMs
                         }
-                        AppLog.i(TAG, "cover loaded: elapsed=${SystemClock.elapsedRealtime() - startMs}ms await=${awaitMs}ms queue=${data.queueMs}ms fetch=${fetchMs}ms decode=${decodeMs}ms apply=${applyMs}ms priority=${data.priority} shared=${request.reused} bytes=${bytes.size} url=${url.takeLast(50)}")
+                        AppLog.i(TAG, "cover loaded: elapsed=${SystemClock.elapsedRealtime() - startMs}ms await=${awaitMs}ms queue=${data.queueMs}ms fetch=${fetchMs}ms decode=${decodeMs}ms apply=${applyMs}ms priority=${data.priority} shared=${request.reused} diskCache=${data.diskCacheHit} bytes=${bytes.size} url=${url.takeLast(50)}")
                         onSuccess?.invoke(bmp)
                     } else {
-                        AppLog.w(TAG, "cover decode null: elapsed=${SystemClock.elapsedRealtime() - startMs}ms queue=${data.queueMs}ms fetch=${fetchMs}ms decode=${decodeMs}ms priority=${data.priority} url=${url.takeLast(50)}")
+                        AppLog.w(TAG, "cover decode null: elapsed=${SystemClock.elapsedRealtime() - startMs}ms queue=${data.queueMs}ms fetch=${fetchMs}ms decode=${decodeMs}ms priority=${data.priority} diskCache=${data.diskCacheHit} url=${url.takeLast(50)}")
                         handleLoadError(imageView, url, errorRes, fallbackUrl, circleCrop, cornerRadius, priority, onSuccess, onError)
                     }
                 }
@@ -518,6 +593,7 @@ object ImageLoader {
         if (url.isBlank()) {
             inFlight.remove(imageView)?.cancel()
             clearAttachDeferredLoad(imageView)
+            clearPreDrawDeferredLoad(imageView)
             imageView.setTag(R.id.tag_image_loader_url, null)
             imageView.setImageDrawable(placeholderDrawable ?: placeholder)
             return
@@ -531,6 +607,7 @@ object ImageLoader {
             imageView.setTag(R.id.tag_image_loader_url, url)
             inFlight.remove(imageView)?.cancel()
             clearAttachDeferredLoad(imageView)
+            clearPreDrawDeferredLoad(imageView)
         }
 
         val cached = cache.get(url)
@@ -643,6 +720,50 @@ object ImageLoader {
         }
     }
 
+    private fun deferLoadUntilPreDraw(
+        imageView: ImageView,
+        url: String,
+        startLoad: () -> Unit
+    ) {
+        clearPreDrawDeferredLoad(imageView)
+        val observer = imageView.viewTreeObserver
+        if (!observer.isAlive) {
+            imageView.post {
+                if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                    startLoad()
+                }
+            }
+            return
+        }
+        val listener = object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                clearPreDrawDeferredLoad(imageView)
+                if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                    imageView.post {
+                        if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                            AppLog.i(TAG, "cover deferred_start after_pre_draw url=${url.takeLast(50)}")
+                            startLoad()
+                        }
+                    }
+                }
+                return true
+            }
+        }
+        imageView.setTag(R.id.tag_image_loader_predraw_listener, PreDrawDeferredLoad(observer, listener))
+        observer.addOnPreDrawListener(listener)
+    }
+
+    private fun clearPreDrawDeferredLoad(imageView: ImageView) {
+        val deferred = imageView.getTag(R.id.tag_image_loader_predraw_listener) as? PreDrawDeferredLoad
+            ?: return
+        if (deferred.observer.isAlive) {
+            deferred.observer.removeOnPreDrawListener(deferred.listener)
+        } else {
+            imageView.viewTreeObserver.removeOnPreDrawListener(deferred.listener)
+        }
+        imageView.setTag(R.id.tag_image_loader_predraw_listener, null)
+    }
+
     private fun prefetch(url: String, priority: Priority = Priority.LOW) {
         if (url.isBlank()) return
         if (cache.get(url) != null) return
@@ -655,7 +776,7 @@ object ImageLoader {
                     cache.put(url, bmp)
                     AppLog.i(
                         TAG,
-                        "prefetch cover cached url=${url.takeLast(50)} priority=${data.priority} shared=${request.reused} bytes=${data.bytes.size}"
+                        "prefetch cover cached url=${url.takeLast(50)} priority=${data.priority} shared=${request.reused} diskCache=${data.diskCacheHit} bytes=${data.bytes.size}"
                     )
                 }
             } catch (t: Throwable) {
@@ -674,7 +795,8 @@ object ImageLoader {
             val dispatcher = dispatcherFor(priority)
             val deferred = imageDataScope.async(dispatcher) {
                 val fetchStartMs = SystemClock.elapsedRealtime()
-                val bytes = fetchBytes(url)
+                val fetched = fetchBytes(url)
+                val bytes = fetched.bytes
                 val fetchMs = SystemClock.elapsedRealtime() - fetchStartMs
                 val isGif = isGifBytes(bytes)
                 val decodeStartMs = SystemClock.elapsedRealtime()
@@ -690,7 +812,8 @@ object ImageLoader {
                     priority = priority,
                     queueMs = fetchStartMs - queuedAtMs,
                     fetchMs = fetchMs,
-                    decodeMs = SystemClock.elapsedRealtime() - decodeStartMs
+                    decodeMs = SystemClock.elapsedRealtime() - decodeStartMs,
+                    diskCacheHit = fetched.diskCacheHit
                 )
             }
             deferred.invokeOnCompletion {
@@ -713,7 +836,7 @@ object ImageLoader {
 
     // ---------- 网络 ----------
 
-    private fun fetchBytes(url: String): ByteArray {
+    private fun fetchBytes(url: String): FetchedBytes {
         val requestBuilder = Request.Builder().url(url)
         if (isBilibiliImageUrl(url)) {
             requestBuilder
@@ -722,16 +845,33 @@ object ImageLoader {
         }
         return imageOkHttpClient.newCall(requestBuilder.build()).execute().use { response ->
             val body = response.body ?: throw IllegalStateException("Empty body for $url")
-            body.bytes()
+            FetchedBytes(
+                bytes = body.bytes(),
+                diskCacheHit = response.cacheResponse != null
+            )
         }
     }
 
     // ---------- 变换 ----------
 
-    private fun applyTransform(bmp: Bitmap, circleCrop: Boolean, cornerRadius: Float): Bitmap {
-        if (circleCrop) return circleCrop(bmp)
-        if (cornerRadius > 0f) return roundCorners(bmp, cornerRadius)
-        return bmp
+    private fun applyTransform(url: String, bmp: Bitmap, circleCrop: Boolean, cornerRadius: Float): Bitmap {
+        val key = transformCacheKey(url, circleCrop, cornerRadius) ?: return bmp
+        cache.get(key)?.let { return it }
+        val transformed = when {
+            circleCrop -> circleCrop(bmp)
+            cornerRadius > 0f -> roundCorners(bmp, cornerRadius)
+            else -> bmp
+        }
+        if (transformed !== bmp) {
+            cache.put(key, transformed)
+        }
+        return transformed
+    }
+
+    private fun transformCacheKey(url: String, circleCrop: Boolean, cornerRadius: Float): String? {
+        if (circleCrop) return "$url#circle"
+        if (cornerRadius > 0f) return "$url#round:${cornerRadius.toInt()}"
+        return null
     }
 
     private fun circleCrop(src: Bitmap): Bitmap {
@@ -762,6 +902,7 @@ object ImageLoader {
 
     private fun buildImageOkHttpClient(): OkHttpClient {
         val mainClient = NetworkManager.getOkHttpClient()
+        val cacheDir = File(BTellyApplication.instance.cacheDir, "image_http_cache")
         return OkHttpClient.Builder()
             .dns(mainClient.dns)
             .protocols(mainClient.protocols)
@@ -774,6 +915,18 @@ object ImageLoader {
             .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
+            .cache(Cache(cacheDir, 128L * 1024L * 1024L))
+            .addNetworkInterceptor { chain ->
+                val response = chain.proceed(chain.request())
+                if (isBilibiliImageUrl(chain.request().url.toString())) {
+                    response.newBuilder()
+                        .removeHeader("Pragma")
+                        .header("Cache-Control", "public, max-age=604800")
+                        .build()
+                } else {
+                    response
+                }
+            }
             .build()
     }
 

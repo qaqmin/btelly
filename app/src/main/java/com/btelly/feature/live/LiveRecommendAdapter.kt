@@ -8,7 +8,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.btelly.databinding.CellLaneScrollableBinding
 import com.btelly.model.live.LiveRecommendSection
 import com.btelly.model.live.LiveRoomItem
-import com.btelly.core.ui.base.RecyclerViewPoolPrewarmer
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 
 class LiveRecommendAdapter(
@@ -27,27 +26,18 @@ class LiveRecommendAdapter(
         setHasStableIds(true)
     }
 
-    fun setData(list: List<LiveRecommendSection>) {
+    fun setData(list: List<LiveRecommendSection>, onCommitted: (() -> Unit)? = null) {
         items.clear()
         items.addAll(list)
         notifyDataSetChanged()
+        onCommitted?.invoke()
     }
 
-    fun prewarm(parent: RecyclerView) {
-        RecyclerViewPoolPrewarmer.prewarm(
-            recyclerView = parent,
-            adapter = this,
-            count = 2,
-            source = "LiveRecommend.sections"
-        )
-        RecyclerViewPoolPrewarmer.prewarm(
-            recyclerView = parent,
-            adapter = LiveRoomAdapter(onRoomClick),
-            count = 4,
-            source = "LiveRecommend.rooms",
-            pool = sharedRoomViewPool,
-            maxPoolSize = 24
-        )
+    fun addData(list: List<LiveRecommendSection>) {
+        if (list.isEmpty()) return
+        val start = items.size
+        items.addAll(list)
+        notifyItemRangeInserted(start, list.size)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -84,6 +74,7 @@ class LiveRecommendAdapter(
             }
             binding.recyclerView.adapter = roomAdapter
             binding.recyclerView.setRecycledViewPool(sharedViewPool)
+            sharedViewPool.setMaxRecycledViews(roomAdapter.getItemViewType(0), 24)
             binding.recyclerView.isNestedScrollingEnabled = false
             binding.recyclerView.setHasFixedSize(true)
             binding.recyclerView.itemAnimator = null

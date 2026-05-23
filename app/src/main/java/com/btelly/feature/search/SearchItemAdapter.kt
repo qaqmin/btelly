@@ -16,7 +16,6 @@ import com.btelly.R
 import com.btelly.databinding.CellLiveRoomBinding
 import com.btelly.databinding.CellMovieBinding
 import com.btelly.databinding.CellUserBinding
-import com.btelly.databinding.CellVideoLightBinding
 import com.btelly.model.search.SearchItemModel
 import com.btelly.model.search.SearchType
 import com.btelly.core.ui.image.ImageLoader
@@ -25,8 +24,11 @@ import com.btelly.core.common.log.VideoCardPerfLogger
 import com.btelly.core.common.time.TimeUtils
 import com.btelly.core.ui.focus.VideoCardFocusHelper
 import com.btelly.core.ui.focus.tv.TvFocusableAdapter
+import com.btelly.core.ui.video.VideoCardViews
+import com.btelly.core.ui.video.VideoLightCardFactory
 import com.btelly.model.video.Owner
 import com.btelly.model.video.VideoModel
+import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.ui.dialog.VideoCardMenuDialog
 
 data class SearchResultEntry(
@@ -126,7 +128,7 @@ class SearchItemAdapter(
         return when (viewType) {
             VIEW_TYPE_VIDEO -> VideoViewHolder(
                 VideoCardPerfLogger.measureInflate("SearchItemAdapter.light") {
-                    CellVideoLightBinding.inflate(inflater, parent, false)
+                    VideoLightCardFactory.create(parent, source = "SearchItemAdapter.light")
                 }
             )
 
@@ -155,28 +157,29 @@ class SearchItemAdapter(
     }
 
     private inner class VideoViewHolder(
-        private val binding: CellVideoLightBinding
-    ) : RecyclerView.ViewHolder(binding.root) {
+        private val views: VideoCardViews
+    ) : RecyclerView.ViewHolder(views.root) {
 
         private var currentItem: SearchItemModel? = null
 
         init {
-            val coverRadiusPx = binding.imageView.resources.getDimension(R.dimen.px15)
-            binding.imageView.clipToOutline = true
-            binding.imageView.outlineProvider = object : ViewOutlineProvider() {
+            views.imageView.clipToOutline = true
+            views.imageView.outlineProvider = VideoAdapter.VideoViewHolder.coverOutlineProviderFor(views.imageView.resources)
+            views.progressBar.clipToOutline = true
+            views.progressBar.outlineProvider = object : ViewOutlineProvider() {
                 override fun getOutline(view: View, outline: Outline) {
-                    outline.setRoundRect(0, 0, view.width, view.height, coverRadiusPx)
+                    outline.setRoundRect(0, 0, view.width, view.height, view.height / 2f)
                 }
             }
-            bindInteraction(binding.root)
+            bindInteraction(views.root)
         }
 
         fun bind(item: SearchItemModel) {
             currentItem = item
-            binding.textView.text = item.decodedTitle
+            views.textView.text = item.decodedTitle
             val ownerName = item.author.ifBlank { item.uname }
             val publishText = item.pubDate.takeIf { it > 0L }?.let(TimeUtils::formatRelativeTime).orEmpty()
-            binding.textViewOwner.text = buildString {
+            val ownerLine = buildString {
                 if (ownerName.isNotBlank()) {
                     append(ownerName)
                 }
@@ -189,50 +192,49 @@ class SearchItemAdapter(
             }
 
             val playCount = item.play.takeIf { it > 0L } ?: item.online
-            if (playCount > 0L) {
-                binding.iconPlayCount.visibility = View.VISIBLE
-                binding.textPlayCount.visibility = View.VISIBLE
-                binding.textPlayCount.text = NumberUtils.formatCount(playCount)
-            } else {
-                binding.iconPlayCount.visibility = View.GONE
-                binding.textPlayCount.visibility = View.GONE
-            }
-
-            if (item.danmaku > 0L) {
-                binding.iconDanmaku.visibility = View.VISIBLE
-                binding.textDanmakuCount.visibility = View.VISIBLE
-                binding.textDanmakuCount.text = NumberUtils.formatCount(item.danmaku)
-            } else {
-                binding.iconDanmaku.visibility = View.GONE
-                binding.textDanmakuCount.visibility = View.GONE
-            }
 
             val coverUrl = item.pic.ifBlank { item.cover }
             val cachedPortrait = coverUrl in portraitDetectedUrls
             val needPortraitDetect = item.dimension?.isPortrait != true && !cachedPortrait
             if (item.dimension?.isPortrait == true) {
-                binding.imageAvatar.visibility = View.GONE
-                binding.textBadge.text = "竖屏"
-                binding.textBadge.visibility = View.VISIBLE
+                views.ownerRow.bind(
+                    ownerText = ownerLine,
+                    showAvatar = false,
+                    badgeText = "竖屏"
+                )
             } else {
-                binding.imageAvatar.visibility = if (ownerName.isNotBlank()) View.VISIBLE else View.GONE
-                binding.textBadge.visibility = View.GONE
+                views.ownerRow.bind(
+                    ownerText = ownerLine,
+                    showAvatar = ownerName.isNotBlank()
+                )
             }
-            binding.textDuration.text = item.duration
-            binding.progressBar.visibility = View.GONE
-            binding.textChargeBadge.visibility = View.GONE
+            views.progressBar.visibility = View.GONE
+            views.iconHistoryDevice?.visibility = View.GONE
+            views.textHistoryViewTime?.visibility = View.GONE
+            views.coverMetaOverlay.bind(
+                playCountText = if (playCount > 0L) NumberUtils.formatCount(playCount) else "",
+                showPlayCount = playCount > 0L,
+                danmakuText = if (item.danmaku > 0L) NumberUtils.formatCount(item.danmaku) else "",
+                showDanmakuCount = item.danmaku > 0L,
+                durationText = item.duration,
+                showChargeBadge = false,
+                showInteractionBadge = false
+            )
 
             ImageLoader.loadVideoCover(
-                imageView = binding.imageView,
+                imageView = views.imageView,
                 url = coverUrl,
+                deferUntilPreDraw = true,
                 onPortraitDetected = if (needPortraitDetect) { isPortrait ->
                     if (bindingAdapterPosition != RecyclerView.NO_POSITION
                         && currentItem === item && isPortrait
                     ) {
                         portraitDetectedUrls.add(coverUrl)
-                        binding.imageAvatar.visibility = View.GONE
-                        binding.textBadge.text = "竖屏"
-                        binding.textBadge.visibility = View.VISIBLE
+                        views.ownerRow.bind(
+                            ownerText = ownerLine,
+                            showAvatar = false,
+                            badgeText = "竖屏"
+                        )
                     }
                 } else null
             )

@@ -27,6 +27,7 @@ import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.log.PagePerfLogger
 import com.btelly.core.ui.navigation.navigateBackFromUi
 import com.btelly.core.ui.refresh.SwipeRefreshHelper
+import com.btelly.core.ui.render.FirstScreenRenderer
 import com.btelly.core.common.ext.toast
 import com.btelly.network.session.NetworkSessionGateway
 import kotlinx.coroutines.flow.collectLatest
@@ -196,9 +197,35 @@ class LiveListFragment : BaseFragment<FragmentLiveListBinding>(), LiveTabPage {
                     )
                     swipeRefreshLayout?.isRefreshing = false
                     val applyStartMs = PagePerfLogger.now()
-                    adapter.setData(rooms)
-                    PagePerfLogger.mark(pageTag(), "adapter_apply", applyStartMs, "items=${adapter.itemCount}")
-                    logLiveListFirstDraw(rooms.size)
+                    if (currentOpenStartMs > 0L || adapter.itemCount == 0) {
+                        FirstScreenRenderer.render(
+                            recyclerView = binding.recyclerView,
+                            page = pageTag(),
+                            items = rooms,
+                            startMs = currentOpenStartMs,
+                            source = "first_screen",
+                            spanCount = 4,
+                            setItems = { firstBatch, onCommitted ->
+                                adapter.setData(firstBatch, onCommitted)
+                            },
+                            appendItems = { remaining ->
+                                adapter.addData(remaining)
+                            },
+                            onFirstBatchCommitted = {
+                                PagePerfLogger.mark(pageTag(), "adapter_apply", applyStartMs, "items=${adapter.itemCount}")
+                                tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
+                                currentOpenStartMs = 0L
+                            },
+                            onAppendRest = {
+                                tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
+                            }
+                        )
+                    } else {
+                        adapter.setData(rooms) {
+                            PagePerfLogger.mark(pageTag(), "adapter_apply", applyStartMs, "items=${adapter.itemCount}")
+                            tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
+                        }
+                    }
                     if (isFirstPageLoad && rooms.isNotEmpty()) {
                         isFirstPageLoad = false
                         binding.recyclerView.scrollToPosition(0)
@@ -311,12 +338,12 @@ class LiveListFragment : BaseFragment<FragmentLiveListBinding>(), LiveTabPage {
     private fun logLiveListFirstDraw(itemCount: Int) {
         val startMs = currentOpenStartMs
         if (startMs <= 0L || itemCount <= 0) return
-        PagePerfLogger.logRecyclerPreDraw(
+        FirstScreenRenderer.logFirstFrame(
             recyclerView = binding.recyclerView,
             page = pageTag(),
-            event = "first_cards_draw",
             startMs = startMs,
-            itemCount = itemCount
+            itemCount = itemCount,
+            source = "visible"
         )
         currentOpenStartMs = 0L
     }

@@ -4,15 +4,12 @@ import android.annotation.SuppressLint
 import android.graphics.Outline
 import android.text.TextUtils
 import android.view.KeyEvent
-import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import androidx.core.content.ContextCompat
 import com.btelly.R
-import com.btelly.databinding.CellVideoBinding
-import com.btelly.databinding.CellVideoLightBinding
 import com.btelly.model.video.Dimension
 import com.btelly.model.video.VideoModel
 import com.btelly.core.ui.base.BaseVideoAdapter
@@ -23,6 +20,7 @@ import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.log.VideoCardPerfLogger
 import com.btelly.core.common.time.TimeUtils
 import com.btelly.core.ui.focus.VideoCardFocusHelper
+import com.btelly.core.ui.video.VideoLightCardFactory
 import com.btelly.core.ui.video.VideoCardViews
 import com.btelly.ui.dialog.VideoCardMenuDialog
 
@@ -114,11 +112,11 @@ class VideoAdapter(
     override fun onCreateContentViewHolder(parent: ViewGroup, viewType: Int): VideoViewHolder {
         val views = if (displayStyle == DisplayStyle.HISTORY) {
             VideoCardPerfLogger.measureInflate("VideoAdapter.history") {
-                VideoCardViews.from(CellVideoBinding.inflate(LayoutInflater.from(parent.context), parent, false))
+                VideoLightCardFactory.create(parent, source = "VideoAdapter.history")
             }
         } else {
             VideoCardPerfLogger.measureInflate("VideoAdapter.light") {
-                VideoCardViews.from(CellVideoLightBinding.inflate(LayoutInflater.from(parent.context), parent, false))
+                VideoLightCardFactory.create(parent, source = "VideoAdapter.light")
             }
         }
         itemWidthPx?.let { width ->
@@ -158,7 +156,14 @@ class VideoAdapter(
 
     override fun onBindContentViewHolder(holder: VideoViewHolder, position: Int) {
         val video = getItem(position) ?: return
-        holder.bind(video, video.aid == currentPlayingAid)
+        val source = if (displayStyle == DisplayStyle.HISTORY) {
+            "VideoAdapter.history"
+        } else {
+            "VideoAdapter.light"
+        }
+        VideoCardPerfLogger.measureBind(source) {
+            holder.bind(video, video.aid == currentPlayingAid)
+        }
     }
 
     class VideoViewHolder(
@@ -178,12 +183,7 @@ class VideoAdapter(
         private var currentVideo: VideoModel? = null
         private var titleInPlayingMode = false
         private var titleColor = 0
-        private val defaultTextColor: Int by lazy {
-            val ta = views.root.context.obtainStyledAttributes(intArrayOf(android.R.attr.textColorPrimary))
-            val color = ta.getColor(0, 0)
-            ta.recycle()
-            color
-        }
+        private val defaultTitleColor: Int = ContextCompat.getColor(views.root.context, R.color.textColor)
 
         companion object {
             // 进度条永远是圆角胶囊，所有 holder 共享一个 ViewOutlineProvider 实例，
@@ -314,18 +314,8 @@ class VideoAdapter(
                 setTitleLines(1)
 
                 val split = Runnable {
-                    val layout = views.textView.layout ?: return@Runnable
-                    if (layout.lineCount > 0) {
-                        val ellipsisCount = layout.getEllipsisCount(0)
-                        if (ellipsisCount > 0) {
-                            val visibleEnd = layout.getEllipsisStart(0)
-                            views.textView.text = title.substring(0, visibleEnd)
-                            views.textOverflow.text = title.substring(visibleEnd)
-                            views.textOverflow.visibility = View.VISIBLE
-                        } else {
-                            views.textOverflow.visibility = View.GONE
-                        }
-                    }
+                    val visibleEnd = views.textView.firstLineVisibleEnd(title)
+                    applyTitleOverflow(title, visibleEnd)
                 }
                 splitRunnable = split
                 views.textView.post(split)
@@ -335,7 +325,7 @@ class VideoAdapter(
                     views.iconPlaying.visibility = View.GONE
                     ImageLoader.clear(views.iconPlaying)
                 }
-                setTitleColor(defaultTextColor)
+                setTitleColor(defaultTitleColor)
                 views.textView.text = title
                 setTitleLines(2)
                 if (views.textOverflow.visibility != View.GONE) {
@@ -355,56 +345,47 @@ class VideoAdapter(
             ImageLoader.loadVideoCover(
                 imageView = views.imageView,
                 url = coverUrl,
+                deferUntilPreDraw = true,
                 onPortraitDetected = if (needPortraitDetect) { isPortrait ->
                     if (bindingAdapterPosition != androidx.recyclerview.widget.RecyclerView.NO_POSITION
                         && currentVideo === video && isPortrait
                     ) {
                         if (video.bvid.isNotBlank()) portraitDetectedBvids.add(video.bvid)
-                        views.imageAvatar.visibility = View.GONE
-                        applyBadge(video.copy(dimension = Dimension(width = 1, height = 2)))
+                        val portraitVideo = video.copy(dimension = Dimension(width = 1, height = 2))
+                        views.ownerRow.bind(
+                            ownerText = buildOwnerLine(portraitVideo),
+                            showAvatar = false,
+                            badgeText = badgeTextFor(portraitVideo)
+                        )
                     }
                 } else null
             )
         }
 
         private fun bindDefault(video: VideoModel) {
-            views.iconPlayCount.visibility = View.VISIBLE
-            views.textPlayCount.visibility = View.VISIBLE
-            views.iconDanmaku.visibility = View.VISIBLE
-            views.textDanmakuCount.visibility = View.VISIBLE
             views.textHistoryViewTime?.visibility = View.GONE
             views.iconHistoryDevice?.visibility = View.GONE
 
             val ownerName = video.authorName
             val publishLabel = formatPublishTime(video)
-            views.textViewOwner.text = buildString {
-                if (ownerName.isNotBlank()) {
-                    append(ownerName)
-                }
-                if (publishLabel.isNotBlank()) {
-                    if (isNotEmpty()) {
-                        append(" · ")
-                    }
-                    append(publishLabel)
-                }
-            }
-            if (video.isPortrait) {
-                views.imageAvatar.visibility = View.GONE
-            } else {
-                views.imageAvatar.visibility = if (ownerName.isNotBlank()) View.VISIBLE else View.GONE
-            }
-            applyBadge(video)
+            val ownerLine = buildOwnerLine(ownerName, publishLabel)
+            views.ownerRow.bind(
+                ownerText = ownerLine,
+                showAvatar = ownerName.isNotBlank() && !video.isPortrait,
+                badgeText = badgeTextFor(video)
+            )
 
             val duration = video.durationValue
             val progress = video.historyProgress.coerceAtLeast(0L)
+            val durationText: String
             if (duration > 0 && progress > 0) {
                 views.progressBar.visibility = View.VISIBLE
                 views.progressBar.max = duration.toInt()
                 views.progressBar.progress = progress.coerceAtMost(duration).toInt()
-                if (duration > 3 && progress >= duration - 3) {
-                    views.textDuration.text = "已看完"
+                durationText = if (duration > 3 && progress >= duration - 3) {
+                    "已看完"
                 } else {
-                    views.textDuration.text = views.root.context.getString(
+                    views.root.context.getString(
                         R.string.video_watch_progress_format,
                         NumberUtils.formatDuration(progress),
                         NumberUtils.formatDuration(duration)
@@ -412,24 +393,26 @@ class VideoAdapter(
                 }
             } else {
                 views.progressBar.visibility = View.GONE
-                views.textDuration.text = NumberUtils.formatDuration(duration.coerceAtLeast(0L))
+                durationText = NumberUtils.formatDuration(duration.coerceAtLeast(0L))
             }
 
-            views.textPlayCount.text = NumberUtils.formatCount(video.viewCount)
-            views.textDanmakuCount.text = NumberUtils.formatCount(video.danmakuCount)
-            views.textDuration.visibility = if (views.textDuration.text.isNullOrBlank()) View.GONE else View.VISIBLE
-            views.textChargeBadge.visibility = if (video.isChargingExclusive) View.VISIBLE else View.GONE
-            views.textInteractionBadge.visibility = if (video.isSteinsGate) View.VISIBLE else View.GONE
+            views.coverMetaOverlay.bind(
+                playCountText = NumberUtils.formatCount(video.viewCount),
+                showPlayCount = true,
+                danmakuText = NumberUtils.formatCount(video.danmakuCount),
+                showDanmakuCount = true,
+                durationText = durationText,
+                showChargeBadge = video.isChargingExclusive,
+                showInteractionBadge = video.isSteinsGate
+            )
         }
 
         private fun bindHistory(video: VideoModel) {
-            views.iconPlayCount.visibility = View.GONE
-            views.textPlayCount.visibility = View.GONE
-            views.iconDanmaku.visibility = View.GONE
-            views.textDanmakuCount.visibility = View.GONE
             val ownerName = video.authorName
-            views.imageAvatar.visibility = if (ownerName.isNotBlank()) View.VISIBLE else View.GONE
-            views.textBadge.visibility = View.GONE
+            views.ownerRow.bind(
+                ownerText = ownerName,
+                showAvatar = ownerName.isNotBlank()
+            )
 
             val duration = video.durationValue
             val progress = video.historyProgress.coerceAtLeast(0)
@@ -448,14 +431,16 @@ class VideoAdapter(
             } else {
                 video.historyBadge
             }
-            views.textDuration.text = durationText
-            views.textDuration.visibility = if (durationText.isNotBlank()) View.VISIBLE else View.GONE
-            views.textViewOwner.text = ownerName
             views.textHistoryViewTime?.text = formatHistoryTime(video.historyViewAt)
             views.textHistoryViewTime?.visibility = View.VISIBLE
             applyHistoryDeviceIcon(video.historyDevice)
-            views.textChargeBadge.visibility = if (video.isChargingExclusive) View.VISIBLE else View.GONE
-            views.textInteractionBadge.visibility = if (video.isSteinsGate) View.VISIBLE else View.GONE
+            views.coverMetaOverlay.bind(
+                showPlayCount = false,
+                showDanmakuCount = false,
+                durationText = durationText,
+                showChargeBadge = video.isChargingExclusive,
+                showInteractionBadge = video.isSteinsGate
+            )
         }
 
         private fun applyHistoryDeviceIcon(dt: Int) {
@@ -471,16 +456,26 @@ class VideoAdapter(
             }
         }
 
-        private fun applyBadge(video: VideoModel) {
+        private fun buildOwnerLine(video: VideoModel): String =
+            buildOwnerLine(video.authorName, formatPublishTime(video))
+
+        private fun buildOwnerLine(ownerName: String, publishLabel: String): String = buildString {
+            if (ownerName.isNotBlank()) {
+                append(ownerName)
+            }
+            if (publishLabel.isNotBlank()) {
+                if (isNotEmpty()) {
+                    append(" · ")
+                }
+                append(publishLabel)
+            }
+        }
+
+        private fun badgeTextFor(video: VideoModel): String {
             val parts = mutableListOf<String>()
             if (video.isFollowed) parts.add("已关注")
             if (video.isPortrait) parts.add("竖屏")
-            if (parts.isEmpty()) {
-                views.textBadge.visibility = View.GONE
-            } else {
-                views.textBadge.text = parts.joinToString("|")
-                views.textBadge.visibility = View.VISIBLE
-            }
+            return parts.joinToString("|")
         }
 
         private fun resolveDisplayTitle(video: VideoModel): String {
@@ -509,7 +504,6 @@ class VideoAdapter(
         }
 
         private fun setTitleColor(color: Int) {
-            if (titleColor == color) return
             titleColor = color
             views.textView.setTextColor(color)
             views.textOverflow.setTextColor(color)
@@ -519,6 +513,16 @@ class VideoAdapter(
             if (views.textView.minLines == lines && views.textView.maxLines == lines) return
             views.textView.minLines = lines
             views.textView.maxLines = lines
+        }
+
+        private fun applyTitleOverflow(title: String, visibleEnd: Int) {
+            if (visibleEnd in 1 until title.length) {
+                views.textView.text = title.substring(0, visibleEnd)
+                views.textOverflow.text = title.substring(visibleEnd)
+                views.textOverflow.visibility = View.VISIBLE
+            } else {
+                views.textOverflow.visibility = View.GONE
+            }
         }
     }
 }
