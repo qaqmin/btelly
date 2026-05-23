@@ -25,6 +25,12 @@ object VideoCodecSupport {
         VideoCodecEnum.AVC
     )
 
+    private val softwareFallbackPriorityOrder = listOf(
+        VideoCodecEnum.AVC,
+        VideoCodecEnum.HEVC,
+        VideoCodecEnum.AV1
+    )
+
     fun getHardwareSupportedCodecs(): Set<VideoCodecEnum> {
         cachedHardwareCodecs?.let { return it }
         val result = runCatching {
@@ -60,17 +66,21 @@ object VideoCodecSupport {
             return emptyList()
         }
 
-        if (preferredCodec != null && preferredCodec in uniqueAvailable) {
-            val rest = uniqueAvailable.filterTo(linkedSetOf()) { it != preferredCodec }
-            return listOf(preferredCodec) + orderByHardwareThenPriority(rest, hardwareSupportedCodecs)
-        }
+        val hardwareSupported = hardwareSupportedCodecs.toSet()
+        val hardwarePreferredCodec = preferredCodec
+            ?.takeIf { it in uniqueAvailable && it in hardwareSupported }
 
-        return orderByHardwareThenPriority(uniqueAvailable, hardwareSupportedCodecs)
+        return orderByHardwareThenPriority(
+            codecs = uniqueAvailable,
+            hardwareSupportedCodecs = hardwareSupported,
+            preferredHardwareCodec = hardwarePreferredCodec
+        )
     }
 
     private fun orderByHardwareThenPriority(
         codecs: Set<VideoCodecEnum>,
-        hardwareSupportedCodecs: Collection<VideoCodecEnum>
+        hardwareSupportedCodecs: Collection<VideoCodecEnum>,
+        preferredHardwareCodec: VideoCodecEnum?
     ): List<VideoCodecEnum> {
         if (codecs.isEmpty()) return emptyList()
 
@@ -79,28 +89,29 @@ object VideoCodecSupport {
         val softwareFallback = codecs.filterTo(linkedSetOf()) { it !in hardwareAvailable }
 
         return if (hardwareAvailable.isNotEmpty()) {
-            orderWithinTier(hardwareAvailable, null) +
-                orderWithinTier(softwareFallback, null)
+            orderWithinTier(hardwareAvailable, preferredHardwareCodec, codecPriorityOrder) +
+                orderWithinTier(softwareFallback, null, softwareFallbackPriorityOrder)
         } else {
-            orderWithinTier(codecs, null)
+            orderWithinTier(codecs, null, softwareFallbackPriorityOrder)
         }
     }
 
     private fun orderWithinTier(
         availableCodecs: Collection<VideoCodecEnum>,
-        preferredCodec: VideoCodecEnum?
+        preferredCodec: VideoCodecEnum?,
+        priorityOrder: List<VideoCodecEnum>
     ): List<VideoCodecEnum> {
         val available = availableCodecs.toSet()
         return buildList {
             preferredCodec
                 ?.takeIf { it in available }
                 ?.let(::add)
-            codecPriorityOrder
+            priorityOrder
                 .filter { it in available && it !in this }
                 .forEach(::add)
             available
                 .filter { it !in this }
-                .sortedBy(::codecPriority)
+                .sortedBy { codecPriority(it, priorityOrder) }
                 .forEach(::add)
         }
     }
@@ -131,8 +142,8 @@ object VideoCodecSupport {
         }
     }
 
-    private fun codecPriority(codec: VideoCodecEnum): Int {
-        return codecPriorityOrder.indexOf(codec).takeIf { it >= 0 } ?: Int.MAX_VALUE
+    private fun codecPriority(codec: VideoCodecEnum, priorityOrder: List<VideoCodecEnum>): Int {
+        return priorityOrder.indexOf(codec).takeIf { it >= 0 } ?: Int.MAX_VALUE
     }
 
     fun isHdrSupported(context: Context? = null): Boolean {

@@ -19,9 +19,9 @@ class VideoCodecSupportTest {
     }
 
     @Test
-    fun honorsPreferredCodecEvenWithoutHardwareSupport() {
+    fun usesHardwareCodecWhenPreferredCodecIsSoftwareOnly() {
         assertEquals(
-            listOf(VideoCodecEnum.HEVC, VideoCodecEnum.AV1, VideoCodecEnum.AVC),
+            listOf(VideoCodecEnum.AV1, VideoCodecEnum.AVC, VideoCodecEnum.HEVC),
             VideoCodecSupport.orderCandidates(
                 availableCodecs = listOf(VideoCodecEnum.AVC, VideoCodecEnum.HEVC, VideoCodecEnum.AV1),
                 preferredCodec = VideoCodecEnum.HEVC,
@@ -31,21 +31,33 @@ class VideoCodecSupportTest {
     }
 
     @Test
-    fun honorsPreferredCodecEvenWithoutHardwareSupport_av1() {
+    fun fallsBackToAvcWhenHevcHasNoHardwareSupport() {
         assertEquals(
-            listOf(VideoCodecEnum.AV1, VideoCodecEnum.HEVC, VideoCodecEnum.AVC),
+            listOf(VideoCodecEnum.AVC, VideoCodecEnum.HEVC),
             VideoCodecSupport.orderCandidates(
-                availableCodecs = listOf(VideoCodecEnum.AVC, VideoCodecEnum.HEVC, VideoCodecEnum.AV1),
-                preferredCodec = VideoCodecEnum.AV1,
-                hardwareSupportedCodecs = listOf(VideoCodecEnum.AVC, VideoCodecEnum.HEVC)
+                availableCodecs = listOf(VideoCodecEnum.AVC, VideoCodecEnum.HEVC),
+                preferredCodec = VideoCodecEnum.HEVC,
+                hardwareSupportedCodecs = listOf(VideoCodecEnum.AVC)
             )
         )
     }
 
     @Test
-    fun honorsPreferredCodecWhenNoHardwareSupportExists() {
+    fun prefersAvcWhenNoHardwareSupportExists() {
         assertEquals(
-            listOf(VideoCodecEnum.AV1, VideoCodecEnum.HEVC),
+            listOf(VideoCodecEnum.AVC, VideoCodecEnum.HEVC, VideoCodecEnum.AV1),
+            VideoCodecSupport.orderCandidates(
+                availableCodecs = listOf(VideoCodecEnum.HEVC, VideoCodecEnum.AV1, VideoCodecEnum.AVC),
+                preferredCodec = VideoCodecEnum.HEVC,
+                hardwareSupportedCodecs = emptyList()
+            )
+        )
+    }
+
+    @Test
+    fun keepsSoftwareHevcAheadOfAv1WhenAvcIsUnavailable() {
+        assertEquals(
+            listOf(VideoCodecEnum.HEVC, VideoCodecEnum.AV1),
             VideoCodecSupport.orderCandidates(
                 availableCodecs = listOf(VideoCodecEnum.HEVC, VideoCodecEnum.AV1),
                 preferredCodec = VideoCodecEnum.AV1,
