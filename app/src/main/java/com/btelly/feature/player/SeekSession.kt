@@ -188,10 +188,10 @@ class SeekSession(
     private fun getIntervalMs(): Long {
         val elapsed = SystemClock.uptimeMillis() - startMs
         return when {
-            elapsed < 1000L -> 200L
-            elapsed < 2000L -> 100L
-            elapsed < 3000L -> 50L
-            else -> 25L
+            elapsed < 1000L -> 100L
+            elapsed < 2000L -> 50L
+            elapsed < 3000L -> 25L
+            else -> 12L
         }
     }
 
