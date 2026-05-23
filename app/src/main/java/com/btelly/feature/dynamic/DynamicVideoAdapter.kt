@@ -2,14 +2,11 @@
 
 package com.btelly.feature.dynamic
 
-import android.graphics.Outline
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.ViewOutlineProvider
-import com.btelly.R
 import androidx.recyclerview.widget.RecyclerView.NO_POSITION
 import com.btelly.databinding.CellVideoLightBinding
 import com.btelly.model.video.VideoModel
@@ -20,6 +17,7 @@ import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.common.log.VideoCardPerfLogger
 import com.btelly.core.common.time.TimeUtils
 import com.btelly.core.ui.focus.VideoCardFocusHelper
+import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.ui.dialog.VideoCardMenuDialog
 
 class DynamicVideoAdapter(
@@ -106,13 +104,9 @@ class DynamicVideoAdapter(
         }
 
         init {
-            val coverRadiusPx = binding.imageView.resources.getDimension(R.dimen.px15)
             binding.imageView.clipToOutline = true
-            binding.imageView.outlineProvider = object : ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: Outline) {
-                    outline.setRoundRect(0, 0, view.width, view.height, coverRadiusPx)
-                }
-            }
+            binding.imageView.outlineProvider =
+                VideoAdapter.VideoViewHolder.coverOutlineProviderFor(binding.imageView.resources)
             binding.root.setOnClickListener {
                 if (longPressTriggered) {
                     longPressTriggered = false

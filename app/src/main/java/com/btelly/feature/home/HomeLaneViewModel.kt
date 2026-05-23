@@ -2,6 +2,8 @@ package com.btelly.feature.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.os.SystemClock
+import com.btelly.core.common.log.AppLog
 import com.btelly.model.lane.HomeLaneSection
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,6 +15,10 @@ class HomeLaneViewModel(
     private val repository: HomeLaneFeedRepository
 ) : ViewModel() {
 
+    companion object {
+        private const val TAG = "HomeLaneVM"
+    }
+
     private val _uiState = MutableStateFlow(FeedUiState<HomeLaneSection>())
     val uiState: StateFlow<FeedUiState<HomeLaneSection>> = _uiState.asStateFlow()
 
@@ -23,11 +29,13 @@ class HomeLaneViewModel(
         if (hasLoadedInitial) return
         hasLoadedInitial = true
         viewModelScope.launch {
+            val startMs = SystemClock.elapsedRealtime()
             // cache-then-network：先把磁盘缓存（最长 14 天）打到屏幕上，避免 fragment 重建
             // 后又得空白等几百 KB 的 getHomeLane 接口；接着再发起网络请求覆盖。
             val cached = repository.readCachedFeed(type)
             val hasCache = cached.items.isNotEmpty()
             if (hasCache) {
+                AppLog.i(TAG, "loadInitial cache_emit type=$type elapsed=${SystemClock.elapsedRealtime() - startMs}ms count=${cached.items.size}")
                 _uiState.value = FeedUiState(
                     items = cached.items,
                     source = FeedSource.CACHE,
@@ -81,11 +89,16 @@ class HomeLaneViewModel(
 
         repository.loadNetworkPage(type = type, cursor = requestCursor, isRefresh = replace)
             .onSuccess { page ->
+                val mergeStartMs = SystemClock.elapsedRealtime()
                 val mergedItems = if (replace) {
                     page.sections
                 } else {
                     mergeSections(current.items, page.sections)
                 }
+                AppLog.i(
+                    TAG,
+                    "loadPage success type=$type replace=$replace cursor=$requestCursor merge=${SystemClock.elapsedRealtime() - mergeStartMs}ms sections=${page.sections.size} merged=${mergedItems.size}"
+                )
                 cursor = page.nextCursor
                 _uiState.value = FeedUiState(
                     items = mergedItems,

@@ -213,6 +213,10 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
                 return true
             }
         })
+        // 壳层已经完成 inflate、导航高亮和背景选择后，启动图标就不再承担信息展示。
+        // 后续首屏数据加载只影响内容区域，不再延长 bg_splash 的图标停留时间。
+        revealStartupShell("shell_initialized")
+        (application as? BTellyApplication)?.scheduleStartupFirstPagePreload(delayMillis = 0L)
         binding.root.post {
             AppLog.i(STARTUP_TAG, "MainActivity first root post elapsed=${SystemClock.elapsedRealtime() - activityCreateStartMs}ms")
             revealStartupShell("first_root_post")

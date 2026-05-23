@@ -22,7 +22,6 @@ import com.btelly.ui.adapter.HistoryVideoAdapter
 import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.ui.base.BaseListFragment
-import com.btelly.core.ui.base.RecyclerViewPoolPrewarmer
 import com.btelly.core.common.cache.FileCacheManager
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.common.content.ContentFilter
@@ -83,6 +82,10 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     private var latestRequestStartMs = 0L
     private var cacheRestoreCompleted = false
     private var pendingLoadAfterCacheRestore = false
+    private var cacheRestoreStarted = false
+    private var lastTabSelectedAtMs = 0L
+    private var lastRenderedHistorySignature = ""
+    private var lastRenderedLaterSignature = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -147,14 +150,6 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         binding.recyclerView.layoutManager = layoutManager
         binding.recyclerView.adapter = historyAdapter ?: videoAdapter
         binding.recyclerView.setRecycledViewPool(BaseListFragment.sharedVideoPool)
-        (historyAdapter ?: videoAdapter)?.let { adapter ->
-            RecyclerViewPoolPrewarmer.prewarm(
-                recyclerView = binding.recyclerView,
-                adapter = adapter,
-                count = 8,
-                source = "${pageTag()}.initial"
-            )
-        }
         binding.recyclerView.setHasFixedSize(true)
         binding.emptyContainer.visibility = View.GONE
         binding.progressBar.visibility = View.GONE
@@ -196,6 +191,11 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     }
 
     override fun initData() {
+        if (cacheRestoreStarted) {
+            PagePerfLogger.markNow(pageTag(), "skip_duplicate_initData")
+            return
+        }
+        cacheRestoreStarted = true
         lastKnownLoggedIn = viewModel.isLoggedIn()
         AppLog.d("MePerf", "MeListFragment.initData: type=$type, start")
         viewLifecycleOwner.lifecycleScope.launch {
@@ -363,6 +363,11 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
             latestRequestStartMs,
             "raw=${videos.size} page=$currentPage"
         )
+        val rawSignature = historyListSignature(videos)
+        if (rawSignature == lastRenderedHistorySignature && (historyAdapter?.contentCount() ?: 0) > 0) {
+            PagePerfLogger.markNow(pageTag(), "skip_duplicate_payload", "raw=${videos.size}")
+            return
+        }
         swipeRefreshLayout?.isRefreshing = false
         val adapter = historyAdapter ?: return
         val ctx = context ?: return
@@ -385,6 +390,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
             bindStartMs,
             "raw=${videos.size} filtered=${filtered.size}"
         )
+        lastRenderedHistorySignature = rawSignature
         val shouldRestoreFocus = pendingHistoryReturnRestore && filtered.isNotEmpty()
         val shouldScrollToTop = pendingHistoryScrollToTop && filtered.isNotEmpty()
         val applyStartMs = PagePerfLogger.now()
@@ -425,6 +431,11 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
             latestRequestStartMs,
             "raw=${videos.size}"
         )
+        val rawSignature = videoListSignature(videos)
+        if (rawSignature == lastRenderedLaterSignature && (videoAdapter?.contentCount() ?: 0) > 0) {
+            PagePerfLogger.markNow(pageTag(), "skip_duplicate_payload", "raw=${videos.size}")
+            return
+        }
         swipeRefreshLayout?.isRefreshing = false
         val adapter = videoAdapter ?: return
         val ctx = context ?: return
@@ -437,6 +448,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
             bindStartMs,
             "raw=${videos.size} filtered=${filtered.size}"
         )
+        lastRenderedLaterSignature = rawSignature
         val applyStartMs = PagePerfLogger.now()
         adapter.setData(filtered) {
             PagePerfLogger.mark(
@@ -459,6 +471,20 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
             return false
         }
         return latestRequestStartMs <= 0L || viewModel.loading.value
+    }
+
+    private fun historyListSignature(videos: List<HistoryVideoModel>): String {
+        if (videos.isEmpty()) return "empty"
+        val first = videos.first()
+        val last = videos.last()
+        return "${videos.size}:${first.bvid}:${first.title.hashCode()}:${last.bvid}:${last.title.hashCode()}:${last.viewAt}"
+    }
+
+    private fun videoListSignature(videos: List<VideoModel>): String {
+        if (videos.isEmpty()) return "empty"
+        val first = videos.first()
+        val last = videos.last()
+        return "${videos.size}:${first.bvid.ifBlank { first.aid.toString() }}:${first.title.hashCode()}:${last.bvid.ifBlank { last.aid.toString() }}:${last.title.hashCode()}"
     }
 
     private fun installTvFocusControllerIfNeeded() {
@@ -539,8 +565,14 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         if (!isAdded || view == null || viewModel.loading.value) {
             return
         }
-        currentOpenStartMs = PagePerfLogger.now()
+        val now = PagePerfLogger.now()
         val hasContent = hasContentItems()
+        if (!hasContent && now - lastTabSelectedAtMs < 250L) {
+            PagePerfLogger.markNow(pageTag(), "skip_duplicate_tab_selected")
+            return
+        }
+        lastTabSelectedAtMs = now
+        currentOpenStartMs = now
         PagePerfLogger.markNow(pageTag(), "tab_selected", "hasContent=$hasContent")
         if (hasContent) {
             logMeFirstDraw(currentContentCount(), source = "visible_cache")

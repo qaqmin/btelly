@@ -80,6 +80,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
     private var currentOpenStartMs = 0L
     private var latestVideoRequestStartMs = 0L
     private var latestInitialRequestStartMs = 0L
+    private var lastRenderedVideoSignature: String = ""
 
     override fun getViewBinding(
         inflater: LayoutInflater,
@@ -149,8 +150,8 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
         RecyclerViewPoolPrewarmer.prewarm(
             recyclerView = binding.recyclerViewRight,
             adapter = videoAdapter,
-            count = 9,
-            source = "Dynamic.initial"
+            source = "Dynamic.initial",
+            plan = RecyclerViewPoolPrewarmer.Plan.DynamicFeed
         )
         binding.recyclerViewRight.setOnKeyListener { _, _, _ ->
             false
@@ -284,9 +285,6 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
                 viewModel.followingList.collectLatest { list ->
                     AppLog.i(TAG, "DYN D7 followingList collected items=${list.size}")
                     upAdapter.setData(list)
-                    if (list.isNotEmpty()) {
-                        upAdapter.setAvatarLoadsEnabled(true)
-                    }
                     if (list.isNotEmpty() && currentUpId == 0L) {
                         currentUpId = list[0].mid
                         upAdapter.setSelectedPosition(0)
@@ -304,11 +302,17 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
                         PagePerfLogger.markNow("Dynamic", "skip_empty_initial_videos")
                         return@collectLatest
                     }
+                    val rawSignature = videoListSignature(rawVideos, page)
+                    if (rawSignature == lastRenderedVideoSignature && videoAdapter.contentCount() > 0) {
+                        PagePerfLogger.markNow("Dynamic", "skip_duplicate_video_payload", "items=${rawVideos.size} page=$page")
+                        return@collectLatest
+                    }
                     val filterStartMs = SystemClock.elapsedRealtime()
                     val appContext = requireContext().applicationContext
                     val (videos, filterThread) = withContext(Dispatchers.Default) {
                         ContentFilter.filterVideos(appContext, rawVideos) to Thread.currentThread().name
                     }
+                    lastRenderedVideoSignature = rawSignature
                     AppLog.i(TAG, "DYN D6 filterVideos end elapsed=${SystemClock.elapsedRealtime() - filterStartMs}ms raw=${rawVideos.size} filtered=${videos.size} filterThread=$filterThread")
                     PagePerfLogger.mark(
                         "Dynamic",
@@ -722,6 +726,9 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
     }
 
     private fun logDynamicFirstDraw(page: Int, itemCount: Int) {
+        if (page > 1) {
+            return
+        }
         val startMs = currentOpenStartMs.takeIf { it > 0L } ?: latestVideoRequestStartMs
         if (startMs <= 0L || itemCount <= 0) return
         PagePerfLogger.logRecyclerPreDraw(
@@ -739,6 +746,26 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
         )
         if (page <= 1) {
             currentOpenStartMs = 0L
+        }
+    }
+
+    private fun videoListSignature(videos: List<VideoModel>, page: Int): String {
+        if (videos.isEmpty()) return "p$page:empty"
+        val first = videos.first()
+        val last = videos.last()
+        return buildString {
+            append("p=")
+            append(page)
+            append(";n=")
+            append(videos.size)
+            append(";f=")
+            append(first.bvid.ifBlank { first.aid.toString() })
+            append(';')
+            append(first.title.hashCode())
+            append(";l=")
+            append(last.bvid.ifBlank { last.aid.toString() })
+            append(';')
+            append(last.title.hashCode())
         }
     }
 

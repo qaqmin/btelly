@@ -30,6 +30,7 @@ import org.koin.androidx.viewmodel.ext.android.viewModel
 class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveTabPage {
     companion object {
         private const val CACHE_TTL_MS = 10 * 60 * 1000L
+        private const val INITIAL_SECTION_BATCH_SIZE = 5
 
         fun newInstance(): LiveRecommendFragment = LiveRecommendFragment()
     }
@@ -62,13 +63,14 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
             onExplicitRefresh()
         }
         binding.recyclerView.setHasFixedSize(true)
+        adapter.prewarm(binding.recyclerView)
     }
 
     override fun initData() {
         currentOpenStartMs = PagePerfLogger.now()
         PagePerfLogger.markNow("LiveRecommend", "initData_start")
-        AppLog.d("LivePerf", "LiveRecommendFragment.initData: 触发加载推荐")
-        viewModel.loadData()
+        AppLog.d("LivePerf", "LiveRecommendFragment.initData: 触发加载最新推荐")
+        viewModel.loadData(forceRefresh = true)
     }
 
     override fun initObserver() {
@@ -97,15 +99,7 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
                     )
                     AppLog.d("LivePerf", "LiveRecommendFragment: buildSections完成, section数=${sections.size}, 耗时=${System.currentTimeMillis() - t0}ms")
 
-                    val applyStartMs = PagePerfLogger.now()
-                    adapter.setData(sections)
-                    PagePerfLogger.mark(
-                        "LiveRecommend",
-                        "adapter_apply",
-                        applyStartMs,
-                        "sections=${sections.size}"
-                    )
-                    logLiveRecommendFirstDraw(sections.size)
+                    applySections(sections)
                     AppLog.d("LivePerf", "LiveRecommendFragment: setData完成, 耗时=${System.currentTimeMillis() - t0}ms")
                 }
             }
@@ -209,6 +203,51 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
             itemCount = itemCount
         )
         currentOpenStartMs = 0L
+    }
+
+    private fun applySections(sections: List<LiveRecommendSection>) {
+        val shouldBatch = adapter.itemCount == 0 && sections.size > INITIAL_SECTION_BATCH_SIZE
+        if (!shouldBatch) {
+            val applyStartMs = PagePerfLogger.now()
+            adapter.setData(sections)
+            PagePerfLogger.mark(
+                "LiveRecommend",
+                "adapter_apply",
+                applyStartMs,
+                "sections=${sections.size}"
+            )
+            logLiveRecommendFirstDraw(sections.size)
+            return
+        }
+
+        val firstBatch = sections.take(INITIAL_SECTION_BATCH_SIZE)
+        val firstStartMs = PagePerfLogger.now()
+        PagePerfLogger.mark(
+            "LiveRecommend",
+            "initial_batch_apply_start",
+            firstStartMs,
+            "first=${firstBatch.size} total=${sections.size}"
+        )
+        adapter.setData(firstBatch)
+        PagePerfLogger.mark(
+            "LiveRecommend",
+            "initial_batch_commit",
+            firstStartMs,
+            "first=${firstBatch.size} total=${sections.size}"
+        )
+        logLiveRecommendFirstDraw(firstBatch.size)
+
+        binding.recyclerView.postOnAnimation {
+            if (!isAdded || view == null) return@postOnAnimation
+            val fullStartMs = PagePerfLogger.now()
+            adapter.setData(sections)
+            PagePerfLogger.mark(
+                "LiveRecommend",
+                "full_batch_commit",
+                fullStartMs,
+                "sections=${sections.size}"
+            )
+        }
     }
 
     private fun onRoomClick(room: com.btelly.model.live.LiveRoomItem) {

@@ -195,6 +195,11 @@ class HomeFragment : Fragment(), MainTabFocusTarget {
         return childFragmentManager.findFragmentByTag(fragmentTag) as? HomeTabPage
     }
 
+    fun isCurrentPage(position: Int): Boolean {
+        val currentBinding = _binding ?: return false
+        return currentBinding.viewPager.currentItem == position
+    }
+
     private fun notifyTabSelected(position: Int, retries: Int = 5) {
         val page = adapter.getCurrentFragment(position) as? HomeTabPage
         if (page != null) {

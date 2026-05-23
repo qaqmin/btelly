@@ -10,8 +10,10 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.btelly.R
 import com.btelly.core.common.ext.toast
 import com.btelly.core.common.log.AppLog
+import com.btelly.core.common.log.PagePerfLogger
 import com.btelly.core.navigation.VideoRouteNavigator
 import com.btelly.core.ui.base.BaseListFragment
+import com.btelly.core.ui.base.RecyclerViewPoolPrewarmer
 import com.btelly.core.ui.focus.tv.TvDataChangeReason
 import com.btelly.model.video.VideoModel
 import com.btelly.ui.activity.MainActivity
@@ -27,6 +29,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     protected open val dispatchHomeContentReady: Boolean = false
     protected open val toastNonEmptyError: Boolean = false
     protected open val deferInitialLoadUntilFirstDraw: Boolean = false
+    protected open val initialRenderBatchSize: Int = 16
 
     private val mainNavigationViewModel: MainNavigationViewModel by activityViewModels()
     private var pendingScrollToTopAfterRefresh = false
@@ -34,9 +37,10 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     private var initialLoadAfterFirstDrawArmed = false
     private var contentReadyDispatchScheduled = false
     private var contentReadyDispatched = false
+    private var latestOpenStartMs = 0L
 
     override val autoLoad: Boolean = false
-    override val initialViewHolderPrewarmCount: Int = 0
+    override val initialViewHolderPrewarmPlan: RecyclerViewPoolPrewarmer.Plan = RecyclerViewPoolPrewarmer.Plan.VideoFeed
     // TV 项目无触摸下拉刷新，下拉刷新由 MainTabReselected/MenuPressed/BackPressed 等键盘事件触发。
     // 关掉可省 setupSwipeRefresh 里的 view tree 重排（removeView + addView 两次）+ 多一层 measure。
     override val enableSwipeRefresh: Boolean = false
@@ -60,11 +64,15 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     override fun getSpanCount(): Int = 4
 
     override fun loadData(page: Int) {
+        latestOpenStartMs = PagePerfLogger.now()
+        PagePerfLogger.markNow(this::class.java.simpleName, "request_start", "page=$page source=loadMore")
         isLoading = true
         feedViewModel.loadMore()
     }
 
     override fun refresh() {
+        latestOpenStartMs = PagePerfLogger.now()
+        PagePerfLogger.markNow(this::class.java.simpleName, "request_start", "page=1 source=refresh hasContent=${adapter?.contentCount() ?: 0}")
         currentPage = 1
         hasMore = true
         pendingScrollToTopAfterRefresh = true
@@ -80,7 +88,14 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
 
     override fun initData() {
         val t0 = SystemClock.elapsedRealtime()
-        if (deferInitialLoadUntilFirstDraw && (adapter?.contentCount() ?: 0) == 0) {
+        if (!isCurrentHomePage()) {
+            showContent()
+            showLoading(false)
+            AppLog.i(
+                "STARTUP",
+                "${this::class.java.simpleName}.initialLoad deferred reason=not_current current=${currentHomePageIndex()}"
+            )
+        } else if (deferInitialLoadUntilFirstDraw && (adapter?.contentCount() ?: 0) == 0) {
             showContent()
             showLoading(false)
             scheduleInitialLoadAfterFirstDraw()
@@ -133,9 +148,20 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
         if (showLoading) {
             showLoading(true)
         }
+        latestOpenStartMs = PagePerfLogger.now()
+        PagePerfLogger.markNow(this::class.java.simpleName, "request_start", "page=1 source=$reason")
         AppLog.i("STARTUP", "${this::class.java.simpleName}.initialLoad start reason=$reason")
         feedViewModel.loadInitial()
         AppLog.i("STARTUP", "${this::class.java.simpleName}.initialLoad invoked elapsed=${SystemClock.elapsedRealtime() - t0}ms")
+    }
+
+    override fun onTabSelected() {
+        if (!isAdded || view == null || isLoading || initialLoadStarted) {
+            return
+        }
+        if ((adapter?.contentCount() ?: 0) == 0) {
+            startInitialLoad(showLoading = true, reason = "tabSelected")
+        }
     }
 
     override fun initObserver() {
@@ -268,6 +294,18 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
         val shouldPreserveScroll = (adapter?.contentCount() ?: 0) > 0 &&
             !pendingScrollToTopAfterRefresh &&
             !isTvListFocusEnabled()
+        val canBatchInitialRender = !pendingScrollToTopAfterRefresh &&
+            !shouldPreserveScroll &&
+            (adapter?.contentCount() ?: 0) == 0 &&
+            initialRenderBatchSize > 0 &&
+            videos.size > initialRenderBatchSize
+        if (canBatchInitialRender) {
+            applyInitialVideoBatch(videos)
+            pendingScrollToTopAfterRefresh = false
+            feedViewModel.consumeListChange()
+            AppLog.i("STARTUP", "T8 applyReplacedVideosNow batched count=${videos.size} first=${initialRenderBatchSize} elapsed=${SystemClock.elapsedRealtime() - t0}ms")
+            return
+        }
         setAdapterData(
             videos,
             preserveScrollOffset = shouldPreserveScroll,
@@ -278,6 +316,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
                     TvDataChangeReason.REPLACE_PRESERVE_ANCHOR
                 }
                 notifyTvListDataChanged(reason)
+                logFirstCardsDraw(videos.size, source = if (wasPendingScrollToTop) "refresh" else "replace")
                 if (wasPendingScrollToTop && !isPendingReturnRestore()) {
                     scrollToTop()
                     tvFocusController?.requestFocusPosition(0)
@@ -296,6 +335,45 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
         AppLog.i("STARTUP", "T8 applyReplacedVideosNow done count=${videos.size} elapsed=${SystemClock.elapsedRealtime() - t0}ms")
     }
 
+    private fun applyInitialVideoBatch(videos: List<VideoModel>) {
+        val batchStartMs = PagePerfLogger.now()
+        val firstBatch = videos.take(initialRenderBatchSize)
+        PagePerfLogger.mark(
+            this::class.java.simpleName,
+            "initial_batch_apply_start",
+            batchStartMs,
+            "first=${firstBatch.size} total=${videos.size}"
+        )
+        setAdapterData(firstBatch, preserveScrollOffset = false) {
+            PagePerfLogger.mark(
+                this::class.java.simpleName,
+                "initial_batch_commit",
+                batchStartMs,
+                "first=${firstBatch.size} total=${videos.size}"
+            )
+            notifyTvListDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
+            logFirstCardsDraw(firstBatch.size, source = "first_batch")
+        }
+        showContent()
+        showLoading(false)
+        dispatchContentReadyAfterContentShownIfNeeded("first_batch")
+
+        val rv = recyclerView
+        rv?.postOnAnimation {
+            if (!isAdded || view == null || adapter == null) return@postOnAnimation
+            val fullStartMs = PagePerfLogger.now()
+            setAdapterData(videos, preserveScrollOffset = false) {
+                PagePerfLogger.mark(
+                    this::class.java.simpleName,
+                    "full_batch_commit",
+                    fullStartMs,
+                    "items=${videos.size}"
+                )
+                notifyTvListDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
+            }
+        }
+    }
+
     private fun applyAppendedVideos(items: List<VideoModel>) {
         isLoading = false
         setRefreshing(false)
@@ -306,6 +384,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
             showContent()
             showLoading(false)
             dispatchContentReadyAfterContentShownIfNeeded("append")
+            logFirstCardsDraw(adapter?.contentCount() ?: 0, source = "append")
         }
         if (isTvListFocusEnabled()) {
             notifyTvListDataChanged(TvDataChangeReason.APPEND)
@@ -333,8 +412,32 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
         dispatchContentReadyIfNeeded()
     }
 
+    private fun logFirstCardsDraw(itemCount: Int, source: String) {
+        val startMs = latestOpenStartMs
+        val rv = recyclerView
+        if (startMs <= 0L || itemCount <= 0 || rv == null) return
+        PagePerfLogger.logRecyclerPreDraw(
+            recyclerView = rv,
+            page = this::class.java.simpleName,
+            event = "first_cards_draw",
+            startMs = startMs,
+            itemCount = itemCount,
+            extra = "source=$source"
+        )
+        latestOpenStartMs = 0L
+    }
+
     private fun focusTopTab(): Boolean {
         return (parentFragment as? HomeFragment)?.focusCurrentTab() == true
+    }
+
+    private fun isCurrentHomePage(): Boolean {
+        return (parentFragment as? HomeFragment)?.isCurrentPage(secondaryTabPosition) != false
+    }
+
+    private fun currentHomePageIndex(): Int {
+        val parent = parentFragment as? HomeFragment ?: return -1
+        return (0..3).firstOrNull { parent.isCurrentPage(it) } ?: -1
     }
 
     private fun onVideoClick(video: VideoModel) {

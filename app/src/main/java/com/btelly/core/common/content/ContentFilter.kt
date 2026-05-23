@@ -627,7 +627,7 @@ object ContentFilter {
         if (!isMinorProtectionEnabled(context)) return false
         val keywordLower = keyword.trim().lowercase()
         if (keywordLower.isEmpty()) return false
-        return TITLE_BLOCKED_REGEX.containsMatchIn(keywordLower)
+        return containsAny(keywordLower, TITLE_BLOCKED_KEYWORDS_LOWER)
     }
 
     fun isSearchItemBlocked(context: Context, item: SearchItemModel): Boolean {
@@ -653,25 +653,25 @@ object ContentFilter {
         if (tags.isNullOrEmpty()) return false
         return tags.any { tag ->
             val tagName = tag.tagName.trim().lowercase()
-            tagName.isNotEmpty() && TAG_BLOCKED_REGEX.containsMatchIn(tagName)
+            tagName.isNotEmpty() && containsAny(tagName, TAG_BLOCKED_KEYWORDS_LOWER)
         }
     }
 
     private fun shouldBlockTitle(titleLower: String): Boolean {
         if (titleLower.isEmpty()) return false
-        if (TITLE_BLOCKED_REGEX.containsMatchIn(titleLower)) return true
+        if (containsAny(titleLower, TITLE_BLOCKED_KEYWORDS_LOWER)) return true
         return containsContextualRiskFast(titleLower)
     }
 
     private fun shouldBlockDesc(descLower: String): Boolean {
         if (descLower.isEmpty()) return false
-        if (DESC_BLOCKED_REGEX.containsMatchIn(descLower)) return true
+        if (containsAny(descLower, DESC_BLOCKED_KEYWORDS_LOWER)) return true
         return containsContextualRiskFast(descLower)
     }
 
     private fun containsContextualRiskFast(valueLower: String): Boolean {
-        return CONTEXTUAL_SUBJECT_REGEX.containsMatchIn(valueLower) &&
-            CONTEXTUAL_RISK_REGEX.containsMatchIn(valueLower)
+        return containsAny(valueLower, CONTEXTUAL_SUBJECT_KEYWORDS_LOWER) &&
+            containsAny(valueLower, CONTEXTUAL_RISK_KEYWORDS_LOWER)
     }
 
     private fun containsAny(valueLower: String, keywordsLower: Collection<String>): Boolean {

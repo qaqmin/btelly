@@ -31,6 +31,7 @@ class LiveRepository(
         // 「切走再切回」的重复请求，又不会让数据看起来过期；用户主动下拉/MENU 刷新会
         // 通过 forceRefresh 旁路。
         private const val RECOMMEND_CACHE_TTL_MS = 5 * 60 * 1000L
+        private const val FRESH_REQUEST_COALESCE_MS = 2_000L
     }
 
     private data class CachedAreas(
@@ -67,6 +68,14 @@ class LiveRepository(
                 }
         }
         return recommendMutex.withLock {
+            if (forceRefresh) {
+                cachedRecommend
+                    ?.takeIf { System.currentTimeMillis() - it.ts < FRESH_REQUEST_COALESCE_MS }
+                    ?.let {
+                        AppLog.d("LivePerf", "LiveRepository.getLiveRecommend: 最新请求合并命中 age=${System.currentTimeMillis() - it.ts}ms")
+                        return@withLock Result.success(it.data)
+                    }
+            }
             if (!forceRefresh) {
                 cachedRecommend
                     ?.takeIf { System.currentTimeMillis() - it.ts < RECOMMEND_CACHE_TTL_MS }

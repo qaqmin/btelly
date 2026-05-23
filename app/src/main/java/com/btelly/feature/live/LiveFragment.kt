@@ -25,6 +25,7 @@ import com.btelly.core.common.ext.toast
 import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
 class LiveFragment : BaseFragment<FragmentLiveBinding>(), MainTabFocusTarget {
@@ -35,6 +36,7 @@ class LiveFragment : BaseFragment<FragmentLiveBinding>(), MainTabFocusTarget {
     }
 
     private val viewModel: LiveViewModel by viewModel()
+    private val liveRepository: com.btelly.repository.LiveRepository by inject()
     private val mainNavigationViewModel: MainNavigationViewModel by activityViewModels()
     private lateinit var tabLayout: TabLayout
     private lateinit var viewPager: ViewPager2
@@ -90,8 +92,23 @@ class LiveFragment : BaseFragment<FragmentLiveBinding>(), MainTabFocusTarget {
     }
 
     override fun initData() {
+        preloadLatestRecommend()
         AppLog.d("LivePerf", "LiveFragment.initData: 触发加载分区")
         viewModel.loadLiveAreas()
+    }
+
+    private fun preloadLatestRecommend() {
+        viewLifecycleOwner.lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val startMs = android.os.SystemClock.elapsedRealtime()
+            AppLog.d("LivePerf", "LiveFragment.preloadLatestRecommend: start")
+            liveRepository.getLiveRecommend(forceRefresh = true)
+                .onSuccess {
+                    AppLog.d("LivePerf", "LiveFragment.preloadLatestRecommend: success elapsed=${android.os.SystemClock.elapsedRealtime() - startMs}ms")
+                }
+                .onFailure {
+                    AppLog.e("LivePerf", "LiveFragment.preloadLatestRecommend: failed elapsed=${android.os.SystemClock.elapsedRealtime() - startMs}ms ${it.message}")
+                }
+        }
     }
 
     override fun initObserver() {

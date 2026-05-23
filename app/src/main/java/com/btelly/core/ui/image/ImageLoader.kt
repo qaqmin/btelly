@@ -11,6 +11,7 @@ import android.graphics.Shader
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
+import android.view.View
 import android.widget.ImageView
 import android.os.SystemClock
 import androidx.annotation.DrawableRes
@@ -27,12 +28,14 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.koin.mp.KoinPlatform
+import java.util.concurrent.Executors
 import java.util.WeakHashMap
 
 object ImageLoader {
@@ -52,6 +55,10 @@ object ImageLoader {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val inFlight = WeakHashMap<ImageView, Job>()
+    private val imageIoDispatcher = Executors.newFixedThreadPool(6).asCoroutineDispatcher()
+    private val highPriorityImageDispatcher = Executors.newFixedThreadPool(4).asCoroutineDispatcher()
+    private val normalPriorityImageDispatcher = Executors.newFixedThreadPool(2).asCoroutineDispatcher()
+    private val lowPriorityImageDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
     private val cache = object : LruCache<String, Bitmap>(maxCacheBytes()) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
@@ -61,16 +68,24 @@ object ImageLoader {
     private val imageOkHttpClient: OkHttpClient by lazy { buildImageOkHttpClient() }
 
     // 前台 bind 与后台 prefetch 共用同 URL 请求，避免首屏重复下载/解码同一张封面。
-    private val imageDataScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val imageDataScope = CoroutineScope(SupervisorJob() + imageIoDispatcher)
     private val imageDataInFlight = mutableMapOf<String, Deferred<ImageData>>()
 
-    private val preheatScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val preheatScope = CoroutineScope(SupervisorJob() + imageIoDispatcher)
     private val preheated = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    enum class Priority {
+        HIGH,
+        NORMAL,
+        LOW
+    }
 
     private data class ImageData(
         val bytes: ByteArray,
         val bitmap: Bitmap?,
         val isGif: Boolean,
+        val priority: Priority,
+        val queueMs: Long,
         val fetchMs: Long,
         val decodeMs: Long
     )
@@ -86,12 +101,14 @@ object ImageLoader {
         imageView: ImageView,
         url: String?,
         placeholder: Int = 0,
-        error: Int = 0
+        error: Int = 0,
+        priority: Priority = Priority.NORMAL
     ) {
         val optimizedUrl = buildOptimizedCommonImageUrl(url)
         val normalizedUrl = normalizeUrl(url)
         loadInto(imageView, optimizedUrl, placeholder, error,
-            fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null
+            fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null,
+            priority = priority
         )
     }
 
@@ -112,7 +129,8 @@ object ImageLoader {
         imageView: ImageView,
         url: String?,
         placeholder: Int = 0,
-        error: Int = 0
+        error: Int = 0,
+        priority: Priority = Priority.HIGH
     ) {
         val optimizedUrl = buildOptimizedAvatarUrl(url)
         val normalizedUrl = normalizeUrl(url)
@@ -122,7 +140,8 @@ object ImageLoader {
             placeholderRes = placeholder,
             errorRes = error,
             circleCrop = true,
-            fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null
+            fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null,
+            priority = priority
         )
     }
 
@@ -158,6 +177,7 @@ object ImageLoader {
 
     fun clear(imageView: ImageView) {
         inFlight.remove(imageView)?.cancel()
+        clearAttachDeferredLoad(imageView)
         imageView.setTag(R.id.tag_image_loader_url, null)
         imageView.setImageDrawable(null)
     }
@@ -171,7 +191,7 @@ object ImageLoader {
     ): SimpleDisposable {
         val job = scope.launch {
             try {
-                val bytes = withContext(Dispatchers.IO) { fetchBytes(url) }
+                val bytes = withContext(imageIoDispatcher) { fetchBytes(url) }
                 val bmp = withContext(Dispatchers.Default) {
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 }
@@ -202,7 +222,8 @@ object ImageLoader {
         imageView: ImageView,
         url: String?,
         placeholder: Int = 0,
-        error: Int = 0
+        error: Int = 0,
+        priority: Priority = Priority.LOW
     ) {
         val optimizedUrl = buildOptimizedSmallSquareImageUrl(url)
         val normalizedUrl = normalizeUrl(url)
@@ -211,7 +232,8 @@ object ImageLoader {
             url = optimizedUrl,
             placeholderRes = placeholder,
             errorRes = error,
-            fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null
+            fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null,
+            priority = priority
         )
     }
 
@@ -220,12 +242,14 @@ object ImageLoader {
         url: String?,
         placeholder: Int = R.drawable.default_video,
         error: Int = R.drawable.default_video,
+        priority: Priority = Priority.HIGH,
         onPortraitDetected: ((Boolean) -> Unit)? = null
     ) {
         val optimizedUrl = buildOptimizedVideoCoverUrl(url)
         val normalizedUrl = normalizeUrl(url)
         loadInto(imageView, optimizedUrl, placeholder, error,
             fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null,
+            priority = priority,
             onSuccess = { bmp ->
                 if (onPortraitDetected != null) {
                     onPortraitDetected(bmp.height > bmp.width)
@@ -238,14 +262,16 @@ object ImageLoader {
         imageView: ImageView,
         url: String?,
         placeholder: Int = R.drawable.default_video,
-        error: Int = R.drawable.default_video
+        error: Int = R.drawable.default_video,
+        priority: Priority = Priority.LOW
     ) {
         val optimizedUrl = buildOptimizedSeriesCoverUrl(url)
         val normalizedUrl = normalizeUrl(url)
         val radiusPx = imageView.context.resources.getDimensionPixelSize(R.dimen.px15).toFloat()
         loadInto(imageView, optimizedUrl, placeholder, error,
             fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null,
-            cornerRadius = radiusPx
+            cornerRadius = radiusPx,
+            priority = priority
         )
     }
 
@@ -372,6 +398,7 @@ object ImageLoader {
         circleCrop: Boolean = false,
         cornerRadius: Float = 0f,
         fallbackUrl: String? = null,
+        priority: Priority = Priority.NORMAL,
         onSuccess: ((Bitmap) -> Unit)? = null,
         onError: (() -> Unit)? = null
     ) {
@@ -381,6 +408,7 @@ object ImageLoader {
         // URL 为空：清空
         if (url.isBlank()) {
             inFlight.remove(imageView)?.cancel()
+            clearAttachDeferredLoad(imageView)
             imageView.setTag(R.id.tag_image_loader_url, null)
             if (placeholderRes != 0) imageView.setImageResource(placeholderRes)
             else imageView.setImageDrawable(placeholder)
@@ -395,6 +423,7 @@ object ImageLoader {
         } else {
             imageView.setTag(R.id.tag_image_loader_url, url)
             inFlight.remove(imageView)?.cancel()
+            clearAttachDeferredLoad(imageView)
         }
 
         // 内存缓存命中
@@ -410,34 +439,57 @@ object ImageLoader {
         if (placeholderRes != 0) imageView.setImageResource(placeholderRes)
         else if (imageView.drawable !== placeholder) imageView.setImageDrawable(placeholder)
 
+        if (!imageView.isAttachedToWindow) {
+            deferLoadUntilAttached(imageView, url) {
+                loadInto(
+                    imageView = imageView,
+                    url = url,
+                    placeholderRes = placeholderRes,
+                    errorRes = errorRes,
+                    circleCrop = circleCrop,
+                    cornerRadius = cornerRadius,
+                    fallbackUrl = fallbackUrl,
+                    priority = priority,
+                    onSuccess = onSuccess,
+                    onError = onError
+                )
+            }
+            return
+        }
+
         val startMs = SystemClock.elapsedRealtime()
         val job = scope.launch {
             try {
-                val request = loadImageData(url)
+                val request = loadImageData(url, priority)
+                val awaitStartMs = SystemClock.elapsedRealtime()
                 val data = request.deferred.await()
+                val awaitMs = SystemClock.elapsedRealtime() - awaitStartMs
                 val bytes = data.bytes
                 val fetchMs = data.fetchMs
                 if (data.isGif) {
                     if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
-                        val gifDrawable = withContext(Dispatchers.IO) {
+                        val gifDrawable = withContext(imageIoDispatcher) {
                             GifDrawable(bytes).also { it.start() }
                         }
                         imageView.setImageDrawable(gifDrawable)
                     }
-                    AppLog.i(TAG, "gif loaded: elapsed=${SystemClock.elapsedRealtime() - startMs}ms fetch=${fetchMs}ms bytes=${bytes.size} url=${url.takeLast(50)}")
+                    AppLog.i(TAG, "gif loaded: elapsed=${SystemClock.elapsedRealtime() - startMs}ms await=${awaitMs}ms queue=${data.queueMs}ms fetch=${fetchMs}ms priority=${data.priority} bytes=${bytes.size} url=${url.takeLast(50)}")
                 } else {
                     val bmp = data.bitmap
                     val decodeMs = data.decodeMs
                     if (bmp != null) {
                         cache.put(url, bmp)
+                        var applyMs = 0L
                         if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                            val applyStartMs = SystemClock.elapsedRealtime()
                             imageView.setImageBitmap(applyTransform(bmp, circleCrop, cornerRadius))
+                            applyMs = SystemClock.elapsedRealtime() - applyStartMs
                         }
-                        AppLog.i(TAG, "cover loaded: elapsed=${SystemClock.elapsedRealtime() - startMs}ms fetch=${fetchMs}ms decode=${decodeMs}ms shared=${request.reused} bytes=${bytes.size} url=${url.takeLast(50)}")
+                        AppLog.i(TAG, "cover loaded: elapsed=${SystemClock.elapsedRealtime() - startMs}ms await=${awaitMs}ms queue=${data.queueMs}ms fetch=${fetchMs}ms decode=${decodeMs}ms apply=${applyMs}ms priority=${data.priority} shared=${request.reused} bytes=${bytes.size} url=${url.takeLast(50)}")
                         onSuccess?.invoke(bmp)
                     } else {
-                        AppLog.w(TAG, "cover decode null: elapsed=${SystemClock.elapsedRealtime() - startMs}ms fetch=${fetchMs}ms decode=${decodeMs}ms url=${url.takeLast(50)}")
-                        handleLoadError(imageView, url, errorRes, fallbackUrl, circleCrop, cornerRadius, onSuccess, onError)
+                        AppLog.w(TAG, "cover decode null: elapsed=${SystemClock.elapsedRealtime() - startMs}ms queue=${data.queueMs}ms fetch=${fetchMs}ms decode=${decodeMs}ms priority=${data.priority} url=${url.takeLast(50)}")
+                        handleLoadError(imageView, url, errorRes, fallbackUrl, circleCrop, cornerRadius, priority, onSuccess, onError)
                     }
                 }
             } catch (t: Throwable) {
@@ -446,7 +498,7 @@ object ImageLoader {
                 }
                 val elapsed = SystemClock.elapsedRealtime() - startMs
                 AppLog.w(TAG, "cover error: elapsed=${elapsed}ms url=${url.takeLast(50)}", t)
-                handleLoadError(imageView, url, errorRes, fallbackUrl, circleCrop, cornerRadius, onSuccess, onError)
+                handleLoadError(imageView, url, errorRes, fallbackUrl, circleCrop, cornerRadius, priority, onSuccess, onError)
             }
         }
         inFlight[imageView] = job
@@ -457,13 +509,15 @@ object ImageLoader {
         url: String,
         placeholderDrawable: Drawable?,
         errorDrawable: Drawable?,
-        fallbackUrl: String? = null
+        fallbackUrl: String? = null,
+        priority: Priority = Priority.NORMAL
     ) {
         val ctx = imageView.context
         if (ctx is Activity && ctx.isDestroyed) return
 
         if (url.isBlank()) {
             inFlight.remove(imageView)?.cancel()
+            clearAttachDeferredLoad(imageView)
             imageView.setTag(R.id.tag_image_loader_url, null)
             imageView.setImageDrawable(placeholderDrawable ?: placeholder)
             return
@@ -476,6 +530,7 @@ object ImageLoader {
         } else {
             imageView.setTag(R.id.tag_image_loader_url, url)
             inFlight.remove(imageView)?.cancel()
+            clearAttachDeferredLoad(imageView)
         }
 
         val cached = cache.get(url)
@@ -486,13 +541,20 @@ object ImageLoader {
 
         imageView.setImageDrawable(placeholderDrawable ?: placeholder)
 
+        if (!imageView.isAttachedToWindow) {
+            deferLoadUntilAttached(imageView, url) {
+                loadIntoDrawable(imageView, url, placeholderDrawable, errorDrawable, fallbackUrl, priority)
+            }
+            return
+        }
+
         val job = scope.launch {
             try {
-                val data = loadImageData(url).deferred.await()
+                val data = loadImageData(url, priority).deferred.await()
                 val bytes = data.bytes
                 if (data.isGif) {
                     if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
-                        val gifDrawable = withContext(Dispatchers.IO) {
+                        val gifDrawable = withContext(imageIoDispatcher) {
                             GifDrawable(bytes).also { it.start() }
                         }
                         imageView.setImageDrawable(gifDrawable)
@@ -505,7 +567,7 @@ object ImageLoader {
                             imageView.setImageBitmap(bmp)
                         }
                     } else if (fallbackUrl != null) {
-                        loadIntoDrawable(imageView, fallbackUrl, placeholderDrawable, errorDrawable)
+                        loadIntoDrawable(imageView, fallbackUrl, placeholderDrawable, errorDrawable, priority = priority)
                     } else {
                         if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
                             imageView.setImageDrawable(errorDrawable)
@@ -518,7 +580,7 @@ object ImageLoader {
                 }
                 AppLog.w(TAG, "load failed url=${url.takeLast(50)}", t)
                 if (fallbackUrl != null) {
-                    loadIntoDrawable(imageView, fallbackUrl, placeholderDrawable, errorDrawable)
+                    loadIntoDrawable(imageView, fallbackUrl, placeholderDrawable, errorDrawable, priority = priority)
                 } else if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
                     imageView.setImageDrawable(errorDrawable)
                 }
@@ -534,6 +596,7 @@ object ImageLoader {
         fallbackUrl: String?,
         circleCrop: Boolean,
         cornerRadius: Float,
+        priority: Priority,
         onSuccess: ((Bitmap) -> Unit)?,
         onError: (() -> Unit)?
     ) {
@@ -541,6 +604,7 @@ object ImageLoader {
             loadInto(imageView, fallbackUrl, errorRes, errorRes,
                 circleCrop = circleCrop,
                 cornerRadius = cornerRadius,
+                priority = priority,
                 onSuccess = onSuccess,
                 onError = onError
             )
@@ -552,19 +616,46 @@ object ImageLoader {
         }
     }
 
-    private fun prefetch(url: String) {
+    private fun deferLoadUntilAttached(
+        imageView: ImageView,
+        url: String,
+        startLoad: () -> Unit
+    ) {
+        val listener = object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {
+                clearAttachDeferredLoad(imageView)
+                if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                    startLoad()
+                }
+            }
+
+            override fun onViewDetachedFromWindow(v: View) = Unit
+        }
+        imageView.setTag(R.id.tag_image_loader_attach_listener, listener)
+        imageView.addOnAttachStateChangeListener(listener)
+    }
+
+    private fun clearAttachDeferredLoad(imageView: ImageView) {
+        val listener = imageView.getTag(R.id.tag_image_loader_attach_listener) as? View.OnAttachStateChangeListener
+        if (listener != null) {
+            imageView.removeOnAttachStateChangeListener(listener)
+            imageView.setTag(R.id.tag_image_loader_attach_listener, null)
+        }
+    }
+
+    private fun prefetch(url: String, priority: Priority = Priority.LOW) {
         if (url.isBlank()) return
         if (cache.get(url) != null) return
         imageDataScope.launch {
             try {
-                val request = loadImageData(url)
+                val request = loadImageData(url, priority)
                 val data = request.deferred.await()
                 val bmp = data.bitmap
                 if (bmp != null) {
                     cache.put(url, bmp)
                     AppLog.i(
                         TAG,
-                        "prefetch cover cached url=${url.takeLast(50)} shared=${request.reused} bytes=${data.bytes.size}"
+                        "prefetch cover cached url=${url.takeLast(50)} priority=${data.priority} shared=${request.reused} bytes=${data.bytes.size}"
                     )
                 }
             } catch (t: Throwable) {
@@ -573,12 +664,15 @@ object ImageLoader {
         }
     }
 
-    private fun loadImageData(url: String): ImageDataRequest {
+    private fun loadImageData(url: String, priority: Priority): ImageDataRequest {
+        val requestKey = "${priority.name}:$url"
         synchronized(imageDataInFlight) {
-            imageDataInFlight[url]?.takeIf { it.isActive }?.let {
+            imageDataInFlight[requestKey]?.takeIf { it.isActive }?.let {
                 return ImageDataRequest(it, reused = true)
             }
-            val deferred = imageDataScope.async {
+            val queuedAtMs = SystemClock.elapsedRealtime()
+            val dispatcher = dispatcherFor(priority)
+            val deferred = imageDataScope.async(dispatcher) {
                 val fetchStartMs = SystemClock.elapsedRealtime()
                 val bytes = fetchBytes(url)
                 val fetchMs = SystemClock.elapsedRealtime() - fetchStartMs
@@ -587,28 +681,34 @@ object ImageLoader {
                 val bitmap = if (isGif) {
                     null
                 } else {
-                    withContext(Dispatchers.Default) {
-                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 }
                 ImageData(
                     bytes = bytes,
                     bitmap = bitmap,
                     isGif = isGif,
+                    priority = priority,
+                    queueMs = fetchStartMs - queuedAtMs,
                     fetchMs = fetchMs,
                     decodeMs = SystemClock.elapsedRealtime() - decodeStartMs
                 )
             }
             deferred.invokeOnCompletion {
                 synchronized(imageDataInFlight) {
-                    if (imageDataInFlight[url] === deferred) {
-                        imageDataInFlight.remove(url)
+                    if (imageDataInFlight[requestKey] === deferred) {
+                        imageDataInFlight.remove(requestKey)
                     }
                 }
             }
-            imageDataInFlight[url] = deferred
+            imageDataInFlight[requestKey] = deferred
             return ImageDataRequest(deferred, reused = false)
         }
+    }
+
+    private fun dispatcherFor(priority: Priority) = when (priority) {
+        Priority.HIGH -> highPriorityImageDispatcher
+        Priority.NORMAL -> normalPriorityImageDispatcher
+        Priority.LOW -> lowPriorityImageDispatcher
     }
 
     // ---------- 网络 ----------

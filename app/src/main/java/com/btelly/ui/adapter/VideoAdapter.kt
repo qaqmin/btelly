@@ -176,6 +176,8 @@ class VideoAdapter(
     ) : BaseVideoViewHolder(views.root) {
 
         private var currentVideo: VideoModel? = null
+        private var titleInPlayingMode = false
+        private var titleColor = 0
         private val defaultTextColor: Int by lazy {
             val ta = views.root.context.obtainStyledAttributes(intArrayOf(android.R.attr.textColorPrimary))
             val color = ta.getColor(0, 0)
@@ -297,6 +299,7 @@ class VideoAdapter(
 
             val title = resolveDisplayTitle(video)
             if (isCurrentlyPlaying) {
+                titleInPlayingMode = true
                 views.iconPlaying.visibility = View.VISIBLE
                 val iconSize = views.textView.textSize.toInt()
                 views.iconPlaying.layoutParams = views.iconPlaying.layoutParams.apply {
@@ -305,12 +308,10 @@ class VideoAdapter(
                 }
                 ImageLoader.loadDrawableRes(views.iconPlaying, R.drawable.playing)
                 val accentColor = ContextCompat.getColor(views.root.context, R.color.colorAccent)
-                views.textView.setTextColor(accentColor)
-                views.textOverflow.setTextColor(accentColor)
+                setTitleColor(accentColor)
                 views.textView.text = title
                 views.textView.ellipsize = TextUtils.TruncateAt.END
-                views.textView.minLines = 1
-                views.textView.maxLines = 1
+                setTitleLines(1)
 
                 val split = Runnable {
                     val layout = views.textView.layout ?: return@Runnable
@@ -329,13 +330,17 @@ class VideoAdapter(
                 splitRunnable = split
                 views.textView.post(split)
             } else {
-                views.iconPlaying.visibility = View.GONE
-                ImageLoader.clear(views.iconPlaying)
-                views.textView.setTextColor(defaultTextColor)
+                if (titleInPlayingMode || views.iconPlaying.visibility != View.GONE) {
+                    titleInPlayingMode = false
+                    views.iconPlaying.visibility = View.GONE
+                    ImageLoader.clear(views.iconPlaying)
+                }
+                setTitleColor(defaultTextColor)
                 views.textView.text = title
-                views.textView.minLines = 2
-                views.textView.maxLines = 2
-                views.textOverflow.visibility = View.GONE
+                setTitleLines(2)
+                if (views.textOverflow.visibility != View.GONE) {
+                    views.textOverflow.visibility = View.GONE
+                }
             }
             when (displayStyle) {
                 DisplayStyle.DEFAULT -> bindDefault(video)
@@ -501,6 +506,19 @@ class VideoAdapter(
 
         private fun formatHistoryTime(viewAtSeconds: Long): String {
             return TimeUtils.formatHistoryViewTime(viewAtSeconds)
+        }
+
+        private fun setTitleColor(color: Int) {
+            if (titleColor == color) return
+            titleColor = color
+            views.textView.setTextColor(color)
+            views.textOverflow.setTextColor(color)
+        }
+
+        private fun setTitleLines(lines: Int) {
+            if (views.textView.minLines == lines && views.textView.maxLines == lines) return
+            views.textView.minLines = lines
+            views.textView.maxLines = lines
         }
     }
 }

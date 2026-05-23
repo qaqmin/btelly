@@ -18,7 +18,10 @@ import com.btelly.network.api.ApiService
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.UserRepository
 import com.btelly.core.common.log.AppLog
+import android.os.SystemClock
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 class HomeLaneRepository(
     private val apiService: ApiService,
@@ -57,26 +60,72 @@ class HomeLaneRepository(
         type: Int,
         cursor: Long,
         isRefresh: Boolean
-    ): HomeLanePage {
-        val legacyPage = fetchLegacyHomeLanes(type = type, cursor = cursor, isRefresh = isRefresh)
+    ): HomeLanePage = coroutineScope {
+        val totalStartMs = SystemClock.elapsedRealtime()
         if (cursor > 0L || !isRefresh) {
-            return legacyPage
+            val legacyPage = fetchLegacyHomeLanes(type = type, cursor = cursor, isRefresh = isRefresh)
+            AppLog.i(
+                TAG,
+                "homeLane fetch total type=$type cursor=$cursor refresh=$isRefresh elapsed=${SystemClock.elapsedRealtime() - totalStartMs}ms sections=${legacyPage.sections.size}"
+            )
+            return@coroutineScope legacyPage
         }
 
-        val sections = legacyPage.sections.toMutableList()
+        val followDeferred = async {
+            val startMs = SystemClock.elapsedRealtime()
+            try {
+                fetchMyFollowingSection(type).also { section ->
+                    AppLog.i(
+                        TAG,
+                        "homeLane follow section type=$type elapsed=${SystemClock.elapsedRealtime() - startMs}ms has=${section != null}"
+                    )
+                }
+            } catch (throwable: CancellationException) {
+                throw throwable
+            } catch (throwable: Throwable) {
+                AppLog.e(
+                    TAG,
+                    "fetchReferenceAlignedHomeLanes follow section failure: type=$type, elapsed=${SystemClock.elapsedRealtime() - startMs}ms, message=${throwable.message}",
+                    throwable
+                )
+                null
+            }
+        }
 
-        val followSection = try {
-            fetchMyFollowingSection(type)
-        } catch (throwable: CancellationException) {
-            throw throwable
-        } catch (throwable: Throwable) {
-            AppLog.e(
-                TAG,
-                "fetchReferenceAlignedHomeLanes follow section failure: type=$type, message=${throwable.message}",
-                throwable
-            )
+        val timelineDeferred = if (type == TYPE_ANIMATION) {
+            async {
+                val startMs = SystemClock.elapsedRealtime()
+                try {
+                    getAnimationTimelineSection().getOrNull().also { section ->
+                        AppLog.i(
+                            TAG,
+                            "homeLane timeline section type=$type elapsed=${SystemClock.elapsedRealtime() - startMs}ms has=${section != null}"
+                        )
+                    }
+                } catch (throwable: CancellationException) {
+                    throw throwable
+                } catch (throwable: Throwable) {
+                    AppLog.e(
+                        TAG,
+                        "fetchReferenceAlignedHomeLanes timeline failure: type=$type, elapsed=${SystemClock.elapsedRealtime() - startMs}ms, message=${throwable.message}",
+                        throwable
+                    )
+                    null
+                }
+            }
+        } else {
             null
         }
+
+        val legacyStartMs = SystemClock.elapsedRealtime()
+        val legacyPage = fetchLegacyHomeLanes(type = type, cursor = cursor, isRefresh = isRefresh)
+        AppLog.i(
+            TAG,
+            "homeLane legacy type=$type elapsed=${SystemClock.elapsedRealtime() - legacyStartMs}ms sections=${legacyPage.sections.size}"
+        )
+        val sections = legacyPage.sections.toMutableList()
+
+        val followSection = followDeferred.await()
 
         sections.removeAll { it.isFollowSection() }
 
@@ -84,27 +133,16 @@ class HomeLaneRepository(
             sections.add(0, followSection)
         }
 
-        if (type == TYPE_ANIMATION) {
-            val timelineSection = try {
-                getAnimationTimelineSection().getOrNull()
-            } catch (throwable: CancellationException) {
-                throw throwable
-            } catch (throwable: Throwable) {
-                AppLog.e(
-                    TAG,
-                    "fetchReferenceAlignedHomeLanes timeline failure: type=$type, message=${throwable.message}",
-                    throwable
-                )
-                null
-            }
-
-            if (timelineSection != null) {
-                val insertIndex = if (followSection != null) 1 else minOf(1, sections.size)
-                sections.add(insertIndex, timelineSection)
-            }
+        timelineDeferred?.await()?.let { timelineSection ->
+            val insertIndex = if (followSection != null) 1 else minOf(1, sections.size)
+            sections.add(insertIndex, timelineSection)
         }
 
-        return legacyPage.copy(sections = sections)
+        AppLog.i(
+            TAG,
+            "homeLane fetch total type=$type cursor=$cursor refresh=$isRefresh elapsed=${SystemClock.elapsedRealtime() - totalStartMs}ms sections=${sections.size}"
+        )
+        return@coroutineScope legacyPage.copy(sections = sections)
     }
 
     suspend fun getAnimationTimelineSection(): Result<HomeLaneSection?> {

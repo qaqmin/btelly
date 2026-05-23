@@ -6,6 +6,8 @@ import com.btelly.model.lane.HomeLaneSection
 import com.btelly.model.lane.HomeLanePage
 import com.btelly.repository.HomeLaneRepository
 import com.btelly.repository.cache.HomeCacheStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class HomeLaneFeedRepository(
     private val repository: HomeLaneRepository
@@ -27,7 +29,9 @@ class HomeLaneFeedRepository(
         val startMs = SystemClock.elapsedRealtime()
         val cacheKey = cacheKey(type)
         AppLog.i(TAG, "APP_STARTUP lane cache read start type=$type")
-        val cached = HomeCacheStore.readCachedSections(cacheKey)
+        val (cached, cacheThread) = withContext(Dispatchers.IO) {
+            HomeCacheStore.readCachedSections(cacheKey) to Thread.currentThread().name
+        }
         val items = if (isExpired(cached.savedAtMs)) {
             emptyList()
         } else {
@@ -35,7 +39,7 @@ class HomeLaneFeedRepository(
         }
         AppLog.i(
             TAG,
-            "APP_STARTUP lane cache read end type=$type elapsed=${SystemClock.elapsedRealtime() - startMs}ms count=${items.size} ageMs=${formatCacheAge(cached.savedAtMs)} schema=${cached.schemaVersion}"
+            "APP_STARTUP lane cache read end type=$type elapsed=${SystemClock.elapsedRealtime() - startMs}ms count=${items.size} ageMs=${formatCacheAge(cached.savedAtMs)} schema=${cached.schemaVersion} thread=$cacheThread"
         )
         return CachedFeed(
             items = items,
@@ -45,15 +49,27 @@ class HomeLaneFeedRepository(
     }
 
     suspend fun loadNetworkPage(type: Int, cursor: Long, isRefresh: Boolean): Result<HomeLanePage> {
+        val startMs = SystemClock.elapsedRealtime()
+        AppLog.i(TAG, "APP_STARTUP lane network start type=$type cursor=$cursor refresh=$isRefresh")
         return repository.getHomeLanes(type = type, cursor = cursor, isRefresh = isRefresh)
-            .map { page -> page.copy(sections = page.sections.filter { it.items.isNotEmpty() || it.timelineDays.isNotEmpty() }) }
+            .map { page ->
+                val filterStartMs = SystemClock.elapsedRealtime()
+                val filtered = page.sections.filter { it.items.isNotEmpty() || it.timelineDays.isNotEmpty() }
+                AppLog.i(
+                    TAG,
+                    "APP_STARTUP lane network end type=$type elapsed=${SystemClock.elapsedRealtime() - startMs}ms raw=${page.sections.size} filtered=${filtered.size} filter=${SystemClock.elapsedRealtime() - filterStartMs}ms hasMore=${page.hasMore}"
+                )
+                page.copy(sections = filtered)
+            }
     }
 
     suspend fun writeCache(type: Int, sections: List<HomeLaneSection>) {
-        HomeCacheStore.writeSections(
-            cacheKey(type),
-            sections.sectionsForCache(type).take(MAX_CACHED_LANE_SECTIONS)
-        )
+        withContext(Dispatchers.IO) {
+            HomeCacheStore.writeSections(
+                cacheKey(type),
+                sections.sectionsForCache(type).take(MAX_CACHED_LANE_SECTIONS)
+            )
+        }
     }
 
     private fun cacheKey(type: Int): String {

@@ -51,6 +51,7 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
     protected open val enableLoadMoreFocusController: Boolean = false
     protected open val enableTvListFocusController: Boolean = false
     protected open val initialViewHolderPrewarmCount: Int = 0
+    protected open val initialViewHolderPrewarmPlan: RecyclerViewPoolPrewarmer.Plan? = null
     private var pendingRecyclerIdleAction: (() -> Unit)? = null
     protected var loadMoreFocusController: RecyclerViewLoadMoreFocusController? = null
     protected var tvFocusController: TvListFocusController? = null
@@ -85,12 +86,16 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
         recyclerView?.layoutManager = layoutManager
         val rvForPrewarm = recyclerView
         val adapterForPrewarm = adapter
-        if (rvForPrewarm != null && adapterForPrewarm != null && initialViewHolderPrewarmCount > 0) {
+        val prewarmPlan = initialViewHolderPrewarmPlan
+            ?: initialViewHolderPrewarmCount
+                .takeIf { it > 0 }
+                ?.let { RecyclerViewPoolPrewarmer.Plan(count = it, budgetMs = 180L) }
+        if (rvForPrewarm != null && adapterForPrewarm != null && prewarmPlan != null) {
             RecyclerViewPoolPrewarmer.prewarm(
                 recyclerView = rvForPrewarm,
                 adapter = adapterForPrewarm,
-                count = initialViewHolderPrewarmCount,
-                source = "$className.initial"
+                source = "$className.initial",
+                plan = prewarmPlan
             )
         }
         if (layoutManager is WrapContentGridLayoutManager) {

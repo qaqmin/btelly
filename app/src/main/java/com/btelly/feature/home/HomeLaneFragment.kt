@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
 import com.btelly.core.common.log.AppLog
+import com.btelly.core.common.log.PagePerfLogger
 import com.btelly.core.ui.base.BaseAdapter
 import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.event.AppEventHub
@@ -51,6 +52,8 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
 
     private var type: Int = TYPE_ANIMATION
     private var pendingScrollToTopAfterRefresh = false
+    private var latestOpenStartMs = 0L
+    private var initialLoadStarted = false
 
     private val laneAdapter: HomeLaneAdapter?
         get() = adapter as? HomeLaneAdapter
@@ -156,6 +159,23 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
     }
 
     override fun initData() {
+        if (!isCurrentHomePage()) {
+            showContent()
+            showLoading(false)
+            AppLog.i(TAG, "${pageTag()} initialLoad deferred reason=not_current")
+            return
+        }
+        startInitialLoad("init")
+    }
+
+    private fun startInitialLoad(reason: String) {
+        if (initialLoadStarted || isLoading) {
+            return
+        }
+        initialLoadStarted = true
+        isLoading = true
+        latestOpenStartMs = PagePerfLogger.now()
+        PagePerfLogger.markNow(pageTag(), "request_start", "page=1 source=$reason")
         showLoading(true)
         viewModel.loadInitial()
     }
@@ -262,7 +282,9 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
         setRefreshing(false)
         showLoading(false)
         laneAdapter?.setShowLoadMore(hasMore)
-        adapter?.setData(sections)
+        adapter?.setData(sections) {
+            logFirstSectionsDraw(sections.size, source = "replace")
+        }
         if (sections.isNotEmpty()) {
             showContent()
             if (pendingScrollToTopAfterRefresh) {
@@ -295,7 +317,9 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
             return
         }
         showContent()
-        adapter?.setData(sections)
+        adapter?.setData(sections) {
+            logFirstSectionsDraw(sections.size, source = "append")
+        }
     }
 
     override fun onRetryClick() {
@@ -310,6 +334,8 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
         if (page == 1 && adapter?.contentCount() == 0) {
             showLoading(true)
         }
+        latestOpenStartMs = PagePerfLogger.now()
+        PagePerfLogger.markNow(pageTag(), "request_start", "page=$page source=loadData hasContent=${adapter?.contentCount() ?: 0}")
         if (page == 1) {
             viewModel.refresh()
         } else {
@@ -363,6 +389,8 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
         hasMore = true
         pendingScrollToTopAfterRefresh = true
         isLoading = true
+        latestOpenStartMs = PagePerfLogger.now()
+        PagePerfLogger.markNow(pageTag(), "request_start", "page=1 source=refresh hasContent=${adapter?.contentCount() ?: 0}")
         viewModel.refresh()
     }
 
@@ -371,7 +399,7 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
             return
         }
         if ((adapter?.contentCount() ?: 0) == 0) {
-            viewModel.loadInitial()
+            startInitialLoad("tabSelected")
         }
     }
 
@@ -388,6 +416,31 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
 
     private fun focusTopTab(): Boolean {
         return (parentFragment as? HomeFragment)?.focusCurrentTab() == true
+    }
+
+    private fun pageTag(): String = "HomeLane/$type"
+
+    private fun isCurrentHomePage(): Boolean {
+        return (parentFragment as? HomeFragment)?.isCurrentPage(homePageIndex()) != false
+    }
+
+    private fun homePageIndex(): Int {
+        return if (type == TYPE_ANIMATION) 2 else 3
+    }
+
+    private fun logFirstSectionsDraw(itemCount: Int, source: String) {
+        val startMs = latestOpenStartMs
+        val rv = recyclerView
+        if (startMs <= 0L || itemCount <= 0 || rv == null) return
+        PagePerfLogger.logRecyclerPreDraw(
+            recyclerView = rv,
+            page = pageTag(),
+            event = "first_sections_draw",
+            startMs = startMs,
+            itemCount = itemCount,
+            extra = "source=$source"
+        )
+        latestOpenStartMs = 0L
     }
 
     private fun showMyFollowingDialog(followType: Int) {
