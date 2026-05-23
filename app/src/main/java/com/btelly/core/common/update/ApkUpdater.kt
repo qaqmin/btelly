@@ -176,7 +176,7 @@ object ApkUpdater {
     ): File {
         onProgress(Progress.Connecting)
 
-        val dir = File(context.cacheDir, "test_update").apply { mkdirs() }
+        val dir = File(context.cacheDir, "update").apply { mkdirs() }
         val part = File(dir, "update.apk.part")
         val target = File(dir, "update.apk")
         runCatching { part.delete() }
