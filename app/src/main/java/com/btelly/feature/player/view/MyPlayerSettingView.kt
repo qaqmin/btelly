@@ -696,7 +696,7 @@ class MyPlayerSettingView @JvmOverloads constructor(
     // Refreshes only the currently visible menu so state changes do not rebuild unrelated levels.
     private fun refreshCurrentMenu() {
         when (menuLevel) {
-            LEVEL_MAIN -> updateMainMenu(animateTransition = false)
+            LEVEL_MAIN -> updateMainMenu(animateTransition = false, focusPosition = lastFocusedMainItemPosition)
             LEVEL_SUB -> when (adapter.currentMenuKey) {
                 ITEM_VIDEO_QUALITY -> showSubMenu(
                     ITEM_VIDEO_QUALITY,

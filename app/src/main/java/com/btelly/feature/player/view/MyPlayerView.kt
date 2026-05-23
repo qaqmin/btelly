@@ -1428,32 +1428,31 @@ class MyPlayerView @JvmOverloads constructor(
         val frame = contentFrame ?: return
 
         val currentSurface = videoSurfaceView
-        if (currentSurface != null && (currentSurface is TextureView) == enabled) return
 
-        when (currentSurface) {
-            is SurfaceView -> currentPlayer.clearVideoSurfaceView(currentSurface)
-            is TextureView -> currentPlayer.clearVideoTextureView(currentSurface)
+        // 已经是 TextureView，只需切换 scaleX，不重建 View
+        if (currentSurface is TextureView) {
+            currentSurface.scaleX = if (enabled) -1f else 1f
+            return
         }
+
+        // 关闭镜像且当前是 SurfaceView，无需操作
+        if (!enabled) return
+
+        // 首次开启镜像：从 SurfaceView 切换到 TextureView
+        currentPlayer.clearVideoSurfaceView(currentSurface as SurfaceView)
         frame.removeView(currentSurface)
-        currentSurface?.removeOnLayoutChangeListener(maskBoundsLayoutListener)
+        currentSurface.removeOnLayoutChangeListener(maskBoundsLayoutListener)
 
         val layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
-        if (enabled) {
-            val textureView = TextureView(context)
-            textureView.layoutParams = layoutParams
-            textureView.scaleX = -1f
-            videoSurfaceView = textureView
-            frame.addView(textureView, 0)
-            textureView.addOnLayoutChangeListener(maskBoundsLayoutListener)
-            currentPlayer.setVideoTextureView(textureView)
-        } else {
-            val surfaceView = SurfaceView(context)
-            surfaceView.layoutParams = layoutParams
-            videoSurfaceView = surfaceView
-            frame.addView(surfaceView, 0)
-            surfaceView.addOnLayoutChangeListener(maskBoundsLayoutListener)
-            currentPlayer.setVideoSurfaceView(surfaceView)
-        }
+        val textureView = TextureView(context)
+        textureView.layoutParams = layoutParams
+        videoSurfaceView = textureView
+        frame.addView(textureView, 0)
+        textureView.addOnLayoutChangeListener(maskBoundsLayoutListener)
+        currentPlayer.setVideoTextureView(textureView)
+
+        // 布局完成后再设置 scaleX，避免 TV 设备硬件层尺寸异常
+        textureView.post { textureView.scaleX = -1f }
     }
 
     fun showHideMirrorButton(show: Boolean) {
@@ -1825,7 +1824,10 @@ class MyPlayerView @JvmOverloads constructor(
 
     override fun setVisibility(visibility: Int) {
         super.setVisibility(visibility)
-        (videoSurfaceView as? SurfaceView)?.visibility = visibility
+        when (val surface = videoSurfaceView) {
+            is SurfaceView -> surface.visibility = visibility
+            is TextureView -> surface.visibility = visibility
+        }
     }
 
     private fun syncDanmakuSettings() {

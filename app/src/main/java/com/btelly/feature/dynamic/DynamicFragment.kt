@@ -114,7 +114,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
                 }
             },
             onLeftEdge = { (activity as? MainActivity)?.focusLeftFunctionArea() == true },
-            onRightEdge = { focusRightContent() },
+            onRightEdge = { focusNearestVideoCard() },
             debugTag = null
         )
         binding.recyclerViewLeft.layoutManager = LinearLayoutManager(requireContext())
@@ -134,7 +134,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
                 lastFocusedVideoPosition = position
                 preferredContentFocusTarget = ContentFocusTarget.RIGHT_VIDEO_LIST
             },
-            onLeftEdge = { focusSelectedUpItem() },
+            onLeftEdge = { focusNearestUpItem() },
             onItemFocusedWithView = { view, position ->
                 videoFocusController?.onItemFocused(view, position)
             },
@@ -603,6 +603,19 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
         return true
     }
 
+    private fun focusNearestUpItem(): Boolean {
+        val anchor = activity?.currentFocus
+        if (anchor != null && anchor.isDescendantOf(binding.recyclerViewRight)) {
+            return SpatialFocusNavigator.requestBestDescendant(
+                anchorView = anchor,
+                root = binding.recyclerViewLeft,
+                direction = View.FOCUS_LEFT,
+                fallback = { focusSelectedUpItem() }
+            )
+        }
+        return focusSelectedUpItem()
+    }
+
     private fun focusRightContent(): Boolean {
         if (TabContentFocusHelper.requestVisibleFocus(buttonRetry)) {
             return true
@@ -611,6 +624,22 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
             return false
         }
         return videoFocusController?.focusPrimary() == true
+    }
+
+    private fun focusNearestVideoCard(): Boolean {
+        val anchor = activity?.currentFocus
+        if (anchor != null && anchor.isDescendantOf(binding.recyclerViewLeft)) {
+            if (videoAdapter.itemCount == 0) {
+                return false
+            }
+            return SpatialFocusNavigator.requestBestDescendant(
+                anchorView = anchor,
+                root = binding.recyclerViewRight,
+                direction = View.FOCUS_RIGHT,
+                fallback = { focusRightContent() }
+            )
+        }
+        return focusRightContent()
     }
 
     private fun focusPrimaryContent(): Boolean {
