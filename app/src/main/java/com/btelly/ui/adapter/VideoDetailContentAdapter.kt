@@ -518,6 +518,7 @@ class VideoDetailContentAdapter(
                 LinearLayoutManager(binding.root.context, RecyclerView.HORIZONTAL, false)
             binding.recyclerView.adapter = videoAdapter
             binding.recyclerView.setRecycledViewPool(BaseListFragment.sharedVideoPool)
+            binding.recyclerView.itemAnimator = null
             binding.recyclerView.isFocusable = false
             binding.buttonOrder.visibility = View.VISIBLE
             binding.buttonOrder.setOnClickListener {
