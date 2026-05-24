@@ -77,6 +77,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     private var pendingHistoryAnchorOffset = 0
     private var pendingHistoryReturnRestore = false
     private var pendingHistoryScrollToTop = false
+    private var pendingLaterScrollToTop = false
     private var lastKnownLoggedIn = false
     private var tvFocusController: TvListFocusController? = null
     private var currentOpenStartMs = 0L
@@ -207,10 +208,9 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                 AppLog.d("MePerf", "MeListFragment.initData: restoreCachedContent完成, type=$type")
                 if (pendingLoadAfterCacheRestore) {
                     pendingLoadAfterCacheRestore = false
-                    if (!hasContentItems()) {
-                        currentPage = 1
-                        loadData()
-                    }
+                    AppLog.d("MeDebug", "[$type] initData pendingLoad path: hasContent=${hasContentItems()}, pendingLaterScroll=$pendingLaterScrollToTop, pendingHistoryScroll=$pendingHistoryScrollToTop")
+                    currentPage = 1
+                    loadData()
                 }
             }
         }
@@ -319,11 +319,12 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     }
 
     private fun onVideoClick(video: VideoModel) {
-        if (!isAdded) return
+        val act = activity
+        if (act == null || act.isFinishing || act.isDestroyed) return
         pendingRestoreFocus = true
         tvFocusController?.captureCurrentAnchor()
         VideoRouteNavigator.openVideo(
-            context = requireContext(),
+            context = act,
             video = video,
             playQueue = com.btelly.ui.activity.PlayerActivity.buildPlayQueue(
                 videoAdapter?.getItemsSnapshot().orEmpty(),
@@ -333,7 +334,8 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     }
 
     private fun onHistoryVideoClick(video: HistoryVideoModel) {
-        if (!isAdded) return
+        val act = activity
+        if (act == null || act.isFinishing || act.isDestroyed) return
         val mapped = video.toVideoModel()
         if (mapped.aid != 0L || mapped.bvid.isNotEmpty()) {
             lastFocusedHistoryPosition = historyAdapter?.focusedItemPosition() ?: RecyclerView.NO_POSITION
@@ -344,7 +346,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
             tvFocusController?.captureCurrentAnchor()
             captureHistoryViewportAnchor()
             VideoRouteNavigator.openHistory(
-                context = requireContext(),
+                context = act,
                 historyVideo = video,
                 playQueue = com.btelly.ui.activity.PlayerActivity.buildPlayQueue(
                     historyAdapter?.getItemsSnapshot().orEmpty().map { it.toVideoModel() },
@@ -355,6 +357,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     }
 
     private suspend fun bindHistoryData(videos: List<HistoryVideoModel>) {
+        AppLog.d("MeDebug", "[history] bindHistoryData: raw=${videos.size}, pendingHistoryScroll=$pendingHistoryScrollToTop, currentPage=$currentPage, adapterCount=${historyAdapter?.contentCount() ?: 0}")
         if (shouldSkipInitialEmptyEmission(videos.size)) {
             PagePerfLogger.markNow(pageTag(), "skip_empty_initial_history")
             return
@@ -419,6 +422,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                         "items=${adapter.contentCount()}"
                     )
                     tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
+                    AppLog.d("MeDebug", "[history] onFirstBatchCommitted: shouldRestoreFocus=$shouldRestoreFocus, shouldScrollToTop=$shouldScrollToTop, pendingHistoryScroll=$pendingHistoryScrollToTop, filtered=${filtered.size}")
                     when {
                         shouldRestoreFocus -> {
                             restoreContentFocus()
@@ -452,7 +456,9 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     }
 
     private suspend fun bindLaterData(videos: List<VideoModel>) {
+        AppLog.d("MeDebug", "[later] bindLaterData: raw=${videos.size}, pendingLaterScroll=$pendingLaterScrollToTop, currentPage=$currentPage, adapterCount=${videoAdapter?.contentCount() ?: 0}")
         if (shouldSkipInitialEmptyEmission(videos.size)) {
+            AppLog.d("MeDebug", "[later] bindLaterData: SKIPPED (empty emission)")
             PagePerfLogger.markNow(pageTag(), "skip_empty_initial_later")
             return
         }
@@ -465,6 +471,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         )
         val rawSignature = videoListSignature(videos)
         if (rawSignature == lastRenderedLaterSignature && (videoAdapter?.contentCount() ?: 0) > 0) {
+            AppLog.d("MeDebug", "[later] bindLaterData: SKIPPED (duplicate signature)")
             PagePerfLogger.markNow(pageTag(), "skip_duplicate_payload", "raw=${videos.size}")
             return
         }
@@ -502,7 +509,18 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                     applyStartMs,
                     "items=${adapter.contentCount()}"
                 )
+                AppLog.d("MeDebug", "[later] onFirstBatchCommitted: pendingLaterScroll=$pendingLaterScrollToTop, filtered=${filtered.size}, adapterCount=${adapter.contentCount()}")
                 tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
+                if (pendingLaterScrollToTop && filtered.isNotEmpty()) {
+                    AppLog.d("MeDebug", "[later] SCROLLING TO TOP")
+                    pendingLaterScrollToTop = false
+                    scrollListToTop(immediate = true)
+                    binding.recyclerView.post {
+                        scrollListToTop(immediate = true)
+                    }
+                } else {
+                    AppLog.d("MeDebug", "[later] NOT scrolling to top: pendingLaterScroll=$pendingLaterScrollToTop, filteredEmpty=${filtered.isEmpty()}")
+                }
                 currentOpenStartMs = 0L
             },
             onAppendRest = {
@@ -599,6 +617,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         pendingRestoreFocus = false
         pendingHistoryReturnRestore = false
         pendingHistoryScrollToTop = type == TYPE_HISTORY
+        pendingLaterScrollToTop = type == TYPE_LATER
         tvFocusController?.clearAnchorForUserRefresh()
         pendingHistoryAnchorPosition = RecyclerView.NO_POSITION
         pendingHistoryAnchorOffset = 0
@@ -611,7 +630,9 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     }
 
     override fun onTabSelected() {
+        AppLog.d("MeDebug", "[$type] onTabSelected: isAdded=$isAdded, hasView=${view != null}, loading=${viewModel.loading.value}, cacheRestoreDone=$cacheRestoreCompleted, hasContent=${hasContentItems()}")
         if (!isAdded || view == null || viewModel.loading.value) {
+            AppLog.d("MeDebug", "[$type] onTabSelected: EARLY RETURN (isAdded/view/loading)")
             return
         }
         val now = PagePerfLogger.now()
@@ -630,9 +651,18 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
             TYPE_HISTORY, TYPE_LATER -> {
                 if (!cacheRestoreCompleted) {
                     pendingLoadAfterCacheRestore = true
+                    pendingHistoryScrollToTop = type == TYPE_HISTORY
+                    pendingLaterScrollToTop = type == TYPE_LATER
+                    tvFocusController?.clearAnchorForUserRefresh()
+                    currentPage = 1
+                    AppLog.d("MeDebug", "[$type] onTabSelected: cache not restored, pendingLoad=true, pendingLaterScroll=$pendingLaterScrollToTop, pendingHistoryScroll=$pendingHistoryScrollToTop")
                     PagePerfLogger.markNow(pageTag(), "wait_cache_restore_before_network")
                     return
                 }
+                pendingHistoryScrollToTop = type == TYPE_HISTORY
+                pendingLaterScrollToTop = type == TYPE_LATER
+                tvFocusController?.clearAnchorForUserRefresh()
+                AppLog.d("MeDebug", "[$type] onTabSelected: will loadData, pendingLaterScroll=$pendingLaterScrollToTop, pendingHistoryScroll=$pendingHistoryScrollToTop")
                 currentPage = 1
                 loadData()
             }

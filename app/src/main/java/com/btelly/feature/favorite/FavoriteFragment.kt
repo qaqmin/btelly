@@ -215,6 +215,7 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
                         cacheFolders(folders)
                         hydrateMissingFolderCovers(folders)
                         lastRefreshTime = System.currentTimeMillis()
+                        com.btelly.core.common.log.AppLog.d("MeDebug", "[favorite] loadFolders done: folders=${folders.size}, hasRequestedInitialFocus=$hasRequestedInitialFocus, pendingRestore=$pendingRestoreFocus, lastFocusedPos=$lastFocusedPosition")
                         if (!embedded && !hasRequestedInitialFocus) {
                             hasRequestedInitialFocus = true
                             requestBackFocus()
@@ -284,6 +285,9 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
         if (!isAdded || view == null) {
             return
         }
+        com.btelly.core.common.log.AppLog.d("MeDebug", "[favorite] onTabSelected: lastFocusedPos=$lastFocusedPosition, adapterCount=${adapter.itemCount}")
+        lastFocusedPosition = RecyclerView.NO_POSITION
+        binding.recyclerViewFavorite.scrollToPosition(0)
         loadFavoriteFolders()
     }
 
