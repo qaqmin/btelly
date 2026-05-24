@@ -63,6 +63,7 @@ class OwnerDetailDialog(
     private var hasMore = true
     private var isLoading = false
     private var tvFocusController: TvListFocusController? = null
+    private var searchingCurrentVideo = false
 
     init {
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -192,16 +193,33 @@ class OwnerDetailDialog(
                     val videos = ContentFilter.filterVideos(binding.root.context, response.data?.archives.orEmpty())
                     hasMore = response.data?.hasMore ?: false
                     if (currentPage == 1) {
+                        val found = scrollToCurrentVideo(videos)
                         videoAdapter.setData(videos) {
                             tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
-                            scrollToCurrentVideo(videos)
+                        }
+                        if (!found) {
+                            searchingCurrentVideo = true
                         }
                     } else {
                         videoAdapter.addData(videos)
                         tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
+                        if (searchingCurrentVideo) {
+                            val allVideos = videoAdapter.getItemsSnapshot()
+                            val found = scrollToCurrentVideo(allVideos)
+                            if (found) {
+                                searchingCurrentVideo = false
+                            } else if (!hasMore) {
+                                searchingCurrentVideo = false
+                                focusDefault()
+                            }
+                        }
                     }
                     if (!hasMore) {
                         videoAdapter.setShowLoadMore(false)
+                    }
+                    if (searchingCurrentVideo && hasMore && currentPage < 10) {
+                        currentPage++
+                        loadOwnerVideos()
                     }
                 } else {
                     toast(response.message)
@@ -215,24 +233,43 @@ class OwnerDetailDialog(
         }
     }
 
-    private fun scrollToCurrentVideo(videos: List<VideoModel>) {
+    private fun scrollToCurrentVideo(videos: List<VideoModel>): Boolean {
         val targetIndex = videos.indexOfFirst { video ->
             (currentAid > 0L && video.aid == currentAid) ||
                 (currentVideoId.isNotBlank() && video.bvid == currentVideoId)
         }
-        if (targetIndex >= 0) {
-            if (videoAdapter.currentPlayingAid <= 0L) {
-                val targetAid = videos[targetIndex].aid
-                if (targetAid > 0L) {
-                    videoAdapter.currentPlayingAid = targetAid
+        AppLog.d("OwnerDetailDialog", "scrollToCurrentVideo: targetIndex=$targetIndex, currentAid=$currentAid, currentVideoId=$currentVideoId, videos=${videos.size}")
+        if (targetIndex < 0) return false
+
+        if (videoAdapter.currentPlayingAid <= 0L) {
+            val targetAid = videos[targetIndex].aid
+            if (targetAid > 0L) {
+                videoAdapter.currentPlayingAid = targetAid
+            }
+        }
+        binding.recyclerView.post {
+            binding.recyclerView.scrollToPosition(targetIndex)
+            focusVideoAt(targetIndex)
+            binding.recyclerView.post {
+                val layoutManager =
+                    binding.recyclerView.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager
+                val vh = binding.recyclerView.findViewHolderForAdapterPosition(targetIndex)
+                AppLog.d("OwnerDetailDialog", "centerScroll: layoutManager=$layoutManager, vh=$vh, targetIndex=$targetIndex")
+                if (layoutManager != null && vh != null) {
+                    val rvHeight = binding.recyclerView.height
+                    val itemHeight = vh.itemView.height
+                    val centerOffset = (rvHeight - itemHeight) / 2
+                    AppLog.d("OwnerDetailDialog", "centerScroll: rvHeight=$rvHeight, itemHeight=$itemHeight, centerOffset=$centerOffset")
+                    layoutManager.scrollToPositionWithOffset(
+                        targetIndex, centerOffset.coerceAtLeast(0)
+                    )
                 }
             }
-            binding.recyclerView.post {
-                binding.recyclerView.scrollToPosition(targetIndex)
-                focusVideoAt(targetIndex)
-            }
-            return
         }
+        return true
+    }
+
+    private fun focusDefault() {
         binding.recyclerView.post {
             if (binding.buttonFollow.isVisible) {
                 binding.buttonFollow.requestFocus()
