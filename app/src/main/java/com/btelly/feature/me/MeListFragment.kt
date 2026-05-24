@@ -320,7 +320,10 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
 
     private fun onVideoClick(video: VideoModel) {
         val act = activity
-        if (act == null || act.isFinishing || act.isDestroyed) return
+        if (act == null || act.isFinishing || act.isDestroyed) {
+            AppLog.w("MeList", "onVideoClick dropped: activity=$act finishing=${act?.isFinishing} destroyed=${act?.isDestroyed} bvid=${video.bvid}")
+            return
+        }
         pendingRestoreFocus = true
         tvFocusController?.captureCurrentAnchor()
         VideoRouteNavigator.openVideo(
@@ -335,7 +338,10 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
 
     private fun onHistoryVideoClick(video: HistoryVideoModel) {
         val act = activity
-        if (act == null || act.isFinishing || act.isDestroyed) return
+        if (act == null || act.isFinishing || act.isDestroyed) {
+            AppLog.w("MeList", "onHistoryVideoClick dropped: activity=$act finishing=${act?.isFinishing} destroyed=${act?.isDestroyed}")
+            return
+        }
         val mapped = video.toVideoModel()
         if (mapped.aid != 0L || mapped.bvid.isNotEmpty()) {
             lastFocusedHistoryPosition = historyAdapter?.focusedItemPosition() ?: RecyclerView.NO_POSITION

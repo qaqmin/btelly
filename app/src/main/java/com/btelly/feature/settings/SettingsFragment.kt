@@ -183,7 +183,10 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.theme), "黑色"),
             SettingModel(getString(R.string.live_entry), "关"),
             SettingModel(getString(R.string.minor_protection), "开"),
-            SettingModel(getString(R.string.risk_control_verify), "无")
+            SettingModel(getString(R.string.risk_control_verify), "无"),
+            SettingModel(getString(R.string.show_video_detail_page), "关"),
+            SettingModel(getString(R.string.give_coin_number), "2"),
+            SettingModel(getString(R.string.ipv4_only), "开")
         )
 
         playerSettings = mutableListOf(
@@ -197,11 +200,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.subtitle_text_size), "45"),
             SettingModel(getString(R.string.show_debug), "关"),
             SettingModel(getString(R.string.show_bottom_progress_bar), "关"),
-            SettingModel(getString(R.string.show_video_detail_page), "关"),
-            SettingModel(getString(R.string.give_coin_number), "2"),
             SettingModel(getString(R.string.show_next_previous), "关"),
-            SettingModel(getString(R.string.show_dm_switch), "关"),
-            SettingModel(getString(R.string.ipv4_only), "开"),
             SettingModel(getString(R.string.resume_playback), "开"),
             SettingModel("空降助手", "开")
         )
@@ -218,7 +217,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.allow_vip_colorful_dm), "开"),
             SettingModel(getString(R.string.dm_show_advanced), "开"),
             SettingModel(getString(R.string.dm_merge_duplicate), "开"),
-            SettingModel(getString(R.string.dm_smart_shield), "关")
+            SettingModel(getString(R.string.dm_smart_shield), "关"),
+            SettingModel(getString(R.string.show_dm_switch), "关")
         )
 
         deviceSettings.add(DEVICE_POSITION_VERSION, SettingModel("应用版本", BuildConfig.VERSION_NAME))
@@ -344,6 +344,9 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
                 }
             }
             COMMON_POSITION_RISK_CONTROL -> showRiskControlDialog()
+            8 -> toggleSetting(commonSettings, 8, KEY_SHOW_VIDEO_DETAIL)
+            9 -> showCommonChoiceDialog(position, KEY_GIVE_COIN_NUMBER, arrayOf("1", "2"))
+            10 -> toggleSetting(commonSettings, 10, KEY_IPV4_ONLY)
             commonSettings.lastIndex - 1 -> {
                 val newValue = if (AppLog.isEnabled) "关" else "开"
                 AppLog.setEnabled(newValue == "开")
@@ -371,13 +374,9 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             7 -> showPlayerChoiceDialog(position, KEY_SUBTITLE_TEXT_SIZE, arrayOf("35", "40", "45", "50", "55", "60"))
             8 -> toggleSetting(playerSettings, 8, KEY_SHOW_DEBUG)
             9 -> toggleSetting(playerSettings, 9, KEY_SHOW_BOTTOM_PROGRESS_BAR)
-            10 -> toggleSetting(playerSettings, 10, KEY_SHOW_VIDEO_DETAIL)
-            11 -> showPlayerChoiceDialog(position, KEY_GIVE_COIN_NUMBER, arrayOf("1", "2"))
-            12 -> toggleSetting(playerSettings, 12, KEY_SHOW_NEXT_PREVIOUS)
-            13 -> toggleSetting(playerSettings, 13, KEY_SHOW_DM_SWITCH)
-            14 -> toggleSetting(playerSettings, 14, KEY_IPV4_ONLY)
-            15 -> toggleSetting(playerSettings, 15, KEY_RESUME_PLAYBACK)
-            16 -> toggleSponsorBlock()
+            10 -> toggleSetting(playerSettings, 10, KEY_SHOW_NEXT_PREVIOUS)
+            11 -> toggleSetting(playerSettings, 11, KEY_RESUME_PLAYBACK)
+            12 -> toggleSponsorBlock()
         }
     }
 
@@ -409,6 +408,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             11 -> toggleSetting(dmSettings, 11, KEY_DM_SMART_SHIELD) { value ->
                 appSettings.putStringAsync(KEY_DM_SMART_SHIELD, value)
             }
+            12 -> toggleSetting(dmSettings, 12, KEY_SHOW_DM_SWITCH)
         }
     }
 
@@ -801,6 +801,9 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         applySavedValue(commonSettings, 5, KEY_LIVE_ENTRY)
         applySavedValue(commonSettings, 6, KEY_MINOR_PROTECTION)
         updateRiskControlStatus()
+        applySavedValue(commonSettings, 8, KEY_SHOW_VIDEO_DETAIL)
+        applySavedValue(commonSettings, 9, KEY_GIVE_COIN_NUMBER)
+        applySavedValue(commonSettings, 10, KEY_IPV4_ONLY)
 
         applySavedValue(playerSettings, 0, KEY_DEFAULT_VIDEO_QUALITY)
         applySavedValue(playerSettings, 1, KEY_DEFAULT_AUDIO_TRACK)
@@ -812,13 +815,9 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         applySavedValue(playerSettings, 7, KEY_SUBTITLE_TEXT_SIZE)
         applySavedValue(playerSettings, 8, KEY_SHOW_DEBUG)
         applySavedValue(playerSettings, 9, KEY_SHOW_BOTTOM_PROGRESS_BAR)
-        applySavedValue(playerSettings, 10, KEY_SHOW_VIDEO_DETAIL)
-        applySavedValue(playerSettings, 11, KEY_GIVE_COIN_NUMBER)
-        applySavedValue(playerSettings, 12, KEY_SHOW_NEXT_PREVIOUS)
-        applySavedValue(playerSettings, 13, KEY_SHOW_DM_SWITCH)
-        applySavedValue(playerSettings, 14, KEY_IPV4_ONLY)
-        applySavedValue(playerSettings, 15, KEY_RESUME_PLAYBACK)
-        applySavedValue(playerSettings, 16, KEY_SPONSOR_BLOCK_ENABLED)
+        applySavedValue(playerSettings, 10, KEY_SHOW_NEXT_PREVIOUS)
+        applySavedValue(playerSettings, 11, KEY_RESUME_PLAYBACK)
+        applySavedValue(playerSettings, 12, KEY_SPONSOR_BLOCK_ENABLED)
 
         applySavedValue(dmSettings, 0, KEY_DM_SWITCH)
         applySavedValue(dmSettings, 1, KEY_DM_ALPHA)
@@ -834,6 +833,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         applySavedValue(dmSettings, 9, KEY_DM_SHOW_ADVANCED)
         applySavedValue(dmSettings, 10, KEY_DM_MERGE_DUPLICATE)
         applySavedValue(dmSettings, 11, KEY_DM_SMART_SHIELD)
+        applySavedValue(dmSettings, 12, KEY_SHOW_DM_SWITCH)
     }
 
     private fun applySavedValue(target: MutableList<SettingModel>, index: Int, key: String) {

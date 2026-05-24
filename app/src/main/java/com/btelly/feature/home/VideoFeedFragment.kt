@@ -429,7 +429,11 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     }
 
     private fun onVideoClick(video: VideoModel) {
-        val ctx = context ?: return
+        val ctx = context
+        if (ctx == null) {
+            AppLog.w("VideoFeed", "onVideoClick dropped: fragment context is null, bvid=${video.bvid}")
+            return
+        }
         VideoRouteNavigator.openVideo(
             context = ctx,
             video = video,
