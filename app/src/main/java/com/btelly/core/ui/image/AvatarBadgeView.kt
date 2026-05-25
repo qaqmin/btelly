@@ -3,6 +3,7 @@ package com.btelly.core.ui.image
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.drawable.Drawable
 import android.util.AttributeSet
 import androidx.appcompat.widget.AppCompatImageView
@@ -28,6 +29,7 @@ class AvatarBadgeView @JvmOverloads constructor(
 
     private val borderWidthPx = 1f
     private val gapPx = 1f
+    private val avatarClipPath = Path()
 
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -78,7 +80,20 @@ class AvatarBadgeView @JvmOverloads constructor(
     }
 
     override fun onDraw(canvas: Canvas) {
+        val saveCount = canvas.save()
+        avatarClipPath.reset()
+        val contentWidth = width - paddingLeft - paddingRight
+        val contentHeight = height - paddingTop - paddingBottom
+        val radius = Math.min(contentWidth, contentHeight) / 2f
+        avatarClipPath.addCircle(
+            paddingLeft + contentWidth / 2f,
+            paddingTop + contentHeight / 2f,
+            radius,
+            Path.Direction.CW
+        )
+        canvas.clipPath(avatarClipPath)
         super.onDraw(canvas)
+        canvas.restoreToCount(saveCount)
         if (borderEnabled) {
             drawCircleBorder(canvas)
         }

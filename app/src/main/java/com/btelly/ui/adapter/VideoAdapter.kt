@@ -2,7 +2,6 @@ package com.btelly.ui.adapter
 
 import android.annotation.SuppressLint
 import android.graphics.Outline
-import android.text.TextUtils
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
@@ -34,7 +33,9 @@ class VideoAdapter(
     onItemFocusedWithView: ((View, Int) -> Unit)? = null,
     onItemDpad: ((View, Int, KeyEvent) -> Boolean)? = null,
     onItemsChanged: (() -> Unit)? = null,
-    private val detectPortraitFromCover: Boolean = true
+    private val detectPortraitFromCover: Boolean = true,
+    private val fastFirstScreenCovers: Boolean = false,
+    private val fastFirstScreenCoverCount: Int = 8
 ) : BaseVideoAdapter<VideoModel, VideoAdapter.VideoViewHolder>() {
 
     var currentPlayingAid: Long = 0
@@ -150,7 +151,9 @@ class VideoAdapter(
             { video -> removeItems { itemKey(it) == itemKey(video) } },
             { upName -> removeItems { it.authorName.equals(upName, ignoreCase = true) } },
             onItemDpad,
-            detectPortraitFromCover
+            detectPortraitFromCover,
+            fastFirstScreenCovers,
+            fastFirstScreenCoverCount
         )
     }
 
@@ -162,7 +165,7 @@ class VideoAdapter(
             "VideoAdapter.light"
         }
         VideoCardPerfLogger.measureBind(source) {
-            holder.bind(video, video.aid == currentPlayingAid)
+            holder.bind(video, video.aid == currentPlayingAid, position)
         }
     }
 
@@ -177,7 +180,9 @@ class VideoAdapter(
         private val onItemDisliked: ((VideoModel) -> Unit)? = null,
         private val onUpDisliked: ((String) -> Unit)? = null,
         private val onItemDpad: ((View, Int, KeyEvent) -> Boolean)? = null,
-        private val detectPortraitFromCover: Boolean = true
+        private val detectPortraitFromCover: Boolean = true,
+        private val fastFirstScreenCovers: Boolean = false,
+        private val fastFirstScreenCoverCount: Int = 8
     ) : BaseVideoViewHolder(views.root) {
 
         private var currentVideo: VideoModel? = null
@@ -290,47 +295,17 @@ class VideoAdapter(
             }
         }
 
-        private var splitRunnable: Runnable? = null
-
-        fun bind(video: VideoModel, isCurrentlyPlaying: Boolean = false) {
+        fun bind(video: VideoModel, isCurrentlyPlaying: Boolean = false, adapterPosition: Int = bindingAdapterPosition) {
             currentVideo = video
-            splitRunnable?.let { views.textView.removeCallbacks(it) }
-            splitRunnable = null
 
             val title = resolveDisplayTitle(video)
             if (isCurrentlyPlaying) {
                 titleInPlayingMode = true
-                views.iconPlaying.visibility = View.VISIBLE
-                val iconSize = views.textView.textSize.toInt()
-                views.iconPlaying.layoutParams = views.iconPlaying.layoutParams.apply {
-                    width = iconSize
-                    height = iconSize
-                }
-                ImageLoader.loadDrawableRes(views.iconPlaying, R.drawable.playing)
                 val accentColor = ContextCompat.getColor(views.root.context, R.color.colorAccent)
-                setTitleColor(accentColor)
-                views.textView.text = title
-                views.textView.ellipsize = TextUtils.TruncateAt.END
-                setTitleLines(1)
-
-                val split = Runnable {
-                    val visibleEnd = views.textView.firstLineVisibleEnd(title)
-                    applyTitleOverflow(title, visibleEnd)
-                }
-                splitRunnable = split
-                views.textView.post(split)
+                views.textLayer.setTitle(title, lines = 2, isPlaying = true, color = accentColor)
             } else {
-                if (titleInPlayingMode || views.iconPlaying.visibility != View.GONE) {
-                    titleInPlayingMode = false
-                    views.iconPlaying.visibility = View.GONE
-                    ImageLoader.clear(views.iconPlaying)
-                }
-                setTitleColor(defaultTitleColor)
-                views.textView.text = title
-                setTitleLines(2)
-                if (views.textOverflow.visibility != View.GONE) {
-                    views.textOverflow.visibility = View.GONE
-                }
+                titleInPlayingMode = false
+                views.textLayer.setTitle(title, lines = 2, isPlaying = false, color = defaultTitleColor)
             }
             when (displayStyle) {
                 DisplayStyle.DEFAULT -> bindDefault(video)
@@ -342,34 +317,40 @@ class VideoAdapter(
             val needPortraitDetect = detectPortraitFromCover &&
                 displayStyle == DisplayStyle.DEFAULT &&
                 !video.isPortrait && !cachedPortrait
+            val portraitCallback = if (needPortraitDetect) { isPortrait: Boolean ->
+                if (bindingAdapterPosition != androidx.recyclerview.widget.RecyclerView.NO_POSITION
+                    && currentVideo === video && isPortrait
+                ) {
+                    if (video.bvid.isNotBlank()) portraitDetectedBvids.add(video.bvid)
+                    val portraitVideo = video.copy(dimension = Dimension(width = 1, height = 2))
+                    views.textLayer.setOwner(
+                        ownerText = buildOwnerLine(portraitVideo),
+                        showAvatar = false,
+                        badgeText = badgeTextFor(portraitVideo)
+                    )
+                }
+            } else null
+
             ImageLoader.loadVideoCover(
                 imageView = views.imageView,
                 url = coverUrl,
+                priority = if (fastFirstScreenCovers && adapterPosition >= fastFirstScreenCoverCount) {
+                    ImageLoader.Priority.NORMAL
+                } else {
+                    ImageLoader.Priority.VISIBLE_HIGH
+                },
                 deferUntilPreDraw = true,
-                onPortraitDetected = if (needPortraitDetect) { isPortrait ->
-                    if (bindingAdapterPosition != androidx.recyclerview.widget.RecyclerView.NO_POSITION
-                        && currentVideo === video && isPortrait
-                    ) {
-                        if (video.bvid.isNotBlank()) portraitDetectedBvids.add(video.bvid)
-                        val portraitVideo = video.copy(dimension = Dimension(width = 1, height = 2))
-                        views.ownerRow.bind(
-                            ownerText = buildOwnerLine(portraitVideo),
-                            showAvatar = false,
-                            badgeText = badgeTextFor(portraitVideo)
-                        )
-                    }
-                } else null
+                onPortraitDetected = portraitCallback
             )
         }
 
         private fun bindDefault(video: VideoModel) {
-            views.textHistoryViewTime?.visibility = View.GONE
-            views.iconHistoryDevice?.visibility = View.GONE
+            views.textLayer.clearHistoryTrailing()
 
             val ownerName = video.authorName
             val publishLabel = formatPublishTime(video)
             val ownerLine = buildOwnerLine(ownerName, publishLabel)
-            views.ownerRow.bind(
+            views.textLayer.setOwner(
                 ownerText = ownerLine,
                 showAvatar = ownerName.isNotBlank() && !video.isPortrait,
                 badgeText = badgeTextFor(video)
@@ -409,7 +390,7 @@ class VideoAdapter(
 
         private fun bindHistory(video: VideoModel) {
             val ownerName = video.authorName
-            views.ownerRow.bind(
+            views.textLayer.setOwner(
                 ownerText = ownerName,
                 showAvatar = ownerName.isNotBlank()
             )
@@ -431,9 +412,10 @@ class VideoAdapter(
             } else {
                 video.historyBadge
             }
-            views.textHistoryViewTime?.text = formatHistoryTime(video.historyViewAt)
-            views.textHistoryViewTime?.visibility = View.VISIBLE
-            applyHistoryDeviceIcon(video.historyDevice)
+            views.textLayer.setHistoryTrailing(
+                timeText = formatHistoryTime(video.historyViewAt),
+                deviceDrawableRes = HistoryDeviceIcon.resolve(video.historyDevice)?.drawableRes ?: 0
+            )
             views.coverMetaOverlay.bind(
                 showPlayCount = false,
                 showDanmakuCount = false,
@@ -441,19 +423,6 @@ class VideoAdapter(
                 showChargeBadge = video.isChargingExclusive,
                 showInteractionBadge = video.isSteinsGate
             )
-        }
-
-        private fun applyHistoryDeviceIcon(dt: Int) {
-            val deviceIcon = HistoryDeviceIcon.resolve(dt)
-            val iconHistoryDevice = views.iconHistoryDevice ?: return
-            if (deviceIcon == null) {
-                iconHistoryDevice.visibility = View.GONE
-                iconHistoryDevice.contentDescription = null
-            } else {
-                iconHistoryDevice.setImageResource(deviceIcon.drawableRes)
-                iconHistoryDevice.contentDescription = deviceIcon.contentDescription
-                iconHistoryDevice.visibility = View.VISIBLE
-            }
         }
 
         private fun buildOwnerLine(video: VideoModel): String =
@@ -505,24 +474,7 @@ class VideoAdapter(
 
         private fun setTitleColor(color: Int) {
             titleColor = color
-            views.textView.setTextColor(color)
-            views.textOverflow.setTextColor(color)
-        }
-
-        private fun setTitleLines(lines: Int) {
-            if (views.textView.minLines == lines && views.textView.maxLines == lines) return
-            views.textView.minLines = lines
-            views.textView.maxLines = lines
-        }
-
-        private fun applyTitleOverflow(title: String, visibleEnd: Int) {
-            if (visibleEnd in 1 until title.length) {
-                views.textView.text = title.substring(0, visibleEnd)
-                views.textOverflow.text = title.substring(visibleEnd)
-                views.textOverflow.visibility = View.VISIBLE
-            } else {
-                views.textOverflow.visibility = View.GONE
-            }
+            views.textLayer.setTitleColor(color)
         }
     }
 }

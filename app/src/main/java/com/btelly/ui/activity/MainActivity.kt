@@ -2,6 +2,7 @@ package com.btelly.ui.activity
 
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.Choreographer
 import android.view.View
 import android.view.ViewTreeObserver
 import android.widget.Toast
@@ -48,7 +49,6 @@ import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.core.startup.AppStartupScheduler
 import com.btelly.core.ui.image.ImageLoader
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -67,10 +67,6 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         private const val SETTINGS_OVERLAY_EXIT_ANIM_MS = 275L
         private const val SEARCH_TAB_INDEX = 5
         private const val STARTUP_TAG = "AppStartup"
-        // Splash 只负责覆盖系统拉起到 Activity 壳可绘制前的短窗口。
-        // 推荐内容是否 ready 单独打点，不再把网络/首屏卡片 inflate 的波动转化成黑屏时间。
-        private const val SPLASH_TIMEOUT_MS = 1200L
-        private const val SESSION_PREWARM_DELAY_MS = 20_000L
     }
 
     // tab 顺序固定（与 fragmentFactories 一一对应）：
@@ -97,6 +93,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     private var pendingFocusRestoreDelayMs = 0L
     private var startupTasksScheduled = false
     private var startupShellRevealed = false
+    private var startupInitialContentAttached = false
     private var homeContentReadyLogged = false
     private var startupAvatarRefreshScheduled = false
     private var postHomeAvatarRefreshScheduled = false
@@ -197,7 +194,6 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
             AppLog.i(STARTUP_TAG, "STARTUP deferInitialMainTab index=$pendingInitialTabIndex")
         }
         updateNavigationVisibility()
-        scheduleSplashTimeout()
         binding.root.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
             override fun onPreDraw(): Boolean {
                 if (binding.root.viewTreeObserver.isAlive) {
@@ -209,20 +205,20 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
                 )
                 revealStartupShell("first_pre_draw")
                 scheduleFastStartupAvatarRefresh()
-                (application as? BTellyApplication)?.scheduleStartupFirstPagePreload(delayMillis = 0L)
+                Choreographer.getInstance().postFrameCallback {
+                    binding.root.post {
+                        attachInitialContentAfterShellDraw("after_shell_first_frame")
+                    }
+                }
                 return true
             }
         })
-        // 壳层已经完成 inflate、导航高亮和背景选择后，启动图标就不再承担信息展示。
-        // 后续首屏数据加载只影响内容区域，不再延长 bg_splash 的图标停留时间。
+        // 壳层先出第一帧；首页 Fragment、网络预加载和提示弹窗下一帧再进入。
+        // 这样启动页只覆盖到主壳可绘制，不再被首页 ViewPager/列表创建拖住。
         revealStartupShell("shell_initialized")
-        (application as? BTellyApplication)?.scheduleStartupFirstPagePreload(delayMillis = 0L)
         binding.root.post {
             AppLog.i(STARTUP_TAG, "MainActivity first root post elapsed=${SystemClock.elapsedRealtime() - activityCreateStartMs}ms")
             revealStartupShell("first_root_post")
-            scheduleDeferredStartupTasks()
-            attachInitialMainTabAfterShellDraw()
-            showUsageTipIfNeeded()
         }
         AppLog.i(STARTUP_TAG, "MainActivity.initData end elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
     }
@@ -233,6 +229,25 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         } else {
             0
         }
+    }
+
+    private fun attachInitialContentAfterShellDraw(reason: String) {
+        if (startupInitialContentAttached) return
+        startupInitialContentAttached = true
+        val startMs = SystemClock.elapsedRealtime()
+        AppLog.i(
+            STARTUP_TAG,
+            "STARTUP initialContentPipeline start reason=$reason elapsed=${startMs - activityCreateStartMs}ms"
+        )
+        if (!restoredFromSavedState) {
+            attachInitialMainTabAfterShellDraw()
+        }
+        scheduleDeferredStartupTasks()
+        showUsageTipIfNeeded()
+        AppLog.i(
+            STARTUP_TAG,
+            "STARTUP initialContentPipeline end reason=$reason elapsed=${SystemClock.elapsedRealtime() - startMs}ms"
+        )
     }
 
     private fun attachInitialMainTabAfterShellDraw() {
@@ -433,16 +448,6 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         schedulePostHomeAvatarRefresh()
     }
 
-    private fun scheduleSplashTimeout() {
-        lifecycleScope.launch {
-            delay(SPLASH_TIMEOUT_MS)
-            if (!startupShellRevealed) {
-                AppLog.i(STARTUP_TAG, "Splash shell reveal timeout fallback")
-                revealStartupShell("timeout")
-            }
-        }
-    }
-
     private fun refreshAvatar(
         allowNetworkFetch: Boolean = true,
         forceNetworkFetch: Boolean = false
@@ -542,9 +547,6 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
             }
             .addTask("playerPrewarm", AppStartupScheduler.Phase.DELAYED, delayMs = 10000L) {
                 PlayerInstancePool.prewarm(this@MainActivity)
-            }
-            .addTask("sessionPrewarm", AppStartupScheduler.Phase.DELAYED, delayMs = SESSION_PREWARM_DELAY_MS) {
-                BTellyApplication.instance.scheduleDeferredSessionPrewarm(delayMillis = 0L)
             }
             .addTask("wbiKeys", AppStartupScheduler.Phase.IDLE) {
                 lifecycleScope.launch {

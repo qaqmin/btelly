@@ -33,12 +33,10 @@
         tools:targetApi="35">
 
         <activity
-            android:name=".ui.activity.MainActivity"
+            android:name=".ui.activity.SplashActivity"
             android:exported="true"
-            android:launchMode="singleTop"
             android:screenOrientation="landscape"
             android:configChanges="screenSize|orientation|keyboardHidden"
-            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.BTelly.Launcher"
             tools:ignore="DiscouragedApi">
             <intent-filter>
@@ -47,6 +45,16 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".ui.activity.MainActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:screenOrientation="landscape"
+            android:configChanges="screenSize|orientation|keyboardHidden"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.BTelly.Main"
+            tools:ignore="DiscouragedApi" />
 
         <activity
             android:name=".ui.activity.PlayerActivity"

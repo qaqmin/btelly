@@ -2,8 +2,12 @@ package com.btelly.feature.me
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.btelly.model.video.HistoryVideoModel
+import com.btelly.model.video.VideoModel
 import com.btelly.repository.UserRepository
 import com.btelly.core.common.log.AppLog
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,6 +32,11 @@ class MeListViewModel(
     val hasMore: StateFlow<Boolean> = _hasMore.asStateFlow()
 
     private var historyCursorViewAt: Long = 0
+    private var lastHistoryPayloadSignature = ""
+    private var lastLaterPayloadSignature = ""
+    private var loadJob: Job? = null
+    private var requestSerial = 0
+    private var activeRequestId = 0
 
     init {
         // 订阅「稍后观看」番剧弹幕数补全完成事件：
@@ -36,6 +45,12 @@ class MeListViewModel(
         viewModelScope.launch {
             userRepository.laterWatchEnriched.collectLatest { enrichment ->
                 if (_uiState.value.laterVideos === enrichment.sourceList) {
+                    val signature = videoListSignature(enrichment.enrichedList)
+                    if (signature == lastLaterPayloadSignature) {
+                        AppLog.d("MePerf", "laterWatchEnriched skipped duplicate payload")
+                        return@collectLatest
+                    }
+                    lastLaterPayloadSignature = signature
                     _uiState.value = _uiState.value.copy(
                         laterVideos = enrichment.enrichedList
                     )
@@ -47,18 +62,23 @@ class MeListViewModel(
     fun isLoggedIn(): Boolean = userRepository.isLoggedIn()
 
     fun loadHistory(page: Int, pageSize: Int) {
-        viewModelScope.launch {
-            if (_loading.value) {
-                return@launch
-            }
+        val restartFirstPage = page <= 1
+        if (_loading.value && !restartFirstPage) {
+            AppLog.d("MePerf", "loadHistory: skip load-more while loading, page=$page")
+            return
+        }
+        val requestId = nextRequestId(restartFirstPage)
+        loadJob = viewModelScope.launch {
             _loading.value = true
             _error.value = null
 
             if (!userRepository.isLoggedIn()) {
+                if (!isActiveRequest(requestId)) return@launch
+                lastHistoryPayloadSignature = ""
                 _uiState.value = _uiState.value.copy(historyVideos = emptyList())
                 _hasMore.value = false
                 _error.value = "该功能需要登录后才可以使用"
-                _loading.value = false
+                finishRequest(requestId)
                 return@launch
             }
 
@@ -69,8 +89,13 @@ class MeListViewModel(
             val t0 = System.currentTimeMillis()
             AppLog.d("MePerf", "loadHistory: 开始请求, page=$page, viewAt=$historyCursorViewAt")
 
-            userRepository.getHistory(historyCursorViewAt, pageSize)
-                .onSuccess { response ->
+            try {
+                userRepository.getHistory(historyCursorViewAt, pageSize)
+                    .onSuccess { response ->
+                    if (!isActiveRequest(requestId)) {
+                        AppLog.d("MePerf", "loadHistory: drop stale result, request=$requestId page=$page")
+                        return@onSuccess
+                    }
                     AppLog.d("MePerf", "loadHistory: 请求返回, 耗时=${System.currentTimeMillis() - t0}ms, code=${response.code}")
                     if (response.isSuccess && response.data != null) {
                         val rawList = response.data.list
@@ -82,6 +107,14 @@ class MeListViewModel(
                         } else {
                             (_uiState.value.historyVideos + pageItems).distinctBy(::historyItemKey)
                         }
+                        val signature = historyListSignature(merged)
+                        if (signature == lastHistoryPayloadSignature) {
+                            AppLog.d("MePerf", "loadHistory: 跳过重复payload, page=$page, items=${merged.size}")
+                            _hasMore.value = rawList.size >= pageSize
+                            lastLoadedAt = System.currentTimeMillis()
+                            return@onSuccess
+                        }
+                        lastHistoryPayloadSignature = signature
                         _uiState.value = _uiState.value.copy(historyVideos = merged)
                         historyCursorViewAt = response.data.cursor?.viewAt
                             ?: rawList.lastOrNull()?.viewAt
@@ -93,32 +126,56 @@ class MeListViewModel(
                     }
                 }
                 .onFailure { exception ->
+                    if (exception is CancellationException) {
+                        throw exception
+                    }
+                    if (!isActiveRequest(requestId)) {
+                        AppLog.d("MePerf", "loadHistory: drop stale failure, request=$requestId page=$page")
+                        return@onFailure
+                    }
                     AppLog.e("MePerf", "loadHistory: 失败, 耗时=${System.currentTimeMillis() - t0}ms, ${exception.message}")
                     _error.value = exception.message
                 }
-
-            _loading.value = false
+            } finally {
+                finishRequest(requestId)
+            }
         }
     }
 
     fun loadLaterWatch() {
-        viewModelScope.launch {
-            if (_loading.value) return@launch
+        val requestId = nextRequestId(restart = true)
+        loadJob = viewModelScope.launch {
             _loading.value = true
             _error.value = null
 
             if (!userRepository.isLoggedIn()) {
+                if (!isActiveRequest(requestId)) return@launch
+                lastLaterPayloadSignature = ""
                 _uiState.value = _uiState.value.copy(laterVideos = emptyList())
                 _hasMore.value = false
                 _error.value = "该功能需要登录后才可以使用"
-                _loading.value = false
+                finishRequest(requestId)
                 return@launch
             }
 
-            userRepository.getLaterWatch()
-                .onSuccess { response ->
+            try {
+                userRepository.getLaterWatch()
+                    .onSuccess { response ->
+                    if (!isActiveRequest(requestId)) {
+                        AppLog.d("MePerf", "loadLaterWatch: drop stale result, request=$requestId")
+                        return@onSuccess
+                    }
                     if (response.isSuccess && response.data != null) {
-                        _uiState.value = _uiState.value.copy(laterVideos = response.data.list)
+                        val videos = response.data.list
+                        val signature = videoListSignature(videos)
+                        if (signature == lastLaterPayloadSignature) {
+                            AppLog.d("MePerf", "loadLaterWatch: 跳过重复payload, items=${videos.size}")
+                            _hasMore.value = false
+                            lastLoadedAt = System.currentTimeMillis()
+                            return@onSuccess
+                        }
+                        lastLaterPayloadSignature = signature
+                        _uiState.value = _uiState.value.copy(laterVideos = videos)
                         _hasMore.value = false
                         lastLoadedAt = System.currentTimeMillis()
                     } else {
@@ -126,46 +183,92 @@ class MeListViewModel(
                     }
                 }
                 .onFailure { exception ->
+                    if (exception is CancellationException) {
+                        throw exception
+                    }
+                    if (!isActiveRequest(requestId)) {
+                        AppLog.d("MePerf", "loadLaterWatch: drop stale failure, request=$requestId")
+                        return@onFailure
+                    }
                     _error.value = exception.message
                 }
+            } finally {
+                finishRequest(requestId)
+            }
+        }
+    }
 
+    private fun nextRequestId(restart: Boolean): Int {
+        if (restart) {
+            loadJob?.cancel()
+        }
+        val requestId = ++requestSerial
+        activeRequestId = requestId
+        return requestId
+    }
+
+    private fun isActiveRequest(requestId: Int): Boolean {
+        return requestId == activeRequestId
+    }
+
+    private fun finishRequest(requestId: Int) {
+        if (isActiveRequest(requestId)) {
             _loading.value = false
         }
     }
 
     fun removeLaterVideo(aid: Long, bvid: String) {
         val current = _uiState.value.laterVideos
-        _uiState.value = _uiState.value.copy(
-            laterVideos = current.filter {
-                it.aid != aid || (bvid.isNotBlank() && it.bvid != bvid)
-            }
-        )
+        val filtered = current.filter {
+            it.aid != aid || (bvid.isNotBlank() && it.bvid != bvid)
+        }
+        lastLaterPayloadSignature = videoListSignature(filtered)
+        _uiState.value = _uiState.value.copy(laterVideos = filtered)
     }
 
-    fun removeHistoryVideo(item: com.btelly.model.video.HistoryVideoModel) {
+    fun removeHistoryVideo(item: HistoryVideoModel) {
         val key = historyItemKey(item)
-        _uiState.value = _uiState.value.copy(
-            historyVideos = _uiState.value.historyVideos.filter { historyItemKey(it) != key }
-        )
+        val filtered = _uiState.value.historyVideos.filter { historyItemKey(it) != key }
+        lastHistoryPayloadSignature = historyListSignature(filtered)
+        _uiState.value = _uiState.value.copy(historyVideos = filtered)
     }
 
     fun removeHistoryVideosByUp(upName: String) {
-        _uiState.value = _uiState.value.copy(
-            historyVideos = _uiState.value.historyVideos.filter {
-                !it.displayAuthorName.equals(upName, ignoreCase = true)
-            }
-        )
+        val filtered = _uiState.value.historyVideos.filter {
+            !it.displayAuthorName.equals(upName, ignoreCase = true)
+        }
+        lastHistoryPayloadSignature = historyListSignature(filtered)
+        _uiState.value = _uiState.value.copy(historyVideos = filtered)
     }
 
     fun shouldRefresh(ttlMs: Long): Boolean {
         return System.currentTimeMillis() - lastLoadedAt >= ttlMs
     }
 
-    private fun historyItemKey(item: com.btelly.model.video.HistoryVideoModel): String {
+    private fun historyItemKey(item: HistoryVideoModel): String {
         return when {
             item.bvid.isNotBlank() -> "bvid:${item.bvid}"
             (item.history?.oid ?: 0L) > 0L -> "aid:${item.history?.oid}"
             else -> "title:${item.title}|cover:${item.cover}"
+        }
+    }
+
+    private fun historyListSignature(items: List<HistoryVideoModel>): String {
+        if (items.isEmpty()) return "empty"
+        return items.joinToString(separator = "|") { item ->
+            "${historyItemKey(item)}:${item.title.hashCode()}:${item.progress}:${item.viewAt}:${item.cover.hashCode()}"
+        }
+    }
+
+    private fun videoListSignature(items: List<VideoModel>): String {
+        if (items.isEmpty()) return "empty"
+        return items.joinToString(separator = "|") { item ->
+            val key = when {
+                item.bvid.isNotBlank() -> "bvid:${item.bvid}"
+                item.aid > 0L -> "aid:${item.aid}"
+                else -> "title:${item.title}|cover:${item.coverUrl}"
+            }
+            "$key:${item.title.hashCode()}:${item.viewCount}:${item.danmakuCount}:${item.historyProgress}:${item.coverUrl.hashCode()}"
         }
     }
 }

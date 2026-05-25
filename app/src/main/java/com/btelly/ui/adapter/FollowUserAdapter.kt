@@ -96,11 +96,14 @@ class FollowUserAdapter(
             binding.textSub.text = item.sign
             binding.textSub.isVisible = item.sign.isNotBlank()
 
-            ImageLoader.loadCircle(
+            ImageLoader.loadFastAvatar(
                 imageView = binding.imageView,
                 url = item.face,
                 placeholder = R.drawable.default_avatar,
-                error = R.drawable.default_avatar
+                error = R.drawable.default_avatar,
+                source = "FollowUserAdapter.fastAvatar",
+                slot = bindingAdapterPosition,
+                targetCount = 16
             )
             binding.imageView.setBadge(
                 officialVerifyType = item.officialVerify?.type ?: -1

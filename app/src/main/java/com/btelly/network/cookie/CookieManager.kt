@@ -84,7 +84,6 @@ class CookieManager : CookieJar {
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
         val cookieStrings = cookies.map { encodeCookie(it) }
         saveCookies(cookieStrings)
-        syncToWebView(url, cookies)
     }
     
     fun getCsrfToken(): String {
@@ -222,17 +221,6 @@ class CookieManager : CookieJar {
 
     private fun normalizeDomain(domain: String): String {
         return domain.trim().removePrefix(".")
-    }
-
-    private fun syncToWebView(url: HttpUrl, cookies: List<Cookie>) {
-        cookies.forEach { cookie ->
-            runCatching {
-                webCookieManager.setCookie(url.toString(), encodeCookie(cookie))
-            }
-        }
-        runCatching {
-            webCookieManager.flush()
-        }
     }
 
     private fun parseWebViewCookie(host: String, cookiePair: String): Cookie? {

@@ -30,6 +30,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     protected open val dispatchHomeContentReady: Boolean = false
     protected open val toastNonEmptyError: Boolean = false
     protected open val deferInitialLoadUntilFirstDraw: Boolean = false
+    protected open val showInitialLoadingIndicator: Boolean = true
 
     private val mainNavigationViewModel: MainNavigationViewModel by activityViewModels()
     private var pendingScrollToTopAfterRefresh = false
@@ -57,7 +58,9 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
             onItemsChanged = {
                 notifyTvListDataChanged(TvDataChangeReason.REMOVE_ITEM)
             },
-            detectPortraitFromCover = false
+            detectPortraitFromCover = false,
+            fastFirstScreenCovers = true,
+            fastFirstScreenCoverCount = 8
         )
     }
 
@@ -100,7 +103,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
             showLoading(false)
             scheduleInitialLoadAfterFirstDraw()
         } else {
-            startInitialLoad(showLoading = true, reason = "immediate")
+            startInitialLoad(showLoading = showInitialLoadingIndicator, reason = "immediate")
         }
         AppLog.i("STARTUP", "${this::class.java.simpleName}.initData elapsed=${SystemClock.elapsedRealtime() - t0}ms")
     }
@@ -156,7 +159,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     }
 
     override fun onTabSelected() {
-        if (!isAdded || view == null || isLoading || initialLoadStarted) {
+        if (!isAdded || view == null || isLoading || initialLoadStarted || initialLoadAfterFirstDrawArmed) {
             return
         }
         if ((adapter?.contentCount() ?: 0) == 0) {
@@ -234,7 +237,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
         adapter?.setShowLoadMore(false)
 
         if (state.loadingInitial && state.items.isEmpty()) {
-            showLoading(true)
+            showLoading(showInitialLoadingIndicator)
             return
         }
 

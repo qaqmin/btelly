@@ -21,10 +21,14 @@ import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
 import com.btelly.core.common.content.ContentFilter
+import com.btelly.core.common.log.AppLog
+import com.btelly.core.common.log.PagePerfLogger
 import com.btelly.core.ui.focus.tv.GridTvFocusStrategy
 import com.btelly.core.ui.focus.tv.TvDataChangeReason
 import com.btelly.core.ui.focus.tv.TvListFocusController
 import com.btelly.core.navigation.VideoRouteNavigator
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
@@ -60,6 +64,9 @@ class FavoriteDetailFragment : BaseFragment<FragmentFavoriteDetailBinding>() {
     private var pendingRestoreFocus = false
     private var hasRequestedInitialFocus = false
     private var tvFocusController: TvListFocusController? = null
+    private var videosLoadJob: Job? = null
+    private var videosRequestSerial = 0
+    private var activeVideosRequestId = 0
 
     override fun getViewBinding(inflater: LayoutInflater, container: ViewGroup?): FragmentFavoriteDetailBinding {
         return FragmentFavoriteDetailBinding.inflate(inflater, container, false)
@@ -183,7 +190,23 @@ class FavoriteDetailFragment : BaseFragment<FragmentFavoriteDetailBinding>() {
     }
 
     private fun loadFavoriteVideos() {
-        if (folderId == 0L || isLoading || !hasMore) return
+        if (folderId == 0L || !hasMore) return
+        val restartFirstPage = currentPage <= 1
+        if (isLoading && !restartFirstPage) {
+            AppLog.d("FavoriteDetail", "skip load-more while loading, page=$currentPage")
+            return
+        }
+        val requestId = ++videosRequestSerial
+        activeVideosRequestId = requestId
+        val requestStartMs = PagePerfLogger.now()
+        if (restartFirstPage) {
+            videosLoadJob?.cancel()
+        }
+        PagePerfLogger.markNow(
+            "Favorite/detail",
+            "request_start",
+            "request=$requestId page=$currentPage hasContent=${favoriteAdapter.itemCount > 0}"
+        )
 
         if (!sessionGateway.isLoggedIn()) {
             hasMore = false
@@ -200,13 +223,29 @@ class FavoriteDetailFragment : BaseFragment<FragmentFavoriteDetailBinding>() {
             binding.progressBar.visibility = View.VISIBLE
         }
 
-        lifecycleScope.launch {
-            val result = favoriteRepository.getFavoriteFolderDetail(folderId, currentPage, 20)
+        val requestPage = currentPage
+        videosLoadJob = lifecycleScope.launch {
+            val result = try {
+                favoriteRepository.getFavoriteFolderDetail(folderId, requestPage, 20)
+            } catch (e: CancellationException) {
+                throw e
+            }
+
+            if (!isActiveVideosRequest(requestId)) {
+                AppLog.d("FavoriteDetail", "drop stale videos result request=$requestId page=$requestPage")
+                return@launch
+            }
 
             binding.progressBar.visibility = android.view.View.GONE
-            isLoading = false
+            finishVideosRequest(requestId)
 
             result.onSuccess { response ->
+                PagePerfLogger.mark(
+                    "Favorite/detail",
+                    "data_collected",
+                    requestStartMs,
+                    "request=$requestId page=$requestPage success=${response.isSuccess}"
+                )
                 if (response.isSuccess) {
                     val detail = response.data
                     val medias = detail?.medias.orEmpty()
@@ -215,20 +254,26 @@ class FavoriteDetailFragment : BaseFragment<FragmentFavoriteDetailBinding>() {
                         ?.takeIf { it.isNotEmpty() }
                         ?.let { binding.tvTitle.text = it }
 
-                    if (currentPage == 1 && medias.isEmpty()) {
+                    if (requestPage == 1 && medias.isEmpty()) {
                         favoriteAdapter.setData(emptyList())
                         showEmpty(getString(R.string.favorite_folder_content_empty))
                     } else {
                         showListContent()
                         val filtered = medias.filter { !ContentFilter.isVideoBlocked(requireContext(), it.tagName, it.title, authorName = it.displayAuthorName) }
-                        if (currentPage == 1) {
+                        if (requestPage == 1) {
                             favoriteAdapter.setData(filtered)
                             tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
                         } else if (filtered.isNotEmpty()) {
                             favoriteAdapter.addData(filtered)
                             tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
                         }
-                        if (!hasRequestedInitialFocus && currentPage == 1) {
+                        PagePerfLogger.mark(
+                            "Favorite/detail",
+                            "adapter_commit",
+                            requestStartMs,
+                            "request=$requestId page=$requestPage items=${favoriteAdapter.itemCount}"
+                        )
+                        if (!hasRequestedInitialFocus && requestPage == 1) {
                             hasRequestedInitialFocus = true
                             requestBackFocus()
                         } else if (lastFocusedPosition != RecyclerView.NO_POSITION) {
@@ -243,6 +288,16 @@ class FavoriteDetailFragment : BaseFragment<FragmentFavoriteDetailBinding>() {
                 rollbackPage()
                 handleLoadError("加载失败: ${e.message}")
             }
+        }
+    }
+
+    private fun isActiveVideosRequest(requestId: Int): Boolean {
+        return requestId == activeVideosRequestId
+    }
+
+    private fun finishVideosRequest(requestId: Int) {
+        if (isActiveVideosRequest(requestId)) {
+            isLoading = false
         }
     }
 

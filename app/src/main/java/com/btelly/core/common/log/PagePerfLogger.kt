@@ -3,7 +3,6 @@ package com.btelly.core.common.log
 import android.os.SystemClock
 import android.view.ViewTreeObserver
 import androidx.recyclerview.widget.RecyclerView
-import com.btelly.core.common.perf.FirstFrameImageGate
 import java.util.concurrent.atomic.AtomicBoolean
 
 object PagePerfLogger {
@@ -33,12 +32,9 @@ object PagePerfLogger {
         onLogged: (() -> Unit)? = null
     ) {
         val fired = AtomicBoolean(false)
-        val gateLabel = "$page/$event"
-        FirstFrameImageGate.arm(recyclerView, gateLabel)
 
         fun finish(fire: String) {
             mark(page, event, startMs, buildExtra("fire=$fire", itemCount, extra))
-            FirstFrameImageGate.release(recyclerView, fire)
             onLogged?.invoke()
         }
 

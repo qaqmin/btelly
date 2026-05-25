@@ -64,6 +64,7 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
 
     abstract fun createAdapter(): BaseAdapter<MODEL, *>
     open fun loadData(page: Int) {}
+    override fun useLightBaseContainer(): Boolean = true
 
     override fun getViewBinding(inflater: LayoutInflater, container: ViewGroup?): FragmentBaseListBinding {
         return FragmentBaseListBinding.inflate(inflater, container!!)

@@ -1,10 +1,14 @@
 package com.btelly.core.ui.base
 
+import android.content.Context
 import android.os.Bundle
 import android.os.SystemClock
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewStub
 import android.widget.FrameLayout
 import android.widget.ProgressBar
 import androidx.appcompat.widget.AppCompatImageView
@@ -13,6 +17,7 @@ import androidx.appcompat.widget.LinearLayoutCompat
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.fragment.app.Fragment
 import androidx.viewbinding.ViewBinding
+import androidx.core.content.ContextCompat
 import com.btelly.R
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.navigation.navigateBackFromUi
@@ -41,6 +46,7 @@ abstract class BaseFragment<VB : ViewBinding> : Fragment() {
     open fun initData() {}
     open fun initObserver() {}
     open fun initArguments() {}
+    protected open fun useLightBaseContainer(): Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,7 +64,11 @@ abstract class BaseFragment<VB : ViewBinding> : Fragment() {
         if (rootView == null) {
             val className = this::class.java.simpleName
             val t0 = SystemClock.elapsedRealtime()
-            val view = inflater.inflate(R.layout.fragment_base, container, false)
+            val view = if (useLightBaseContainer() && !isTopBarVisible()) {
+                createLightBaseView(inflater.context)
+            } else {
+                inflater.inflate(R.layout.fragment_base, container, false)
+            }
             val t1 = SystemClock.elapsedRealtime()
             rootView = view
             contentContainer = view.findViewById(R.id.contentContainer)
@@ -81,6 +91,58 @@ abstract class BaseFragment<VB : ViewBinding> : Fragment() {
             }
         }
         return rootView
+    }
+
+    private fun createLightBaseView(context: Context): View {
+        return FrameLayout(context).apply {
+            id = R.id.base_container
+            descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            setBackgroundColor(resolveThemeColor(context, R.attr.backgroundColor))
+
+            addView(FrameLayout(context).apply {
+                id = R.id.contentContainer
+                descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            })
+
+            addView(ViewStub(context).apply {
+                id = R.id.view_error_stub
+                layoutResource = R.layout.fragment_base_error
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            })
+
+        }
+    }
+
+    private fun createLoadingProgressBar(context: Context): ProgressBar {
+        val loadingSize = context.resources.getDimensionPixelSize(R.dimen.px200)
+        return ProgressBar(context).apply {
+            id = R.id.loading_progress_bar
+            visibility = View.GONE
+            layoutParams = FrameLayout.LayoutParams(loadingSize, loadingSize, Gravity.CENTER)
+        }
+    }
+
+    private fun resolveThemeColor(context: Context, attr: Int): Int {
+        val value = TypedValue()
+        if (!context.theme.resolveAttribute(attr, value, true)) {
+            return android.graphics.Color.TRANSPARENT
+        }
+        return if (value.resourceId != 0) {
+            ContextCompat.getColor(context, value.resourceId)
+        } else {
+            value.data
+        }
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -113,7 +175,15 @@ abstract class BaseFragment<VB : ViewBinding> : Fragment() {
 
     protected fun showLoading(show: Boolean) {
         if (!isAdded) return
-        loadingProgressBar?.visibility = if (show) View.VISIBLE else View.GONE
+        val progress = loadingProgressBar ?: if (show) {
+            createLoadingProgressBar(requireContext()).also { created ->
+                (rootView as? ViewGroup)?.addView(created)
+                loadingProgressBar = created
+            }
+        } else {
+            null
+        }
+        progress?.visibility = if (show) View.VISIBLE else View.GONE
     }
 
     protected fun showNetError() {

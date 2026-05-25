@@ -125,11 +125,14 @@ class DynamicUpAdapter(
                 binding.imageAvatar.setBadge(officialVerifyType = -1)
             } else {
                 if (avatarLoadsEnabled || isSelected) {
-                    ImageLoader.loadCircle(
+                    ImageLoader.loadFastAvatar(
                         imageView = binding.imageAvatar,
                         url = item.face,
                         placeholder = R.drawable.default_avatar,
-                        error = R.drawable.default_avatar
+                        error = R.drawable.default_avatar,
+                        source = "DynamicUpAdapter.fastAvatar",
+                        slot = bindingAdapterPosition,
+                        targetCount = 8
                     )
                 } else {
                     ImageLoader.clear(binding.imageAvatar)

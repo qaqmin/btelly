@@ -2068,12 +2068,21 @@ class VideoPlayerViewModel(
             val danmakuAid = currentAid
                 ?: preparedPlayback.identity.aid
                 ?: 0L
-            loadedDanmakuCid = preparedPlayback.identity.cid
-            loadDanmaku(
-                cid = preparedPlayback.identity.cid,
-                aid = danmakuAid,
-                durationMs = preparedPlayback.playInfo.timeLength
-            )
+            if (hasReachedFirstFrame) {
+                loadedDanmakuCid = preparedPlayback.identity.cid
+                loadDanmaku(
+                    cid = preparedPlayback.identity.cid,
+                    aid = danmakuAid,
+                    durationMs = preparedPlayback.playInfo.timeLength
+                )
+            } else {
+                PlaybackStartupTrace.log(
+                    traceId = preparedPlayback.startupTraceId,
+                    startElapsedMs = preparedPlayback.startupTraceStartElapsedMs,
+                    step = "danmaku_deferred_until_first_frame",
+                    message = "cid=${preparedPlayback.identity.cid} aid=$danmakuAid"
+                )
+            }
         }
 
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {

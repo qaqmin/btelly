@@ -71,8 +71,10 @@
         android:id="@+id/exo_controller_placeholder"
         android:layout_width="match_parent"
         android:layout_height="match_parent"/>
-    <com.btelly.feature.player.view.YouTubeOverlay
-        android:id="@+id/view_youtube_overlay"
+    <ViewStub
+        android:id="@+id/view_youtube_overlay_stub"
+        android:inflatedId="@+id/view_youtube_overlay"
+        android:layout="@layout/view_youtube_overlay"
         android:visibility="gone"
         android:layout_width="match_parent"
         android:layout_height="match_parent"/>

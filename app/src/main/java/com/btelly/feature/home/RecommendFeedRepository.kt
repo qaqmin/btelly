@@ -2,14 +2,15 @@ package com.btelly.feature.home
 
 import android.content.Context
 import android.os.SystemClock
+import com.btelly.BTellyApplication
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.log.HomeVideoCardDebugLogger
 import com.btelly.model.video.VideoModel
 import com.btelly.network.api.BiliApi
 import com.btelly.repository.cache.HomeCacheStore
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class RecommendFeedRepository(
     context: Context
@@ -24,48 +25,83 @@ class RecommendFeedRepository(
         private const val PRELOAD_PAGE_SIZE = 24
     }
 
-    private val firstPageDeferred = CompletableDeferred<NetworkPage>()
+    private val firstPageLock = Any()
+    @Volatile
+    private var firstPageInFlight: CompletableDeferred<NetworkPage>? = null
     @Volatile
     private var preloadedFirstPage: NetworkPage? = null
 
     suspend fun preloadFirstPage() {
         val startMs = SystemClock.elapsedRealtime()
         AppLog.i(TAG, "STARTUP T2 preloadFirstPage start")
-        val preloadSize = PRELOAD_PAGE_SIZE
-        val result = loadNetworkPage(page = 1, pageSize = preloadSize, freshIdx = 1, fetchRow = 1)
-        val page = result.getOrNull()
-        if (page != null) {
+        runCatching {
+            loadSharedFirstPage(pageSize = PRELOAD_PAGE_SIZE, reason = "preload")
+        }.onSuccess { page ->
             AppLog.i(TAG, "STARTUP T3 preload api done items=${page.items.size} hasMore=${page.hasMore}")
-            preloadedFirstPage = page
-            firstPageDeferred.complete(page)
             writeCache(page.items)
-        } else {
-            firstPageDeferred.completeExceptionally(
-                result.exceptionOrNull() ?: IllegalStateException("preload failed")
-            )
+        }.onFailure { throwable ->
+            AppLog.w(TAG, "STARTUP preloadFirstPage failed: ${throwable.message}")
         }
         AppLog.i(TAG, "STARTUP T3b preload end elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
     }
 
-    fun peekFirstPage(): NetworkPage? {
-        val page = preloadedFirstPage
-        AppLog.i(TAG, "STARTUP peekFirstPage ${if (page != null) "hit" else "miss"} items=${page?.items?.size ?: 0}")
-        return page
-    }
+    suspend fun loadSharedFirstPage(
+        pageSize: Int = PRELOAD_PAGE_SIZE,
+        reason: String
+    ): NetworkPage {
+        preloadedFirstPage?.let { page ->
+            AppLog.i(TAG, "STARTUP sharedFirstPage hit reason=$reason items=${page.items.size}")
+            return page
+        }
 
-    suspend fun awaitFirstPage(timeoutMs: Long): NetworkPage? {
-        return try {
-            withTimeout(timeoutMs) { firstPageDeferred.await() }
-        } catch (e: TimeoutCancellationException) {
-            preloadedFirstPage.also { page ->
-                AppLog.w(
+        var owner = false
+        val deferred = synchronized(firstPageLock) {
+            preloadedFirstPage?.let { page ->
+                CompletableDeferred(page)
+            } ?: firstPageInFlight ?: CompletableDeferred<NetworkPage>().also { created ->
+                firstPageInFlight = created
+                owner = true
+            }
+        }
+
+        if (!owner) {
+            val waitStartMs = SystemClock.elapsedRealtime()
+            AppLog.i(TAG, "STARTUP sharedFirstPage await reason=$reason")
+            return deferred.await().also { page ->
+                AppLog.i(
                     TAG,
-                    "STARTUP awaitFirstPage timeout after ${timeoutMs}ms fallback=${if (page != null) "hit" else "miss"}"
+                    "STARTUP sharedFirstPage await_done reason=$reason elapsed=${SystemClock.elapsedRealtime() - waitStartMs}ms items=${page.items.size}"
                 )
             }
-        } catch (e: Exception) {
-            AppLog.w(TAG, "STARTUP awaitFirstPage failed: ${e.message}")
-            preloadedFirstPage
+        }
+
+        val startMs = SystemClock.elapsedRealtime()
+        AppLog.i(TAG, "STARTUP sharedFirstPage owner reason=$reason")
+        return try {
+            ensureDataRuntimeReady("sharedFirstPage/$reason")
+            val page = loadNetworkPage(page = 1, pageSize = pageSize, freshIdx = 1, fetchRow = 1).getOrThrow()
+            preloadedFirstPage = page
+            deferred.complete(page)
+            AppLog.i(
+                TAG,
+                "STARTUP sharedFirstPage owner_done reason=$reason elapsed=${SystemClock.elapsedRealtime() - startMs}ms items=${page.items.size}"
+            )
+            page
+        } catch (throwable: Throwable) {
+            deferred.completeExceptionally(throwable)
+            synchronized(firstPageLock) {
+                if (firstPageInFlight === deferred) {
+                    firstPageInFlight = null
+                }
+            }
+            throw throwable
+        }
+    }
+
+    private suspend fun ensureDataRuntimeReady(reason: String) {
+        val app = appContext as? BTellyApplication ?: return
+        withContext(Dispatchers.IO) {
+            app.ensureDataRuntimeReady(reason)
         }
     }
 

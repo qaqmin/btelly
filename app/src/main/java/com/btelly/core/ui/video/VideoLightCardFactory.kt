@@ -1,11 +1,14 @@
 package com.btelly.core.ui.video
 
 import android.content.Context
-import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.os.SystemClock
@@ -16,8 +19,6 @@ import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
-import android.widget.ProgressBar
-import android.widget.TextView
 import androidx.core.content.ContextCompat
 import com.btelly.R
 import com.btelly.core.common.log.VideoCardPerfLogger
@@ -28,13 +29,11 @@ object VideoLightCardFactory {
     fun create(parent: ViewGroup, source: String = "VideoLightCard.flat"): VideoCardViews {
         val context = parent.context
         val metrics = LightCardMetrics.get(context)
-        val appName = context.getString(R.string.app_name)
 
         val root = FlatVideoLightCardLayout(context, metrics, source).apply {
             id = R.id.click_view
             isClickable = true
             isFocusable = true
-            background = ContextCompat.getDrawable(context, R.drawable.cell_background)
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -49,19 +48,8 @@ object VideoLightCardFactory {
         root.addView(imageView)
         root.imageView = imageView
 
-        val coverGradient = View(context).apply {
-            background = ContextCompat.getDrawable(context, R.drawable.focus_background_round)
-        }
-        root.addView(coverGradient)
-        root.coverGradient = coverGradient
-
-        val progressBar = ProgressBar(
-            context,
-            null,
-            android.R.attr.progressBarStyleHorizontal
-        ).apply {
+        val progressBar = VideoCardProgressView(context).apply {
             id = R.id.progressBar
-            progressDrawable = ContextCompat.getDrawable(context, R.drawable.default_progress_bar)
             visibility = View.GONE
         }
         root.addView(progressBar)
@@ -71,80 +59,67 @@ object VideoLightCardFactory {
         root.addView(coverMetaOverlay)
         root.coverMetaOverlay = coverMetaOverlay
 
-        val iconPlaying = ImageView(context).apply {
-            id = R.id.icon_playing
-            visibility = View.GONE
-        }
-        root.addView(iconPlaying)
-        root.iconPlaying = iconPlaying
-
-        val title = FastTitleTextView(context).apply {
+        val textLayer = VideoCardTextLayerView(context).apply {
             id = R.id.textView
-            ellipsize = TextUtils.TruncateAt.END
-            maxLines = 2
-            minLines = 2
-            text = appName
-            setTextColor(ContextCompat.getColor(context, R.color.textColor))
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, metrics.titleTextSize)
-            typeface = Typeface.DEFAULT_BOLD
         }
-        root.addView(title)
-        root.titleView = title
-
-        val textOverflow = TextView(context).apply {
-            id = R.id.text_overflow
-            ellipsize = TextUtils.TruncateAt.END
-            setLineSpacing(0f, 1.1f)
-            maxLines = 1
-            text = appName
-            setTextColor(ContextCompat.getColor(context, R.color.textColor))
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, metrics.titleTextSize)
-            typeface = Typeface.DEFAULT_BOLD
-            visibility = View.GONE
-        }
-        root.addView(textOverflow)
-        root.textOverflow = textOverflow
-
-        val ownerRow = VideoOwnerRowView(context).apply {
-            id = R.id.textView_owner
-            bind(ownerText = appName, showAvatar = true)
-        }
-        root.addView(ownerRow)
-        root.ownerRow = ownerRow
-
-        val iconHistoryDevice = ImageView(context).apply {
-            id = R.id.icon_history_device
-            setImageResource(R.drawable.ic_history_device_mobile)
-            imageTintList = ColorStateList.valueOf(ContextCompat.getColor(context, R.color.subTextColor))
-            visibility = View.GONE
-        }
-        val textHistoryViewTime = TextView(context).apply {
-            id = R.id.text_history_view_time
-            maxLines = 1
-            text = appName
-            setTextColor(ContextCompat.getColor(context, R.color.subTextColor))
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, metrics.ownerTextSize)
-            visibility = View.GONE
-        }
-        root.addView(iconHistoryDevice)
-        root.addView(textHistoryViewTime)
-        root.iconHistoryDevice = iconHistoryDevice
-        root.textHistoryViewTime = textHistoryViewTime
+        root.addView(textLayer)
+        root.textLayer = textLayer
 
         return VideoCardViews(
             root = root,
             imageView = imageView,
             progressBar = progressBar,
             coverMetaOverlay = coverMetaOverlay,
-            iconPlaying = iconPlaying,
-            textView = title,
-            textOverflow = textOverflow,
-            ownerRow = ownerRow,
-            iconHistoryDevice = iconHistoryDevice,
-            textHistoryViewTime = textHistoryViewTime
+            textLayer = textLayer
         )
     }
 
+}
+
+class VideoCardProgressView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null
+) : View(context, attrs) {
+
+    private val progressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = ContextCompat.getColor(context, R.color.textColor)
+    }
+
+    var max: Int = 100
+        set(value) {
+            val next = value.coerceAtLeast(0)
+            if (field == next) return
+            field = next
+            if (progress > next) {
+                progress = next
+            } else {
+                invalidate()
+            }
+        }
+
+    var progress: Int = 0
+        set(value) {
+            val next = value.coerceIn(0, max.coerceAtLeast(0))
+            if (field == next) return
+            field = next
+            invalidate()
+        }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val maxValue = max
+        if (maxValue <= 0 || progress <= 0 || width <= 0 || height <= 0) return
+        val progressWidth = width * (progress / maxValue.toFloat())
+        canvas.drawRoundRect(
+            0f,
+            0f,
+            progressWidth,
+            height.toFloat(),
+            height / 2f,
+            height / 2f,
+            progressPaint
+        )
+    }
 }
 
 class VideoCoverMetaOverlayView @JvmOverloads constructor(
@@ -154,6 +129,9 @@ class VideoCoverMetaOverlayView @JvmOverloads constructor(
 
     private val metrics = LightCardMetrics.get(context)
     private val assets = OverlayAssets.get(context, metrics.metaIconSize)
+    private val gradientPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val gradientClipPath = Path()
+    private val gradientClipRect = RectF()
     private val metaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = ContextCompat.getColor(context, R.color.textColor)
         textSize = metrics.metaTextSize
@@ -172,6 +150,28 @@ class VideoCoverMetaOverlayView @JvmOverloads constructor(
     private var showDanmakuCount = false
     private var showInteractionBadge = false
     private var showChargeBadge = false
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        val top = (h - metrics.coverGradientHeight).coerceAtLeast(0).toFloat()
+        gradientPaint.shader = LinearGradient(
+            0f,
+            top,
+            0f,
+            h.toFloat(),
+            Color.TRANSPARENT,
+            0xAA000000.toInt(),
+            Shader.TileMode.CLAMP
+        )
+        gradientClipRect.set(0f, 0f, w.toFloat(), h.toFloat())
+        gradientClipPath.reset()
+        gradientClipPath.addRoundRect(
+            gradientClipRect,
+            metrics.cardRadius.toFloat(),
+            metrics.cardRadius.toFloat(),
+            Path.Direction.CW
+        )
+    }
 
     fun bind(
         playCountText: CharSequence? = this.playCountText,
@@ -207,9 +207,18 @@ class VideoCoverMetaOverlayView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        drawCoverGradient(canvas)
         drawMetaLine(canvas)
         drawDuration(canvas)
         drawBadges(canvas)
+    }
+
+    private fun drawCoverGradient(canvas: Canvas) {
+        val top = (height - metrics.coverGradientHeight).coerceAtLeast(0).toFloat()
+        val saveCount = canvas.save()
+        canvas.clipPath(gradientClipPath)
+        canvas.drawRect(0f, top, width.toFloat(), height.toFloat(), gradientPaint)
+        canvas.restoreToCount(saveCount)
     }
 
     private fun drawMetaLine(canvas: Canvas) {
@@ -310,14 +319,20 @@ class VideoCoverMetaOverlayView @JvmOverloads constructor(
     }
 }
 
-class VideoOwnerRowView @JvmOverloads constructor(
+class VideoCardTextLayerView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
 
     private val metrics = LightCardMetrics.get(context)
+    private val defaultTitleColor = ContextCompat.getColor(context, R.color.textColor)
     private val ownerTextColor = ContextCompat.getColor(context, R.color.subTextColor)
-    private val assets = OwnerAssets.get(context, metrics, ownerTextColor)
+    private val assets = TextLayerAssets.get(context, metrics, ownerTextColor)
+    private val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = defaultTitleColor
+        textSize = metrics.titleTextSize
+        typeface = Typeface.DEFAULT_BOLD
+    }
     private val ownerPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = ownerTextColor
         textSize = metrics.ownerTextSize
@@ -332,36 +347,40 @@ class VideoOwnerRowView @JvmOverloads constructor(
     }
     private val badgeRect = RectF()
 
+    private var titleText: String = ""
+    private var titleLines = 2
+    private var playing = false
+    private var titleColor = defaultTitleColor
     private var ownerText: String = ""
-    private var badgeText: String = ""
-    private var showAvatar = false
+    private var ownerBadgeText: String = ""
+    private var showOwnerAvatar = false
+    private var showOwner = true
+    private var historyTimeText: String = ""
+    private var historyDeviceRes: Int = 0
+    private var cachedTitleSource = ""
+    private var cachedTitleWidth = -1
+    private var cachedTitleLines = -1
+    private var cachedPlaying = false
+    private var cachedDrawLines: List<String> = emptyList()
 
-    fun bind(
-        ownerText: CharSequence?,
-        showAvatar: Boolean,
-        badgeText: CharSequence? = null,
-        show: Boolean = true
+    fun setTitle(
+        text: CharSequence?,
+        lines: Int,
+        isPlaying: Boolean = false,
+        color: Int = defaultTitleColor
     ) {
-        val nextOwner = ownerText?.toString().orEmpty()
-        val nextBadge = badgeText?.toString().orEmpty()
-        val hasContent = show && (nextOwner.isNotBlank() || nextBadge.isNotBlank() || showAvatar)
-        val nextVisibility = if (hasContent) VISIBLE else GONE
-        val layoutMayChange = this.showAvatar != showAvatar ||
-            this.badgeText.isBlank() != nextBadge.isBlank() ||
-            visibility != nextVisibility
-
-        if (this.ownerText == nextOwner &&
-            this.badgeText == nextBadge &&
-            this.showAvatar == showAvatar &&
-            visibility == nextVisibility
-        ) {
+        val nextText = text?.toString().orEmpty()
+        val nextLines = lines.coerceIn(1, 2)
+        val layoutMayChange = titleLines != nextLines || playing != isPlaying
+        if (titleText == nextText && titleLines == nextLines && playing == isPlaying && titleColor == color) {
             return
         }
-
-        this.ownerText = nextOwner
-        this.badgeText = nextBadge
-        this.showAvatar = showAvatar
-        visibility = nextVisibility
+        titleText = nextText
+        titleLines = nextLines
+        playing = isPlaying
+        titleColor = color
+        titlePaint.color = color
+        clearTitleCache()
         if (layoutMayChange) {
             requestLayout()
         } else {
@@ -369,17 +388,84 @@ class VideoOwnerRowView @JvmOverloads constructor(
         }
     }
 
-    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        if (visibility == GONE) {
-            setMeasuredDimension(0, 0)
+    fun setTitleColor(color: Int) {
+        if (titleColor == color) return
+        titleColor = color
+        titlePaint.color = color
+        invalidate()
+    }
+
+    fun setOwner(
+        ownerText: CharSequence?,
+        showAvatar: Boolean,
+        badgeText: CharSequence? = null,
+        show: Boolean = true
+    ) {
+        val nextOwner = ownerText?.toString().orEmpty()
+        val nextBadge = badgeText?.toString().orEmpty()
+        val layoutMayChange = this.showOwnerAvatar != showAvatar ||
+            this.ownerBadgeText.isBlank() != nextBadge.isBlank() ||
+            this.showOwner != show
+        if (this.ownerText == nextOwner &&
+            this.ownerBadgeText == nextBadge &&
+            this.showOwnerAvatar == showAvatar &&
+            this.showOwner == show
+        ) {
             return
         }
-        val width = MeasureSpec.getSize(widthMeasureSpec)
-        val desiredHeight = maxOf(
-            if (showAvatar && badgeText.isBlank()) metrics.avatarHeight else 0,
-            if (badgeText.isNotBlank()) badgeHeight().toInt() else 0,
-            if (ownerText.isNotBlank()) ownerTextHeight().toInt() else 0
-        )
+        this.ownerText = nextOwner
+        this.ownerBadgeText = nextBadge
+        this.showOwnerAvatar = showAvatar
+        this.showOwner = show
+        if (layoutMayChange) {
+            requestLayout()
+        } else {
+            invalidate()
+        }
+    }
+
+    fun setHistoryTrailing(timeText: CharSequence?, deviceDrawableRes: Int = 0) {
+        val nextTime = timeText?.toString().orEmpty()
+        val layoutMayChange = historyTimeText.isBlank() != nextTime.isBlank() ||
+            historyDeviceRes != deviceDrawableRes
+        if (historyTimeText == nextTime && historyDeviceRes == deviceDrawableRes) {
+            return
+        }
+        historyTimeText = nextTime
+        historyDeviceRes = deviceDrawableRes
+        if (layoutMayChange) {
+            requestLayout()
+        } else {
+            invalidate()
+        }
+    }
+
+    fun clearHistoryTrailing() {
+        setHistoryTrailing("", 0)
+    }
+
+    fun firstLineVisibleEnd(source: CharSequence = titleText): Int {
+        val drawWidth = titleWidthForLine(0)
+        if (drawWidth <= 0 || source.isEmpty()) return source.length
+        val availableWidth = (drawWidth - titlePaint.measureText(ELLIPSIS)).coerceAtLeast(0f)
+        val count = titlePaint.breakText(source, 0, source.length, true, availableWidth, null)
+        return count.coerceIn(1, source.length)
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val width = MeasureSpec.getSize(widthMeasureSpec).coerceAtLeast(0)
+        val titleHeight = titleLineHeight() * titleLines
+        val ownerHeight = if (hasOwnerContent()) {
+            metrics.ownerTopMargin + maxOf(
+                ownerTextHeight().toInt(),
+                if (showOwnerAvatar && ownerBadgeText.isBlank()) metrics.avatarHeight else 0,
+                if (ownerBadgeText.isNotBlank()) badgeHeight().toInt() else 0,
+                if (historyDeviceRes != 0) metrics.historyDeviceSize else 0
+            )
+        } else {
+            0
+        }
+        val desiredHeight = titleHeight + ownerHeight
         setMeasuredDimension(
             resolveSize(width, widthMeasureSpec),
             resolveSize(desiredHeight, heightMeasureSpec)
@@ -388,20 +474,65 @@ class VideoOwnerRowView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (visibility == GONE) return
+        drawTitle(canvas)
+        drawOwnerRow(canvas)
+    }
+
+    private fun drawTitle(canvas: Canvas) {
+        if (titleText.isBlank()) return
+        val lineHeight = titleLineHeight()
+        val fontMetrics = titlePaint.fontMetrics
+        var baseline = -fontMetrics.ascent
+        val lines = titleLines(width)
+        var iconSpace = 0f
+        if (playing) {
+            val iconSize = lineHeight.coerceAtMost(metrics.titleIconFallbackSize)
+            val iconTop = ((lineHeight - iconSize) / 2f).coerceAtLeast(0f)
+            canvas.drawBitmap(assets.playingIcon(), null, RectF(0f, iconTop, iconSize.toFloat(), iconTop + iconSize), null)
+            iconSpace = (iconSize + metrics.playingIconMarginEnd).toFloat()
+        }
+        lines.forEachIndexed { index, line ->
+            val x = if (index == 0) iconSpace else 0f
+            canvas.drawText(line, x, baseline, titlePaint)
+            baseline += lineHeight
+        }
+    }
+
+    private fun drawOwnerRow(canvas: Canvas) {
+        if (!hasOwnerContent()) return
+        val top = titleLineHeight() * titleLines + metrics.ownerTopMargin
+        val rowHeight = height - top
+        val centerY = top + rowHeight / 2f
+        var right = width.toFloat()
+        if (historyTimeText.isNotBlank()) {
+            val textWidth = ownerPaint.measureText(historyTimeText)
+            val fm = ownerPaint.fontMetrics
+            val baseline = centerY - ownerTextHeight() / 2f - fm.top
+            canvas.drawText(historyTimeText, right - textWidth, baseline, ownerPaint)
+            right -= textWidth
+        }
+        if (historyDeviceRes != 0) {
+            right -= metrics.historyDeviceMarginEnd
+            val iconSize = metrics.historyDeviceSize.toFloat()
+            val left = right - iconSize
+            val topIcon = centerY - iconSize / 2f
+            assets.historyDevice(historyDeviceRes)?.let { bitmap ->
+                canvas.drawBitmap(bitmap, null, RectF(left, topIcon, right, topIcon + iconSize), null)
+            }
+            right = left
+        }
 
         var x = metrics.avatarStart.toFloat()
-        val centerY = height / 2f
-        if (badgeText.isNotBlank()) {
+        if (ownerBadgeText.isNotBlank()) {
             x = drawLeadingBadge(canvas, x, centerY) + metrics.badgeOwnerGap
-        } else if (showAvatar) {
-            val top = centerY - assets.ownerIcon.height / 2f
-            canvas.drawBitmap(assets.ownerIcon, x, top, null)
+        } else if (showOwnerAvatar) {
+            val iconTop = centerY - assets.ownerIcon.height / 2f
+            canvas.drawBitmap(assets.ownerIcon, x, iconTop, null)
             x += metrics.avatarWidth
         }
 
         if (ownerText.isNotBlank()) {
-            val availableWidth = (width - x).coerceAtLeast(0f)
+            val availableWidth = (right - x - metrics.ownerTextMarginEnd).coerceAtLeast(0f)
             if (availableWidth > 0f) {
                 val text = TextUtils.ellipsize(ownerText, ownerPaint, availableWidth, TextUtils.TruncateAt.END).toString()
                 val fm = ownerPaint.fontMetrics
@@ -412,14 +543,70 @@ class VideoOwnerRowView @JvmOverloads constructor(
     }
 
     private fun drawLeadingBadge(canvas: Canvas, left: Float, centerY: Float): Float {
-        val width = badgeTextPaint.measureText(badgeText) + metrics.px8 * 2
+        val badgeWidth = badgeTextPaint.measureText(ownerBadgeText) + metrics.px8 * 2
         val height = badgeHeight()
         val top = centerY - height / 2f
-        badgeRect.set(left, top, left + width, top + height)
+        badgeRect.set(left, top, left + badgeWidth, top + height)
         canvas.drawRoundRect(badgeRect, metrics.badgeRadius.toFloat(), metrics.badgeRadius.toFloat(), badgePaint)
         val fm = badgeTextPaint.fontMetrics
-        canvas.drawText(badgeText, left + metrics.px8, top + metrics.px3 - fm.top, badgeTextPaint)
-        return left + width
+        canvas.drawText(ownerBadgeText, left + metrics.px8, top + metrics.px3 - fm.top, badgeTextPaint)
+        return left + badgeWidth
+    }
+
+    private fun titleLines(width: Int): List<String> {
+        if (width <= 0 || titleText.isBlank()) return emptyList()
+        if (cachedTitleSource == titleText &&
+            cachedTitleWidth == width &&
+            cachedTitleLines == titleLines &&
+            cachedPlaying == playing
+        ) {
+            return cachedDrawLines
+        }
+        val result = ArrayList<String>(titleLines)
+        var start = 0
+        while (start < titleText.length && result.size < titleLines) {
+            val lastLine = result.size == titleLines - 1
+            val lineWidth = titleWidthForLine(result.size).coerceAtLeast(1)
+            if (lastLine) {
+                result += TextUtils.ellipsize(
+                    titleText.subSequence(start, titleText.length),
+                    titlePaint,
+                    lineWidth.toFloat(),
+                    TextUtils.TruncateAt.END
+                ).toString()
+                break
+            }
+            val count = titlePaint.breakText(titleText, start, titleText.length, true, lineWidth.toFloat(), null)
+            val end = (start + count).coerceIn(start + 1, titleText.length)
+            result += titleText.substring(start, end).trimEnd()
+            start = end
+            while (start < titleText.length && titleText[start].isWhitespace()) start++
+        }
+        cachedTitleSource = titleText
+        cachedTitleWidth = width
+        cachedTitleLines = titleLines
+        cachedPlaying = playing
+        cachedDrawLines = result
+        return result
+    }
+
+    private fun titleWidthForLine(index: Int): Int {
+        val iconSpace = if (playing && index == 0) {
+            titleLineHeight().coerceAtMost(metrics.titleIconFallbackSize) + metrics.playingIconMarginEnd
+        } else {
+            0
+        }
+        return (width - iconSpace).coerceAtLeast(0)
+    }
+
+    private fun hasOwnerContent(): Boolean {
+        return showOwner && (ownerText.isNotBlank() || ownerBadgeText.isNotBlank() || showOwnerAvatar ||
+            historyTimeText.isNotBlank() || historyDeviceRes != 0)
+    }
+
+    private fun titleLineHeight(): Int {
+        val fm = titlePaint.fontMetrics
+        return ceil(fm.descent - fm.ascent).toInt().coerceAtLeast(1)
     }
 
     private fun ownerTextHeight(): Float {
@@ -432,17 +619,56 @@ class VideoOwnerRowView @JvmOverloads constructor(
         return ceil((fm.bottom - fm.top).toDouble()).toFloat() + metrics.px3 * 2
     }
 
-    private class OwnerAssets(val ownerIcon: Bitmap) {
-        companion object {
-            private val cache = java.util.WeakHashMap<android.content.res.Resources, MutableMap<String, OwnerAssets>>()
+    private fun clearTitleCache() {
+        cachedTitleSource = ""
+        cachedTitleWidth = -1
+        cachedDrawLines = emptyList()
+    }
 
-            fun get(context: Context, metrics: LightCardMetrics, tintColor: Int): OwnerAssets {
+    private class TextLayerAssets(
+        private val context: Context,
+        private val metrics: LightCardMetrics,
+        private val tintColor: Int,
+        val ownerIcon: Bitmap,
+        private val historyIcons: MutableMap<Int, Bitmap> = mutableMapOf()
+    ) {
+        private var playingIconCache: Bitmap? = null
+
+        fun playingIcon(): Bitmap {
+            playingIconCache?.let { return it }
+            return loadBitmap(
+                context = context,
+                resId = R.drawable.playing,
+                width = metrics.titleIconFallbackSize,
+                height = metrics.titleIconFallbackSize
+            ).also { playingIconCache = it }
+        }
+
+        fun historyDevice(resId: Int): Bitmap? {
+            if (resId == 0) return null
+            historyIcons[resId]?.let { return it }
+            return loadTintedBitmap(
+                context = context,
+                resId = resId,
+                width = metrics.historyDeviceSize,
+                height = metrics.historyDeviceSize,
+                tintColor = tintColor
+            ).also { historyIcons[resId] = it }
+        }
+
+        companion object {
+            private val cache = java.util.WeakHashMap<android.content.res.Resources, MutableMap<String, TextLayerAssets>>()
+
+            fun get(context: Context, metrics: LightCardMetrics, tintColor: Int): TextLayerAssets {
                 val resources = context.resources
-                val key = "${metrics.avatarWidth}:${metrics.avatarHeight}:$tintColor"
+                val key = "${metrics.avatarWidth}:${metrics.avatarHeight}:${metrics.titleIconFallbackSize}:$tintColor"
                 synchronized(cache) {
                     val byKey = cache.getOrPut(resources) { mutableMapOf() }
                     return byKey.getOrPut(key) {
-                        OwnerAssets(
+                        TextLayerAssets(
+                            context = context.applicationContext,
+                            metrics = metrics,
+                            tintColor = tintColor,
                             ownerIcon = loadTintedBitmap(
                                 context = context,
                                 resId = R.drawable.ic_video_up,
@@ -465,13 +691,27 @@ class VideoOwnerRowView @JvmOverloads constructor(
                 val drawable = ContextCompat.getDrawable(context, resId)?.mutate()
                     ?: return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                 drawable.setTint(tintColor)
+                return drawable.toBitmap(width, height)
+            }
+
+            private fun loadBitmap(context: Context, resId: Int, width: Int, height: Int): Bitmap {
+                val drawable = ContextCompat.getDrawable(context, resId)
+                    ?: return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                return drawable.toBitmap(width, height)
+            }
+
+            private fun Drawable.toBitmap(width: Int, height: Int): Bitmap {
                 val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                 val canvas = Canvas(bitmap)
-                drawable.setBounds(0, 0, width, height)
-                drawable.draw(canvas)
+                setBounds(0, 0, width, height)
+                draw(canvas)
                 return bitmap
             }
         }
+    }
+
+    private companion object {
+        private const val ELLIPSIS = "\u2026"
     }
 }
 
@@ -482,16 +722,12 @@ private class FlatVideoLightCardLayout @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : ViewGroup(context, attrs) {
 
-    var coverGradient: View? = null
     lateinit var imageView: View
     lateinit var progressBar: View
     lateinit var coverMetaOverlay: View
-    lateinit var iconPlaying: View
-    lateinit var titleView: View
-    lateinit var textOverflow: View
-    lateinit var ownerRow: View
-    lateinit var iconHistoryDevice: View
-    lateinit var textHistoryViewTime: View
+    lateinit var textLayer: View
+    private val statePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val backgroundRect = RectF()
 
     private var coverLeft = 0
     private var coverTop = 0
@@ -499,11 +735,12 @@ private class FlatVideoLightCardLayout @JvmOverloads constructor(
     private var coverHeight = 0
     private var titleTop = 0
     private var titleRowHeight = 0
-    private var overflowTop = 0
-    private var ownerTop = 0
-    private var ownerRowHeight = 0
     private var lastContentWidth = -1
     private var lastDesiredHeight = -1
+
+    init {
+        setWillNotDraw(false)
+    }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val startNs = SystemClock.elapsedRealtimeNanos()
@@ -521,49 +758,16 @@ private class FlatVideoLightCardLayout @JvmOverloads constructor(
         coverHeight = contentWidth * 9 / 16
 
         measureExact(imageView, coverWidth, coverHeight)
-        coverGradient?.let { measureExact(it, coverWidth, metrics.coverGradientHeight) }
         measureExact(progressBar, coverWidth, metrics.progressHeight)
         measureExact(coverMetaOverlay, coverWidth, coverHeight)
-
-        val playingIconWidth = if (iconPlaying.visibility != GONE) {
-            val lp = iconPlaying.layoutParams
-            val size = when {
-                lp.width > 0 -> lp.width
-                lp.height > 0 -> lp.height
-                else -> metrics.titleIconFallbackSize
-            }
-            measureExact(iconPlaying, size, size)
-            size + metrics.playingIconMarginEnd
-        } else {
-            measureExact(iconPlaying, 0, 0)
-            0
-        }
-        measureExactWidth(titleView, (contentWidth - playingIconWidth).coerceAtLeast(0))
-        titleRowHeight = maxOf(titleView.measuredHeight, visibleHeight(iconPlaying))
-
-        if (textOverflow.visibility != GONE) {
-            measureExactWidth(textOverflow, contentWidth)
-        } else {
-            measureExact(textOverflow, 0, 0)
-        }
-
-        measureExact(iconHistoryDevice, metrics.historyDeviceSize, metrics.historyDeviceSize)
-        measureWrap(textHistoryViewTime, contentWidth)
-        val ownerTrailingWidth = ownerTrailingWidth()
-        measureExactWidth(ownerRow, (contentWidth - ownerTrailingWidth - metrics.ownerTextMarginEnd).coerceAtLeast(0))
-        ownerRowHeight = maxOf(
-            ownerRow.measuredHeight,
-            visibleHeight(iconHistoryDevice),
-            visibleHeight(textHistoryViewTime)
-        )
+        measureExactWidth(textLayer, contentWidth)
+        titleRowHeight = textLayer.measuredHeight
 
         coverLeft = metrics.horizontalMargin
         coverTop = metrics.paddingTop
         titleTop = coverTop + coverHeight + metrics.titleTopMargin
-        overflowTop = titleTop + titleRowHeight
-        ownerTop = overflowTop + visibleHeight(textOverflow) + metrics.ownerTopMargin
 
-        val desiredHeight = ownerTop + ownerRowHeight + metrics.paddingBottom
+        val desiredHeight = titleTop + titleRowHeight + metrics.paddingBottom
         lastContentWidth = contentWidth
         lastDesiredHeight = desiredHeight
         setMeasuredDimension(
@@ -579,72 +783,43 @@ private class FlatVideoLightCardLayout @JvmOverloads constructor(
         val coverBottom = coverTop + coverHeight
 
         imageView.layout(coverLeft, coverTop, coverRight, coverBottom)
-        coverGradient?.layout(
-            coverLeft,
-            coverBottom - metrics.coverGradientHeight,
-            coverRight,
-            coverBottom
-        )
         progressBar.layout(coverLeft, coverBottom - metrics.progressHeight, coverRight, coverBottom)
         coverMetaOverlay.layout(coverLeft, coverTop, coverRight, coverBottom)
 
-        var titleLeft = coverLeft
-        if (iconPlaying.visibility != GONE) {
-            val iconTop = titleTop + (titleRowHeight - iconPlaying.measuredHeight) / 2
-            layoutAt(iconPlaying, titleLeft, iconTop)
-            titleLeft += iconPlaying.measuredWidth + metrics.playingIconMarginEnd
-        }
-        layoutAt(titleView, titleLeft, titleTop + (titleRowHeight - titleView.measuredHeight) / 2)
-        if (textOverflow.visibility != GONE) {
-            layoutAt(textOverflow, coverLeft, overflowTop)
-        }
-
-        var ownerRight = coverRight
-        if (textHistoryViewTime.visibility != GONE) {
-            ownerRight -= textHistoryViewTime.measuredWidth
-            layoutAt(textHistoryViewTime, ownerRight, ownerTop + (ownerRowHeight - textHistoryViewTime.measuredHeight) / 2)
-        }
-        if (iconHistoryDevice.visibility != GONE) {
-            ownerRight -= metrics.historyDeviceMarginEnd
-            ownerRight -= iconHistoryDevice.measuredWidth
-            layoutAt(iconHistoryDevice, ownerRight, ownerTop + (ownerRowHeight - iconHistoryDevice.measuredHeight) / 2)
-        }
-        if (ownerRow.visibility != GONE) {
-            val ownerRowRight = (ownerRight - metrics.ownerTextMarginEnd).coerceAtLeast(coverLeft)
-            ownerRow.layout(
-                coverLeft,
-                ownerTop + (ownerRowHeight - ownerRow.measuredHeight) / 2,
-                ownerRowRight,
-                ownerTop + (ownerRowHeight + ownerRow.measuredHeight) / 2
-            )
-        }
+        textLayer.layout(coverLeft, titleTop, coverRight, titleTop + textLayer.measuredHeight)
         VideoCardPerfLogger.recordPhase(perfSource, "layout", SystemClock.elapsedRealtimeNanos() - startNs)
     }
 
-    private fun ownerTrailingWidth(): Int {
-        var width = 0
-        if (textHistoryViewTime.visibility != GONE) {
-            width += textHistoryViewTime.measuredWidth
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val color = when {
+            isPressed -> metrics.pressedBackgroundColor
+            isFocused || hasFocus() -> metrics.focusedBackgroundColor
+            isSelected -> metrics.selectedBackgroundColor
+            else -> Color.TRANSPARENT
         }
-        if (iconHistoryDevice.visibility != GONE) {
-            width += iconHistoryDevice.measuredWidth + metrics.historyDeviceMarginEnd
-        }
-        return width
+        if (color == Color.TRANSPARENT) return
+        statePaint.color = color
+        backgroundRect.set(0f, 0f, width.toFloat(), height.toFloat())
+        canvas.drawRoundRect(
+            backgroundRect,
+            metrics.cardRadius.toFloat(),
+            metrics.cardRadius.toFloat(),
+            statePaint
+        )
     }
 
-    private fun visibleHeight(view: View): Int = if (view.visibility == GONE) 0 else view.measuredHeight
+    override fun drawableStateChanged() {
+        super.drawableStateChanged()
+        invalidate()
+    }
 
     private fun canReuseMeasuredChildren(widthSize: Int, contentWidth: Int): Boolean {
         if (widthSize <= 0 || lastContentWidth != contentWidth || lastDesiredHeight <= 0) {
             return false
         }
         return !coverMetaOverlay.isLayoutRequested &&
-            !iconPlaying.isLayoutRequested &&
-            !titleView.isLayoutRequested &&
-            !textOverflow.isLayoutRequested &&
-            !ownerRow.isLayoutRequested &&
-            !iconHistoryDevice.isLayoutRequested &&
-            !textHistoryViewTime.isLayoutRequested
+            !textLayer.isLayoutRequested
     }
 
     private fun measureExact(child: View, width: Int, height: Int) {
@@ -657,22 +832,6 @@ private class FlatVideoLightCardLayout @JvmOverloads constructor(
             return
         }
         child.measure(exact(width), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
-    }
-
-    private fun measureWrap(child: View, width: Int) {
-        if (child.visibility == GONE) {
-            measureExact(child, 0, 0)
-            return
-        }
-        child.measure(
-            MeasureSpec.makeMeasureSpec(width, MeasureSpec.AT_MOST),
-            MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
-        )
-    }
-
-    private fun layoutAt(child: View, left: Int, top: Int) {
-        if (child.visibility == GONE) return
-        child.layout(left, top, left + child.measuredWidth, top + child.measuredHeight)
     }
 
     override fun generateDefaultLayoutParams(): LayoutParams =
@@ -691,6 +850,7 @@ private class FlatVideoLightCardLayout @JvmOverloads constructor(
 }
 
 private class LightCardMetrics private constructor(context: Context) {
+    val cardRadius = dimen(context, R.dimen.px15)
     val paddingTop = dimen(context, R.dimen.px20)
     val paddingBottom = dimen(context, R.dimen.px15)
     val horizontalMargin = dimen(context, R.dimen.px15)
@@ -726,6 +886,9 @@ private class LightCardMetrics private constructor(context: Context) {
     val ownerTextSize = dimenF(context, R.dimen.px22)
     val metaTextSize = dimenF(context, R.dimen.px22)
     val badgeTextSize = dimenF(context, R.dimen.px20)
+    val pressedBackgroundColor = themeColor(context, androidx.appcompat.R.attr.colorPrimary, Color.TRANSPARENT)
+    val focusedBackgroundColor = themeColor(context, androidx.appcompat.R.attr.colorControlHighlight, Color.TRANSPARENT)
+    val selectedBackgroundColor = themeColor(context, R.attr.fourthBackgroundColor, Color.TRANSPARENT)
 
     private fun dimen(context: Context, resId: Int): Int = context.resources.getDimensionPixelSize(resId)
 
@@ -737,6 +900,17 @@ private class LightCardMetrics private constructor(context: Context) {
             value.toFloat(),
             context.resources.displayMetrics
         ).toInt()
+
+    private fun themeColor(context: Context, attr: Int, fallback: Int): Int {
+        val value = TypedValue()
+        if (!context.theme.resolveAttribute(attr, value, true)) {
+            return fallback
+        }
+        if (value.resourceId != 0) {
+            return ContextCompat.getColor(context, value.resourceId)
+        }
+        return value.data
+    }
 
     companion object {
         private val cache = java.util.WeakHashMap<android.content.res.Resources, LightCardMetrics>()

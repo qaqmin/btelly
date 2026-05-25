@@ -196,9 +196,8 @@ class HistoryVideoAdapter(
                 handleListDpadDown = false,
                 chainedListener = keyListener
             )
-            views.ownerRow.bind(ownerText = "", showAvatar = false, show = false)
-            views.textHistoryViewTime?.visibility = View.VISIBLE
-            views.iconHistoryDevice?.visibility = View.GONE
+            views.textLayer.setOwner(ownerText = "", showAvatar = false, show = false)
+            views.textLayer.clearHistoryTrailing()
             views.coverMetaOverlay.bind(
                 showPlayCount = false,
                 showDanmakuCount = false,
@@ -212,10 +211,10 @@ class HistoryVideoAdapter(
             currentItem = item
 
             views.root.isSelected = isFocused
-            views.textView.isSelected = isFocused
-            views.textView.text = item.title.ifBlank { item.showTitle }
+            views.textLayer.isSelected = isFocused
+            views.textLayer.setTitle(item.title.ifBlank { item.showTitle }, lines = 2)
             val ownerName = item.displayAuthorName
-            views.ownerRow.bind(
+            views.textLayer.setOwner(
                 ownerText = ownerName,
                 showAvatar = ownerName.isNotBlank()
             )
@@ -232,9 +231,10 @@ class HistoryVideoAdapter(
                 item.tagName.isNotBlank() -> item.tagName
                 else -> ""
             }
-            views.textHistoryViewTime?.text = TimeUtils.formatHistoryViewTime(item.viewAt)
-            views.textHistoryViewTime?.visibility = View.VISIBLE
-            applyHistoryDeviceIcon(item.history?.dt ?: 0)
+            views.textLayer.setHistoryTrailing(
+                timeText = TimeUtils.formatHistoryViewTime(item.viewAt),
+                deviceDrawableRes = HistoryDeviceIcon.resolve(item.history?.dt ?: 0)?.drawableRes ?: 0
+            )
             views.coverMetaOverlay.bind(
                 showPlayCount = false,
                 showDanmakuCount = false,
@@ -250,17 +250,5 @@ class HistoryVideoAdapter(
             )
         }
 
-        private fun applyHistoryDeviceIcon(dt: Int) {
-            val deviceIcon = HistoryDeviceIcon.resolve(dt)
-            val iconHistoryDevice = views.iconHistoryDevice ?: return
-            if (deviceIcon == null) {
-                iconHistoryDevice.visibility = View.GONE
-                iconHistoryDevice.contentDescription = null
-            } else {
-                iconHistoryDevice.setImageResource(deviceIcon.drawableRes)
-                iconHistoryDevice.contentDescription = deviceIcon.contentDescription
-                iconHistoryDevice.visibility = View.VISIBLE
-            }
-        }
     }
 }

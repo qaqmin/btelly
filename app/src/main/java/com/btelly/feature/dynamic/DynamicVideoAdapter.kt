@@ -164,12 +164,13 @@ class DynamicVideoAdapter(
 
             val coverUrl: String
             if (item.bangumi != null) {
-                views.textView.text = item.bangumi.longTitle
+                views.textLayer.setTitle(item.bangumi.longTitle, lines = 2)
                 coverUrl = item.bangumi.cover
             } else {
-                views.textView.text = item.title
+                views.textLayer.setTitle(item.title, lines = 2)
                 coverUrl = item.coverUrl
             }
+            views.textLayer.clearHistoryTrailing()
             val ownerLine = if (ownerName.isNotBlank()) {
                 if (publishText.isNotBlank()) {
                     "$ownerName · $publishText"
@@ -188,7 +189,7 @@ class DynamicVideoAdapter(
                         && currentItem === item && isPortrait
                     ) {
                         if (item.bvid.isNotBlank()) portraitDetectedBvids.add(item.bvid)
-                        views.ownerRow.bind(
+                        views.textLayer.setOwner(
                             ownerText = ownerLine,
                             showAvatar = false,
                             badgeText = "竖屏"
@@ -198,13 +199,13 @@ class DynamicVideoAdapter(
             )
 
             if (ownerName.isNotBlank()) {
-                views.ownerRow.bind(
+                views.textLayer.setOwner(
                     ownerText = ownerLine,
                     showAvatar = !item.isPortrait,
                     badgeText = if (item.isPortrait) "竖屏" else ""
                 )
             } else {
-                views.ownerRow.bind(
+                views.textLayer.setOwner(
                     ownerText = ownerLine,
                     showAvatar = false
                 )

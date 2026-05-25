@@ -25,6 +25,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.view.ViewStub
 import androidx.annotation.OptIn
 import androidx.annotation.RequiresApi
 import androidx.media3.common.C
@@ -307,6 +308,11 @@ class MyPlayerView @JvmOverloads constructor(
                 }
                 ?.start()
             renderEventListener?.onRenderedFirstFrame()
+            post {
+                val overlayStartMs = SystemClock.elapsedRealtime()
+                setupYouTubeOverlay()
+                AppLog.i("PlayerViewPerf", "setupYouTubeOverlay deferred elapsed=${SystemClock.elapsedRealtime() - overlayStartMs}ms")
+            }
         }
     }
 
@@ -341,10 +347,6 @@ class MyPlayerView @JvmOverloads constructor(
         val settingStartMs = SystemClock.elapsedRealtime()
         setupSettingView()
         AppLog.i("PlayerViewPerf", "setupSettingView elapsed=${SystemClock.elapsedRealtime() - settingStartMs}ms")
-        val overlayStartMs = SystemClock.elapsedRealtime()
-        setupYouTubeOverlay()
-        AppLog.i("PlayerViewPerf", "setupYouTubeOverlay elapsed=${SystemClock.elapsedRealtime() - overlayStartMs}ms")
-
         isClickable = true
         isFocusable = true
         descendantFocusability = FOCUS_AFTER_DESCENDANTS
@@ -475,8 +477,12 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     private fun setupYouTubeOverlay() {
+        if (tapOverlayView != null) return
         tapOverlayView = findViewById(R.id.view_youtube_overlay)
+            ?: findViewById<ViewStub>(R.id.view_youtube_overlay_stub)?.inflate() as? YouTubeOverlay
         tapOverlayView?.setPlayerView(this)
+        tapOverlayView?.setPlayer(player)
+        tapOverlayView?.setUiCoordinator(uiCoordinator)
         tapOverlayView?.setPersistentBottomProgressEnabled(persistentBottomProgressEnabled)
         tapOverlayView?.setCallback(object : YouTubeOverlay.Callback {
             override fun onAnimationStart(displayMode: YouTubeOverlay.DisplayMode) = Unit

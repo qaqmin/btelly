@@ -11,7 +11,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.RecyclerView
-import com.google.gson.reflect.TypeToken
 import com.btelly.R
 import com.btelly.databinding.FragmentFavoriteBinding
 import com.btelly.event.AppEventHub
@@ -25,12 +24,14 @@ import com.btelly.feature.me.MeTabPage
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
 import com.btelly.core.ui.base.RecyclerViewFocusRestoreHelper
-import com.btelly.core.common.cache.FileCacheManager
 import com.btelly.core.common.settings.AppSettingsDataStore
+import com.btelly.core.common.log.AppLog
+import com.btelly.core.common.log.PagePerfLogger
 import com.btelly.core.ui.focus.SpatialFocusNavigator
 import com.btelly.core.ui.focus.TabContentFocusHelper
 import com.btelly.core.ui.refresh.SwipeRefreshHelper
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -39,7 +40,6 @@ import org.koin.android.ext.android.inject
 class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
     companion object {
         private const val ARG_EMBEDDED = "embedded"
-        private const val COLLECTION_CACHE_KEY = "collectionCacheList"
 
         fun newInstance() = FavoriteFragment()
 
@@ -47,8 +47,6 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
             arguments = bundleOf(ARG_EMBEDDED to true)
         }
     }
-
-    private var lastRefreshTime = 0L
 
     private val appEventHub: AppEventHub by inject()
     private val sessionGateway: NetworkSessionGateway by inject()
@@ -61,7 +59,10 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
     private var pendingRestoreFocus = false
     private var hasRequestedInitialFocus = false
     private var coverHydrationJob: Job? = null
+    private var folderLoadJob: Job? = null
     private var isLoadingFolders = false
+    private var folderRequestSerial = 0
+    private var activeFolderRequestId = 0
     private val appSettings: AppSettingsDataStore by inject()
 
     override fun initArguments() {
@@ -140,7 +141,6 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
     }
 
     override fun initData() {
-        restoreCachedFolders()
         // 不在 initData 里直接 loadFavoriteFolders()，等 onTabSelected() 触发首次加载。
     }
 
@@ -165,26 +165,41 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
     }
 
     private fun loadFavoriteFolders() {
-        if (isLoadingFolders) {
-            return
-        }
+        val requestId = ++folderRequestSerial
+        activeFolderRequestId = requestId
+        val requestStartMs = PagePerfLogger.now()
+        folderLoadJob?.cancel()
         coverHydrationJob?.cancel()
+        PagePerfLogger.markNow(
+            "Me/favorite",
+            "request_start",
+            "request=$requestId hasContent=${adapter.itemCount > 0}"
+        )
         if (!sessionGateway.isLoggedIn()) {
             binding.progressBar.visibility = View.GONE
             binding.tvEmpty.visibility = View.VISIBLE
             binding.tvEmpty.text = getString(R.string.need_sign_in)
             binding.recyclerViewFavorite.visibility = View.GONE
             requestFallbackFocus()
+            isLoadingFolders = false
             return
         }
 
         binding.progressBar.visibility = View.VISIBLE
         isLoadingFolders = true
 
-        viewLifecycleOwner.lifecycleScope.launch {
-            val mid = userRepository.resolveCurrentUserMid().getOrNull()
+        folderLoadJob = viewLifecycleOwner.lifecycleScope.launch {
+            val mid = try {
+                userRepository.resolveCurrentUserMid().getOrNull()
+            } catch (e: CancellationException) {
+                throw e
+            }
+            if (!isActiveFolderRequest(requestId)) {
+                AppLog.d("MeDebug", "[favorite] drop stale mid result request=$requestId")
+                return@launch
+            }
             if (mid == null || mid <= 0L) {
-                isLoadingFolders = false
+                finishFolderRequest(requestId)
                 if (!isAdded || view == null) return@launch
                 binding.progressBar.visibility = View.GONE
                 binding.tvEmpty.visibility = View.VISIBLE
@@ -194,13 +209,27 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
                 return@launch
             }
 
-            val result = favoriteRepository.getFavoriteFolders(mid)
-            isLoadingFolders = false
+            val result = try {
+                favoriteRepository.getFavoriteFolders(mid)
+            } catch (e: CancellationException) {
+                throw e
+            }
+            if (!isActiveFolderRequest(requestId)) {
+                AppLog.d("MeDebug", "[favorite] drop stale folder result request=$requestId")
+                return@launch
+            }
+            finishFolderRequest(requestId)
             if (!isAdded || view == null) return@launch
             binding.progressBar.visibility = View.GONE
             swipeRefreshLayout?.isRefreshing = false
 
             result.onSuccess { response ->
+                PagePerfLogger.mark(
+                    "Me/favorite",
+                    "data_collected",
+                    requestStartMs,
+                    "request=$requestId success=${response.isSuccess}"
+                )
                 if (response.isSuccess) {
                     val folders = response.data?.list.orEmpty().map(::applySavedCover).toList()
                     if (folders.isEmpty()) {
@@ -212,10 +241,14 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
                         binding.tvEmpty.visibility = View.GONE
                         binding.recyclerViewFavorite.visibility = View.VISIBLE
                         adapter.setData(folders)
-                        cacheFolders(folders)
+                        PagePerfLogger.mark(
+                            "Me/favorite",
+                            "adapter_commit",
+                            requestStartMs,
+                            "request=$requestId items=${folders.size}"
+                        )
                         hydrateMissingFolderCovers(folders)
-                        lastRefreshTime = System.currentTimeMillis()
-                        com.btelly.core.common.log.AppLog.d("MeDebug", "[favorite] loadFolders done: folders=${folders.size}, hasRequestedInitialFocus=$hasRequestedInitialFocus, pendingRestore=$pendingRestoreFocus, lastFocusedPos=$lastFocusedPosition")
+                        AppLog.d("MeDebug", "[favorite] loadFolders done: folders=${folders.size}, hasRequestedInitialFocus=$hasRequestedInitialFocus, pendingRestore=$pendingRestoreFocus, lastFocusedPos=$lastFocusedPosition")
                         if (!embedded && !hasRequestedInitialFocus) {
                             hasRequestedInitialFocus = true
                             requestBackFocus()
@@ -237,6 +270,16 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
                 requestFallbackFocus()
                 Toast.makeText(requireContext(), "加载失败: ${e.message}", Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    private fun isActiveFolderRequest(requestId: Int): Boolean {
+        return requestId == activeFolderRequestId
+    }
+
+    private fun finishFolderRequest(requestId: Int) {
+        if (isActiveFolderRequest(requestId)) {
+            isLoadingFolders = false
         }
     }
 
@@ -266,7 +309,6 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
                         if (!coverUrl.isNullOrBlank()) {
                             saveFolderCover(folder.id, coverUrl)
                             adapter.updateCover(folder.id, coverUrl)
-                            cacheFolders(adapter.getItemsSnapshot())
                         }
                     }
             }
@@ -415,30 +457,6 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
             return
         }
         binding.recyclerViewFavorite.post { requestItemFocus(position, retries - 1) }
-    }
-
-    private fun restoreCachedFolders() {
-        if (!sessionGateway.isLoggedIn()) return
-        val cachedFolders = runCatching {
-            val cacheType = object : TypeToken<List<com.btelly.model.favorite.FavoriteFolderModel>>() {}.type
-            FileCacheManager.get<List<com.btelly.model.favorite.FavoriteFolderModel>>(COLLECTION_CACHE_KEY, cacheType).orEmpty()
-        }.getOrElse { emptyList() }
-            .map(::applySavedCover)
-        if (cachedFolders.isEmpty()) {
-            return
-        }
-        adapter.setData(cachedFolders)
-        binding.tvEmpty.visibility = View.GONE
-        binding.recyclerViewFavorite.visibility = View.VISIBLE
-    }
-
-    private fun cacheFolders(folders: List<com.btelly.model.favorite.FavoriteFolderModel>) {
-        if (folders.isEmpty()) {
-            return
-        }
-        runCatching {
-            FileCacheManager.put(COLLECTION_CACHE_KEY, folders)
-        }
     }
 
     private fun applySavedCover(folder: com.btelly.model.favorite.FavoriteFolderModel): com.btelly.model.favorite.FavoriteFolderModel {

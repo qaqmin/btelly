@@ -176,16 +176,14 @@ class LiveRoomAdapter(
 
         fun bind(item: LiveRoomItem) {
             currentItem = item
-            views.textView.maxLines = 1
-            views.textView.minLines = 1
-            views.textView.text = item.title
-            views.ownerRow.bind(
+            views.textLayer.setTitle(item.title, lines = 1)
+            views.textLayer.setOwner(
                 ownerText = item.uname,
                 showAvatar = item.uname.isNotBlank(),
                 show = item.uname.isNotBlank()
             )
+            views.textLayer.clearHistoryTrailing()
             views.progressBar.visibility = View.GONE
-            views.textOverflow.visibility = View.GONE
             views.coverMetaOverlay.bind(
                 playCountText = NumberUtils.formatCount(item.online.toLong()),
                 showPlayCount = true,

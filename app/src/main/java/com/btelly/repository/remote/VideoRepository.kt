@@ -25,32 +25,14 @@ class VideoRepository(
     private val securityGateway: NetworkSecurityGateway
 ) {
 
-    @Volatile
-    private var watchLaterCache: List<VideoModel>? = null
-    @Volatile
-    private var watchLaterCacheTimeMs: Long = 0L
-    private val watchLaterCacheTtlMs = 5L * 60L * 1000L
     private val watchLaterMutex = Mutex()
 
-    private fun invalidateWatchLaterCache() {
-        watchLaterCache = null
-        watchLaterCacheTimeMs = 0L
-    }
-
     private suspend fun getWatchLaterList(): List<VideoModel> = watchLaterMutex.withLock {
-        val now = System.currentTimeMillis()
-        val cached = watchLaterCache
-        if (cached != null && now - watchLaterCacheTimeMs < watchLaterCacheTtlMs) {
-            return@withLock cached
-        }
         val response = sessionGateway.syncAuthState(
             apiService.getLaterWatch(),
             source = "video.getWatchLaterList"
         )
-        val list = if (response.isSuccess) response.data?.list.orEmpty() else emptyList()
-        watchLaterCache = list
-        watchLaterCacheTimeMs = now
-        return@withLock list
+        return@withLock if (response.isSuccess) response.data?.list.orEmpty() else emptyList()
     }
 
     companion object {
@@ -238,7 +220,6 @@ class VideoRepository(
                 apiService.addWatchLater(aid, bvid, csrf),
                 source = "video.addWatchLater"
             )
-            if (result.isSuccess) invalidateWatchLaterCache()
             result
         }
 
@@ -251,7 +232,6 @@ class VideoRepository(
                 apiService.removeWatchLater(resolvedAid, csrf),
                 source = "video.removeWatchLater"
             )
-            if (result.isSuccess) invalidateWatchLaterCache()
             result
         }
 

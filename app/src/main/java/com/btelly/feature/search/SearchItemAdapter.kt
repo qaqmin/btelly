@@ -176,7 +176,7 @@ class SearchItemAdapter(
 
         fun bind(item: SearchItemModel) {
             currentItem = item
-            views.textView.text = item.decodedTitle
+            views.textLayer.setTitle(item.decodedTitle, lines = 2)
             val ownerName = item.author.ifBlank { item.uname }
             val publishText = item.pubDate.takeIf { it > 0L }?.let(TimeUtils::formatRelativeTime).orEmpty()
             val ownerLine = buildString {
@@ -197,20 +197,19 @@ class SearchItemAdapter(
             val cachedPortrait = coverUrl in portraitDetectedUrls
             val needPortraitDetect = item.dimension?.isPortrait != true && !cachedPortrait
             if (item.dimension?.isPortrait == true) {
-                views.ownerRow.bind(
+                views.textLayer.setOwner(
                     ownerText = ownerLine,
                     showAvatar = false,
                     badgeText = "竖屏"
                 )
             } else {
-                views.ownerRow.bind(
+                views.textLayer.setOwner(
                     ownerText = ownerLine,
                     showAvatar = ownerName.isNotBlank()
                 )
             }
             views.progressBar.visibility = View.GONE
-            views.iconHistoryDevice?.visibility = View.GONE
-            views.textHistoryViewTime?.visibility = View.GONE
+            views.textLayer.clearHistoryTrailing()
             views.coverMetaOverlay.bind(
                 playCountText = if (playCount > 0L) NumberUtils.formatCount(playCount) else "",
                 showPlayCount = playCount > 0L,
@@ -230,7 +229,7 @@ class SearchItemAdapter(
                         && currentItem === item && isPortrait
                     ) {
                         portraitDetectedUrls.add(coverUrl)
-                        views.ownerRow.bind(
+                        views.textLayer.setOwner(
                             ownerText = ownerLine,
                             showAvatar = false,
                             badgeText = "竖屏"

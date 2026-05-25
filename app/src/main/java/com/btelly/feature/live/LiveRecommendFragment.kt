@@ -24,6 +24,7 @@ import com.btelly.core.common.ext.toast
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.log.PagePerfLogger
 import com.btelly.core.ui.render.FirstScreenRenderer
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
@@ -76,20 +77,27 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
     override fun initObserver() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.recommendData.collectLatest { data ->
+                viewModel.recommendData.collect { data ->
                     swipeRefreshLayout?.isRefreshing = false
-                    if (data == null && hasLoadedData) return@collectLatest
+                    if (data == null) {
+                        PagePerfLogger.markNow(
+                            "LiveRecommend",
+                            "skip_empty_initial",
+                            "hasContent=${adapter.itemCount > 0}"
+                        )
+                        return@collect
+                    }
                     val t0 = System.currentTimeMillis()
                     val collectStartMs = PagePerfLogger.now()
                     PagePerfLogger.mark(
                         "LiveRecommend",
                         "data_collected",
                         currentOpenStartMs,
-                        "data=${data != null}"
+                        "data=true"
                     )
-                    AppLog.d("LivePerf", "LiveRecommendFragment: 推荐数据到达UI, data=${data != null}")
+                    AppLog.d("LivePerf", "LiveRecommendFragment: 推荐数据到达UI, data=true")
                     val sections = buildSections(data)
-                    if (sections.isEmpty()) return@collectLatest
+                    if (sections.isEmpty()) return@collect
                     hasLoadedData = true
                     PagePerfLogger.mark(
                         "LiveRecommend",

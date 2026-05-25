@@ -237,11 +237,9 @@ class FavoriteHistoryAdapter(
                 handleListDpadDown = false,
                 chainedListener = keyListener
             )
-            views.textView.maxLines = 1
-            views.textView.minLines = 1
-            views.ownerRow.bind(ownerText = "", showAvatar = false, show = false)
-            views.iconHistoryDevice?.visibility = View.GONE
-            views.textHistoryViewTime?.visibility = View.GONE
+            views.textLayer.setTitle("", lines = 1)
+            views.textLayer.setOwner(ownerText = "", showAvatar = false, show = false)
+            views.textLayer.clearHistoryTrailing()
             views.coverMetaOverlay.bind(
                 showPlayCount = false,
                 showDanmakuCount = false,
@@ -254,18 +252,17 @@ class FavoriteHistoryAdapter(
         fun bind(item: HistoryVideoModel, isFocused: Boolean) {
             currentItem = item
             views.root.isSelected = isFocused
-            views.textView.isSelected = isFocused
-            views.textView.text = item.title.ifBlank { item.showTitle }
+            views.textLayer.isSelected = isFocused
+            views.textLayer.setTitle(item.title.ifBlank { item.showTitle }, lines = 1)
             views.progressBar.visibility = View.GONE
             val authorName = item.displayAuthorName
             val hasAuthorName = authorName.isNotBlank()
-            views.ownerRow.bind(
+            views.textLayer.setOwner(
                 ownerText = formatFavoriteOwnerLine(item),
                 showAvatar = hasAuthorName,
                 badgeText = if (!hasAuthorName && item.isPortrait) "竖屏" else ""
             )
-            views.iconHistoryDevice?.visibility = View.GONE
-            views.textHistoryViewTime?.visibility = View.GONE
+            views.textLayer.clearHistoryTrailing()
 
             val stat = item.cntInfo
             val durationValue = item.duration.coerceAtLeast(0L)

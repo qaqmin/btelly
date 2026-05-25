@@ -20,6 +20,8 @@ import javax.crypto.spec.OAEPParameterSpec
 import javax.crypto.spec.PSource
 import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -61,6 +63,7 @@ class BiliSecurityCoordinator(
     private val ensureHealthyMutex = Mutex()
     private val wbiKeysMutex = Mutex()
     private val cookieRefreshMutex = Mutex()
+    private val securityScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private var lastPrewarmTimestampMs: Long = 0L
     private var lastEnsureHealthyForPlayMs: Long = 0L
@@ -90,7 +93,9 @@ class BiliSecurityCoordinator(
                 launch { ensureWebFingerprintCookies() }
                 launch { ensureBiliTicket() }
                 launch { ensureBuvidActiveOncePerDay() }
-                launch { refreshCookieIfServerSaysNeeded() }
+            }
+            securityScope.launch {
+                refreshCookieIfServerSaysNeeded()
             }
 
             lastEnsureHealthyForPlayMs = System.currentTimeMillis()
@@ -111,7 +116,6 @@ class BiliSecurityCoordinator(
             ) {
                 return@withLock true
             }
-            cookieManager.syncFromWebView()
             if (forceUaRefresh) {
                 refreshUserAgent()
             }
@@ -151,9 +155,6 @@ class BiliSecurityCoordinator(
                 mainPageDeferred.await() to navDeferred.await()
             }
             val success = mainPageLoaded || navSuccess
-            if (mainPageLoaded) {
-                cookieManager.syncFromWebView()
-            }
             if (success) {
                 lastPrewarmTimestampMs = now
             }

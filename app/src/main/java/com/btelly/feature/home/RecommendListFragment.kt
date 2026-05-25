@@ -4,6 +4,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.btelly.event.AppEventHub
+import com.btelly.core.ui.base.RecyclerViewPoolPrewarmer
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
@@ -25,6 +26,9 @@ class RecommendListFragment : VideoFeedFragment() {
     override val secondaryTabPosition: Int = 0
     override val dispatchHomeContentReady: Boolean = true
     override val enableTvListFocusController: Boolean = true
+    override val deferInitialLoadUntilFirstDraw: Boolean = true
+    override val showInitialLoadingIndicator: Boolean = true
+    override val initialViewHolderPrewarmPlan: RecyclerViewPoolPrewarmer.Plan = RecyclerViewPoolPrewarmer.Plan.Disabled
 
     override fun initObserver() {
         super.initObserver()

@@ -22,7 +22,6 @@ class RecommendViewModel(
         private const val TAG = "RecommendVM"
         private const val FIRST_PAGE_SIZE = 24
         private const val NEXT_PAGE_SIZE = 24
-        private const val FIRST_PAGE_PRELOAD_GRACE_MS = 450L
     }
 
     private val appContext = context.applicationContext
@@ -73,36 +72,52 @@ class RecommendViewModel(
         fromInitial: Boolean = false,
         fromRefresh: Boolean = false
     ) {
+        val current = _uiState.value
         if (page == 1 && replace && fromInitial) {
-            val peekStart = SystemClock.elapsedRealtime()
-            var preloaded = repository.peekFirstPage()
-            if (preloaded == null) {
-                preloaded = repository.awaitFirstPage(timeoutMs = FIRST_PAGE_PRELOAD_GRACE_MS)
-            }
-            AppLog.i(TAG, "STARTUP T6 preload ${if (preloaded != null) "hit" else "miss"} grace=${FIRST_PAGE_PRELOAD_GRACE_MS}ms elapsed=${SystemClock.elapsedRealtime() - peekStart}ms items=${preloaded?.items?.size ?: 0}")
-            if (preloaded != null) {
+            _uiState.value = current.copy(
+                loadingInitial = true,
+                refreshing = false,
+                appending = false,
+                errorMessage = null,
+                listChange = FeedListChange.NONE
+            )
+            val sharedStart = SystemClock.elapsedRealtime()
+            runCatching {
+                repository.loadSharedFirstPage(pageSize = FIRST_PAGE_SIZE, reason = "viewModelInitial")
+            }.onSuccess { firstPage ->
+                AppLog.i(
+                    TAG,
+                    "STARTUP T6 sharedFirstPage hit elapsed=${SystemClock.elapsedRealtime() - sharedStart}ms items=${firstPage.items.size}"
+                )
                 seenBvids.clear()
                 val filterStart = SystemClock.elapsedRealtime()
-                val filteredItems = preloaded.items.filterForInitialPreload()
-                AppLog.i(TAG, "STARTUP preload filterForInitial=${SystemClock.elapsedRealtime() - filterStart}ms")
+                val filteredItems = firstPage.items.filterForDisplay()
+                AppLog.i(TAG, "STARTUP sharedFirstPage filterForInitial=${SystemClock.elapsedRealtime() - filterStart}ms")
                 filteredItems.mapNotNullTo(seenBvids) { it.bvid.takeIf(String::isNotBlank) }
                 currentPage = 1
-                nextRecommendFetchRow = nextFetchRowAfter(preloaded)
+                nextRecommendFetchRow = nextFetchRowAfter(firstPage)
                 _uiState.value = FeedUiState(
                     items = filteredItems,
                     source = FeedSource.NETWORK,
                     listChange = FeedListChange.REPLACE,
-                    hasMore = preloaded.hasMore
+                    hasMore = firstPage.hasMore
                 )
                 if (filteredItems.isNotEmpty()) {
                     repository.writeCache(repository.trimCacheItems(filteredItems))
                 }
-                return
+            }.onFailure { throwable ->
+                _uiState.value = current.copy(
+                    loadingInitial = false,
+                    refreshing = false,
+                    appending = false,
+                    errorMessage = throwable.message ?: "推荐加载失败",
+                    listChange = FeedListChange.NONE
+                )
+                AppLog.w(TAG, "STARTUP T6 sharedFirstPage failed: ${throwable.message}")
             }
-            AppLog.i(TAG, "STARTUP T6b preload miss -> start direct first-page request")
+            return
         }
 
-        val current = _uiState.value
         _uiState.value = current.copy(
             loadingInitial = fromInitial,
             refreshing = fromRefresh,
@@ -169,9 +184,5 @@ class RecommendViewModel(
         return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             ContentFilter.filterVideos(appContext, this@filterForDisplay)
         }
-    }
-
-    private fun List<VideoModel>.filterForInitialPreload(): List<VideoModel> {
-        return ContentFilter.filterVideos(appContext, this)
     }
 }

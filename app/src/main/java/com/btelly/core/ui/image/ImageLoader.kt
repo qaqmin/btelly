@@ -21,7 +21,6 @@ import androidx.core.content.ContextCompat
 import com.btelly.BTellyApplication
 import com.btelly.R
 import com.btelly.core.common.log.AppLog
-import com.btelly.core.common.perf.FirstFrameImageGate
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.network.NetworkManager
 import pl.droidsonroids.gif.GifDrawable
@@ -61,6 +60,8 @@ object ImageLoader {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val inFlight = WeakHashMap<ImageView, Job>()
     private val imageIoDispatcher = Executors.newFixedThreadPool(6).asCoroutineDispatcher()
+    private val visibleImageDispatcher = Executors.newFixedThreadPool(8).asCoroutineDispatcher()
+    private val fastVisibleImageDispatcher = Executors.newFixedThreadPool(6).asCoroutineDispatcher()
     private val highPriorityImageDispatcher = Executors.newFixedThreadPool(4).asCoroutineDispatcher()
     private val normalPriorityImageDispatcher = Executors.newFixedThreadPool(2).asCoroutineDispatcher()
     private val lowPriorityImageDispatcher = Executors.newFixedThreadPool(2).asCoroutineDispatcher()
@@ -74,12 +75,21 @@ object ImageLoader {
 
     // 前台 bind 与后台 prefetch 共用同 URL 请求，避免首屏重复下载/解码同一张封面。
     private val imageDataScope = CoroutineScope(SupervisorJob() + imageIoDispatcher)
-    private val imageDataInFlight = mutableMapOf<String, Deferred<ImageData>>()
+    private val imageDataInFlight = mutableMapOf<String, InFlightImageRequest>()
 
     private val preheatScope = CoroutineScope(SupervisorJob() + imageIoDispatcher)
     private val preheated = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    private val fastImageOkHttpClient: OkHttpClient by lazy { buildFastImageOkHttpClient() }
+    private val fastCoverPerfLock = Any()
+    private var fastCoverSessionSource = ""
+    private var fastCoverSessionStartMs = 0L
+    private var fastCoverLoadedCount = 0
+    private var fastCoverFirstLogged = false
+    private var fastCoverTargetLogged = false
+
     enum class Priority {
+        VISIBLE_HIGH,
         HIGH,
         NORMAL,
         LOW
@@ -103,7 +113,13 @@ object ImageLoader {
 
     private data class ImageDataRequest(
         val deferred: Deferred<ImageData>,
+        val priority: Priority,
         val reused: Boolean
+    )
+
+    private data class InFlightImageRequest(
+        val deferred: Deferred<ImageData>,
+        val priority: Priority
     )
 
     private data class PreDrawDeferredLoad(
@@ -146,7 +162,7 @@ object ImageLoader {
         url: String?,
         placeholder: Int = 0,
         error: Int = 0,
-        priority: Priority = Priority.HIGH
+        priority: Priority = Priority.VISIBLE_HIGH
     ) {
         val optimizedUrl = buildOptimizedAvatarUrl(url)
         val normalizedUrl = normalizeUrl(url)
@@ -260,7 +276,7 @@ object ImageLoader {
         url: String?,
         placeholder: Int = R.drawable.default_video,
         error: Int = R.drawable.default_video,
-        priority: Priority = Priority.HIGH,
+        priority: Priority = Priority.VISIBLE_HIGH,
         deferUntilPreDraw: Boolean = false,
         onPortraitDetected: ((Boolean) -> Unit)? = null
     ) {
@@ -292,6 +308,58 @@ object ImageLoader {
             fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null,
             cornerRadius = radiusPx,
             priority = priority
+        )
+    }
+
+    fun loadFastVideoCover(
+        imageView: ImageView,
+        url: String?,
+        placeholder: Int = R.drawable.default_video,
+        error: Int = R.drawable.default_video,
+        source: String = "video",
+        slot: Int = -1,
+        targetCount: Int = 8,
+        onPortraitDetected: ((Boolean) -> Unit)? = null
+    ) {
+        val optimizedUrl = buildOptimizedVideoCoverUrl(url)
+        val normalizedUrl = normalizeUrl(url)
+        loadFastVideoCoverInto(
+            imageView = imageView,
+            url = optimizedUrl,
+            placeholderRes = placeholder,
+            errorRes = error,
+            fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null,
+            source = source,
+            slot = slot,
+            targetCount = targetCount,
+            onSuccess = { bmp ->
+                if (onPortraitDetected != null) {
+                    onPortraitDetected(bmp.height > bmp.width)
+                }
+            }
+        )
+    }
+
+    fun loadFastAvatar(
+        imageView: ImageView,
+        url: String?,
+        placeholder: Int = R.drawable.default_avatar,
+        error: Int = R.drawable.default_avatar,
+        source: String = "avatar",
+        slot: Int = -1,
+        targetCount: Int = 8
+    ) {
+        val optimizedUrl = buildFastAvatarUrl(url)
+        val normalizedUrl = normalizeUrl(url)
+        loadFastVideoCoverInto(
+            imageView = imageView,
+            url = optimizedUrl,
+            placeholderRes = placeholder,
+            errorRes = error,
+            fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null,
+            source = source,
+            slot = slot,
+            targetCount = targetCount
         )
     }
 
@@ -492,28 +560,7 @@ object ImageLoader {
             return
         }
 
-        if (deferUntilPreDraw) {
-            if (FirstFrameImageGate.defer(imageView, url) {
-                    if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
-                        AppLog.i(TAG, "cover deferred_start after_page_first_draw url=${url.takeLast(50)}")
-                        loadInto(
-                            imageView = imageView,
-                            url = url,
-                            placeholderRes = placeholderRes,
-                            errorRes = errorRes,
-                            circleCrop = circleCrop,
-                            cornerRadius = cornerRadius,
-                            fallbackUrl = fallbackUrl,
-                            priority = priority,
-                            onSuccess = onSuccess,
-                            onError = onError,
-                            deferUntilPreDraw = false
-                        )
-                    }
-                }
-            ) {
-                return
-            }
+        if (deferUntilPreDraw && (priority == Priority.NORMAL || priority == Priority.LOW)) {
             deferLoadUntilPreDraw(imageView, url) {
                 loadInto(
                     imageView = imageView,
@@ -574,6 +621,150 @@ object ImageLoader {
                 val elapsed = SystemClock.elapsedRealtime() - startMs
                 AppLog.w(TAG, "cover error: elapsed=${elapsed}ms url=${url.takeLast(50)}", t)
                 handleLoadError(imageView, url, errorRes, fallbackUrl, circleCrop, cornerRadius, priority, onSuccess, onError)
+            }
+        }
+        inFlight[imageView] = job
+    }
+
+    private fun loadFastVideoCoverInto(
+        imageView: ImageView,
+        url: String,
+        placeholderRes: Int,
+        errorRes: Int,
+        fallbackUrl: String?,
+        source: String,
+        slot: Int,
+        targetCount: Int,
+        onSuccess: ((Bitmap) -> Unit)? = null,
+        retriedFallback: Boolean = false
+    ) {
+        val ctx = imageView.context
+        if (ctx is Activity && ctx.isDestroyed) return
+
+        if (url.isBlank()) {
+            inFlight.remove(imageView)?.cancel()
+            clearAttachDeferredLoad(imageView)
+            clearPreDrawDeferredLoad(imageView)
+            imageView.setTag(R.id.tag_image_loader_url, null)
+            if (placeholderRes != 0) imageView.setImageResource(placeholderRes)
+            else imageView.setImageDrawable(placeholder)
+            return
+        }
+
+        val lastUrl = imageView.getTag(R.id.tag_image_loader_url) as? String
+        if (lastUrl == url) {
+            val job = inFlight[imageView]
+            if (job != null && job.isActive) return
+        } else {
+            imageView.setTag(R.id.tag_image_loader_url, url)
+            inFlight.remove(imageView)?.cancel()
+            clearAttachDeferredLoad(imageView)
+            clearPreDrawDeferredLoad(imageView)
+        }
+
+        if (slot == 0 && !retriedFallback) {
+            startFastCoverPerfSession(source)
+        }
+
+        cache.get(url)?.let { cached ->
+            imageView.setImageBitmap(cached)
+            onSuccess?.invoke(cached)
+            recordFastCoverLoaded(source, slot, targetCount, cacheHit = true)
+            return
+        }
+
+        if (placeholderRes != 0) imageView.setImageResource(placeholderRes)
+        else if (imageView.drawable !== placeholder) imageView.setImageDrawable(placeholder)
+
+        if (!imageView.isAttachedToWindow) {
+            deferLoadUntilAttached(imageView, url) {
+                loadFastVideoCoverInto(
+                    imageView = imageView,
+                    url = url,
+                    placeholderRes = placeholderRes,
+                    errorRes = errorRes,
+                    fallbackUrl = fallbackUrl,
+                    source = source,
+                    slot = slot,
+                    targetCount = targetCount,
+                    onSuccess = onSuccess,
+                    retriedFallback = retriedFallback
+                )
+            }
+            return
+        }
+
+        val startMs = SystemClock.elapsedRealtime()
+        val job = scope.launch {
+            try {
+                val fetchStartMs = SystemClock.elapsedRealtime()
+                val bytes = withContext(fastVisibleImageDispatcher) { fetchBytesFast(url) }
+                val fetchMs = SystemClock.elapsedRealtime() - fetchStartMs
+                val decodeStartMs = SystemClock.elapsedRealtime()
+                val bmp = withContext(Dispatchers.Default) {
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                }
+                val decodeMs = SystemClock.elapsedRealtime() - decodeStartMs
+                if (bmp != null) {
+                    cache.put(url, bmp)
+                    var applyMs = 0L
+                    var applied = false
+                    if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                        val applyStartMs = SystemClock.elapsedRealtime()
+                        imageView.setImageBitmap(bmp)
+                        applyMs = SystemClock.elapsedRealtime() - applyStartMs
+                        applied = true
+                    }
+                    AppLog.i(
+                        TAG,
+                        "fast cover loaded: elapsed=${SystemClock.elapsedRealtime() - startMs}ms fetch=${fetchMs}ms decode=${decodeMs}ms apply=${applyMs}ms source=$source slot=$slot bytes=${bytes.size} url=${url.takeLast(50)}"
+                    )
+                    if (applied) {
+                        onSuccess?.invoke(bmp)
+                        recordFastCoverLoaded(source, slot, targetCount, cacheHit = false)
+                    }
+                } else if (fallbackUrl != null && !retriedFallback) {
+                    loadFastVideoCoverInto(
+                        imageView = imageView,
+                        url = fallbackUrl,
+                        placeholderRes = errorRes,
+                        errorRes = errorRes,
+                        fallbackUrl = null,
+                        source = source,
+                        slot = slot,
+                        targetCount = targetCount,
+                        onSuccess = onSuccess,
+                        retriedFallback = true
+                    )
+                } else {
+                    if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                        if (errorRes != 0) imageView.setImageResource(errorRes)
+                    }
+                    AppLog.w(TAG, "fast cover decode null: elapsed=${SystemClock.elapsedRealtime() - startMs}ms source=$source slot=$slot url=${url.takeLast(50)}")
+                }
+            } catch (t: Throwable) {
+                if (t is CancellationException) {
+                    return@launch
+                }
+                if (fallbackUrl != null && !retriedFallback) {
+                    loadFastVideoCoverInto(
+                        imageView = imageView,
+                        url = fallbackUrl,
+                        placeholderRes = errorRes,
+                        errorRes = errorRes,
+                        fallbackUrl = null,
+                        source = source,
+                        slot = slot,
+                        targetCount = targetCount,
+                        onSuccess = onSuccess,
+                        retriedFallback = true
+                    )
+                } else {
+                    if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
+                        if (errorRes != 0) imageView.setImageResource(errorRes)
+                    }
+                    AppLog.w(TAG, "fast cover error: elapsed=${SystemClock.elapsedRealtime() - startMs}ms source=$source slot=$slot url=${url.takeLast(50)}", t)
+                }
             }
         }
         inFlight[imageView] = job
@@ -788,8 +979,8 @@ object ImageLoader {
     private fun loadImageData(url: String, priority: Priority): ImageDataRequest {
         val requestKey = "${priority.name}:$url"
         synchronized(imageDataInFlight) {
-            imageDataInFlight[requestKey]?.takeIf { it.isActive }?.let {
-                return ImageDataRequest(it, reused = true)
+            imageDataInFlight[requestKey]?.takeIf { it.deferred.isActive }?.let {
+                return ImageDataRequest(it.deferred, priority = it.priority, reused = true)
             }
             val queuedAtMs = SystemClock.elapsedRealtime()
             val dispatcher = dispatcherFor(priority)
@@ -818,17 +1009,18 @@ object ImageLoader {
             }
             deferred.invokeOnCompletion {
                 synchronized(imageDataInFlight) {
-                    if (imageDataInFlight[requestKey] === deferred) {
+                    if (imageDataInFlight[requestKey]?.deferred === deferred) {
                         imageDataInFlight.remove(requestKey)
                     }
                 }
             }
-            imageDataInFlight[requestKey] = deferred
-            return ImageDataRequest(deferred, reused = false)
+            imageDataInFlight[requestKey] = InFlightImageRequest(deferred, priority)
+            return ImageDataRequest(deferred, priority = priority, reused = false)
         }
     }
 
     private fun dispatcherFor(priority: Priority) = when (priority) {
+        Priority.VISIBLE_HIGH -> visibleImageDispatcher
         Priority.HIGH -> highPriorityImageDispatcher
         Priority.NORMAL -> normalPriorityImageDispatcher
         Priority.LOW -> lowPriorityImageDispatcher
@@ -849,6 +1041,19 @@ object ImageLoader {
                 bytes = body.bytes(),
                 diskCacheHit = response.cacheResponse != null
             )
+        }
+    }
+
+    private fun fetchBytesFast(url: String): ByteArray {
+        val requestBuilder = Request.Builder().url(url)
+        if (isBilibiliImageUrl(url)) {
+            requestBuilder
+                .header("Referer", "https://www.bilibili.com/")
+                .header("User-Agent", NetworkManager.getCurrentUserAgent())
+        }
+        return fastImageOkHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+            val body = response.body ?: throw IllegalStateException("Empty body for $url")
+            body.bytes()
         }
     }
 
@@ -930,6 +1135,63 @@ object ImageLoader {
             .build()
     }
 
+    private fun buildFastImageOkHttpClient(): OkHttpClient {
+        val mainClient = NetworkManager.getOkHttpClient()
+        return mainClient.newBuilder()
+            .cache(null)
+            .dispatcher(okhttp3.Dispatcher().apply {
+                maxRequests = 32
+                maxRequestsPerHost = 12
+            })
+            .connectionPool(okhttp3.ConnectionPool(12, 5, java.util.concurrent.TimeUnit.MINUTES))
+            .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+
+    private fun startFastCoverPerfSession(source: String) {
+        synchronized(fastCoverPerfLock) {
+            fastCoverSessionSource = source
+            fastCoverSessionStartMs = SystemClock.elapsedRealtime()
+            fastCoverLoadedCount = 0
+            fastCoverFirstLogged = false
+            fastCoverTargetLogged = false
+        }
+        AppLog.i("PagePerf", "$source fast_cover_session start")
+    }
+
+    private fun recordFastCoverLoaded(
+        source: String,
+        slot: Int,
+        targetCount: Int,
+        cacheHit: Boolean
+    ) {
+        if (slot < 0) return
+        val message: String? = synchronized(fastCoverPerfLock) {
+            if (source != fastCoverSessionSource || fastCoverSessionStartMs <= 0L) {
+                return
+            }
+            fastCoverLoadedCount += 1
+            val elapsed = SystemClock.elapsedRealtime() - fastCoverSessionStartMs
+            when {
+                !fastCoverFirstLogged -> {
+                    fastCoverFirstLogged = true
+                    "$source fast_cover_first elapsed=${elapsed}ms slot=$slot cacheHit=$cacheHit"
+                }
+                !fastCoverTargetLogged && fastCoverLoadedCount >= targetCount.coerceAtLeast(1) -> {
+                    fastCoverTargetLogged = true
+                    "$source fast_cover_target elapsed=${elapsed}ms count=$fastCoverLoadedCount target=$targetCount"
+                }
+                else -> null
+            }
+        }
+        if (message != null) {
+            AppLog.i("PagePerf", message)
+        }
+    }
+
     // ---------- URL 规范化 / 尺寸优化 ----------
 
     private fun normalizeUrl(url: String?): String {
@@ -977,6 +1239,12 @@ object ImageLoader {
             else -> "@100w_100h_1c.webp"
         }
         return appendImageSuffix(normalized, suffix)
+    }
+
+    private fun buildFastAvatarUrl(url: String?): String {
+        val normalized = normalizeUrl(url)
+        if (!isBilibiliImageUrl(normalized)) return normalized
+        return appendImageSuffix(normalized, "@80w_80h_1c.webp")
     }
 
     private fun buildOptimizedSmallSquareImageUrl(url: String?): String {

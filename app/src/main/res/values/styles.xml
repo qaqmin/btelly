@@ -2382,10 +2382,17 @@
     </style>
     <style name="Theme.BTelly" parent="@style/Theme.BTelly">
     </style>
+    <style name="Theme.BTelly.Main" parent="@style/Theme.BTelly">
+        <item name="android:windowAnimationStyle">@style/WindowAnimationNone</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="windowNoTitle">true</item>
+        <item name="windowActionBar">false</item>
+    </style>
     <style name="Theme.BTelly.Launcher" parent="@style/Theme.BTelly">
         <item name="android:windowBackground">@drawable/bg_splash</item>
-        <item name="android:windowSplashScreenBackground" tools:targetApi="31">@drawable/bg_splash</item>
-        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="31">@null</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="31">@color/systemBackgroundColor</item>
+        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="31">@mipmap/ic_launcher_loading</item>
+        <item name="android:windowSplashScreenIconBackgroundColor" tools:targetApi="31">@android:color/transparent</item>
         <item name="android:windowAnimationStyle">@style/WindowAnimationNone</item>
         <item name="android:windowNoTitle">true</item>
         <item name="windowNoTitle">true</item>
