@@ -240,6 +240,7 @@ class VideoPlayerViewModel(
         val playInfo: PlayInfoModel,
         val selectionSnapshot: VideoPlayerStreamResolver.SelectionSnapshot,
         val mediaSource: MediaSource,
+        val dashSession: VideoPlaybackSession?,
         val seekToStart: Long,
         val playWhenReady: Boolean,
         val resumeHintPositionMs: Long?,
@@ -1895,120 +1896,129 @@ class VideoPlayerViewModel(
             triggerCdnPreconnectForPlayInfo(initialPlayInfo)
         }
 
-        val initialQualities = streamResolver.buildQualityList(initialPlayInfo)
-        val resolvedQualityId = resolvePlayableQualityId(
-            requestedQualityId = effectiveRequestedQualityId,
-            playInfo = initialPlayInfo,
-            availableQualities = initialQualities,
-            reason = "initial_request"
-        )
-
-        var selectionSnapshot = streamResolver.resolveSelections(
-            playInfo = initialPlayInfo,
-            preferredQualityId = resolvedQualityId,
-            preferredAudioId = requestedAudioId ?: selectedAudioId,
-            preferredCodec = requestedCodec ?: selectedCodec,
-            hardwareSupportedCodecs = hardwareSupportedVideoCodecs
-        )
-        if (selectionSnapshot.selectedQualityId != resolvedQualityId) {
-            selectionSnapshot = selectionSnapshot.copy(selectedQualityId = resolvedQualityId)
-        }
-
-        var dashMediaSource: MediaSource? = null
-        if (useDashPlayback) {
-            val dashRoutePlan = streamResolver.resolveDashRoutePlan(
-                playInfo = initialPlayInfo,
-                lockedQualityId = resolvedQualityId,
-                selectedAudioId = selectionSnapshot.selectedAudioId,
-                preferredCodec = selectionSnapshot.selectedCodec,
-                hardwareSupportedCodecs = hardwareSupportedVideoCodecs
-            )
-            if (dashRoutePlan != null && dashRoutePlan.routes.isNotEmpty()) {
-                val firstRoute = dashRoutePlan.routes.first()
-
-                viewModelScope.launch(Dispatchers.IO) {
-                    triggerCdnPreconnectForRoute(firstRoute)
-                }
-
-                val sessionExpiryMs = resolveSessionExpiryMs(firstRoute)
-                try {
-                    dashMediaSource = dashMediaSourceFactory.createMediaSource(firstRoute)
-                    currentDashSession = VideoPlaybackSession(
-                        identity = SessionIdentity(
-                            aid = identity.aid,
-                            bvid = identity.bvid,
-                            cid = identity.cid,
-                            epId = identity.epId
-                        ),
-                        requestedQualityId = resolvedQualityId,
-                        requestedAudioId = selectionSnapshot.selectedAudioId,
-                        requestedCodec = selectionSnapshot.selectedCodec,
-                        actualQualityId = resolvedQualityId,
-                        actualAudioId = dashRoutePlan.selectedAudioId,
-                        actualCodec = firstRoute.codec,
-                        playInfo = initialPlayInfo,
-                        routePlan = dashRoutePlan,
-                        currentRoute = firstRoute,
-                        expiresAtMs = sessionExpiryMs
-                    )
-                } catch (e: Exception) {
-                    AppLog.e(TAG, "dashMediaSource:failed cid=${identity.cid} error=${e.message}", e)
-                    dashMediaSource = null
-                    currentDashSession = null
-                }
-            } else {
-            }
-        }
-
-        val mediaSource: MediaSource = dashMediaSource ?: run {
-            val progressiveSelection = streamResolver.buildMediaSource(
-                playInfo = initialPlayInfo,
-                selectedQualityId = resolvedQualityId,
-                selectedAudioId = selectionSnapshot.selectedAudioId,
-                selectedCodec = selectionSnapshot.selectedCodec
-            )
-            progressiveSelection?.mediaSource ?: run {
-                AppLog.e(TAG, "loadPlayUrl mediaSource missing: cid=${identity.cid}")
-                return null
-            }
-        }
-
-        // 互动视频不使用进度恢复，始终从头开始
+        val preferredAudioId = requestedAudioId ?: selectedAudioId
+        val preferredCodec = requestedCodec ?: selectedCodec
+        val hardwareCodecs = hardwareSupportedVideoCodecs
+        val dashPlaybackEnabled = useDashPlayback
         val cachedSteinsGate = VideoPlayerPlayInfoCache.isSteinsGate(identity.bvid.orEmpty(), identity.cid)
-        val isInteractionVideo = currentGraphVersion > 0L || isSteinsGateVideo || cachedSteinsGate
-        val effectivePreferLastPlayTime = preferLastPlayTime && !isInteractionVideo
+        val interactionVideo = currentGraphVersion > 0L || isSteinsGateVideo || cachedSteinsGate
+        val startupTraceId = currentStartupTraceId
+        val startupTraceStartElapsedMs = currentStartupTraceStartElapsedMs
 
-        val useServerResume = effectivePreferLastPlayTime &&
-            initialPlayInfo.lastPlayCid == identity.cid &&
-            initialPlayInfo.lastPlayTime > 5000L
+        return withContext(Dispatchers.Default) {
+            val initialQualities = streamResolver.buildQualityList(initialPlayInfo)
+            val resolvedQualityId = resolvePlayableQualityId(
+                requestedQualityId = effectiveRequestedQualityId,
+                playInfo = initialPlayInfo,
+                availableQualities = initialQualities,
+                reason = "initial_request"
+            )
 
-        val rawResumePosition = when {
-            useServerResume -> initialPlayInfo.lastPlayTime
-            else -> playbackPositionMs
+            var selectionSnapshot = streamResolver.resolveSelections(
+                playInfo = initialPlayInfo,
+                preferredQualityId = resolvedQualityId,
+                preferredAudioId = preferredAudioId,
+                preferredCodec = preferredCodec,
+                hardwareSupportedCodecs = hardwareCodecs
+            )
+            if (selectionSnapshot.selectedQualityId != resolvedQualityId) {
+                selectionSnapshot = selectionSnapshot.copy(selectedQualityId = resolvedQualityId)
+            }
+
+            var dashMediaSource: MediaSource? = null
+            var preparedDashSession: VideoPlaybackSession? = null
+            if (dashPlaybackEnabled) {
+                val dashRoutePlan = streamResolver.resolveDashRoutePlan(
+                    playInfo = initialPlayInfo,
+                    lockedQualityId = resolvedQualityId,
+                    selectedAudioId = selectionSnapshot.selectedAudioId,
+                    preferredCodec = selectionSnapshot.selectedCodec,
+                    hardwareSupportedCodecs = hardwareCodecs
+                )
+                if (dashRoutePlan != null && dashRoutePlan.routes.isNotEmpty()) {
+                    val firstRoute = dashRoutePlan.routes.first()
+
+                    viewModelScope.launch(Dispatchers.IO) {
+                        triggerCdnPreconnectForRoute(firstRoute)
+                    }
+
+                    val sessionExpiryMs = resolveSessionExpiryMs(firstRoute)
+                    try {
+                        dashMediaSource = dashMediaSourceFactory.createMediaSource(firstRoute)
+                        preparedDashSession = VideoPlaybackSession(
+                            identity = SessionIdentity(
+                                aid = identity.aid,
+                                bvid = identity.bvid,
+                                cid = identity.cid,
+                                epId = identity.epId
+                            ),
+                            requestedQualityId = resolvedQualityId,
+                            requestedAudioId = selectionSnapshot.selectedAudioId,
+                            requestedCodec = selectionSnapshot.selectedCodec,
+                            actualQualityId = resolvedQualityId,
+                            actualAudioId = dashRoutePlan.selectedAudioId,
+                            actualCodec = firstRoute.codec,
+                            playInfo = initialPlayInfo,
+                            routePlan = dashRoutePlan,
+                            currentRoute = firstRoute,
+                            expiresAtMs = sessionExpiryMs
+                        )
+                    } catch (e: Exception) {
+                        AppLog.e(TAG, "dashMediaSource:failed cid=${identity.cid} error=${e.message}", e)
+                        dashMediaSource = null
+                        preparedDashSession = null
+                    }
+                }
+            }
+
+            val mediaSource: MediaSource = dashMediaSource ?: run {
+                val progressiveSelection = streamResolver.buildMediaSource(
+                    playInfo = initialPlayInfo,
+                    selectedQualityId = resolvedQualityId,
+                    selectedAudioId = selectionSnapshot.selectedAudioId,
+                    selectedCodec = selectionSnapshot.selectedCodec
+                )
+                progressiveSelection?.mediaSource ?: run {
+                    AppLog.e(TAG, "loadPlayUrl mediaSource missing: cid=${identity.cid}")
+                    return@withContext null
+                }
+            }
+
+            // 互动视频不使用进度恢复，始终从头开始
+            val effectivePreferLastPlayTime = preferLastPlayTime && !interactionVideo
+
+            val useServerResume = effectivePreferLastPlayTime &&
+                initialPlayInfo.lastPlayCid == identity.cid &&
+                initialPlayInfo.lastPlayTime > 5000L
+
+            val rawResumePosition = when {
+                useServerResume -> initialPlayInfo.lastPlayTime
+                else -> playbackPositionMs
+            }
+
+            val shouldResume = (replaceInPlace && playbackPositionMs > 0L) ||
+                (effectivePreferLastPlayTime &&
+                    rawResumePosition > 5000L &&
+                    (initialPlayInfo.timeLength - rawResumePosition) > 5000L)
+
+            val startPosition = rawResumePosition.takeIf { shouldResume } ?: 0L
+
+            val resumeHintPositionMs = startPosition.takeIf { shouldResume && !replaceInPlace }
+            PreparedPlayback(
+                identity = identity,
+                playInfo = initialPlayInfo,
+                selectionSnapshot = selectionSnapshot,
+                mediaSource = mediaSource,
+                dashSession = preparedDashSession,
+                seekToStart = startPosition,
+                playWhenReady = playWhenReady,
+                resumeHintPositionMs = resumeHintPositionMs,
+                replaceInPlace = replaceInPlace,
+                requestDurationMs = System.currentTimeMillis() - requestStartMs,
+                startupTraceId = startupTraceId,
+                startupTraceStartElapsedMs = startupTraceStartElapsedMs
+            )
         }
-
-        val shouldResume = (replaceInPlace && playbackPositionMs > 0L) ||
-            (effectivePreferLastPlayTime &&
-                rawResumePosition > 5000L &&
-                (initialPlayInfo.timeLength - rawResumePosition) > 5000L)
-
-        val startPosition = rawResumePosition.takeIf { shouldResume } ?: 0L
-
-        val resumeHintPositionMs = startPosition.takeIf { shouldResume && !replaceInPlace }
-        val seekToStart = startPosition
-        return PreparedPlayback(
-            identity = identity,
-            playInfo = initialPlayInfo,
-            selectionSnapshot = selectionSnapshot,
-            mediaSource = mediaSource,
-            seekToStart = seekToStart,
-            playWhenReady = playWhenReady,
-            resumeHintPositionMs = resumeHintPositionMs,
-            replaceInPlace = replaceInPlace,
-            requestDurationMs = System.currentTimeMillis() - requestStartMs,
-            startupTraceId = currentStartupTraceId,
-            startupTraceStartElapsedMs = currentStartupTraceStartElapsedMs
-        )
     }
 
     private fun applyPreparedPlayback(
@@ -2018,6 +2028,7 @@ class VideoPlayerViewModel(
     ) {
         clearPreloadedPlayback(cancelJob = false)
         currentPlayInfo = preparedPlayback.playInfo
+        currentDashSession = preparedPlayback.dashSession
         applySelectionSnapshot(preparedPlayback.selectionSnapshot)
         if (preparedPlayback.resumeHintPositionMs != null) {
             didApplyLastPlayPosition = true

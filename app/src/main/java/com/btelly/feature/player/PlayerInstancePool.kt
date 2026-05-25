@@ -14,6 +14,7 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.AudioTrackAudioOutputProvider
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioTrackBufferSizeProvider
+import com.btelly.core.common.media.VideoCodecSupport
 
 @UnstableApi
 object PlayerInstancePool {
@@ -42,15 +43,29 @@ object PlayerInstancePool {
     private var cachedPlayer: ExoPlayer? = null
     private var isAttached = false
     private var pendingReleaseRunnable: Runnable? = null
+    @Volatile
+    private var codecPrewarmStarted = false
 
     @Synchronized
     fun prewarm(context: Context) {
+        prewarmCodecSupport()
         if (cachedPlayer != null) return
         mainHandler.post {
             synchronized(this) {
                 if (cachedPlayer != null) return@synchronized
                 cachedPlayer = buildPlayer(context.applicationContext)
             }
+        }
+    }
+
+    private fun prewarmCodecSupport() {
+        if (codecPrewarmStarted) return
+        codecPrewarmStarted = true
+        Thread({
+            runCatching { VideoCodecSupport.getHardwareSupportedCodecs() }
+        }, "player-codec-prewarm").apply {
+            isDaemon = true
+            start()
         }
     }
 

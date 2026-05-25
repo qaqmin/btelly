@@ -13,7 +13,8 @@ class SlimTimelineRenderer(
 
     override fun show(positionMs: Long, durationMs: Long) {
         active = shouldShowProvider()
-        if (!active) {
+        if (!active || durationMs <= 0L) {
+            active = false
             markerView.isVisible = false
             return
         }
@@ -22,6 +23,10 @@ class SlimTimelineRenderer(
     }
 
     override fun showPreview(targetPositionMs: Long, durationMs: Long) {
+        if (durationMs <= 0L) {
+            hide()
+            return
+        }
         active = true
         markerView.isVisible = true
         markerView.setProgress(targetPositionMs, durationMs)

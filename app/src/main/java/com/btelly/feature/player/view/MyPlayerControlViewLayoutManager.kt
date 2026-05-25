@@ -71,10 +71,6 @@ class MyPlayerControlViewLayoutManager(
         R.id.button_rewind,
         R.id.exo_settings
     )
-    private val progressOnlyTranslationY by lazy {
-        playerControlView.resources.getDimension(R.dimen.px147) -
-            playerControlView.resources.getDimension(R.dimen.px4)
-    }
     private val hiddenTranslationY by lazy {
         playerControlView.resources.getDimension(R.dimen.px147)
     }
@@ -304,38 +300,22 @@ class MyPlayerControlViewLayoutManager(
         if (bottomBarController.hasFocus() || titleView.hasFocus() || playerControlView.isAnyPrimaryControlFocused()) {
             timeBar.requestFocus()
         }
-        if (!progressOnlyUiEnabled) {
-            controlsBackground.visibility = View.INVISIBLE
-            animateMainInfo(visible = false) {}
-            bottomBar.animate()
-                .translationY(hiddenTranslationY)
-                .setDuration(ANIMATION_DURATION_MS)
-                .setListener(object : AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: Animator) {
-                        hideController()
-                        restoreMainBarImmediately()
-                        if (needToShowBars) {
-                            needToShowBars = false
-                            playerControlView.post { showAllBars() }
-                        }
-                    }
-                })
-                .start()
-            return
-        }
+        controlsBackground.visibility = View.INVISIBLE
+        animateMainInfo(visible = false) {}
         bottomBar.animate()
-            .translationY(progressOnlyTranslationY)
+            .translationY(hiddenTranslationY)
             .setDuration(ANIMATION_DURATION_MS)
-            .setListener(null)
+            .setListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    hideController()
+                    restoreMainBarImmediately()
+                    if (needToShowBars) {
+                        needToShowBars = false
+                        playerControlView.post { showAllBars() }
+                    }
+                }
+            })
             .start()
-        animateMainInfo(visible = false) {
-            setUxState(UX_STATE_ONLY_PROGRESS_VISIBLE)
-            if (needToShowBars) {
-                needToShowBars = false
-                playerControlView.post { showAllBars() }
-            }
-        }
-        playerControlView.postDelayed(hideProgressBarRunnable, PROGRESS_ONLY_DURATION_MS)
     }
 
     private fun hideProgressBar() {

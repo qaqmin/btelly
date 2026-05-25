@@ -36,7 +36,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.common.log.AppLog
-import com.btelly.core.lifecycle.AppBackgroundMonitor
 import com.btelly.core.common.time.TimeUtils
 import com.btelly.core.ui.base.BaseActivity
 import com.btelly.core.ui.system.ViewUtils
@@ -225,7 +224,6 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     private var player: ExoPlayer? = null
     private val uiCoordinator = PlaybackUiCoordinator()
     private val overlayCoordinator = PlayerOverlayCoordinator()
-    private var backgroundListener: AppBackgroundMonitor.BackgroundStateListener? = null
 
     private lateinit var playerView: MyPlayerView
     private lateinit var bottomProgressBar: SponsorProgressMarkerView
@@ -437,6 +435,26 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             return
         }
 
+        val seekPositionMs = intent.getLongExtra(EXTRA_SEEK_MS, 0L)
+        val startEpisodeIndex = intent.getIntExtra(EXTRA_START_EPISODE, -1)
+        val shouldStartLoadBeforeUiInit = !initialized
+        if (shouldStartLoadBeforeUiInit) {
+            tagCheckDoneForCurrentVideo = false
+            sessionCoordinator.replacePlayQueue(playQueue)
+            beginPlaybackLoad(
+                aid = aid,
+                bvid = bvid,
+                cid = cid,
+                seasonId = seasonId,
+                epId = epId,
+                playQueue = playQueue,
+                seekPositionMs = seekPositionMs,
+                startEpisodeIndex = startEpisodeIndex,
+                startupTraceId = startupTraceId,
+                startupTraceStartElapsedMs = startupTraceStartMs
+            )
+        }
+
         if (!initialized) {
             initialized = true
             val initStartMs = SystemClock.elapsedRealtime()
@@ -454,20 +472,23 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             binding.root.post {
                 setupBackHandler()
             }
+            preparePlaybackUiForNewRequest()
         }
 
-        startPlayback(
-            aid = aid,
-            bvid = bvid,
-            cid = cid,
-            seasonId = seasonId,
-            epId = epId,
-            playQueue = playQueue,
-            seekPositionMs = intent.getLongExtra(EXTRA_SEEK_MS, 0L),
-            startEpisodeIndex = intent.getIntExtra(EXTRA_START_EPISODE, -1),
-            startupTraceId = startupTraceId,
-            startupTraceStartElapsedMs = startupTraceStartMs
-        )
+        if (!shouldStartLoadBeforeUiInit) {
+            startPlayback(
+                aid = aid,
+                bvid = bvid,
+                cid = cid,
+                seasonId = seasonId,
+                epId = epId,
+                playQueue = playQueue,
+                seekPositionMs = seekPositionMs,
+                startEpisodeIndex = startEpisodeIndex,
+                startupTraceId = startupTraceId,
+                startupTraceStartElapsedMs = startupTraceStartMs
+            )
+        }
     }
 
     private fun startPlayback(
@@ -482,10 +503,42 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         startupTraceId: String,
         startupTraceStartElapsedMs: Long
     ) {
-        playerView.getController()?.hideImmediately()
-        playerView.pauseDanmaku()
-        tagCheckDoneForCurrentVideo = false
+        preparePlaybackUiForNewRequest()
         sessionCoordinator.replacePlayQueue(playQueue)
+        beginPlaybackLoad(
+            aid = aid,
+            bvid = bvid,
+            cid = cid,
+            seasonId = seasonId,
+            epId = epId,
+            playQueue = playQueue,
+            seekPositionMs = seekPositionMs,
+            startEpisodeIndex = startEpisodeIndex,
+            startupTraceId = startupTraceId,
+            startupTraceStartElapsedMs = startupTraceStartElapsedMs
+        )
+    }
+
+    private fun preparePlaybackUiForNewRequest() {
+        if (::playerView.isInitialized) {
+            playerView.hideController()
+            playerView.pauseDanmaku()
+        }
+        tagCheckDoneForCurrentVideo = false
+    }
+
+    private fun beginPlaybackLoad(
+        aid: Long,
+        bvid: String,
+        cid: Long,
+        seasonId: Long,
+        epId: Long,
+        playQueue: List<VideoModel>,
+        seekPositionMs: Long,
+        startEpisodeIndex: Int,
+        startupTraceId: String,
+        startupTraceStartElapsedMs: Long
+    ) {
         viewModel.loadVideoInfo(
             aid = aid,
             bvid = bvid,
@@ -621,6 +674,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     private fun setupPlayer() {
         player = PlayerInstancePool.acquire(this).also {
             it.playWhenReady = false
+            enableVideoTrack(it)
             if (::playerSettings.isInitialized) {
                 it.playbackParameters = PlaybackParameters(playerSettings.defaultPlaybackSpeed)
             }
@@ -759,27 +813,14 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         playerView.onUserSeekListener = { positionMs ->
             viewModel.sponsorUserSeek(positionMs)
         }
-        backgroundListener = object : AppBackgroundMonitor.BackgroundStateListener {
-            override fun onAppBackgroundStateChanged(isInBackground: Boolean) {
-                val p = player ?: return
-                if (isInBackground) {
-                    p.trackSelectionParameters = p.trackSelectionParameters
-                        .buildUpon()
-                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
-                        .build()
-                } else {
-                    val pos = p.currentPosition
-                    p.trackSelectionParameters = p.trackSelectionParameters
-                        .buildUpon()
-                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
-                        .build()
-                    if (p.playbackState == Player.STATE_READY || p.playbackState == Player.STATE_BUFFERING) {
-                        p.seekTo(pos)
-                    }
-                }
-            }
-        }.also(AppBackgroundMonitor::addListener)
         renderControllerChrome(View.GONE)
+    }
+
+    private fun enableVideoTrack(targetPlayer: ExoPlayer) {
+        targetPlayer.trackSelectionParameters = targetPlayer.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
+            .build()
     }
 
     private fun setupBackHandler() {
@@ -1084,9 +1125,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
 
         lifecycleScope.launch {
             viewModel.sponsorSegments.collect { segments ->
-                val controller = playerView.getController()
-                controller?.setSponsorSegments(segments)
-                controller?.setSponsorDuration(viewModel.duration.value)
+                playerView.setSponsorSegments(segments)
+                playerView.setSponsorDuration(viewModel.duration.value)
                 if (::slimTimelineRenderer.isInitialized) {
                     slimTimelineRenderer.setSegments(segments)
                     slimTimelineRenderer.setSponsorDuration(viewModel.duration.value)
@@ -1095,7 +1135,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         }
         lifecycleScope.launch {
             viewModel.duration.collect { durationMs ->
-                playerView.getController()?.setSponsorDuration(durationMs)
+                playerView.setSponsorDuration(durationMs)
                 if (::slimTimelineRenderer.isInitialized) {
                     slimTimelineRenderer.setSponsorDuration(durationMs)
                 }
@@ -1109,6 +1149,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         super.onStart()
         // 重新绑定 video surface，恢复视频解码器
         playerView.reattachVideoSurface()
+        player?.let(::enableVideoTrack)
         resumePlaybackIfNeeded()
         if (resumePlaybackWhenStarted) {
             playerView.resumeDanmaku()
@@ -1151,8 +1192,6 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         playerView.removeCallbacks(resumePlaybackRunnable)
         stopProgressUpdates()
         resumeHintController.release()
-        backgroundListener?.let(AppBackgroundMonitor::removeListener)
-        backgroundListener = null
         player?.removeListener(playerListener)
         playerView.destroy()
         playerView.stopDanmaku()

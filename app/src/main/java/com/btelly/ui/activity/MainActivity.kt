@@ -545,7 +545,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
             .addTask("imageCdnPrewarm", AppStartupScheduler.Phase.DELAYED, delayMs = 2500L) {
                 ImageLoader.prewarmCdn()
             }
-            .addTask("playerPrewarm", AppStartupScheduler.Phase.DELAYED, delayMs = 10000L) {
+            .addTask("playerPrewarm", AppStartupScheduler.Phase.DELAYED, delayMs = 3500L) {
                 PlayerInstancePool.prewarm(this@MainActivity)
             }
             .addTask("wbiKeys", AppStartupScheduler.Phase.IDLE) {
