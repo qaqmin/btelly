@@ -191,14 +191,6 @@ class VideoAdapter(
         private val defaultTitleColor: Int = ContextCompat.getColor(views.root.context, R.color.textColor)
 
         companion object {
-            // 进度条永远是圆角胶囊，所有 holder 共享一个 ViewOutlineProvider 实例，
-            // 避免 RecyclerView 创建 12 个 holder 时实例化 12 个匿名类 + 12 个 ViewOutline。
-            private val PROGRESS_OUTLINE_PROVIDER = object : ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: Outline) {
-                    outline.setRoundRect(0, 0, view.width, view.height, view.height / 2f)
-                }
-            }
-
             // 封面的圆角半径来自 dimen，但每个 holder resources 一致，半径也一致；
             // 用单例缓存避免每个 holder 创建匿名类。第一次访问时通过 resources 把 px 值算出来锁住。
             @Volatile
@@ -254,8 +246,6 @@ class VideoAdapter(
         init {
             views.imageView.clipToOutline = true
             views.imageView.outlineProvider = coverOutlineProviderFor(views.imageView.resources)
-            views.progressBar.clipToOutline = true
-            views.progressBar.outlineProvider = PROGRESS_OUTLINE_PROVIDER
             views.root.setOnClickListener {
                 if (longPressTriggered) {
                     longPressTriggered = false
@@ -357,7 +347,7 @@ class VideoAdapter(
             )
 
             val duration = video.durationValue
-            val progress = video.historyProgress.coerceAtLeast(0L)
+            val progress = watchedProgress(video.historyProgress, duration)
             val durationText: String
             if (duration > 0 && progress > 0) {
                 views.progressBar.visibility = View.VISIBLE
@@ -396,7 +386,7 @@ class VideoAdapter(
             )
 
             val duration = video.durationValue
-            val progress = video.historyProgress.coerceAtLeast(0)
+            val progress = watchedProgress(video.historyProgress, duration)
             if (duration > 0) {
                 views.progressBar.visibility = View.VISIBLE
                 views.progressBar.max = duration.toInt()
@@ -407,6 +397,8 @@ class VideoAdapter(
 
             val durationText = if (video.historyBusiness == "live" && video.historyBadge.isNotBlank()) {
                 video.historyBadge
+            } else if (isWatchedComplete(progress, duration)) {
+                "已看完"
             } else if (duration > 0) {
                 "${NumberUtils.formatDuration(progress)}/${NumberUtils.formatDuration(duration)}"
             } else {
@@ -470,6 +462,19 @@ class VideoAdapter(
 
         private fun formatHistoryTime(viewAtSeconds: Long): String {
             return TimeUtils.formatHistoryViewTime(viewAtSeconds)
+        }
+
+        private fun watchedProgress(rawProgress: Long, duration: Long): Long {
+            if (duration <= 0L) return 0L
+            return if (rawProgress < 0L) {
+                duration
+            } else {
+                rawProgress.coerceAtMost(duration)
+            }
+        }
+
+        private fun isWatchedComplete(progress: Long, duration: Long): Boolean {
+            return duration > 3L && progress >= duration - 3L
         }
 
         private fun setTitleColor(color: Int) {

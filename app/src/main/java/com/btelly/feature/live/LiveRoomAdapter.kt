@@ -1,13 +1,11 @@
 package com.btelly.feature.live
 
 import android.annotation.SuppressLint
-import android.graphics.Outline
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewOutlineProvider
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.core.common.log.VideoCardPerfLogger
@@ -143,12 +141,6 @@ class LiveRoomAdapter(
         init {
             views.imageView.clipToOutline = true
             views.imageView.outlineProvider = VideoAdapter.VideoViewHolder.coverOutlineProviderFor(views.imageView.resources)
-            views.progressBar.clipToOutline = true
-            views.progressBar.outlineProvider = object : ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: Outline) {
-                    outline.setRoundRect(0, 0, view.width, view.height, view.height / 2f)
-                }
-            }
             views.root.setOnClickListener {
                 if (longPressTriggered) {
                     longPressTriggered = false

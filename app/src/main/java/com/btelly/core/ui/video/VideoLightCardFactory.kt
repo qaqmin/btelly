@@ -48,16 +48,15 @@ object VideoLightCardFactory {
         root.addView(imageView)
         root.imageView = imageView
 
-        val progressBar = VideoCardProgressView(context).apply {
-            id = R.id.progressBar
-            visibility = View.GONE
-        }
-        root.addView(progressBar)
-        root.progressBar = progressBar
-
         val coverMetaOverlay = VideoCoverMetaOverlayView(context)
         root.addView(coverMetaOverlay)
         root.coverMetaOverlay = coverMetaOverlay
+
+        val progressBar = VideoCardProgressView(context, coverMetaOverlay).apply {
+            id = R.id.progressBar
+            visibility = View.GONE
+        }
+        root.progressBar = progressBar
 
         val textLayer = VideoCardTextLayerView(context).apply {
             id = R.id.textView
@@ -78,12 +77,9 @@ object VideoLightCardFactory {
 
 class VideoCardProgressView @JvmOverloads constructor(
     context: Context,
+    private val coverOverlay: VideoCoverMetaOverlayView? = null,
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
-
-    private val progressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = ContextCompat.getColor(context, R.color.textColor)
-    }
 
     var max: Int = 100
         set(value) {
@@ -93,7 +89,7 @@ class VideoCardProgressView @JvmOverloads constructor(
             if (progress > next) {
                 progress = next
             } else {
-                invalidate()
+                publishProgress()
             }
         }
 
@@ -102,22 +98,20 @@ class VideoCardProgressView @JvmOverloads constructor(
             val next = value.coerceIn(0, max.coerceAtLeast(0))
             if (field == next) return
             field = next
-            invalidate()
+            publishProgress()
         }
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        val maxValue = max
-        if (maxValue <= 0 || progress <= 0 || width <= 0 || height <= 0) return
-        val progressWidth = width * (progress / maxValue.toFloat())
-        canvas.drawRoundRect(
-            0f,
-            0f,
-            progressWidth,
-            height.toFloat(),
-            height / 2f,
-            height / 2f,
-            progressPaint
+    override fun setVisibility(visibility: Int) {
+        if (this.visibility == visibility) return
+        super.setVisibility(visibility)
+        publishProgress()
+    }
+
+    private fun publishProgress() {
+        coverOverlay?.bindProgress(
+            max = max,
+            progress = progress,
+            visible = visibility == VISIBLE
         )
     }
 }
@@ -150,6 +144,9 @@ class VideoCoverMetaOverlayView @JvmOverloads constructor(
     private var showDanmakuCount = false
     private var showInteractionBadge = false
     private var showChargeBadge = false
+    private var progressMax = 100
+    private var progressValue = 0
+    private var showProgress = false
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
@@ -211,6 +208,7 @@ class VideoCoverMetaOverlayView @JvmOverloads constructor(
         drawMetaLine(canvas)
         drawDuration(canvas)
         drawBadges(canvas)
+        drawProgress(canvas)
     }
 
     private fun drawCoverGradient(canvas: Canvas) {
@@ -280,6 +278,38 @@ class VideoCoverMetaOverlayView @JvmOverloads constructor(
         canvas.drawRoundRect(badgeRect, metrics.badgeRadius.toFloat(), metrics.badgeRadius.toFloat(), badgePaint)
         canvas.drawText(text, left + metrics.px8, top + metrics.px3 - fm.top, badgeTextPaint)
         return left
+    }
+
+    fun bindProgress(max: Int, progress: Int, visible: Boolean) {
+        val nextMax = max.coerceAtLeast(0)
+        val nextProgress = progress.coerceIn(0, nextMax)
+        if (progressMax == nextMax && progressValue == nextProgress && showProgress == visible) {
+            return
+        }
+        progressMax = nextMax
+        progressValue = nextProgress
+        showProgress = visible
+        invalidate()
+    }
+
+    private fun drawProgress(canvas: Canvas) {
+        if (!showProgress || progressMax <= 0 || progressValue <= 0 || width <= 0 || height <= 0) return
+        val progressWidth = width * (progressValue / progressMax.toFloat())
+        val saveCount = canvas.save()
+        canvas.clipPath(gradientClipPath)
+        badgePaint.color = PLAYER_PROGRESS_COLOR
+        canvas.drawRect(
+            0f,
+            height - metrics.progressHeight.toFloat(),
+            progressWidth,
+            height.toFloat(),
+            badgePaint
+        )
+        canvas.restoreToCount(saveCount)
+    }
+
+    private companion object {
+        private const val PLAYER_PROGRESS_COLOR = 0xFF0088BB.toInt()
     }
 
     private class OverlayAssets(
@@ -758,7 +788,6 @@ private class FlatVideoLightCardLayout @JvmOverloads constructor(
         coverHeight = contentWidth * 9 / 16
 
         measureExact(imageView, coverWidth, coverHeight)
-        measureExact(progressBar, coverWidth, metrics.progressHeight)
         measureExact(coverMetaOverlay, coverWidth, coverHeight)
         measureExactWidth(textLayer, contentWidth)
         titleRowHeight = textLayer.measuredHeight
@@ -783,7 +812,6 @@ private class FlatVideoLightCardLayout @JvmOverloads constructor(
         val coverBottom = coverTop + coverHeight
 
         imageView.layout(coverLeft, coverTop, coverRight, coverBottom)
-        progressBar.layout(coverLeft, coverBottom - metrics.progressHeight, coverRight, coverBottom)
         coverMetaOverlay.layout(coverLeft, coverTop, coverRight, coverBottom)
 
         textLayer.layout(coverLeft, titleTop, coverRight, titleTop + textLayer.measuredHeight)
