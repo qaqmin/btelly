@@ -143,7 +143,7 @@ class PlayerSessionCoordinator {
             }
         }
         if (afterPlayMode == AfterPlayMode.RECOMMEND) {
-            val related = relatedVideos.firstOrNull()
+            val related = nextRelatedVideo()
             if (related != null) {
                 return ContinuationPlan.PlayVideo(
                     title = related.title,
@@ -198,7 +198,7 @@ class PlayerSessionCoordinator {
                 perform = { playVideo(queuedVideo) }
             )
         }
-        val related = relatedVideos.firstOrNull()
+        val related = nextRelatedVideo()
         if (related != null) {
             return ContinuationPlan.PlayVideo(
                 title = related.title,
@@ -211,6 +211,13 @@ class PlayerSessionCoordinator {
             ContinuationPlan.ExitPlayer
         } else {
             ContinuationPlan.ShowController
+        }
+    }
+
+    private fun nextRelatedVideo(): VideoModel? {
+        val current = getCurrentVideo()
+        return relatedVideos.firstOrNull { candidate ->
+            current == null || !isSameVideo(candidate, current)
         }
     }
 
