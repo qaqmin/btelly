@@ -104,29 +104,6 @@ class PlayerSessionCoordinator {
 
     fun getSelectedEpisode(): VideoPlayerViewModel.PlayableEpisode? = episodes.getOrNull(selectedEpisodeIndex)
 
-    fun buildPreloadTarget(): PlaybackPreloadTarget? {
-        val nextEpisode = episodes.getOrNull(selectedEpisodeIndex + 1)
-        if (nextEpisode != null && Cid(nextEpisode.cid).isValid()) {
-            return PlaybackPreloadTarget(
-                aid = nextEpisode.aid.takeIf { it > 0L },
-                bvid = nextEpisode.bvid.takeIf { it.isNotBlank() },
-                cid = nextEpisode.cid,
-                epId = nextEpisode.epId.takeIf { it > 0L },
-                source = PlaybackPreloadTarget.Source.NEXT_EPISODE
-            )
-        }
-
-        trimQueueAgainstCurrent(getCurrentVideo())
-        launchQueue.firstOrNull()?.toPreloadTarget(PlaybackPreloadTarget.Source.PLAY_QUEUE)?.let {
-            return it
-        }
-
-        val current = getCurrentVideo()
-        return relatedVideos
-            .firstOrNull { candidate -> current == null || !isSameVideo(candidate, current) }
-            ?.toPreloadTarget(PlaybackPreloadTarget.Source.RELATED_VIDEO)
-    }
-
     fun buildContinuationPlan(
         afterPlayMode: AfterPlayMode,
         exitPlayerWhenPlaybackFinished: Boolean,

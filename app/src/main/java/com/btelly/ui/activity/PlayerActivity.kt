@@ -730,7 +730,6 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 playerView.hideController()
                 sessionCoordinator.replacePlayQueue(playQueue)
                 sessionCoordinator.updateCurrentVideo(video)
-                updatePlaybackPreload()
                 viewModel.playRelatedVideo(video)
             },
             onOpenFragmentFromHost = { _, _ -> },
@@ -1304,16 +1303,11 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         var firstFrameMs: Long = 0L
     )
 
-    private fun updatePlaybackPreload() {
-        viewModel.preloadPlayback(sessionCoordinator.buildPreloadTarget())
-    }
-
     private fun schedulePreloadAndHeaderRefresh() {
         if (preloadHeaderRefreshPosted) return
         preloadHeaderRefreshPosted = true
         binding.root.post {
             preloadHeaderRefreshPosted = false
-            updatePlaybackPreload()
             renderPlayerHeader()
         }
     }

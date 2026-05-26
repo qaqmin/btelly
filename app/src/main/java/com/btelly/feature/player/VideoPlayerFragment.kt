@@ -465,7 +465,6 @@ class VideoPlayerFragment : Fragment() {
                 playerView.hideController()
                 sessionCoordinator.replacePlayQueue(playQueue)
                 sessionCoordinator.updateCurrentVideo(video)
-                updatePlaybackPreload()
                 viewModel.playRelatedVideo(video)
             },
             onOpenFragmentFromHost = ::openFragmentFromPlayerHost,
@@ -702,10 +701,6 @@ class VideoPlayerFragment : Fragment() {
             }
         }.also(AppBackgroundMonitor::addListener)
         renderControllerChrome(View.GONE)
-    }
-
-    private fun updatePlaybackPreload() {
-        viewModel.preloadPlayback(sessionCoordinator.buildPreloadTarget())
     }
 
     private fun setupBackHandler() {
@@ -1077,7 +1072,6 @@ class VideoPlayerFragment : Fragment() {
         preloadHeaderRefreshPosted = true
         view?.post {
             preloadHeaderRefreshPosted = false
-            updatePlaybackPreload()
             renderPlayerHeader()
         }
     }
