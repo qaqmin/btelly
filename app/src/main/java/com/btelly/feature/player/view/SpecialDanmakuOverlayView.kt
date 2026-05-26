@@ -11,6 +11,7 @@ import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.View
 import androidx.core.graphics.withSave
+import com.btelly.core.common.log.AppLog
 import com.btelly.model.dm.SpecialDanmakuAction
 import com.btelly.model.dm.SpecialDanmakuModel
 import kotlin.math.max
@@ -117,8 +118,10 @@ class SpecialDanmakuOverlayView @JvmOverloads constructor(
 
         // 防挡蒙版的 PorterDuff 合成统一交给父级 DanmakuMaskHostLayout 处理，
         // 这里直接绘制特殊弹幕到上层 canvas 即可。
+        val startedAtMs = SystemClock.elapsedRealtime()
         val currentPositionMs = currentPlaybackPositionMs()
         val searchStart = binarySearchStart(currentPositionMs)
+        var drawnCount = 0
         for (i in searchStart until items.size) {
             val model = items[i]
             if (model.progress.toLong() > currentPositionMs) break
@@ -140,6 +143,14 @@ class SpecialDanmakuOverlayView @JvmOverloads constructor(
                 continue
             }
             drawModel(canvas, model, state)
+            drawnCount++
+        }
+        val costMs = SystemClock.elapsedRealtime() - startedAtMs
+        if (costMs >= 8L) {
+            AppLog.w(
+                "PlaybackPerf",
+                "special_danmaku_draw cost=${costMs}ms drawn=${drawnCount} total=${items.size}"
+            )
         }
 
         if (isPlaying && enabled) {

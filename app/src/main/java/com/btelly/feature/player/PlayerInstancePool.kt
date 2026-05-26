@@ -22,21 +22,21 @@ object PlayerInstancePool {
     private const val IDLE_RELEASE_DELAY_MS = 45_000L
     private const val TARGET_BUFFER_BYTES = 20 * 1024 * 1024 // 20MB
 
-    // PCM AudioTrack 缓冲：从默认 250-750ms 提升到 500-1000ms，抵御低端设备 CPU 抢占
-    private const val MIN_PCM_BUFFER_DURATION_US = 500_000
-    private const val MAX_PCM_BUFFER_DURATION_US = 1_000_000
+    // PCM AudioTrack 缓冲：日志里 500ms 缓冲出现 underrun，放宽到 750-2000ms 抵御软解/GC 抢占。
+    private const val MIN_PCM_BUFFER_DURATION_US = 750_000
+    private const val MAX_PCM_BUFFER_DURATION_US = 2_000_000
 
-    // WiFi 下的缓冲参数：更快起播
-    private const val WIFI_MIN_BUFFER_MS = 8_000
-    private const val WIFI_MAX_BUFFER_MS = 30_000
+    // WiFi 下保持较快起播，但提高最小缓冲和重缓冲门槛，减少播放中反复 BUFFERING。
+    private const val WIFI_MIN_BUFFER_MS = 12_000
+    private const val WIFI_MAX_BUFFER_MS = 40_000
     private const val WIFI_BUFFER_FOR_PLAYBACK_MS = 1_000
-    private const val WIFI_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 1_500
+    private const val WIFI_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 3_000
 
     // 移动数据下的缓冲参数：更保守，减少卡顿
-    private const val CELLULAR_MIN_BUFFER_MS = 12_000
-    private const val CELLULAR_MAX_BUFFER_MS = 45_000
+    private const val CELLULAR_MIN_BUFFER_MS = 16_000
+    private const val CELLULAR_MAX_BUFFER_MS = 50_000
     private const val CELLULAR_BUFFER_FOR_PLAYBACK_MS = 1_500
-    private const val CELLULAR_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 2_500
+    private const val CELLULAR_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 3_500
 
     private val mainHandler = Handler(Looper.getMainLooper())
 

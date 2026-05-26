@@ -101,6 +101,8 @@ class VideoPlayerViewModel(
         private const val DEFAULT_FROM_SPMID = "333.1007.tianma.1-3-3.click"
         private const val WEB_PLAYER_VERSION = "4.9.78"
         private const val PLAY_TYPE_START = 1
+        private const val SOFTWARE_DECODER_SAFE_QUALITY_ID = 64
+        private const val SOFTWARE_DECODER_MIN_KEEP_QUALITY_ID = 32
         private val verboseDanmakuCandidateLog =
             java.lang.Boolean.getBoolean("btelly.verbose_danmaku_candidate_log")
 
@@ -554,6 +556,9 @@ class VideoPlayerViewModel(
     private var playInfoRefreshRetryCount: Int = 0
     private var fallbackAttemptCount: Int = 0
     private val attemptedFallbackSignatures = linkedSetOf<String>()
+    private var softwareDecoderDowngradeAttemptedCid: Long = 0L
+    // 一旦真实播放命中软解，后续视频和自动预加载都优先走安全画质，避免先起高码率再卡顿降级。
+    private var preferSoftwareDecoderSafePlayback: Boolean = false
     private var lastPlaybackPositionMs: Long = 0L
     private var preloadedPlayback: PreloadedPlayback? = null
     private var preloadingIdentity: PlayRequestIdentity? = null
@@ -711,6 +716,7 @@ class VideoPlayerViewModel(
             playbackReportSession = ""
             playbackStartReported = false
             resetFallbackState()
+            softwareDecoderDowngradeAttemptedCid = 0L
             clearPreloadedPlayback(cancelJob = true)
             hasReachedFirstFrame = false
             currentDashSession = null
@@ -929,6 +935,55 @@ class VideoPlayerViewModel(
         rebuildPlayback()
     }
 
+    fun onSoftwareVideoDecoderDetected(
+        decoderName: String,
+        currentPositionMs: Long,
+        playWhenReady: Boolean
+    ) {
+        val cid = currentCid.takeIf { it > 0L } ?: return
+        preferSoftwareDecoderSafePlayback = true
+        if (softwareDecoderDowngradeAttemptedCid == cid) {
+            return
+        }
+        val playInfo = currentPlayInfo ?: return
+        val currentQualityId = selectedQualityId
+            ?: requestedQualityId
+            ?: playInfo.quality.takeIf { it > 0 }
+        if (currentQualityId != null && currentQualityId <= SOFTWARE_DECODER_MIN_KEEP_QUALITY_ID) {
+            return
+        }
+
+        val availableQualityIds = _qualities.value
+            .ifEmpty { streamResolver.buildQualityList(playInfo) }
+            .map { it.id }
+            .distinct()
+            .sortedDescending()
+        if (availableQualityIds.isEmpty()) {
+            return
+        }
+        val targetCap = if (currentQualityId == null || currentQualityId > SOFTWARE_DECODER_SAFE_QUALITY_ID) {
+            SOFTWARE_DECODER_SAFE_QUALITY_ID
+        } else {
+            SOFTWARE_DECODER_MIN_KEEP_QUALITY_ID
+        }
+        val targetQualityId = availableQualityIds
+            .filter { it <= targetCap }
+            .filter { currentQualityId == null || it < currentQualityId }
+            .maxOrNull()
+            ?: return
+
+        softwareDecoderDowngradeAttemptedCid = cid
+        requestedQualityId = targetQualityId
+        requestedCodec = VideoCodecEnum.AVC
+        capturePlaybackSnapshot(currentPositionMs, playWhenReady)
+        AppLog.w(
+            TAG,
+            "software decoder downgrade: decoder=$decoderName cid=$cid " +
+                "quality=$currentQualityId->$targetQualityId codec=AVC pos=$currentPositionMs"
+        )
+        loadPlayUrl(preferLastPlayTime = false, replaceInPlace = true)
+    }
+
     fun selectSubtitle(index: Int) {
         _selectedSubtitleIndex.value = index
         savedStateHandle[SAVED_SUBTITLE_INDEX] = index
@@ -1050,7 +1105,10 @@ class VideoPlayerViewModel(
                 traceId = currentStartupTraceId,
                 startElapsedMs = currentStartupTraceStartElapsedMs,
                 step = "playback_preload_ready",
-                message = "source=${target.source} cid=${identity.cid} epId=${identity.epId ?: 0L}"
+                message = "source=${target.source} cid=${identity.cid} epId=${identity.epId ?: 0L} " +
+                    "quality=${preparedPlayback.selectionSnapshot.selectedQualityId} " +
+                    "codec=${preparedPlayback.selectionSnapshot.selectedCodec} " +
+                    "playWhenReady=${preparedPlayback.playWhenReady}"
             )
         }
     }
@@ -1827,7 +1885,12 @@ class VideoPlayerViewModel(
         suppressUiSignals: Boolean = false
     ): PreparedPlayback? {
         val requestStartMs = System.currentTimeMillis()
-        val preferredQualityId = qualityCandidates.firstOrNull()
+        val hardwareCodecs = hardwareSupportedVideoCodecs
+        val effectiveQualityCandidates = buildSoftwareDecoderSafeQualityCandidates(
+            qualityCandidates = qualityCandidates,
+            hardwareCodecs = hardwareCodecs
+        )
+        val preferredQualityId = effectiveQualityCandidates.firstOrNull()
             ?: requestedQualityId
             ?: selectedQualityId
             ?: 80
@@ -1849,7 +1912,7 @@ class VideoPlayerViewModel(
         } else {
             val playInfoFetch = requestPlayInfoWithQualityFallback(
                 identity = identity,
-                qualityCandidates = qualityCandidates,
+                qualityCandidates = effectiveQualityCandidates,
                 suppressUiSignals = suppressUiSignals
             )
             if (playInfoFetch == null) {
@@ -1898,7 +1961,6 @@ class VideoPlayerViewModel(
 
         val preferredAudioId = requestedAudioId ?: selectedAudioId
         val preferredCodec = requestedCodec ?: selectedCodec
-        val hardwareCodecs = hardwareSupportedVideoCodecs
         val dashPlaybackEnabled = useDashPlayback
         val cachedSteinsGate = VideoPlayerPlayInfoCache.isSteinsGate(identity.bvid.orEmpty(), identity.cid)
         val interactionVideo = currentGraphVersion > 0L || isSteinsGateVideo || cachedSteinsGate
@@ -2064,7 +2126,12 @@ class VideoPlayerViewModel(
             traceId = preparedPlayback.startupTraceId,
             startElapsedMs = preparedPlayback.startupTraceStartElapsedMs,
             step = "playback_request_emitted",
-            message = "cid=${preparedPlayback.identity.cid} seek=${preparedPlayback.seekToStart} replace=${preparedPlayback.replaceInPlace} requestDurationMs=${preparedPlayback.requestDurationMs}"
+            message = "cid=${preparedPlayback.identity.cid} seek=${preparedPlayback.seekToStart} " +
+                "replace=${preparedPlayback.replaceInPlace} " +
+                "playWhenReady=${preparedPlayback.playWhenReady} " +
+                "quality=${preparedPlayback.selectionSnapshot.selectedQualityId} " +
+                "codec=${preparedPlayback.selectionSnapshot.selectedCodec} " +
+                "requestDurationMs=${preparedPlayback.requestDurationMs}"
         )
         preparedPlayback.resumeHintPositionMs?.let { targetPositionMs ->
             _resumeHint.value = ResumeProgressHint(targetPositionMs = targetPositionMs)
@@ -2621,6 +2688,31 @@ class VideoPlayerViewModel(
         return fallbackQualityId
     }
 
+    private fun buildSoftwareDecoderSafeQualityCandidates(
+        qualityCandidates: List<Int>,
+        hardwareCodecs: Set<VideoCodecEnum>
+    ): List<Int> {
+        if (hardwareCodecs.isNotEmpty() && !preferSoftwareDecoderSafePlayback) {
+            return qualityCandidates
+        }
+        val requestedQualityId = qualityCandidates.firstOrNull()
+            ?: requestedQualityId
+            ?: selectedQualityId
+            ?: return qualityCandidates
+        if (requestedQualityId <= SOFTWARE_DECODER_SAFE_QUALITY_ID) {
+            return qualityCandidates
+        }
+        val cappedCandidates = qualityPolicy.buildCandidates(SOFTWARE_DECODER_SAFE_QUALITY_ID)
+        AppLog.w(
+            TAG,
+            "software-only decoder quality cap: requested=$requestedQualityId " +
+                "cap=$SOFTWARE_DECODER_SAFE_QUALITY_ID " +
+                "preferSoftwareSafe=$preferSoftwareDecoderSafePlayback " +
+                "hardwareCodecs=$hardwareCodecs candidates=$cappedCandidates"
+        )
+        return cappedCandidates
+    }
+
     private fun currentPlayRequestIdentity(): PlayRequestIdentity? {
         val cid = currentCid.takeIf { it > 0L } ?: return null
         return PlayRequestIdentity(
@@ -2667,15 +2759,41 @@ class VideoPlayerViewModel(
             )
             return null
         }
+        val preloadedQualityId = preloaded.preparedPlayback.selectionSnapshot.selectedQualityId
+        if (
+            preferSoftwareDecoderSafePlayback &&
+            preloadedQualityId != null &&
+            preloadedQualityId > SOFTWARE_DECODER_SAFE_QUALITY_ID
+        ) {
+            PlaybackStartupTrace.log(
+                traceId = currentStartupTraceId,
+                startElapsedMs = currentStartupTraceStartElapsedMs,
+                step = "playback_preload_discarded",
+                message = "cid=${identity.cid} source=${preloaded.source} " +
+                    "quality=$preloadedQualityId " +
+                    "cap=$SOFTWARE_DECODER_SAFE_QUALITY_ID reason=software_decoder_safe"
+            )
+            preloadedPlayback = null
+            return null
+        }
         preloadedPlayback = null
+        // 自动连播倒计时触发后必须直接播放，不能继承 ENDED/IDLE 阶段刷出来的暂停态。
+        val effectivePlayWhenReady = if (preloaded.source == PlaybackPreloadTarget.Source.AUTOPLAY_COUNTDOWN) {
+            true
+        } else {
+            pendingPlayWhenReady
+        }
         PlaybackStartupTrace.log(
             traceId = currentStartupTraceId,
             startElapsedMs = currentStartupTraceStartElapsedMs,
             step = "playback_preload_consumed",
-            message = "cid=${identity.cid} epId=${identity.epId ?: 0L} source=${preloaded.source}"
+            message = "cid=${identity.cid} epId=${identity.epId ?: 0L} source=${preloaded.source} " +
+                "playWhenReady=$effectivePlayWhenReady " +
+                "quality=${preloaded.preparedPlayback.selectionSnapshot.selectedQualityId} " +
+                "codec=${preloaded.preparedPlayback.selectionSnapshot.selectedCodec}"
         )
         return preloaded.preparedPlayback.copy(
-            playWhenReady = pendingPlayWhenReady,
+            playWhenReady = effectivePlayWhenReady,
             replaceInPlace = false
         )
     }
@@ -2949,16 +3067,27 @@ class VideoPlayerViewModel(
             )
 
             // 3. 当前段先发布；特殊弹幕和下一段后台补，避免首段弹幕被额外请求拖慢。
-            val currentPayload = consumePreloadedDanmakuSegment(
-                cid = cid,
-                aid = aid,
-                segmentIndex = initialSegment
-            ) ?: withContext(Dispatchers.IO) {
-                loadDanmakuSegmentPayload(
+            danmakuLoadingSegments.add(initialSegment)
+            val currentPayload = try {
+                val preloadJobForInitial = danmakuSegmentPreloadJob?.takeIf {
+                    preloadedDanmakuSegmentCid == cid &&
+                        preloadedDanmakuSegmentAid == aid &&
+                        preloadedDanmakuSegmentIndex == initialSegment
+                }
+                preloadJobForInitial?.join()
+                consumePreloadedDanmakuSegment(
                     cid = cid,
                     aid = aid,
-                    segmentIndices = listOf(initialSegment)
-                )
+                    segmentIndex = initialSegment
+                ) ?: withContext(Dispatchers.IO) {
+                    loadDanmakuSegmentPayload(
+                        cid = cid,
+                        aid = aid,
+                        segmentIndices = listOf(initialSegment)
+                    )
+                }
+            } finally {
+                danmakuLoadingSegments.remove(initialSegment)
             }
             if (!isActiveDanmakuRequest(loadGeneration)) {
                 return@launch
@@ -3337,6 +3466,10 @@ class VideoPlayerViewModel(
             return
         }
         danmakuSegmentPreloadJob?.cancel()
+        preloadedDanmakuSegmentCid = cid
+        preloadedDanmakuSegmentAid = aid
+        preloadedDanmakuSegmentIndex = segmentIndex
+        preloadedDanmakuSegmentPayload = null
         danmakuSegmentPreloadJob = viewModelScope.launch(Dispatchers.IO) {
             val payload = loadDanmakuSegmentPayload(
                 cid = cid,
@@ -3451,21 +3584,9 @@ class VideoPlayerViewModel(
      */
     private fun loadDanmakuSegmentIfNeeded(segmentIndex: Int) {
         if (danmakuLoadedSegments.contains(segmentIndex)) {
-            PlaybackStartupTrace.log(
-                traceId = currentStartupTraceId,
-                startElapsedMs = currentStartupTraceStartElapsedMs,
-                step = "danmaku_segment_load_skip",
-                message = "segment=$segmentIndex reason=loaded"
-            )
             return
         }
         if (danmakuLoadingSegments.contains(segmentIndex)) {
-            PlaybackStartupTrace.log(
-                traceId = currentStartupTraceId,
-                startElapsedMs = currentStartupTraceStartElapsedMs,
-                step = "danmaku_segment_load_skip",
-                message = "segment=$segmentIndex reason=loading"
-            )
             return
         }
         val cid = currentCid

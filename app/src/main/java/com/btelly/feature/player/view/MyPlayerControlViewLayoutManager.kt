@@ -84,7 +84,7 @@ class MyPlayerControlViewLayoutManager(
     private val hideControllerRunnable = Runnable { hideController() }
     private val onLayoutChangeListener = View.OnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
         if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
-            playerControlView.post { updateAdaptiveLayout() }
+            scheduleAdaptiveLayout()
         }
     }
 
@@ -96,6 +96,7 @@ class MyPlayerControlViewLayoutManager(
     private var isCompactMode: Boolean = false
     private var progressOnlyUiEnabled: Boolean = true
     private var timeViewVisible: Boolean = true
+    private var adaptiveLayoutScheduled: Boolean = false
 
     init {
         overflowShowButton.setOnClickListener { showOverflowControls() }
@@ -174,7 +175,7 @@ class MyPlayerControlViewLayoutManager(
             shownButtons.add(button)
             button.visibility = View.VISIBLE
         }
-        updateAdaptiveLayout()
+        scheduleAdaptiveLayout()
     }
 
     fun removeHideCallbacks() {
@@ -476,6 +477,17 @@ class MyPlayerControlViewLayoutManager(
         syncOverflowButtons()
         applyCompactMode(force = false)
         applyOverflowState()
+    }
+
+    private fun scheduleAdaptiveLayout() {
+        if (adaptiveLayoutScheduled) {
+            return
+        }
+        adaptiveLayoutScheduled = true
+        playerControlView.post {
+            adaptiveLayoutScheduled = false
+            updateAdaptiveLayout()
+        }
     }
 
     private fun syncOverflowButtons() {

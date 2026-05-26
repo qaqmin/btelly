@@ -10,6 +10,7 @@ import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
 import android.util.AttributeSet
+import android.view.Choreographer
 import android.view.FrameMetrics
 import android.view.GestureDetector
 import android.view.KeyEvent
@@ -203,6 +204,23 @@ class MyPlayerView @JvmOverloads constructor(
     private var frameMetricsThread: HandlerThread? = null
     private var frameMetricsHandler: Handler? = null
     private var frameMetricsListener: Window.OnFrameMetricsAvailableListener? = null
+    private var uiFrameMonitorStarted = false
+    private var lastUiFrameTimeNs = 0L
+    private val uiFrameCallback = object : Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNs: Long) {
+            val lastFrameTimeNs = lastUiFrameTimeNs
+            if (lastFrameTimeNs > 0L && player?.isPlaying == true) {
+                val intervalMs = (frameTimeNs - lastFrameTimeNs) / 1_000_000L
+                if (intervalMs >= 40L) {
+                    AppLog.w("PlaybackPerf", "ui_frame_jank interval=${intervalMs}ms")
+                }
+            }
+            lastUiFrameTimeNs = frameTimeNs
+            if (uiFrameMonitorStarted) {
+                Choreographer.getInstance().postFrameCallback(this)
+            }
+        }
+    }
     private var downTouchX = 0f
     private var downTouchY = 0f
     private var isSwipeSeeking = false
@@ -1706,6 +1724,7 @@ class MyPlayerView @JvmOverloads constructor(
         }
         controller?.removeVisibilityListener(controllerComponentListener)
         handler.removeCallbacksAndMessages(null)
+        stopUiFrameMonitor()
         // 反注册 FrameMetrics 并停掉后台线程（onDetachedFromWindow 通常会先走，但 destroy 兜底）。
         uninstallFrameMetricsListener()
         danmakuController.release()
@@ -1715,6 +1734,7 @@ class MyPlayerView @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        startUiFrameMonitor()
         // FrameMetrics API 24+，旧设备静默回退到 [DmMaskController] 内部硬编码默认值。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             installFrameMetricsListener()
@@ -1723,7 +1743,22 @@ class MyPlayerView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        stopUiFrameMonitor()
         uninstallFrameMetricsListener()
+    }
+
+    private fun startUiFrameMonitor() {
+        if (uiFrameMonitorStarted) return
+        uiFrameMonitorStarted = true
+        lastUiFrameTimeNs = 0L
+        Choreographer.getInstance().postFrameCallback(uiFrameCallback)
+    }
+
+    private fun stopUiFrameMonitor() {
+        if (!uiFrameMonitorStarted) return
+        uiFrameMonitorStarted = false
+        lastUiFrameTimeNs = 0L
+        Choreographer.getInstance().removeFrameCallback(uiFrameCallback)
     }
 
     @RequiresApi(Build.VERSION_CODES.N)

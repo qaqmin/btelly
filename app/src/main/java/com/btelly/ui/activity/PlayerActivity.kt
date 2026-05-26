@@ -326,9 +326,24 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             decoderName: String,
             elapsedInitializationMs: Long
         ) {
-            val trace = playerPerfTrace ?: return
-            trace.videoDecoderInitMs = System.currentTimeMillis()
-            AppLog.i("VideoPlayerViewModel", "PLAYER_PERF [C] video decoder ($decoderName) hw=${elapsedInitializationMs}ms +${trace.videoDecoderInitMs - trace.prepareMs}ms")
+            val trace = playerPerfTrace
+            if (trace != null) {
+                trace.videoDecoderInitMs = System.currentTimeMillis()
+                AppLog.i("VideoPlayerViewModel", "PLAYER_PERF [C] video decoder ($decoderName) hw=${elapsedInitializationMs}ms +${trace.videoDecoderInitMs - trace.prepareMs}ms")
+            }
+            if (decoderName.isSoftwareVideoDecoderName()) {
+                val positionMs = player?.currentPosition ?: eventTime.eventPlaybackPositionMs
+                AppLog.w(
+                    "PlaybackPerf",
+                    "software_decoder decoder=$decoderName pos=${positionMs}ms " +
+                        "quality=${viewModel.selectedQuality.value?.id} codec=${viewModel.selectedVideoCodec.value}"
+                )
+                viewModel.onSoftwareVideoDecoderDetected(
+                    decoderName = decoderName,
+                    currentPositionMs = positionMs,
+                    playWhenReady = player?.playWhenReady ?: true
+                )
+            }
         }
 
         override fun onAudioDecoderInitialized(
@@ -339,6 +354,65 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             val trace = playerPerfTrace ?: return
             trace.audioDecoderInitMs = System.currentTimeMillis()
             AppLog.i("VideoPlayerViewModel", "PLAYER_PERF [C] audio decoder ($decoderName) hw=${elapsedInitializationMs}ms +${trace.audioDecoderInitMs - trace.prepareMs}ms")
+        }
+
+        override fun onPlaybackStateChanged(eventTime: AnalyticsListener.EventTime, state: Int) {
+            AppLog.i(
+                "PlaybackPerf",
+                "state=${state.nameOfPlaybackState()} pos=${eventTime.eventPlaybackPositionMs}ms " +
+                    "buffered=${player?.bufferedPosition ?: -1L}ms playWhenReady=${player?.playWhenReady}"
+            )
+        }
+
+        override fun onAudioUnderrun(
+            eventTime: AnalyticsListener.EventTime,
+            bufferSize: Int,
+            bufferSizeMs: Long,
+            elapsedSinceLastFeedMs: Long
+        ) {
+            AppLog.w(
+                "PlaybackPerf",
+                "audio_underrun pos=${eventTime.eventPlaybackPositionMs}ms " +
+                    "bufferSize=${bufferSize} bufferSizeMs=${bufferSizeMs} " +
+                    "elapsedSinceLastFeedMs=${elapsedSinceLastFeedMs} " +
+                    "state=${player?.playbackState?.nameOfPlaybackState()} isPlaying=${player?.isPlaying}"
+            )
+        }
+
+        override fun onAudioSinkError(eventTime: AnalyticsListener.EventTime, audioSinkError: Exception) {
+            AppLog.w(
+                "PlaybackPerf",
+                "audio_sink_error pos=${eventTime.eventPlaybackPositionMs}ms " +
+                    "error=${audioSinkError.javaClass.simpleName}:${audioSinkError.message}"
+            )
+        }
+
+        override fun onDroppedVideoFrames(
+            eventTime: AnalyticsListener.EventTime,
+            droppedFrames: Int,
+            elapsedMs: Long
+        ) {
+            AppLog.w(
+                "PlaybackPerf",
+                "video_dropped_frames pos=${eventTime.eventPlaybackPositionMs}ms " +
+                    "dropped=${droppedFrames} windowMs=${elapsedMs}"
+            )
+        }
+
+        override fun onVideoFrameProcessingOffset(
+            eventTime: AnalyticsListener.EventTime,
+            totalProcessingOffsetUs: Long,
+            frameCount: Int
+        ) {
+            if (frameCount <= 0) return
+            val avgOffsetMs = totalProcessingOffsetUs / frameCount / 1000L
+            if (avgOffsetMs > 20L) {
+                AppLog.w(
+                    "PlaybackPerf",
+                    "video_frame_offset pos=${eventTime.eventPlaybackPositionMs}ms " +
+                        "avgOffsetMs=${avgOffsetMs} frames=${frameCount}"
+                )
+            }
         }
     }
 
@@ -855,8 +929,11 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 viewModel.setErrorMessage(null)
                 resumePlaybackWhenStarted = playbackRequest.playWhenReady
                 if (playbackRequest.replaceInPlace) {
-                    playerView.showController()
-                    playerView.removeControllerHideCallbacks()
+                    if (playerView.isControllerFullyVisible()) {
+                        playerView.resetControllerHideCallbacks()
+                    } else {
+                        playerView.hideController()
+                    }
                 }
                 progressCoordinator.reset()
                 if (!playbackRequest.replaceInPlace) {
@@ -1623,4 +1700,22 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             }
         }
     }
+}
+
+private fun Int.nameOfPlaybackState(): String = when (this) {
+    Player.STATE_IDLE -> "IDLE"
+    Player.STATE_BUFFERING -> "BUFFERING"
+    Player.STATE_READY -> "READY"
+    Player.STATE_ENDED -> "ENDED"
+    else -> toString()
+}
+
+private fun String.isSoftwareVideoDecoderName(): Boolean {
+    val name = lowercase(Locale.US)
+    return name.startsWith("omx.google.") ||
+        name.startsWith("c2.android.") ||
+        name.startsWith("c2.google.") ||
+        name.contains(".sw.") ||
+        name.contains("software") ||
+        name.contains("ffmpeg")
 }

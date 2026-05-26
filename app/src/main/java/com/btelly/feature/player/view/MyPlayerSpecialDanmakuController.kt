@@ -22,10 +22,11 @@ class MyPlayerSpecialDanmakuController(
     private var playbackPositionMs = 0L
     private var isPlaying = false
     private var playbackSpeed = 1f
+    private var dataAppliedToView: List<SpecialDanmakuModel>? = null
 
     fun setData(items: List<SpecialDanmakuModel>) {
         data = items.sortedBy { it.progress }
-        overlayViewProvider()?.setData(data)
+        dataAppliedToView = null
         syncView()
     }
 
@@ -66,11 +67,15 @@ class MyPlayerSpecialDanmakuController(
 
     fun release() {
         overlayViewProvider()?.clear()
+        dataAppliedToView = null
     }
 
     private fun syncView() {
         val overlayView = overlayViewProvider() ?: return
-        overlayView.setData(data)
+        if (dataAppliedToView !== data) {
+            overlayView.setData(data)
+            dataAppliedToView = data
+        }
         overlayView.setRenderingConfig(
             enabled = settings.enabled && settings.showAdvancedDanmaku,
             alpha = settings.alpha,

@@ -190,6 +190,7 @@ class DmMaskController(
     private var displayingBuffer: Bitmap? = null
     @Volatile
     private var renderingInFlight: Boolean = false
+    private var lastRenderSkipLogMs: Long = 0L
 
     private val clearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -606,6 +607,14 @@ class DmMaskController(
 
         if (renderingInFlight) {
             // 后台还在渲染上一帧，跳过这次以免堆积；下一个 vsync 会再尝试。
+            val nowMs = SystemClock.elapsedRealtime()
+            if (nowMs - lastRenderSkipLogMs >= 1000L) {
+                lastRenderSkipLogMs = nowMs
+                AppLog.w(
+                    "PlaybackPerf",
+                    "mask_render_skip_inflight paths=${frame.paths.size} view=${viewWidth}x$viewHeight"
+                )
+            }
             if (enabled) startFrameCallback()
             return
         }

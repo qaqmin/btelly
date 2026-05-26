@@ -2,8 +2,10 @@ package com.kuaishou.akdanmaku.ui
 
 import android.content.Context
 import android.graphics.Canvas
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.View
+import com.btelly.core.common.log.AppLog
 
 class DanmakuView @JvmOverloads constructor(
   context: Context?,
@@ -17,6 +19,7 @@ class DanmakuView @JvmOverloads constructor(
 
   var danmakuPlayer: DanmakuPlayer? = null
   internal val displayer: ViewDisplayer = ViewDisplayer()
+  private var lastDrawAtMs = 0L
 
   init {
     context?.resources?.displayMetrics?.let { metrics ->
@@ -28,6 +31,7 @@ class DanmakuView @JvmOverloads constructor(
   }
 
   override fun onDraw(canvas: Canvas) {
+    val startedAtMs = SystemClock.elapsedRealtime()
     val width = measuredWidth
     val height = measuredHeight
     if (width == 0 || height == 0) return
@@ -35,6 +39,15 @@ class DanmakuView @JvmOverloads constructor(
     // 防挡蒙版的 PorterDuff 合成统一交给父级 DanmakuMaskHostLayout，
     // 这里只负责把弹幕画到上层 canvas，不再单独 saveLayer。
     danmakuPlayer?.draw(canvas)
+    val costMs = SystemClock.elapsedRealtime() - startedAtMs
+    val intervalMs = if (lastDrawAtMs > 0L) startedAtMs - lastDrawAtMs else 0L
+    lastDrawAtMs = startedAtMs
+    if (costMs >= 12L || intervalMs >= 40L) {
+      AppLog.w(
+        "PlaybackPerf",
+        "danmaku_draw cost=${costMs}ms interval=${intervalMs}ms size=${width}x$height"
+      )
+    }
   }
 
   override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {

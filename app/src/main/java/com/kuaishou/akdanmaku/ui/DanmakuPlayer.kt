@@ -30,6 +30,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.os.Message
+import android.os.SystemClock
 import com.kuaishou.akdanmaku.ext.AkLog as Log
 import android.view.Choreographer
 import androidx.core.math.MathUtils.clamp
@@ -43,6 +44,7 @@ import com.kuaishou.akdanmaku.ecs.system.RenderSystem
 import com.kuaishou.akdanmaku.ext.endTrace
 import com.kuaishou.akdanmaku.ext.startTrace
 import com.kuaishou.akdanmaku.render.DanmakuRenderer
+import com.btelly.core.common.log.AppLog
 import com.kuaishou.akdanmaku.utils.Fraction
 import com.kuaishou.akdanmaku.utils.ObjectPool
 import java.util.concurrent.CountDownLatch
@@ -131,6 +133,8 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
       return
     }
 
+    val frameStartedAtMs = SystemClock.elapsedRealtime()
+    var waitDrawMs = 0L
     if (isManualStep) {
       // Time goes one step for manual debug.
       engine.step(deltaTimeSeconds)
@@ -140,19 +144,30 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
       // update entities before system update
       engine.preAct()
       // Wait for acquiring a permit.
+      val waitStartedAtMs = SystemClock.elapsedRealtime()
       drawSemaphore.acquire()
+      waitDrawMs = SystemClock.elapsedRealtime() - waitStartedAtMs
     }
     if (!started) {
       return
     }
     startTrace("updateFrame")
     // Do work in actionThread.
+    val actStartedAtMs = SystemClock.elapsedRealtime()
     engine.act()
+    val actMs = SystemClock.elapsedRealtime() - actStartedAtMs
     // Post invalidate view to force onDraw's call on next frame.
     startTrace("postInvalidate")
     danmakuView?.postInvalidateOnAnimation()
     endTrace()
     endTrace()
+    val totalMs = SystemClock.elapsedRealtime() - frameStartedAtMs
+    if (waitDrawMs >= 20L || actMs >= 12L || totalMs >= 32L) {
+      AppLog.w(
+        "PlaybackPerf",
+        "danmaku_action waitDraw=${waitDrawMs}ms act=${actMs}ms total=${totalMs}ms manual=$isManualStep"
+      )
+    }
   }
 
   internal fun draw(canvas: Canvas) {
