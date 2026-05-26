@@ -212,6 +212,7 @@ class VideoPlayerViewModel(
         val seekPositionMs: Long,
         val playWhenReady: Boolean,
         val replaceInPlace: Boolean,
+        val playbackIntentId: String = "",
         val continuationIntentId: String? = null,
         val startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
         val startupTraceStartElapsedMs: Long = 0L
@@ -243,6 +244,29 @@ class VideoPlayerViewModel(
         val epId: Long?
     )
 
+    private enum class PlaybackStartSource {
+        NORMAL,
+        CONTINUATION
+    }
+
+    private data class PlaybackStartIntent(
+        val id: String,
+        val source: PlaybackStartSource,
+        val aid: Long?,
+        val bvid: String?,
+        val cid: Long,
+        val seasonId: Long,
+        val epId: Long,
+        val seekPositionMs: Long,
+        val startEpisodeIndex: Int,
+        val preferredQualityId: Int,
+        val preferredAudioQualityId: Int,
+        val startupTraceId: String,
+        val startupTraceStartElapsedMs: Long,
+        val isSteinsGate: Boolean,
+        val preferLastPlayTime: Boolean?
+    )
+
     private data class PreparedPlayback(
         val identity: PlayRequestIdentity,
         val playInfo: PlayInfoModel,
@@ -253,6 +277,7 @@ class VideoPlayerViewModel(
         val playWhenReady: Boolean,
         val resumeHintPositionMs: Long?,
         val replaceInPlace: Boolean,
+        val playbackIntentId: String,
         val continuationIntentId: String?,
         val requestDurationMs: Long,
         val startupTraceId: String,
@@ -571,6 +596,7 @@ class VideoPlayerViewModel(
     private var preloadingIdentity: PlayRequestIdentity? = null
     private var preloadJob: Job? = null
     private val continuationSessions = linkedMapOf<String, ContinuationPlaybackIntent>()
+    private var activePlaybackIntentId: String = ""
     private var pendingContinuationIntentId: String? = null
     private var hasReachedFirstFrame: Boolean = false
     private var currentStartupTraceId: String = PlaybackStartupTrace.NO_TRACE
@@ -657,8 +683,50 @@ class VideoPlayerViewModel(
         startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
         startupTraceStartElapsedMs: Long = 0L,
         isSteinsGate: Boolean = false,
-        preferLastPlayTime: Boolean? = null
+        preferLastPlayTime: Boolean? = null,
+        playbackIntentId: String = UUID.randomUUID().toString()
     ) {
+        startPlayback(
+            PlaybackStartIntent(
+                id = playbackIntentId,
+                source = if (playbackIntentId == pendingContinuationIntentId) {
+                    PlaybackStartSource.CONTINUATION
+                } else {
+                    PlaybackStartSource.NORMAL
+                },
+                aid = aid,
+                bvid = bvid,
+                cid = cid,
+                seasonId = seasonId,
+                epId = epId,
+                seekPositionMs = seekPositionMs,
+                startEpisodeIndex = startEpisodeIndex,
+                preferredQualityId = preferredQualityId,
+                preferredAudioQualityId = preferredAudioQualityId,
+                startupTraceId = startupTraceId,
+                startupTraceStartElapsedMs = startupTraceStartElapsedMs,
+                isSteinsGate = isSteinsGate,
+                preferLastPlayTime = preferLastPlayTime
+            )
+        )
+    }
+
+    private fun startPlayback(startIntent: PlaybackStartIntent) {
+        val aid = startIntent.aid
+        val bvid = startIntent.bvid
+        val cid = startIntent.cid
+        val seasonId = startIntent.seasonId
+        val epId = startIntent.epId
+        val seekPositionMs = startIntent.seekPositionMs
+        val startEpisodeIndex = startIntent.startEpisodeIndex
+        val preferredQualityId = startIntent.preferredQualityId
+        val preferredAudioQualityId = startIntent.preferredAudioQualityId
+        val startupTraceId = startIntent.startupTraceId
+        val startupTraceStartElapsedMs = startIntent.startupTraceStartElapsedMs
+        val isSteinsGate = startIntent.isSteinsGate
+        val preferLastPlayTime = startIntent.preferLastPlayTime
+
+        activePlaybackIntentId = startIntent.id
         currentStartupTraceId = startupTraceId
         currentStartupTraceStartElapsedMs = startupTraceStartElapsedMs
         firstDanmakuTraceLoggedId = PlaybackStartupTrace.NO_TRACE
@@ -666,8 +734,15 @@ class VideoPlayerViewModel(
         PlaybackStartupTrace.log(
             traceId = currentStartupTraceId,
             startElapsedMs = currentStartupTraceStartElapsedMs,
+            step = "playback_intent_created",
+            message = "id=${startIntent.id} source=${startIntent.source} aid=${aid ?: 0L} " +
+                "bvid=${bvid.orEmpty()} cid=$cid epId=$epId seasonId=$seasonId seek=$seekPositionMs"
+        )
+        PlaybackStartupTrace.log(
+            traceId = currentStartupTraceId,
+            startElapsedMs = currentStartupTraceStartElapsedMs,
             step = "load_video_info",
-            message = "aid=${aid ?: 0L} bvid=${bvid.orEmpty()} cid=$cid epId=$epId seasonId=$seasonId"
+            message = "intentId=${startIntent.id} aid=${aid ?: 0L} bvid=${bvid.orEmpty()} cid=$cid epId=$epId seasonId=$seasonId"
         )
         currentSettings = PlayerSettingsStore.load(appContext)
         currentAid = aid?.takeIf { it > 0L }
@@ -1108,6 +1183,7 @@ class VideoPlayerViewModel(
             AppLog.w(TAG, "continuation_play_failed id=$sessionId reason=invalid_identity")
             return
         }
+        activePlaybackIntentId = intent.id
         pendingContinuationIntentId = intent.id
         val hasReadyPreload = preloadedPlayback?.preparedPlayback?.identity == identity
         val hasRunningPreload = preloadingIdentity == identity
@@ -1146,7 +1222,8 @@ class VideoPlayerViewModel(
             seasonId = intent.target.seasonId ?: 0L,
             epId = identity.epId ?: 0L,
             seekPositionMs = intent.startPositionMs,
-            preferLastPlayTime = intent.preferLastPlayTime
+            preferLastPlayTime = intent.preferLastPlayTime,
+            playbackIntentId = intent.id
         )
     }
 
@@ -1210,6 +1287,7 @@ class VideoPlayerViewModel(
                     replaceInPlace = false,
                     playbackPositionMs = 0L,
                     playWhenReady = true,
+                    playbackIntentId = continuationIntentId.orEmpty(),
                     continuationIntentId = continuationIntentId,
                     suppressUiSignals = true
                 )
@@ -1545,6 +1623,7 @@ class VideoPlayerViewModel(
             seekPositionMs = pendingSeekPositionMs,
             playWhenReady = pendingPlayWhenReady,
             replaceInPlace = true,
+            playbackIntentId = activePlaybackIntentId,
             startupTraceId = currentStartupTraceId,
             startupTraceStartElapsedMs = currentStartupTraceStartElapsedMs
         )
@@ -1774,6 +1853,7 @@ class VideoPlayerViewModel(
                     seekPositionMs = effectiveSeekMs,
                     playWhenReady = true,
                     replaceInPlace = false,
+                    playbackIntentId = activePlaybackIntentId,
                     startupTraceId = currentStartupTraceId,
                     startupTraceStartElapsedMs = currentStartupTraceStartElapsedMs
                 )
@@ -1782,9 +1862,16 @@ class VideoPlayerViewModel(
                     didApplyLastPlayPosition = true
                     showResumePositionToast(resumePositionMs)
                 }
-                // Fetch detail in background
+                // 热起播不能被详情接口拖慢，但后台回写必须确认仍是同一次起播。
+                val detailAid = currentAid
+                val detailBvid = currentBvid
+                val detailIdentity = initialIdentity
+                val detailLoadGeneration = loadGeneration
                 viewModelScope.launch {
-                    val detailResponse = apiService.getVideoDetail(currentAid, currentBvid)
+                    val detailResponse = apiService.getVideoDetail(detailAid, detailBvid)
+                    if (!isActiveVideoLoad(detailLoadGeneration) || currentCid != detailIdentity.cid) {
+                        return@launch
+                    }
                     if (detailResponse.isSuccess && detailResponse.data != null) {
                         val detail = detailResponse.data
                         _videoInfo.value = detail
@@ -1793,7 +1880,7 @@ class VideoPlayerViewModel(
                         val episodeItems = episodeCatalogBuilder.buildUgcEpisodes(detail)
                         _episodes.value = episodeItems
                         _selectedEpisodeIndex.value = episodeItems.indexOfFirst {
-                            it.cid == currentCid || (it.bvid.isNotBlank() && it.bvid == currentBvid)
+                            it.cid == detailIdentity.cid || (it.bvid.isNotBlank() && it.bvid == detailIdentity.bvid)
                         }.takeIf { it >= 0 } ?: 0
                         val related = detail.related.orEmpty()
                         _subtitles.value = detail.view?.subtitle?.list
@@ -1837,11 +1924,16 @@ class VideoPlayerViewModel(
                 } else {
                     // Cache was present but build failed (e.g. codec issue) — fall through to cold path
                 }
-                // Regardless of success/failure, we still need video detail for
-                // episodes list, related videos, subtitles, etc.  Fetch it
-                // in the background but do NOT block playback on it.
+                // 热起播不能被详情接口拖慢，但后台回写必须确认仍是同一次起播。
+                val detailAid = currentAid
+                val detailBvid = currentBvid
+                val detailIdentity = initialIdentity
+                val detailLoadGeneration = loadGeneration
                 viewModelScope.launch {
-                    val detailResponse = apiService.getVideoDetail(currentAid, currentBvid)
+                    val detailResponse = apiService.getVideoDetail(detailAid, detailBvid)
+                    if (!isActiveVideoLoad(detailLoadGeneration) || currentCid != detailIdentity.cid) {
+                        return@launch
+                    }
                     if (detailResponse.isSuccess && detailResponse.data != null) {
                         val detail = detailResponse.data
                         _videoInfo.value = detail
@@ -1850,7 +1942,7 @@ class VideoPlayerViewModel(
                         val episodeItems = episodeCatalogBuilder.buildUgcEpisodes(detail)
                         _episodes.value = episodeItems
                         _selectedEpisodeIndex.value = episodeItems.indexOfFirst {
-                            it.cid == currentCid || (it.bvid.isNotBlank() && it.bvid == currentBvid)
+                            it.cid == detailIdentity.cid || (it.bvid.isNotBlank() && it.bvid == detailIdentity.bvid)
                         }.takeIf { it >= 0 } ?: 0
                         val related = detail.related.orEmpty()
                         _subtitles.value = detail.view?.subtitle?.list
@@ -2025,6 +2117,7 @@ class VideoPlayerViewModel(
         qualityCandidates: List<Int> = qualityPolicy.buildCandidates(
             requestedQualityId ?: selectedQualityId
         ),
+        playbackIntentId: String = activePlaybackIntentId,
         continuationIntentId: String? = pendingContinuationIntentId,
         suppressUiSignals: Boolean = false
     ): PreparedPlayback? {
@@ -2220,6 +2313,7 @@ class VideoPlayerViewModel(
                 playWhenReady = playWhenReady,
                 resumeHintPositionMs = resumeHintPositionMs,
                 replaceInPlace = replaceInPlace,
+                playbackIntentId = playbackIntentId,
                 continuationIntentId = continuationIntentId,
                 requestDurationMs = System.currentTimeMillis() - requestStartMs,
                 startupTraceId = startupTraceId,
@@ -2257,6 +2351,7 @@ class VideoPlayerViewModel(
             seekPositionMs = preparedPlayback.seekToStart,
             playWhenReady = preparedPlayback.playWhenReady,
             replaceInPlace = preparedPlayback.replaceInPlace,
+            playbackIntentId = preparedPlayback.playbackIntentId,
             continuationIntentId = preparedPlayback.continuationIntentId,
             startupTraceId = preparedPlayback.startupTraceId,
             startupTraceStartElapsedMs = preparedPlayback.startupTraceStartElapsedMs
@@ -2276,7 +2371,7 @@ class VideoPlayerViewModel(
             startElapsedMs = preparedPlayback.startupTraceStartElapsedMs,
             step = "playback_request_emitted",
             message = "cid=${preparedPlayback.identity.cid} seek=${preparedPlayback.seekToStart} " +
-                "intentId=${preparedPlayback.continuationIntentId.orEmpty()} " +
+                "intentId=${preparedPlayback.playbackIntentId} continuationId=${preparedPlayback.continuationIntentId.orEmpty()} " +
                 "replace=${preparedPlayback.replaceInPlace} " +
                 "playWhenReady=${preparedPlayback.playWhenReady} " +
                 "quality=${preparedPlayback.selectionSnapshot.selectedQualityId} " +
@@ -2603,6 +2698,7 @@ class VideoPlayerViewModel(
                 seekPositionMs = seekPositionMs,
                 playWhenReady = true,
                 replaceInPlace = true,
+                playbackIntentId = activePlaybackIntentId,
                 startupTraceId = currentStartupTraceId,
                 startupTraceStartElapsedMs = currentStartupTraceStartElapsedMs
             )
@@ -2646,6 +2742,7 @@ class VideoPlayerViewModel(
                 seekPositionMs = seekPositionMs,
                 playWhenReady = true,
                 replaceInPlace = true,
+                playbackIntentId = activePlaybackIntentId,
                 startupTraceId = currentStartupTraceId,
                 startupTraceStartElapsedMs = currentStartupTraceStartElapsedMs
             )

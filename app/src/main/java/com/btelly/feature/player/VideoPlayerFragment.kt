@@ -777,7 +777,7 @@ class VideoPlayerFragment : Fragment() {
                         traceId = activeStartupTraceId,
                         startElapsedMs = activeStartupTraceStartElapsedMs,
                         step = "media_source_set",
-                        message = "seek=${playbackRequest.seekPositionMs}"
+                        message = "intentId=${playbackRequest.playbackIntentId} seek=${playbackRequest.seekPositionMs}"
                     )
                     currentPlayer.prepare()
                     PlaybackStartupTrace.log(
