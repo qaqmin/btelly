@@ -1636,7 +1636,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 playNextEpisode = { viewModel.playNext() },
                 playVideo = {
                     sessionCoordinator.updateCurrentVideo(it)
-                    viewModel.playRelatedVideo(it)
+                    viewModel.playRelatedVideo(it, preferLastPlayTime = false)
                 }
             )
         ) {

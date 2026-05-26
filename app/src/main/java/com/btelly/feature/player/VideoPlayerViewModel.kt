@@ -647,7 +647,8 @@ class VideoPlayerViewModel(
         preferredAudioQualityId: Int = 0,
         startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
         startupTraceStartElapsedMs: Long = 0L,
-        isSteinsGate: Boolean = false
+        isSteinsGate: Boolean = false,
+        preferLastPlayTime: Boolean? = null
     ) {
         currentStartupTraceId = startupTraceId
         currentStartupTraceStartElapsedMs = startupTraceStartElapsedMs
@@ -717,7 +718,8 @@ class VideoPlayerViewModel(
             playbackStartReported = false
             resetFallbackState()
             softwareDecoderDowngradeAttemptedCid = 0L
-            clearPreloadedPlayback(cancelJob = true)
+            // 自动连播倒计时已经准备好的同一目标不能在入口重置时被清掉，否则会退回冷启动链路。
+            clearPreloadedPlaybackIfDifferent(currentPlayRequestIdentity(), cancelJob = true)
             hasReachedFirstFrame = false
             currentDashSession = null
             _selectedSubtitleIndex.value = -1
@@ -750,7 +752,10 @@ class VideoPlayerViewModel(
                     loadPgcVideoInfo(loadGeneration)
                     return@launch
                 }
-                loadUgcVideoInfo(preferLastPlayTime = currentSettings.resumePlayback, loadGeneration = loadGeneration)
+                loadUgcVideoInfo(
+                    preferLastPlayTime = preferLastPlayTime ?: currentSettings.resumePlayback,
+                    loadGeneration = loadGeneration
+                )
             } catch (e: Exception) {
                 AppLog.e(TAG, "loadVideoInfo exception: ${e.message}", e)
                 _error.value = e.message ?: "播放器初始化失败"
@@ -850,7 +855,7 @@ class VideoPlayerViewModel(
         loadPlayUrl(preferLastPlayTime = false)
     }
 
-    fun playRelatedVideo(video: VideoModel) {
+    fun playRelatedVideo(video: VideoModel, preferLastPlayTime: Boolean = true) {
         val targetAid = video.aid.takeIf { it > 0L } ?: currentAid
         val targetBvid = video.bvid.takeIf { it.isNotBlank() } ?: currentBvid
         val targetSeasonId = video.playbackSeasonId.takeIf { it > 0L }
@@ -872,7 +877,8 @@ class VideoPlayerViewModel(
             bvid = targetBvid,
             cid = video.cid,
             seasonId = targetSeasonId ?: 0L,
-            epId = targetEpId ?: 0L
+            epId = targetEpId ?: 0L,
+            preferLastPlayTime = preferLastPlayTime
         )
     }
 
@@ -1735,7 +1741,15 @@ class VideoPlayerViewModel(
         }
         // ── End same-video replay hot path ──────────────────────────
 
+        val initialPreloadedPlayback = initialIdentity?.let { identity ->
+            consumePreloadedPlayback(
+                identity = identity,
+                preferLastPlayTime = false,
+                replaceInPlace = false
+            )
+        }
         val preparedPlaybackDeferred = initialIdentity
+            ?.takeIf { initialPreloadedPlayback == null }
             ?.takeIf { it.cid > 0L && !it.bvid.isNullOrBlank() }
             ?.let { identity ->
                 async {
@@ -1817,7 +1831,7 @@ class VideoPlayerViewModel(
         val resolvedIdentity = currentPlayRequestIdentity()
         val canReuse = preparedPlaybackDeferred != null &&
             canReusePreparedPlayback(initialIdentity, resolvedIdentity)
-        val preparedPlayback = if (canReuse) {
+        val preparedPlayback = initialPreloadedPlayback ?: if (canReuse) {
             preparedPlaybackDeferred!!.await()
         } else {
             if (preparedPlaybackDeferred != null) {

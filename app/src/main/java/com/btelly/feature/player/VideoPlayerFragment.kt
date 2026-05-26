@@ -1364,7 +1364,7 @@ class VideoPlayerFragment : Fragment() {
                 playNextEpisode = { viewModel.playNext() },
                 playVideo = {
                     sessionCoordinator.updateCurrentVideo(it)
-                    viewModel.playRelatedVideo(it)
+                    viewModel.playRelatedVideo(it, preferLastPlayTime = false)
                 }
             )
         ) {
