@@ -100,6 +100,7 @@ class MyPlayerView @JvmOverloads constructor(
     private var controllerShowTimeoutMs: Int = MyPlayerControlView.DEFAULT_SHOW_TIMEOUT_MS
     private var controllerHideOnTouch: Boolean = true
     private var controllerAutoShow: Boolean = false
+    private var suppressControllerShowUntilFirstFrame: Boolean = true
     private var useController: Boolean = true
     private var isDoubleTapEnabled: Boolean = true
     private var keepContentOnPlayerReset: Boolean = false
@@ -344,6 +345,8 @@ class MyPlayerView @JvmOverloads constructor(
 
         override fun onRenderedFirstFrame() {
             hasRenderedFirstFrame = true
+            suppressControllerShowUntilFirstFrame = false
+            danmakuController.notifyPlaybackFirstFrame()
             handler.removeCallbacks(shutterTimeoutRunnable)
             updateBuffering()
             shutterView?.animate()?.cancel()
@@ -360,7 +363,6 @@ class MyPlayerView @JvmOverloads constructor(
             post {
                 val overlayStartMs = SystemClock.elapsedRealtime()
                 setupYouTubeOverlay()
-                ensureController("first_frame")
                 AppLog.i("PlayerViewPerf", "setupYouTubeOverlay deferred elapsed=${SystemClock.elapsedRealtime() - overlayStartMs}ms")
             }
         }
@@ -641,6 +643,7 @@ class MyPlayerView @JvmOverloads constructor(
 
     private fun closeShutter() {
         hasRenderedFirstFrame = false
+        suppressControllerShowUntilFirstFrame = true
         shutterView?.animate()?.cancel()
         shutterView?.alpha = 1f
         shutterView?.visibility = VISIBLE
@@ -804,6 +807,10 @@ class MyPlayerView @JvmOverloads constructor(
 
     private fun showController(indefinitely: Boolean) {
         if (!useController()) return
+        if (suppressControllerShowUntilFirstFrame && !hasRenderedFirstFrame) {
+            AppLog.i("PlayerViewPerf", "controller show suppressed before first frame")
+            return
+        }
 
         val controller = controller ?: ensureController("show") ?: return
         controller.setShowTimeoutMs(if (indefinitely) 0 else controllerShowTimeoutMs)
@@ -1866,6 +1873,7 @@ class MyPlayerView @JvmOverloads constructor(
         startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
         startupTraceStartElapsedMs: Long = 0L
     ) {
+        syncDanmakuSettings()
         danmakuController.setData(data, startupTraceId, startupTraceStartElapsedMs)
     }
 

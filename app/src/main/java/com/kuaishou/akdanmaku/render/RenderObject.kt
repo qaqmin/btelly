@@ -47,6 +47,7 @@ class RenderObject(
 
   var alpha = 1f
   var holding = false
+  var simpleTranslate = false
 
   override fun reset() {
   }

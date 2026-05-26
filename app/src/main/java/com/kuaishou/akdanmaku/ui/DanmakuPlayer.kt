@@ -39,8 +39,6 @@ import com.kuaishou.akdanmaku.data.DanmakuItemData
 import com.kuaishou.akdanmaku.data.DanmakuItem
 import com.kuaishou.akdanmaku.data.DataSource
 import com.kuaishou.akdanmaku.ecs.DanmakuEngine
-import com.kuaishou.akdanmaku.ecs.system.DataSystem
-import com.kuaishou.akdanmaku.ecs.system.RenderSystem
 import com.kuaishou.akdanmaku.ext.endTrace
 import com.kuaishou.akdanmaku.ext.startTrace
 import com.kuaishou.akdanmaku.render.DanmakuRenderer
@@ -83,6 +81,14 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
 
   private var danmakuView: DanmakuView? = null
   internal val engine = DanmakuEngine.get(renderer)
+  private val dataSourceListener = object : DataSource.DataChangeListener {
+    override fun onDataAdded(additionalItems: List<DanmakuItem>) {
+      engine.runtime.addItems(additionalItems)
+    }
+
+    override fun onDataRemoved(removalItems: List<DanmakuItem>) {
+    }
+  }
   private val actionThread by lazy  { HandlerThread("ActionThread").apply { start() } }
   private val actionHandler by lazy { ActionHandler(actionThread.looper) }
   private val frameCallback by lazy { FrameCallback(actionHandler) }
@@ -97,9 +103,6 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
   @Volatile
   private var started = false
 
-  private val dataSystem: DataSystem?
-    get() = engine.getSystem(DataSystem::class.java)
-
   /**
    * 弹幕埋点所需的接口
    */
@@ -107,7 +110,7 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     set(value) {
       if (field != value) {
         field = value
-        engine.getSystem(RenderSystem::class.java)?.listener = value
+        engine.runtime.listener = value
       }
     }
   @Volatile
@@ -115,10 +118,10 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     private set
 
   val cacheHit: Fraction?
-    get() = engine.getSystem(RenderSystem::class.java)?.cacheHit
+    get() = engine.runtime.cacheHit
 
   init {
-    dataSource?.setListener(dataSystem)
+    dataSource?.setListener(dataSourceListener)
   }
 
   private fun postFrameCallback() {
@@ -291,7 +294,7 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
   }
 
   fun clearData() {
-    dataSystem?.clearAllData()
+    engine.runtime.clearAllData()
   }
 
   fun updateData(dataList: List<DanmakuItemData>): List<DanmakuItem> {
@@ -299,7 +302,7 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     for (data in dataList) {
       items.add(obtainItem(data))
     }
-    dataSystem?.addItems(items)
+    engine.runtime.addItems(items)
     return items
   }
 
@@ -308,47 +311,53 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
    * 可以进行扩展的
    */
   fun updateItems(items: List<DanmakuItem>) {
-    dataSystem?.addItems(items)
+    engine.runtime.addItems(items)
   }
 
   fun send(danmaku: DanmakuItemData): DanmakuItem {
     val item = obtainItem(danmaku)
-    dataSystem?.addItem(item)
+    engine.runtime.addItem(item)
     return item
   }
 
   fun send(item: DanmakuItem) {
-    dataSystem?.addItem(item)
+    engine.runtime.addItem(item)
   }
 
   fun setLiveMode(enabled: Boolean) {
-    dataSystem?.liveMode = enabled
+    engine.runtime.liveMode = enabled
   }
 
   /**
    * 更新一个弹幕
    */
   fun updateItem(item: DanmakuItem) {
-    dataSystem?.updateItem(item)
+    engine.runtime.updateItem(item)
   }
 
   fun updateConfig(danmakuConfig: DanmakuConfig?) {
     config = danmakuConfig
-    engine.updateConfig(danmakuConfig ?: return)
+    val config = danmakuConfig ?: return
+    if (started) {
+      engine.updateConfig(config)
+    } else {
+      // 启动前配置是初始状态，不应在第一帧再从默认值切换，避免首屏弹幕重布局。
+      engine.setInitialConfig(config)
+    }
   }
 
   fun getConfig(): DanmakuConfig? = engine.getConfig()
 
   fun getDanmakusAtPoint(point: Point): List<DanmakuItem>? {
-    return engine.getSystem(RenderSystem::class.java)?.getDanmakus(point)
+    return engine.runtime.getDanmakus(point)
   }
 
   fun getDanmakusInRect(hitRect: RectF): List<DanmakuItem>? {
-    return engine.getSystem(RenderSystem::class.java)?.getDanmakus(hitRect)
+    return engine.runtime.getDanmakus(hitRect)
   }
 
   fun hold(item: DanmakuItem?) {
-    dataSystem?.hold(item)
+    engine.runtime.hold(item)
   }
 
   fun obtainItem(danmaku: DanmakuItemData): DanmakuItem =

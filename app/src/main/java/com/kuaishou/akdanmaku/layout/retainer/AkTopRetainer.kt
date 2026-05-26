@@ -91,8 +91,7 @@ internal class AkTopRetainer(
       val itemHeight = drawState.height.toInt()
       val margin = displayer.margin
 
-      var bestRow: Row? = null
-      var bestLoad = Int.MAX_VALUE
+      var targetRow: Row? = null
       val drawItemTs = drawItem.timePosition
 
       for (row in rows) {
@@ -106,16 +105,18 @@ internal class AkTopRetainer(
           duration,
           config.overlapFraction
         )
-        if (!hasCollision && row.items.size < bestLoad) {
-          bestLoad = row.items.size
-          bestRow = row
+        // TV 4K 下轨道选择是高频路径：找到第一条可用轨道就放入，
+        // 避免为了“最均匀负载”把所有轨道都做一遍碰撞检测。
+        if (!hasCollision) {
+          targetRow = row
+          break
         }
       }
 
-      if (bestRow != null) {
-        bestRow.addItem(drawItem)
-        itemToRow[drawItem] = bestRow
-        topPos = bestRow.top
+      if (targetRow != null) {
+        targetRow.addItem(drawItem)
+        itemToRow[drawItem] = targetRow
+        topPos = targetRow.top
         visibility = true
       } else {
         val gapTop = findGap(itemHeight, margin)

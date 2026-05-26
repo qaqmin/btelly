@@ -59,10 +59,25 @@ class CacheManager(private val callbackHandler: Handler, private val renderer: D
   private var cancelFlag = false
 
   private val measureSizeCache = Collections.synchronizedMap(mutableMapOf<Long, Size>())
+  private var sharedCacheGeneration = -1
+  private val sharedDrawingCaches = object : LinkedHashMap<Long, DrawingCache>(256, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, DrawingCache>?): Boolean {
+      val shouldRemove = size > MAX_SHARED_DRAWING_CACHE
+      if (shouldRemove) {
+        eldest?.value?.let(::releaseSharedDrawingCache)
+      }
+      return shouldRemove
+    }
+  }
 
   val cachePool = DrawingCachePool(DanmakuConfig.CACHE_POOL_MAX_MEMORY_SIZE)
   var isReleased: Boolean = false
     private set
+
+  fun warmUp() {
+    // 提前启动缓存线程，避免第一批弹幕入场时 action 线程被 HandlerThread.looper 阻塞。
+    cacheHandler.sendEmptyMessage(WORKER_MSG_WARM_UP)
+  }
 
   fun requestBuildCache(
     item: DanmakuItem,
@@ -172,6 +187,26 @@ class CacheManager(private val callbackHandler: Handler, private val renderer: D
           val config = info.config
           val item = info.item
           val drawState = item.drawState
+          if (sharedCacheGeneration != config.cacheGeneration) {
+            clearSharedDrawingCaches()
+            sharedCacheGeneration = config.cacheGeneration
+          }
+          val sharedKey = sharedCacheKey(item, info.displayer, config)
+          val sharedCache = sharedKey?.let { key ->
+            sharedDrawingCaches[key]?.takeIf { cache ->
+              cache.get() != null && isCacheSizeJustified(cache, drawState)
+            } ?: run {
+              removeSharedDrawingCache(key)
+              null
+            }
+          }
+          if (sharedCache != null) {
+            replaceItemDrawingCache(drawState, sharedCache)
+            item.state = ItemState.Rendered
+            item.drawState.cacheGeneration = config.cacheGeneration
+            endTrace()
+            return
+          }
 
           startTrace("CacheManager_checkCache")
           // check drawingCache
@@ -210,6 +245,9 @@ class CacheManager(private val callbackHandler: Handler, private val renderer: D
               renderer.draw(item, holder.canvas, info.displayer, config)
               item.state = ItemState.Rendered
               item.drawState.cacheGeneration = config.cacheGeneration
+              if (sharedKey != null) {
+                putSharedDrawingCache(sharedKey, drawState.drawingCache)
+              }
             } catch (e: Exception) {
               Log.e(DanmakuEngine.TAG, "CacheManager.draw failed", e)
               item.state = ItemState.Error
@@ -226,12 +264,16 @@ class CacheManager(private val callbackHandler: Handler, private val renderer: D
           synchronized(measureSizeCache) {
             measureSizeCache.clear()
           }
+          clearSharedDrawingCaches()
         }
         WORKER_MSG_DESTROY -> {
           (msg.obj as? DrawingCache)?.destroy()
         }
         WORKER_MSG_RELEASE_ITEM -> {
           (msg.obj as? DrawingCache)?.let { if (!cachePool.release(it)) it.destroy() }
+        }
+        WORKER_MSG_WARM_UP -> {
+          // no-op，只用于触发 cacheHandler/cacheThread 初始化。
         }
         WORKER_MSG_RENDER_SIGN -> {
           callbackHandler.sendEmptyMessage(MSG_CACHE_RENDER)
@@ -251,6 +293,73 @@ class CacheManager(private val callbackHandler: Handler, private val renderer: D
         drawState.drawingCache.height - drawState.height > 5
   }
 
+  private fun putSharedDrawingCache(key: Long, cache: DrawingCache) {
+    if (cache == DrawingCache.EMPTY_DRAWING_CACHE || cache.get() == null) return
+    if (sharedDrawingCaches.containsKey(key)) return
+    // sharedDrawingCaches 自己持有一份引用，避免最后一个弹幕离场后缓存立刻回池并被擦除。
+    cache.increaseReference()
+    sharedDrawingCaches[key] = cache
+  }
+
+  private fun removeSharedDrawingCache(key: Long) {
+    val cache = sharedDrawingCaches.remove(key) ?: return
+    releaseSharedDrawingCache(cache)
+  }
+
+  private fun clearSharedDrawingCaches() {
+    if (sharedDrawingCaches.isEmpty()) return
+    val caches = sharedDrawingCaches.values.toList()
+    sharedDrawingCaches.clear()
+    caches.forEach(::releaseSharedDrawingCache)
+  }
+
+  private fun releaseSharedDrawingCache(cache: DrawingCache) {
+    cache.decreaseReference()
+    cache.destroy()
+  }
+
+  private fun replaceItemDrawingCache(drawState: DrawState, cache: DrawingCache) {
+    if (drawState.drawingCache == cache) return
+    if (drawState.drawingCache != DrawingCache.EMPTY_DRAWING_CACHE) {
+      drawState.drawingCache.decreaseReference()
+    }
+    cache.increaseReference()
+    cache.cacheManager = this
+    drawState.drawingCache = cache
+  }
+
+  private fun isCacheSizeJustified(cache: DrawingCache, drawState: DrawState): Boolean =
+    cache.width >= drawState.width &&
+      cache.height >= drawState.height &&
+      cache.width - drawState.width <= 5 &&
+      cache.height - drawState.height <= 5
+
+  private fun sharedCacheKey(
+    item: DanmakuItem,
+    displayer: DanmakuDisplayer,
+    config: DanmakuConfig
+  ): Long? {
+    val data = item.data
+    // 先只复用最常见的普通文字弹幕；VIP/自发/特殊样式可能依赖外部贴图或画布边框。
+    if (data.renderFlags != DanmakuItemData.RENDER_FLAG_NONE ||
+      data.danmakuStyle != DanmakuItemData.DANMAKU_STYLE_NONE
+    ) {
+      return null
+    }
+    var acc = FNV_OFFSET
+    acc = mix(acc, data.content.hashCode().toLong())
+    acc = mix(acc, data.content.length.toLong())
+    acc = mix(acc, data.textSize.toLong())
+    acc = mix(acc, data.textColor.toLong())
+    acc = mix(acc, if (config.bold) 1L else 0L)
+    acc = mix(acc, config.textSizeScale.toBits().toLong())
+    acc = mix(acc, displayer.density.toBits().toLong())
+    acc = mix(acc, displayer.densityDpi.toLong())
+    return acc
+  }
+
+  private fun mix(acc: Long, value: Long): Long = (acc xor value) * FNV_PRIME
+
   companion object {
     const val THREAD_NAME = "AkDanmaku-Cache"
 
@@ -263,10 +372,15 @@ class CacheManager(private val callbackHandler: Handler, private val renderer: D
     private const val WORKER_MSG_CLEAR_CACHE = 3
     private const val WORKER_MSG_DESTROY = 4
     private const val WORKER_MSG_RELEASE_ITEM = 5
+    private const val WORKER_MSG_WARM_UP = 6
 
     const val MSG_CACHE_RENDER = -1
     const val MSG_CACHE_MEASURED = 0
     const val MSG_CACHE_BUILT = 1
     const val MSG_CACHE_FAILED = 2
+
+    private const val MAX_SHARED_DRAWING_CACHE = 384
+    private const val FNV_OFFSET = -3750763034362895579L
+    private const val FNV_PRIME = 1099511628211L
   }
 }

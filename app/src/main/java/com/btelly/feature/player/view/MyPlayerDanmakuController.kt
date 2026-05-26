@@ -63,13 +63,17 @@ class MyPlayerDanmakuController(
         private const val LIVE_THROTTLE_MAX_ITEMS = 30
         private const val LIVE_MERGE_BUFFER_MS = 800L
         private const val LIVE_DENSITY_TRACK_MS = 5000L
-        private const val BATCH_INSERT_SIZE = 100
-        private const val BATCH_INSERT_DELAY_MS = 33L
-        private const val INITIAL_WINDOW_BEHIND_MS = 10_000L
-        private const val INITIAL_WINDOW_AHEAD_MS = 60_000L
-        private const val PROGRESSIVE_START_DELAY_MS = 300L
-        private const val PROGRESSIVE_BATCH_SIZE = 500
-        private const val PROGRESSIVE_BATCH_DELAY_MS = 50L
+        private const val INITIAL_WINDOW_BEHIND_MS = 2_000L
+        private const val INITIAL_WINDOW_AHEAD_MS = 12_000L
+        private const val INITIAL_WINDOW_MAX_ITEMS = 64
+        private const val ACTIVE_WINDOW_BEHIND_MS = 8_000L
+        private const val ACTIVE_WINDOW_AHEAD_MS = 18_000L
+        private const val ACTIVE_WINDOW_APPEND_BATCH_SIZE = 80
+        private const val WINDOW_REFRESH_AHEAD_THRESHOLD_MS = 3_000L
+        private const val WINDOW_REFRESH_MIN_PROGRESS_MS = 6_000L
+        private const val WINDOW_REFRESH_MIN_INTERVAL_MS = 1_000L
+        private const val STARTUP_DATA_DEFER_MS = 1_200L
+        private const val FIRST_FRAME_STABLE_DEFER_MS = 2_500L
     }
 
     data class SettingsSnapshot(
@@ -85,10 +89,50 @@ class MyPlayerDanmakuController(
         val mergeDuplicate: Boolean
     )
 
+    private data class RawWindowRange(
+        val startIndex: Int,
+        val endIndex: Int,
+        val naturalEndIndex: Int,
+        val windowStartMs: Long,
+        val windowEndMs: Long
+    ) {
+        val isCapped: Boolean
+            get() = endIndex < naturalEndIndex
+    }
+
+    private data class PreparedWindow(
+        val data: List<DanmakuItemData>,
+        val rawCount: Int,
+        val range: RawWindowRange,
+        val positionMs: Long,
+        val coveredUntilMs: Long
+    )
+
+    private data class DanmakuTimeline(
+        val data: List<DmModel>,
+        val signature: Long
+    ) {
+        val count: Int
+            get() = data.size
+
+        companion object {
+            val EMPTY = DanmakuTimeline(emptyList(), 0L)
+        }
+    }
+
     private var danmakuPlayer: DanmakuPlayer? = null
     private var danmakuConfig = DanmakuConfig(dataFilter = listOf(TypeFilter()))
+    private var danmakuTimeline: DanmakuTimeline = DanmakuTimeline.EMPTY
     private var danmakuData: List<DanmakuItemData> = emptyList()
     private var rawDanmakuData: MutableList<DmModel> = mutableListOf()
+    private var activeWindowStartMs: Long = Long.MIN_VALUE
+    private var activeWindowEndMs: Long = Long.MIN_VALUE
+    private var activeWindowCoveredUntilMs: Long = Long.MIN_VALUE
+    private var activeWindowRawCount: Int = 0
+    private var activeWindowAnchorMs: Long = Long.MIN_VALUE
+    private var activeWindowSubmittedStartIndex: Int = -1
+    private var activeWindowSubmittedEndIndex: Int = -1
+    private var activeWindowNaturalEndIndex: Int = -1
     private var danmakuPositionMs: Long = 0L
     private var isDanmakuStarted = false
     private var isDanmakuPaused = false
@@ -112,13 +156,17 @@ class MyPlayerDanmakuController(
     private val controllerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var prepareJob: Job? = null
     private var preloadTextureJob: Job? = null
-    private var progressiveJob: Job? = null
+    private var windowRefreshJob: Job? = null
     private var batchUpdateJob: Job? = null
+    private var startupDataApplyJob: Job? = null
     private var driftSyncJob: Job? = null
     private var prepareGeneration: Long = 0L
     private var currentPlaybackSpeed: Float = 1f
     private var appliedTimerFactor: Float = 1f
     private var wasBufferingWhilePlaying: Boolean = false
+    private var lastResumeRealtimeMs: Long = 0L
+    private var lastFirstFrameRealtimeMs: Long = 0L
+    private var lastWindowApplyRealtimeMs: Long = 0L
 
     var playerPositionProvider: (() -> Long)? = null
 
@@ -128,69 +176,69 @@ class MyPlayerDanmakuController(
         startupTraceStartElapsedMs: Long = 0L
     ) {
         prepareJob?.cancel()
+        windowRefreshJob?.cancel()
         val generation = ++prepareGeneration
         prepareJob = controllerScope.launch {
             val sortedData = data.sortedBy { it.progress }
             val rawSignature = sortedData.fastRawSignature()
+            val timeline = DanmakuTimeline(sortedData, rawSignature)
             val allowVipColorful = isVipColorfulDanmakuAllowed()
-            val preparedData = sortedData
-                .applySmartFilter(level = smartFilterLevel, stage = "full")
-                .mergeDuplicateDanmaku(mergeDuplicate, screenPart)
-                .mapIndexedNotNull { index, item ->
-                    item.toDanmakuItemData(index.toLong(), allowVipColorful)
-                }
-            val preparedSignature = preparedData.fastPreparedSignature()
-            val textureStyles = ArrayList<DanmakuVipGradientStyle>(preparedData.size)
-            for (item in preparedData) {
-                if (item.vipGradientStyle.hasTexture) {
-                    textureStyles.add(item.vipGradientStyle)
-                }
+            val positionSnapshotMs = withContext(Dispatchers.Main.immediate) {
+                syncSnapshotPosition()
+                danmakuPositionMs
             }
+            val preparedWindow = sortedData.buildPreparedWindow(
+                positionMs = positionSnapshotMs,
+                behindMs = INITIAL_WINDOW_BEHIND_MS,
+                aheadMs = INITIAL_WINDOW_AHEAD_MS,
+                maxItems = INITIAL_WINDOW_MAX_ITEMS,
+                allowVipColorful = allowVipColorful,
+                stage = "initial_window"
+            )
+            val preparedSignature = preparedWindow.data.fastPreparedSignature()
             scheduleVipTexturePreload(
-                styles = textureStyles,
+                styles = preparedWindow.data.map { it.vipGradientStyle }.filter { it.hasTexture },
                 generation = generation
             )
             withContext(Dispatchers.Main.immediate) {
                 if (prepareGeneration != generation) {
                     return@withContext
                 }
-                if (rawDanmakuCount == sortedData.size &&
-                    rawDanmakuSignature == rawSignature &&
-                    preparedDanmakuCount == preparedData.size &&
-                    preparedDanmakuSignature == preparedSignature &&
-                    danmakuPlayer != null
-                ) {
-                    return@withContext
-                }
-                rawDanmakuData = sortedData.toMutableList()
+                danmakuTimeline = timeline
+                rawDanmakuData = timeline.data.toMutableList()
                 rawDanmakuSignature = rawSignature
-                rawDanmakuCount = sortedData.size
-                syncSnapshotPosition()
-                danmakuData = preparedData
+                rawDanmakuCount = timeline.count
+                applyPreparedWindowState(preparedWindow, preparedSignature)
                 preparedDanmakuSignature = preparedSignature
-                preparedDanmakuCount = preparedData.size
-                val existingPlayer = danmakuPlayer
-                if (existingPlayer != null) {
-                    injectWindowedData(existingPlayer, danmakuData, danmakuPositionMs, generation)
-                    if (danmakuPositionMs > 0L) {
-                        seekPlayerTo(
-                            player = existingPlayer,
-                            targetPositionMs = danmakuPositionMs,
-                            currentTimeMs = existingPlayer.getCurrentTimeMs(),
-                            forceSeek = true,
-                            reason = "replace",
-                            bypassDedup = true
-                        )
-                    }
-                } else {
-                    initPlayer()
-                }
                 PlaybackStartupTrace.log(
                     traceId = startupTraceId,
                     startElapsedMs = startupTraceStartElapsedMs,
-                    step = "danmaku_player_data_applied",
-                    message = "count=${preparedData.size} raw=${sortedData.size}"
+                    step = "danmaku_initial_window_ready",
+                    message = "initial=${preparedWindow.data.size} rawInitial=${preparedWindow.rawCount} " +
+                        "raw=${timeline.count} position=$positionSnapshotMs " +
+                        "window=[${preparedWindow.range.windowStartMs},${preparedWindow.range.windowEndMs}] " +
+                        "coveredUntil=${preparedWindow.coveredUntilMs} capped=${preparedWindow.range.isCapped}"
                 )
+                val existingPlayer = danmakuPlayer
+                if (existingPlayer != null) {
+                    applyPreparedDataToPlayer(
+                        player = existingPlayer,
+                        generation = generation,
+                        deferDuringStartup = false,
+                        startupTraceId = startupTraceId,
+                        startupTraceStartElapsedMs = startupTraceStartElapsedMs,
+                        appliedCount = preparedWindow.data.size,
+                        rawCount = preparedWindow.rawCount
+                    )
+                } else {
+                    initPlayer(
+                        startupTraceId = startupTraceId,
+                        startupTraceStartElapsedMs = startupTraceStartElapsedMs,
+                        appliedCount = preparedWindow.data.size,
+                        rawCount = preparedWindow.rawCount,
+                        deferInitialData = false
+                    )
+                }
             }
         }
     }
@@ -199,11 +247,49 @@ class MyPlayerDanmakuController(
         if (data.isEmpty()) {
             return
         }
-        val sortedData = data.sortedBy { it.progress }
-        rawDanmakuData.addAll(sortedData)
-        rawDanmakuCount = rawDanmakuData.size
-        rawDanmakuSignature = rawDanmakuData.fastRawSignature()
-        appendPreparedData(sortedData, enableMerge = mergeDuplicate)
+        val previousJob = prepareJob
+        val generation = ++prepareGeneration
+        prepareJob = controllerScope.launch {
+            previousJob?.join()
+            val mergedRawData = withContext(Dispatchers.Main.immediate) {
+                (danmakuTimeline.data + data).sortedBy { it.progress }
+            }
+            val rawSignature = mergedRawData.fastRawSignature()
+            val timeline = DanmakuTimeline(mergedRawData, rawSignature)
+            val allowVipColorful = isVipColorfulDanmakuAllowed()
+            val positionSnapshotMs = withContext(Dispatchers.Main.immediate) {
+                syncSnapshotPosition()
+                danmakuPositionMs
+            }
+            val preparedWindow = timeline.data.buildPreparedWindow(
+                positionMs = positionSnapshotMs,
+                behindMs = ACTIVE_WINDOW_BEHIND_MS,
+                aheadMs = ACTIVE_WINDOW_AHEAD_MS,
+                maxItems = ACTIVE_WINDOW_APPEND_BATCH_SIZE,
+                allowVipColorful = allowVipColorful,
+                stage = "append_window"
+            )
+            val signature = preparedWindow.data.fastPreparedSignature()
+            withContext(Dispatchers.Main.immediate) {
+                if (prepareGeneration != generation) {
+                    return@withContext
+                }
+                danmakuTimeline = timeline
+                rawDanmakuData = timeline.data.toMutableList()
+                rawDanmakuSignature = rawSignature
+                rawDanmakuCount = timeline.count
+                applyPreparedWindowState(preparedWindow, signature)
+                val player = danmakuPlayer
+                if (player != null) {
+                    replacePlayerWindowData(
+                        player = player,
+                        data = preparedWindow.data,
+                        reason = "append",
+                        generation = generation
+                    )
+                }
+            }
+        }
     }
 
     /**
@@ -470,6 +556,7 @@ class MyPlayerDanmakuController(
         }
         isDanmakuStarted = true
         isDanmakuPaused = false
+        lastResumeRealtimeMs = SystemClock.elapsedRealtime()
         if (!hasPreparedData() && !liveEngineStarted) {
             return
         }
@@ -478,6 +565,11 @@ class MyPlayerDanmakuController(
         val provider = playerPositionProvider
         if (provider != null) {
             val videoPos = provider().coerceAtLeast(0L)
+            scheduleActiveWindowRefresh(
+                positionMs = videoPos,
+                force = false,
+                reason = "resume"
+            )
             danmakuPlayer?.let { player ->
                 // 上一段播放过程中如果 drift sync 留了软同步因子，恢复回用户设定的速度。
                 ensureTimerFactor(player, currentPlaybackSpeed)
@@ -502,12 +594,15 @@ class MyPlayerDanmakuController(
         liveEngineStarted = false
         liveThrottleCount = 0
         liveFlushJob?.cancel()
-        progressiveJob?.cancel()
+        windowRefreshJob?.cancel()
         batchUpdateJob?.cancel()
+        startupDataApplyJob?.cancel()
         stopDriftSync()
         liveMergeBuffer.clear()
         liveSentTimestamps.clear()
         danmakuPositionMs = 0L
+        clearActiveWindowState()
+        lastFirstFrameRealtimeMs = 0L
         danmakuPlayer?.setLiveMode(false)
         danmakuPlayer?.stop()
     }
@@ -520,6 +615,11 @@ class MyPlayerDanmakuController(
             return
         }
         val currentTime = player.getCurrentTimeMs()
+        scheduleActiveWindowRefresh(
+            positionMs = safePosition,
+            force = forceSeek,
+            reason = if (forceSeek) "sync_seek" else "playback_tick"
+        )
         if (!forceSeek && safePosition < currentTime) {
             return
         }
@@ -537,8 +637,9 @@ class MyPlayerDanmakuController(
     fun release() {
         prepareJob?.cancel()
         preloadTextureJob?.cancel()
-        progressiveJob?.cancel()
+        windowRefreshJob?.cancel()
         batchUpdateJob?.cancel()
+        startupDataApplyJob?.cancel()
         driftSyncJob?.cancel()
         liveFlushJob?.cancel()
         liveMergeBuffer.clear()
@@ -555,15 +656,23 @@ class MyPlayerDanmakuController(
             delay(200L)
             if (prepareGeneration != capturedGeneration) return@launch
             val allowVipColorful = isVipColorfulDanmakuAllowed()
-            val filteredData = rawDanmakuData
-                .applySmartFilter(level = smartFilterLevel, stage = "full")
-            val preparedData = filteredData
-                .mergeDuplicateDanmaku(mergeDuplicate, screenPart)
-                .mapIndexedNotNull { index, item ->
-                    item.toDanmakuItemData(index.toLong(), allowVipColorful)
-                }
-            val rebuildTextureStyles = ArrayList<DanmakuVipGradientStyle>(preparedData.size)
-            for (item in preparedData) {
+            val timeline = withContext(Dispatchers.Main.immediate) {
+                danmakuTimeline
+            }
+            val positionSnapshotMs = withContext(Dispatchers.Main.immediate) {
+                syncSnapshotPosition()
+                danmakuPositionMs
+            }
+            val preparedWindow = timeline.data.buildPreparedWindow(
+                positionMs = positionSnapshotMs,
+                behindMs = ACTIVE_WINDOW_BEHIND_MS,
+                aheadMs = ACTIVE_WINDOW_AHEAD_MS,
+                maxItems = ACTIVE_WINDOW_APPEND_BATCH_SIZE,
+                allowVipColorful = allowVipColorful,
+                stage = "settings_window"
+            )
+            val rebuildTextureStyles = ArrayList<DanmakuVipGradientStyle>(preparedWindow.data.size)
+            for (item in preparedWindow.data) {
                 if (item.vipGradientStyle.hasTexture) {
                     rebuildTextureStyles.add(item.vipGradientStyle)
                 }
@@ -576,30 +685,17 @@ class MyPlayerDanmakuController(
                 if (prepareGeneration != generation) {
                     return@withContext
                 }
-                val signature = preparedData.fastPreparedSignature()
-                if (preparedDanmakuCount == preparedData.size &&
+                val signature = preparedWindow.data.fastPreparedSignature()
+                if (preparedDanmakuCount == preparedWindow.data.size &&
                     preparedDanmakuSignature == signature &&
                     danmakuPlayer != null
                 ) {
                     return@withContext
                 }
-                syncSnapshotPosition()
-                danmakuData = preparedData
-                preparedDanmakuSignature = signature
-                preparedDanmakuCount = preparedData.size
+                applyPreparedWindowState(preparedWindow, signature)
                 val existingPlayer = danmakuPlayer
                 if (existingPlayer != null) {
-                    injectWindowedData(existingPlayer, danmakuData, danmakuPositionMs, generation)
-                    if (danmakuPositionMs > 0L) {
-                        seekPlayerTo(
-                            player = existingPlayer,
-                            targetPositionMs = danmakuPositionMs,
-                            currentTimeMs = existingPlayer.getCurrentTimeMs(),
-                            forceSeek = true,
-                            reason = "replace",
-                            bypassDedup = true
-                        )
-                    }
+                    applyPreparedDataToPlayer(existingPlayer, generation, deferDuringStartup = false)
                 } else {
                     initPlayer()
                 }
@@ -607,12 +703,119 @@ class MyPlayerDanmakuController(
         }
     }
 
+    fun notifyPlaybackFirstFrame() {
+        lastFirstFrameRealtimeMs = SystemClock.elapsedRealtime()
+    }
+
+    private fun applyPreparedDataToPlayer(
+        player: DanmakuPlayer,
+        generation: Long,
+        deferDuringStartup: Boolean,
+        startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
+        startupTraceStartElapsedMs: Long = 0L,
+        appliedCount: Int = -1,
+        rawCount: Int = -1
+    ) {
+        startupDataApplyJob?.cancel()
+        val delayMs = if (deferDuringStartup) resolveStartupDataDelayMs() else 0L
+        if (delayMs <= 0L) {
+            applyPreparedDataToPlayerNow(
+                player = player,
+                generation = generation,
+                startupTraceId = startupTraceId,
+                startupTraceStartElapsedMs = startupTraceStartElapsedMs,
+                appliedCount = appliedCount,
+                rawCount = rawCount
+            )
+            return
+        }
+        PlaybackStartupTrace.log(
+            traceId = startupTraceId,
+            startElapsedMs = startupTraceStartElapsedMs,
+            step = "danmaku_player_data_deferred",
+            message = "delayMs=$delayMs count=$appliedCount raw=$rawCount"
+        )
+        startupDataApplyJob = controllerScope.launch {
+            delay(delayMs)
+            withContext(Dispatchers.Main.immediate) {
+                if (prepareGeneration != generation || danmakuPlayer !== player) {
+                    return@withContext
+                }
+                applyPreparedDataToPlayerNow(
+                    player = player,
+                    generation = generation,
+                    startupTraceId = startupTraceId,
+                    startupTraceStartElapsedMs = startupTraceStartElapsedMs,
+                    appliedCount = appliedCount,
+                    rawCount = rawCount
+                )
+            }
+        }
+    }
+
+    private fun applyPreparedDataToPlayerNow(
+        player: DanmakuPlayer,
+        generation: Long,
+        startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
+        startupTraceStartElapsedMs: Long = 0L,
+        appliedCount: Int = -1,
+        rawCount: Int = -1
+    ) {
+        if (prepareGeneration != generation) return
+        replacePlayerWindowData(
+            player = player,
+            data = danmakuData,
+            reason = "apply",
+            generation = generation
+        )
+        if (danmakuPositionMs > 0L) {
+            seekPlayerTo(
+                player = player,
+                targetPositionMs = danmakuPositionMs,
+                currentTimeMs = player.getCurrentTimeMs(),
+                forceSeek = true,
+                reason = "replace",
+                bypassDedup = true
+            )
+        }
+        PlaybackStartupTrace.log(
+            traceId = startupTraceId,
+            startElapsedMs = startupTraceStartElapsedMs,
+            step = "danmaku_player_data_applied",
+            message = "count=$appliedCount raw=$rawCount"
+        )
+    }
+
+    private fun resolveStartupDataDelayMs(): Long {
+        if (!isDanmakuStarted || isDanmakuPaused) {
+            return 0L
+        }
+        val now = SystemClock.elapsedRealtime()
+        val resumeDelayMs = if (lastResumeRealtimeMs > 0L) {
+            STARTUP_DATA_DEFER_MS - (now - lastResumeRealtimeMs)
+        } else {
+            0L
+        }
+        val firstFrameDelayMs = if (lastFirstFrameRealtimeMs > 0L) {
+            FIRST_FRAME_STABLE_DEFER_MS - (now - lastFirstFrameRealtimeMs)
+        } else {
+            0L
+        }
+        return max(resumeDelayMs, firstFrameDelayMs).coerceAtLeast(0L)
+    }
+
     private fun ensurePlayer() {
         if (danmakuPlayer != null) return
         initPlayer()
     }
 
-    private fun initPlayer() {
+    private fun initPlayer(
+        startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
+        startupTraceStartElapsedMs: Long = 0L,
+        appliedCount: Int = -1,
+        rawCount: Int = -1,
+        deferInitialData: Boolean = true
+    ) {
         val danmakuView = danmakuViewProvider() ?: return
         danmakuView.isClickable = false
         danmakuView.isFocusable = false
@@ -633,10 +836,37 @@ class MyPlayerDanmakuController(
             if (viewWidth > 0 && viewHeight > 0) {
                 player.notifyDisplayerSizeChanged(viewWidth, viewHeight)
             }
-            if (danmakuData.isNotEmpty()) {
-                injectWindowedData(player, danmakuData, danmakuPositionMs, prepareGeneration)
+            val shouldDeferInitialData = deferInitialData &&
+                danmakuData.isNotEmpty() &&
+                resolveStartupDataDelayMs() > 0L
+            val shouldStartNow = isDanmakuStarted && hasPreparedData()
+            if (shouldStartNow) {
+                player.start(danmakuConfig)
+                if (isDanmakuPaused) {
+                    player.pause()
+                }
             }
-            if (danmakuPositionMs > 0L) {
+            if (danmakuData.isNotEmpty()) {
+                if (shouldDeferInitialData) {
+                    applyPreparedDataToPlayer(
+                        player = player,
+                        generation = prepareGeneration,
+                        deferDuringStartup = true,
+                        startupTraceId = startupTraceId,
+                        startupTraceStartElapsedMs = startupTraceStartElapsedMs,
+                        appliedCount = appliedCount,
+                        rawCount = rawCount
+                    )
+                } else {
+                    replacePlayerWindowData(
+                        player = player,
+                        data = danmakuData,
+                        reason = "init",
+                        generation = prepareGeneration
+                    )
+                }
+            }
+            if (!shouldDeferInitialData && danmakuPositionMs > 0L) {
                 seekPlayerTo(
                     player = player,
                     targetPositionMs = danmakuPositionMs,
@@ -646,8 +876,128 @@ class MyPlayerDanmakuController(
                     bypassDedup = true
                 )
             }
-            if (isDanmakuStarted && hasPreparedData()) {
-                player.start(danmakuConfig)
+        }
+    }
+
+    private fun List<DmModel>.prepareDanmakuItems(
+        allowVipColorful: Boolean,
+        stage: String,
+        startIndex: Long
+    ): List<DanmakuItemData> {
+        return applySmartFilter(level = smartFilterLevel, stage = stage)
+            .mergeDuplicateDanmaku(mergeDuplicate, screenPart)
+            .mapIndexedNotNull { index, item ->
+                item.toDanmakuItemData(startIndex + index, allowVipColorful)
+            }
+    }
+
+    private fun replacePlayerWindowData(
+        player: DanmakuPlayer,
+        data: List<DanmakuItemData>,
+        reason: String,
+        generation: Long
+    ) {
+        if (prepareGeneration != generation) return
+        player.clearData()
+        if (data.isNotEmpty()) {
+            player.updateData(data)
+        }
+        lastWindowApplyRealtimeMs = SystemClock.elapsedRealtime()
+        AppLog.i(
+            TAG,
+            "danmaku active window applied: reason=$reason position=$danmakuPositionMs " +
+                "count=${data.size} rawWindow=$activeWindowRawCount rawTotal=$rawDanmakuCount " +
+                "window=[$activeWindowStartMs,$activeWindowEndMs] " +
+                "coveredUntil=$activeWindowCoveredUntilMs"
+        )
+    }
+
+    private fun appendPlayerWindowData(
+        player: DanmakuPlayer,
+        window: PreparedWindow,
+        signature: Long,
+        reason: String,
+        generation: Long
+    ) {
+        if (prepareGeneration != generation || window.data.isEmpty()) return
+        player.updateData(window.data)
+        applyAppendedWindowState(window, signature)
+        lastWindowApplyRealtimeMs = SystemClock.elapsedRealtime()
+        AppLog.i(
+            TAG,
+            "danmaku active window appended: reason=$reason position=$danmakuPositionMs " +
+                "append=${window.data.size} submittedRaw=$activeWindowRawCount rawTotal=$rawDanmakuCount " +
+                "window=[$activeWindowStartMs,$activeWindowEndMs] " +
+                "coveredUntil=$activeWindowCoveredUntilMs"
+        )
+    }
+
+    private fun scheduleActiveWindowRefresh(positionMs: Long, force: Boolean, reason: String) {
+        val timeline = danmakuTimeline
+        if (timeline.data.isEmpty() || liveEngineStarted) return
+        if (!force && isActiveWindowFreshFor(positionMs)) return
+        val now = SystemClock.elapsedRealtime()
+        if (!force && now - lastWindowApplyRealtimeMs < WINDOW_REFRESH_MIN_INTERVAL_MS) return
+        val generation = prepareGeneration
+        windowRefreshJob?.cancel()
+        windowRefreshJob = controllerScope.launch {
+            val allowVipColorful = isVipColorfulDanmakuAllowed()
+            val fullRange = timeline.data.resolveWindowRange(
+                positionMs = positionMs,
+                behindMs = ACTIVE_WINDOW_BEHIND_MS,
+                aheadMs = ACTIVE_WINDOW_AHEAD_MS,
+                maxItems = Int.MAX_VALUE
+            )
+            val appendStartIndex = if (force || activeWindowSubmittedEndIndex < 0) {
+                fullRange.startIndex
+            } else {
+                max(activeWindowSubmittedEndIndex, fullRange.startIndex)
+            }
+            val appendEndIndex = (appendStartIndex + ACTIVE_WINDOW_APPEND_BATCH_SIZE)
+                .coerceAtMost(fullRange.naturalEndIndex)
+            if (appendStartIndex >= appendEndIndex) {
+                return@launch
+            }
+            val preparedWindow = timeline.data.buildPreparedRange(
+                positionMs = positionMs,
+                range = fullRange.copy(
+                    startIndex = appendStartIndex,
+                    endIndex = appendEndIndex
+                ),
+                allowVipColorful = allowVipColorful,
+                stage = reason
+            )
+            val signature = preparedWindow.data.fastPreparedSignature()
+            withContext(Dispatchers.Main.immediate) {
+                if (prepareGeneration != generation || danmakuTimeline.signature != timeline.signature) {
+                    return@withContext
+                }
+                if (!force && signature == preparedDanmakuSignature) {
+                    AppLog.d(
+                        TAG,
+                        "danmaku active window unchanged: reason=$reason position=$positionMs " +
+                            "count=${preparedWindow.data.size} coveredUntil=${preparedWindow.coveredUntilMs}"
+                    )
+                    return@withContext
+                }
+                val player = danmakuPlayer ?: return@withContext
+                if (force) {
+                    applyPreparedWindowState(preparedWindow, signature)
+                    replacePlayerWindowData(
+                        player = player,
+                        data = preparedWindow.data,
+                        reason = reason,
+                        generation = generation
+                    )
+                } else {
+                    appendPlayerWindowData(
+                        player = player,
+                        window = preparedWindow,
+                        signature = signature,
+                        reason = reason,
+                        generation = generation
+                    )
+                }
                 if (isDanmakuPaused) {
                     player.pause()
                 }
@@ -655,142 +1005,68 @@ class MyPlayerDanmakuController(
         }
     }
 
-    private fun appendPreparedData(data: List<DmModel>, enableMerge: Boolean = false) {
-        val previousJob = prepareJob
-        val generation = ++prepareGeneration
-        prepareJob = controllerScope.launch {
-            previousJob?.join()
-            val allowVipColorful = isVipColorfulDanmakuAllowed()
-            val startIndex = danmakuData.size.toLong()
-            val filteredData = data
-                .applySmartFilter(level = smartFilterLevel, stage = "append")
-            val processedData = filteredData
-                .mergeDuplicateDanmaku(enabled = enableMerge, part = screenPart)
-            val preparedData = processedData
-                .mapIndexedNotNull { index, item ->
-                    item.toDanmakuItemData(startIndex + index, allowVipColorful)
-                }
-            scheduleVipTexturePreload(
-                styles = preparedData.map { it.vipGradientStyle }.filter { it.hasTexture },
-                generation = generation
-            )
-            withContext(Dispatchers.Main.immediate) {
-                if (prepareGeneration != generation) {
-                    return@withContext
-                }
-                syncSnapshotPosition()
-                danmakuData = danmakuData + preparedData
-                preparedDanmakuSignature = danmakuData.fastPreparedSignature()
-                preparedDanmakuCount = danmakuData.size
-                ensurePlayer()
-                val player = danmakuPlayer
-                if (player != null && preparedData.size > BATCH_INSERT_SIZE) {
-                    scheduleBatchUpdate(player, preparedData, generation)
-                } else {
-                    danmakuPlayer?.updateData(preparedData)
-                }
-            }
-        }
+    private fun isActiveWindowFreshFor(positionMs: Long): Boolean {
+        if (activeWindowStartMs == Long.MIN_VALUE || activeWindowEndMs == Long.MIN_VALUE) return false
+        if (positionMs < activeWindowStartMs || positionMs > activeWindowEndMs) return false
+        val remainingAheadMs = activeWindowCoveredUntilMs - positionMs
+        if (remainingAheadMs <= 0L) return false
+        val hasPendingWindowData = activeWindowSubmittedEndIndex in 0 until activeWindowNaturalEndIndex
+        if (hasPendingWindowData && remainingAheadMs <= WINDOW_REFRESH_AHEAD_THRESHOLD_MS) return false
+        if (remainingAheadMs > WINDOW_REFRESH_AHEAD_THRESHOLD_MS) return true
+        val anchor = activeWindowAnchorMs
+        if (anchor == Long.MIN_VALUE) return false
+        return positionMs - anchor < WINDOW_REFRESH_MIN_PROGRESS_MS
     }
 
-    /**
-     * 将弹幕数据分批灌入引擎，每批 [BATCH_INSERT_SIZE] 条，间隔 [BATCH_INSERT_DELAY_MS]，
-     * 避免单帧处理大量弹幕导致主线程冻结。
-     * 数据已按 position 排序，前几批优先覆盖当前播放位置附近的弹幕。
-     *
-     * 旧实现里每个 batch 各自 `launch + delay` 会让所有协程几乎同时唤醒并涌向主线程，
-     * 起不到分批限流效果，反而瞬间造成主线程消息洪峰。改为单协程顺序消费。
-     */
-    private fun scheduleBatchUpdate(
-        player: com.kuaishou.akdanmaku.ui.DanmakuPlayer,
-        data: List<com.kuaishou.akdanmaku.data.DanmakuItemData>,
-        generation: Long
-    ) {
-        val previousJob = batchUpdateJob
-        batchUpdateJob = controllerScope.launch {
-            previousJob?.join()
-            val batches = data.chunked(BATCH_INSERT_SIZE)
-            for ((index, batch) in batches.withIndex()) {
-                if (prepareGeneration != generation) return@launch
-                withContext(Dispatchers.Main.immediate) {
-                    if (prepareGeneration != generation) return@withContext
-                    player.updateData(batch)
-                }
-                if (index < batches.lastIndex) {
-                    delay(BATCH_INSERT_DELAY_MS)
-                }
-            }
-        }
+    private fun applyPreparedWindowState(window: PreparedWindow, signature: Long) {
+        danmakuPositionMs = window.positionMs.coerceAtLeast(0L)
+        danmakuData = window.data
+        preparedDanmakuSignature = signature
+        preparedDanmakuCount = window.data.size
+        activeWindowStartMs = window.range.windowStartMs
+        activeWindowEndMs = window.range.windowEndMs
+        activeWindowCoveredUntilMs = window.coveredUntilMs
+        activeWindowRawCount = window.rawCount
+        activeWindowAnchorMs = window.positionMs.coerceAtLeast(0L)
+        activeWindowSubmittedStartIndex = window.range.startIndex
+        activeWindowSubmittedEndIndex = window.range.endIndex
+        activeWindowNaturalEndIndex = window.range.naturalEndIndex
     }
 
-    /**
-     * 初始注入当前播放位置附近的弹幕（时间窗口内），剩余弹幕延迟分批注入，
-     * 避免首帧一次性处理大量弹幕导致卡顿。
-     */
-    private fun injectWindowedData(
-        player: DanmakuPlayer,
-        allData: List<DanmakuItemData>,
-        positionMs: Long,
-        generation: Long
-    ) {
-        progressiveJob?.cancel()
-        player.clearData()
-        if (allData.isEmpty()) return
-
-        if (allData.size <= BATCH_INSERT_SIZE) {
-            player.updateData(allData)
-            return
+    private fun applyAppendedWindowState(window: PreparedWindow, signature: Long) {
+        danmakuPositionMs = window.positionMs.coerceAtLeast(0L)
+        danmakuData = danmakuData + window.data
+        preparedDanmakuSignature = preparedDanmakuSignature.mix(signature)
+        preparedDanmakuCount = danmakuData.size
+        activeWindowStartMs = window.range.windowStartMs
+        activeWindowEndMs = window.range.windowEndMs
+        activeWindowSubmittedEndIndex = max(activeWindowSubmittedEndIndex, window.range.endIndex)
+        activeWindowNaturalEndIndex = window.range.naturalEndIndex
+        activeWindowRawCount = if (activeWindowSubmittedStartIndex >= 0) {
+            activeWindowSubmittedEndIndex - activeWindowSubmittedStartIndex
+        } else {
+            window.rawCount
         }
-
-        val windowStart = (positionMs - INITIAL_WINDOW_BEHIND_MS).coerceAtLeast(0L)
-        val windowEnd = positionMs + INITIAL_WINDOW_AHEAD_MS
-        val startIdx = allData.lowerBoundPosition(windowStart)
-        val endIdx = allData.upperBoundPosition(windowEnd)
-        if (startIdx < endIdx) {
-            player.updateData(allData.subList(startIdx, endIdx))
-        }
-
-        val remaining = ArrayList<DanmakuItemData>(allData.size - (endIdx - startIdx))
-        for (i in endIdx until allData.size) remaining.add(allData[i])
-        for (i in 0 until startIdx) remaining.add(allData[i])
-
-        if (remaining.isEmpty()) return
-
-        progressiveJob = controllerScope.launch {
-            delay(PROGRESSIVE_START_DELAY_MS)
-            if (prepareGeneration != generation) return@launch
-            val batches = remaining.chunked(PROGRESSIVE_BATCH_SIZE)
-            for ((index, batch) in batches.withIndex()) {
-                if (prepareGeneration != generation) return@launch
-                withContext(Dispatchers.Main.immediate) {
-                    if (prepareGeneration != generation) return@withContext
-                    player.updateData(batch)
-                }
-                if (index < batches.lastIndex) {
-                    delay(PROGRESSIVE_BATCH_DELAY_MS)
-                }
-            }
-        }
+        activeWindowCoveredUntilMs = resolveSubmittedCoveredUntil(
+            timeline = danmakuTimeline.data,
+            submittedEndIndex = activeWindowSubmittedEndIndex,
+            naturalEndIndex = activeWindowNaturalEndIndex,
+            windowEndMs = window.range.windowEndMs
+        )
     }
 
-    private fun List<DanmakuItemData>.lowerBoundPosition(target: Long): Int {
-        var lo = 0
-        var hi = size
-        while (lo < hi) {
-            val mid = (lo + hi) ushr 1
-            if (this[mid].position < target) lo = mid + 1 else hi = mid
-        }
-        return lo
-    }
-
-    private fun List<DanmakuItemData>.upperBoundPosition(target: Long): Int {
-        var lo = 0
-        var hi = size
-        while (lo < hi) {
-            val mid = (lo + hi) ushr 1
-            if (this[mid].position <= target) lo = mid + 1 else hi = mid
-        }
-        return lo
+    private fun clearActiveWindowState() {
+        danmakuData = emptyList()
+        preparedDanmakuSignature = 0L
+        preparedDanmakuCount = 0
+        activeWindowStartMs = Long.MIN_VALUE
+        activeWindowEndMs = Long.MIN_VALUE
+        activeWindowCoveredUntilMs = Long.MIN_VALUE
+        activeWindowRawCount = 0
+        activeWindowAnchorMs = Long.MIN_VALUE
+        activeWindowSubmittedStartIndex = -1
+        activeWindowSubmittedEndIndex = -1
+        activeWindowNaturalEndIndex = -1
     }
 
     private fun syncSnapshotPosition() {
@@ -891,6 +1167,8 @@ class MyPlayerDanmakuController(
     }
 
     private fun releasePlayer() {
+        startupDataApplyJob?.cancel()
+        startupDataApplyJob = null
         danmakuPlayer?.release()
         danmakuPlayer = null
         liveEngineStarted = false
@@ -942,6 +1220,15 @@ class MyPlayerDanmakuController(
     ) {
         if (!bypassDedup && shouldSuppressDuplicateSeek(targetPositionMs, currentTimeMs)) {
             return
+        }
+        if (forceSeek && !bypassDedup && !isActiveWindowFreshFor(targetPositionMs)) {
+            player.clearData()
+            clearActiveWindowState()
+            scheduleActiveWindowRefresh(
+                positionMs = targetPositionMs,
+                force = true,
+                reason = "seek_$reason"
+            )
         }
         player.seekTo(targetPositionMs)
         lastSeekPositionMs = targetPositionMs
@@ -1058,8 +1345,7 @@ class MyPlayerDanmakuController(
     }
 
     private fun hasPreparedData(): Boolean {
-        if (rawDanmakuData.isEmpty()) return false
-        return danmakuData.isNotEmpty()
+        return danmakuTimeline.data.isNotEmpty() || rawDanmakuData.isNotEmpty() || danmakuData.isNotEmpty()
     }
 
     private fun List<DmModel>.mergeDuplicateDanmaku(enabled: Boolean, part: Float): List<DmModel> {
@@ -1189,6 +1475,119 @@ class MyPlayerDanmakuController(
         val from = lowerBoundProgress(startMs)
         if (from >= size) return 0
         return upperBoundProgress(endMs) - from
+    }
+
+    private fun List<DmModel>.buildPreparedWindow(
+        positionMs: Long,
+        behindMs: Long,
+        aheadMs: Long,
+        maxItems: Int,
+        allowVipColorful: Boolean,
+        stage: String
+    ): PreparedWindow {
+        val range = resolveWindowRange(
+            positionMs = positionMs,
+            behindMs = behindMs,
+            aheadMs = aheadMs,
+            maxItems = maxItems
+        )
+        val rawWindowData = if (range.startIndex < range.endIndex) {
+            subList(range.startIndex, range.endIndex)
+        } else {
+            emptyList()
+        }
+        val preparedData = rawWindowData.prepareDanmakuItems(
+            allowVipColorful = allowVipColorful,
+            stage = stage,
+            startIndex = range.startIndex.toLong()
+        )
+        val coveredUntilMs = when {
+            preparedData.isEmpty() -> range.windowEndMs
+            range.isCapped -> preparedData.last().position
+            else -> range.windowEndMs
+        }
+        return PreparedWindow(
+            data = preparedData,
+            rawCount = rawWindowData.size,
+            range = range,
+            positionMs = positionMs,
+            coveredUntilMs = coveredUntilMs
+        )
+    }
+
+    private fun List<DmModel>.buildPreparedRange(
+        positionMs: Long,
+        range: RawWindowRange,
+        allowVipColorful: Boolean,
+        stage: String
+    ): PreparedWindow {
+        val rawWindowData = if (range.startIndex < range.endIndex) {
+            subList(range.startIndex, range.endIndex)
+        } else {
+            emptyList()
+        }
+        val preparedData = rawWindowData.prepareDanmakuItems(
+            allowVipColorful = allowVipColorful,
+            stage = stage,
+            startIndex = range.startIndex.toLong()
+        )
+        return PreparedWindow(
+            data = preparedData,
+            rawCount = rawWindowData.size,
+            range = range,
+            positionMs = positionMs,
+            coveredUntilMs = resolveSubmittedCoveredUntil(
+                timeline = this,
+                submittedEndIndex = range.endIndex,
+                naturalEndIndex = range.naturalEndIndex,
+                windowEndMs = range.windowEndMs
+            )
+        )
+    }
+
+    private fun resolveSubmittedCoveredUntil(
+        timeline: List<DmModel>,
+        submittedEndIndex: Int,
+        naturalEndIndex: Int,
+        windowEndMs: Long
+    ): Long {
+        if (submittedEndIndex <= 0) return windowEndMs
+        if (submittedEndIndex >= naturalEndIndex) return windowEndMs
+        return timeline.getOrNull(submittedEndIndex - 1)?.progress?.toLong() ?: windowEndMs
+    }
+
+    private fun List<DmModel>.resolveWindowRange(
+        positionMs: Long,
+        behindMs: Long,
+        aheadMs: Long,
+        maxItems: Int
+    ): RawWindowRange {
+        if (isEmpty()) {
+            val startMs = (positionMs - behindMs).coerceAtLeast(0L)
+            return RawWindowRange(
+                startIndex = 0,
+                endIndex = 0,
+                naturalEndIndex = 0,
+                windowStartMs = startMs,
+                windowEndMs = positionMs + aheadMs
+            )
+        }
+        val windowStart = (positionMs - behindMs).coerceAtLeast(0L)
+        val windowEnd = positionMs + aheadMs
+        val startIndex = lowerBoundProgress(windowStart)
+        val naturalEndIndex = upperBoundProgress(windowEnd)
+        val cappedEndIndex = if (maxItems == Int.MAX_VALUE) {
+            naturalEndIndex
+        } else {
+            (startIndex + maxItems).coerceAtMost(naturalEndIndex)
+        }
+        return RawWindowRange(
+            startIndex = startIndex,
+            endIndex = cappedEndIndex.coerceAtLeast(startIndex),
+            naturalEndIndex = naturalEndIndex,
+            windowStartMs = windowStart,
+            windowEndMs = windowEnd
+        )
     }
 
     private fun List<DmModel>.lowerBoundProgress(target: Long): Int {

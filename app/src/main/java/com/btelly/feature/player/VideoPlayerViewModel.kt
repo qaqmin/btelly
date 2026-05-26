@@ -103,8 +103,14 @@ class VideoPlayerViewModel(
         private const val PLAY_TYPE_START = 1
         private const val SOFTWARE_DECODER_SAFE_QUALITY_ID = 64
         private const val SOFTWARE_DECODER_MIN_KEEP_QUALITY_ID = 32
+        private const val KEY_SOFTWARE_DECODER_SAFE_PLAYBACK = "player_software_decoder_safe_playback"
+        private const val KEY_SOFTWARE_DECODER_SAFE_QUALITY_ID = "player_software_decoder_safe_quality_id"
         private val verboseDanmakuCandidateLog =
             java.lang.Boolean.getBoolean("btelly.verbose_danmaku_candidate_log")
+        @Volatile
+        private var globalPreferSoftwareDecoderSafePlayback: Boolean = false
+        @Volatile
+        private var globalSoftwareDecoderSafeQualityId: Int = 0
 
         const val SAVED_AID = "saved_player_aid"
         const val SAVED_BVID = "saved_player_bvid"
@@ -323,6 +329,15 @@ class VideoPlayerViewModel(
             appContext.getString(R.string.tip_play_from_history, timeStr),
             Toast.LENGTH_SHORT
         ).also { it.show() }
+    }
+
+    private fun publishResumeHint(positionMs: Long) {
+        _resumeHint.value = ResumeProgressHint(targetPositionMs = positionMs)
+        if (hasReachedFirstFrame) {
+            showResumePositionToast(positionMs)
+        } else {
+            pendingResumeToastPositionMs = positionMs
+        }
     }
 
     private val gson = Gson()
@@ -590,7 +605,11 @@ class VideoPlayerViewModel(
     private val attemptedFallbackSignatures = linkedSetOf<String>()
     private var softwareDecoderDowngradeAttemptedCid: Long = 0L
     // 一旦真实播放命中软解，后续视频和自动预加载都优先走安全画质，避免先起高码率再卡顿降级。
-    private var preferSoftwareDecoderSafePlayback: Boolean = false
+    private var preferSoftwareDecoderSafePlayback: Boolean =
+        globalPreferSoftwareDecoderSafePlayback ||
+            appSettings.getCachedString(KEY_SOFTWARE_DECODER_SAFE_PLAYBACK) == "开"
+    private var softwareDecoderSafeQualityId: Int = readSoftwareDecoderSafeQualityId()
+    private var pendingResumeToastPositionMs: Long? = null
     private var lastPlaybackPositionMs: Long = 0L
     private var preloadedPlayback: PreloadedPlayback? = null
     private var preloadingIdentity: PlayRequestIdentity? = null
@@ -731,6 +750,7 @@ class VideoPlayerViewModel(
         currentStartupTraceStartElapsedMs = startupTraceStartElapsedMs
         firstDanmakuTraceLoggedId = PlaybackStartupTrace.NO_TRACE
         firstDanmakuSegmentTraceLoggedId = PlaybackStartupTrace.NO_TRACE
+        pendingResumeToastPositionMs = null
         PlaybackStartupTrace.log(
             traceId = currentStartupTraceId,
             startElapsedMs = currentStartupTraceStartElapsedMs,
@@ -1041,7 +1061,9 @@ class VideoPlayerViewModel(
         playWhenReady: Boolean
     ) {
         val cid = currentCid.takeIf { it > 0L } ?: return
+        globalPreferSoftwareDecoderSafePlayback = true
         preferSoftwareDecoderSafePlayback = true
+        appSettings.putStringAsync(KEY_SOFTWARE_DECODER_SAFE_PLAYBACK, "开")
         if (softwareDecoderDowngradeAttemptedCid == cid) {
             return
         }
@@ -1071,6 +1093,21 @@ class VideoPlayerViewModel(
             .filter { currentQualityId == null || it < currentQualityId }
             .maxOrNull()
             ?: return
+        rememberSoftwareDecoderSafeQuality(targetQualityId)
+
+        // 起播后降级会重建 MediaSource，日志里已证明会拉长黑屏；首帧前只记录策略，
+        // 后续请求直接按安全档起播，本次不再二次 prepare。
+        if (!hasReachedFirstFrame) {
+            softwareDecoderDowngradeAttemptedCid = cid
+            requestedQualityId = targetQualityId
+            requestedCodec = VideoCodecEnum.AVC
+            AppLog.w(
+                TAG,
+                "software decoder safe playback deferred: decoder=$decoderName cid=$cid " +
+                    "quality=$currentQualityId target=$targetQualityId codec=AVC pos=$currentPositionMs"
+            )
+            return
+        }
 
         softwareDecoderDowngradeAttemptedCid = cid
         requestedQualityId = targetQualityId
@@ -1082,6 +1119,33 @@ class VideoPlayerViewModel(
                 "quality=$currentQualityId->$targetQualityId codec=AVC pos=$currentPositionMs"
         )
         loadPlayUrl(preferLastPlayTime = false, replaceInPlace = true)
+    }
+
+    private fun readSoftwareDecoderSafeQualityId(): Int {
+        val globalQualityId = globalSoftwareDecoderSafeQualityId
+            .takeIf { it > 0 }
+        val cachedQualityId = appSettings
+            .getCachedString(KEY_SOFTWARE_DECODER_SAFE_QUALITY_ID)
+            ?.toIntOrNull()
+            ?.takeIf { it > 0 }
+        return normalizeSoftwareDecoderSafeQualityId(
+            globalQualityId ?: cachedQualityId ?: SOFTWARE_DECODER_SAFE_QUALITY_ID
+        )
+    }
+
+    private fun rememberSoftwareDecoderSafeQuality(qualityId: Int) {
+        val normalizedQualityId = normalizeSoftwareDecoderSafeQualityId(qualityId)
+        if (softwareDecoderSafeQualityId <= 0 || normalizedQualityId < softwareDecoderSafeQualityId) {
+            softwareDecoderSafeQualityId = normalizedQualityId
+            globalSoftwareDecoderSafeQualityId = normalizedQualityId
+            appSettings.putStringAsync(KEY_SOFTWARE_DECODER_SAFE_QUALITY_ID, normalizedQualityId.toString())
+        }
+    }
+
+    private fun normalizeSoftwareDecoderSafeQualityId(qualityId: Int): Int {
+        return qualityId
+            .coerceAtMost(SOFTWARE_DECODER_SAFE_QUALITY_ID)
+            .coerceAtLeast(16)
     }
 
     fun selectSubtitle(index: Int) {
@@ -1830,71 +1894,88 @@ class VideoPlayerViewModel(
             // ── Zero-overhead reuse: same bvid+cid, player still has MediaSource ──
             val cachedPlayback = getCachedPlayback(initialIdentity!!.bvid, initialIdentity.cid)
             if (cachedPlayback != null) {
-                PlaybackStartupTrace.log(
-                    traceId = currentStartupTraceId,
-                    startElapsedMs = currentStartupTraceStartElapsedMs,
-                    step = "zero_overhead_reuse",
-                    message = "bvid=${initialIdentity.bvid} cid=${initialIdentity.cid}"
-                )
-                applySelectionSnapshot(cachedPlayback.selectionSnapshot)
-                currentPlayInfo = cachedPlayback.playInfo
-                val playInfo = cachedPlayback.playInfo
-                val resumePositionMs = if (preferLastPlayTime && !isSteinsGateVideo && currentGraphVersion <= 0L) {
-                    val cachedResume = VideoPlayerPlayInfoCache.get(
-                        initialIdentity.bvid.orEmpty(), initialIdentity.cid
-                    )?.lastPlayTime?.takeIf { it > 5000L }
-                    val serverResume = playInfo.lastPlayTime.takeIf { it > 5000L && playInfo.lastPlayCid == initialIdentity.cid }
-                    (cachedResume ?: serverResume ?: pendingSeekPositionMs)
-                        .takeIf { it > 5000L && (playInfo.timeLength - it) > 5000L }
-                } else null
-                val effectiveSeekMs = resumePositionMs ?: 0L
-                _playbackRequest.value = PlaybackRequest(
-                    mediaSource = cachedPlayback.mediaSource,
-                    seekPositionMs = effectiveSeekMs,
-                    playWhenReady = true,
-                    replaceInPlace = false,
-                    playbackIntentId = activePlaybackIntentId,
-                    startupTraceId = currentStartupTraceId,
-                    startupTraceStartElapsedMs = currentStartupTraceStartElapsedMs
-                )
-                _error.value = null
-                if (resumePositionMs != null) {
-                    didApplyLastPlayPosition = true
-                    showResumePositionToast(resumePositionMs)
-                }
-                // 热起播不能被详情接口拖慢，但后台回写必须确认仍是同一次起播。
-                val detailAid = currentAid
-                val detailBvid = currentBvid
-                val detailIdentity = initialIdentity
-                val detailLoadGeneration = loadGeneration
-                viewModelScope.launch {
-                    val detailResponse = apiService.getVideoDetail(detailAid, detailBvid)
-                    if (!isActiveVideoLoad(detailLoadGeneration) || currentCid != detailIdentity.cid) {
-                        return@launch
+                val cachedQualityId = cachedPlayback.selectionSnapshot.selectedQualityId
+                val safeQualityId = readSoftwareDecoderSafeQualityId()
+                if (
+                    preferSoftwareDecoderSafePlayback &&
+                    cachedQualityId != null &&
+                    cachedQualityId > safeQualityId
+                ) {
+                    clearCachedPlayback()
+                    PlaybackStartupTrace.log(
+                        traceId = currentStartupTraceId,
+                        startElapsedMs = currentStartupTraceStartElapsedMs,
+                        step = "zero_overhead_reuse_discarded",
+                        message = "bvid=${initialIdentity.bvid} cid=${initialIdentity.cid} " +
+                            "quality=$cachedQualityId cap=$safeQualityId reason=software_decoder_safe"
+                    )
+                } else {
+                    PlaybackStartupTrace.log(
+                        traceId = currentStartupTraceId,
+                        startElapsedMs = currentStartupTraceStartElapsedMs,
+                        step = "zero_overhead_reuse",
+                        message = "bvid=${initialIdentity.bvid} cid=${initialIdentity.cid}"
+                    )
+                    applySelectionSnapshot(cachedPlayback.selectionSnapshot)
+                    currentPlayInfo = cachedPlayback.playInfo
+                    val playInfo = cachedPlayback.playInfo
+                    val resumePositionMs = if (preferLastPlayTime && !isSteinsGateVideo && currentGraphVersion <= 0L) {
+                        val cachedResume = VideoPlayerPlayInfoCache.get(
+                            initialIdentity.bvid.orEmpty(), initialIdentity.cid
+                        )?.lastPlayTime?.takeIf { it > 5000L }
+                        val serverResume = playInfo.lastPlayTime.takeIf { it > 5000L && playInfo.lastPlayCid == initialIdentity.cid }
+                        (cachedResume ?: serverResume ?: pendingSeekPositionMs)
+                            .takeIf { it > 5000L && (playInfo.timeLength - it) > 5000L }
+                    } else null
+                    val effectiveSeekMs = resumePositionMs ?: 0L
+                    _playbackRequest.value = PlaybackRequest(
+                        mediaSource = cachedPlayback.mediaSource,
+                        seekPositionMs = effectiveSeekMs,
+                        playWhenReady = true,
+                        replaceInPlace = false,
+                        playbackIntentId = activePlaybackIntentId,
+                        startupTraceId = currentStartupTraceId,
+                        startupTraceStartElapsedMs = currentStartupTraceStartElapsedMs
+                    )
+                    _error.value = null
+                    if (resumePositionMs != null) {
+                        didApplyLastPlayPosition = true
+                        publishResumeHint(resumePositionMs)
                     }
-                    if (detailResponse.isSuccess && detailResponse.data != null) {
-                        val detail = detailResponse.data
-                        _videoInfo.value = detail
-                        currentAid = detail.view?.aid ?: currentAid
-                        currentBvid = detail.view?.bvid?.takeIf { it.isNotBlank() } ?: currentBvid
-                        val episodeItems = episodeCatalogBuilder.buildUgcEpisodes(detail)
-                        _episodes.value = episodeItems
-                        _selectedEpisodeIndex.value = episodeItems.indexOfFirst {
-                            it.cid == detailIdentity.cid || (it.bvid.isNotBlank() && it.bvid == detailIdentity.bvid)
-                        }.takeIf { it >= 0 } ?: 0
-                        val related = detail.related.orEmpty()
-                        _subtitles.value = detail.view?.subtitle?.list
-                            ?.map { it.toSubtitleInfoModel() }
-                            .orEmpty()
-                        if (related.isNotEmpty()) {
-                            _relatedVideos.value = related
+                    // 热起播不能被详情接口拖慢，但后台回写必须确认仍是同一次起播。
+                    val detailAid = currentAid
+                    val detailBvid = currentBvid
+                    val detailIdentity = initialIdentity
+                    val detailLoadGeneration = loadGeneration
+                    viewModelScope.launch {
+                        val detailResponse = apiService.getVideoDetail(detailAid, detailBvid)
+                        if (!isActiveVideoLoad(detailLoadGeneration) || currentCid != detailIdentity.cid) {
+                            return@launch
+                        }
+                        if (detailResponse.isSuccess && detailResponse.data != null) {
+                            val detail = detailResponse.data
+                            _videoInfo.value = detail
+                            currentAid = detail.view?.aid ?: currentAid
+                            currentBvid = detail.view?.bvid?.takeIf { it.isNotBlank() } ?: currentBvid
+                            val episodeItems = episodeCatalogBuilder.buildUgcEpisodes(detail)
+                            _episodes.value = episodeItems
+                            _selectedEpisodeIndex.value = episodeItems.indexOfFirst {
+                                it.cid == detailIdentity.cid || (it.bvid.isNotBlank() && it.bvid == detailIdentity.bvid)
+                            }.takeIf { it >= 0 } ?: 0
+                            val related = detail.related.orEmpty()
+                            _subtitles.value = detail.view?.subtitle?.list
+                                ?.map { it.toSubtitleInfoModel() }
+                                .orEmpty()
+                            if (related.isNotEmpty()) {
+                                _relatedVideos.value = related
+                            }
                         }
                     }
+                    if (loadedPlayerExtrasCid != initialIdentity.cid) {
+                        pendingPlayerExtrasCid = initialIdentity.cid
+                    }
+                    return@coroutineScope
                 }
-                if (loadedPlayerExtrasCid != initialIdentity.cid) {
-                    pendingPlayerExtrasCid = initialIdentity.cid
-                }
-                return@coroutineScope
             }
             // ── End zero-overhead reuse ──────────────────────────────
 
@@ -2379,8 +2460,7 @@ class VideoPlayerViewModel(
                 "requestDurationMs=${preparedPlayback.requestDurationMs}"
         )
         preparedPlayback.resumeHintPositionMs?.let { targetPositionMs ->
-            _resumeHint.value = ResumeProgressHint(targetPositionMs = targetPositionMs)
-            showResumePositionToast(targetPositionMs)
+            publishResumeHint(targetPositionMs)
         }
         _error.value = null
         if (loadedPlayerExtrasCid != preparedPlayback.identity.cid) {
@@ -2435,6 +2515,10 @@ class VideoPlayerViewModel(
 
     fun onPlaybackFirstFrame() {
         hasReachedFirstFrame = true
+        pendingResumeToastPositionMs?.let { positionMs ->
+            pendingResumeToastPositionMs = null
+            showResumePositionToast(positionMs)
+        }
         val cid = currentCid.takeIf { it > 0L }
         if (cid != null) {
             markRecentlyPlayed(cid)
@@ -2946,14 +3030,16 @@ class VideoPlayerViewModel(
             ?: requestedQualityId
             ?: selectedQualityId
             ?: return qualityCandidates
-        if (requestedQualityId <= SOFTWARE_DECODER_SAFE_QUALITY_ID) {
+        val safeQualityId = readSoftwareDecoderSafeQualityId()
+        softwareDecoderSafeQualityId = safeQualityId
+        if (requestedQualityId <= safeQualityId) {
             return qualityCandidates
         }
-        val cappedCandidates = qualityPolicy.buildCandidates(SOFTWARE_DECODER_SAFE_QUALITY_ID)
+        val cappedCandidates = qualityPolicy.buildCandidates(safeQualityId)
         AppLog.w(
             TAG,
             "software-only decoder quality cap: requested=$requestedQualityId " +
-                "cap=$SOFTWARE_DECODER_SAFE_QUALITY_ID " +
+                "cap=$safeQualityId " +
                 "preferSoftwareSafe=$preferSoftwareDecoderSafePlayback " +
                 "hardwareCodecs=$hardwareCodecs candidates=$cappedCandidates"
         )
@@ -3007,10 +3093,11 @@ class VideoPlayerViewModel(
             return null
         }
         val preloadedQualityId = preloaded.preparedPlayback.selectionSnapshot.selectedQualityId
+        val safeQualityId = readSoftwareDecoderSafeQualityId()
         if (
             preferSoftwareDecoderSafePlayback &&
             preloadedQualityId != null &&
-            preloadedQualityId > SOFTWARE_DECODER_SAFE_QUALITY_ID
+            preloadedQualityId > safeQualityId
         ) {
             PlaybackStartupTrace.log(
                 traceId = currentStartupTraceId,
@@ -3018,7 +3105,7 @@ class VideoPlayerViewModel(
                 step = "playback_preload_discarded",
                 message = "cid=${identity.cid} source=${preloaded.source} " +
                     "quality=$preloadedQualityId " +
-                    "cap=$SOFTWARE_DECODER_SAFE_QUALITY_ID reason=software_decoder_safe"
+                    "cap=$safeQualityId reason=software_decoder_safe"
             )
             preloadedPlayback = null
             return null

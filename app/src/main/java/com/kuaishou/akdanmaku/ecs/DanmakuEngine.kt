@@ -30,7 +30,6 @@ import com.badlogic.ashley.core.PooledEngine
 import com.kuaishou.akdanmaku.*
 import com.kuaishou.akdanmaku.data.DanmakuItemData
 import com.kuaishou.akdanmaku.ecs.system.*
-import com.kuaishou.akdanmaku.ecs.system.layout.LayoutSystem
 import com.kuaishou.akdanmaku.ext.createSystem
 import com.kuaishou.akdanmaku.ext.endTrace
 import com.kuaishou.akdanmaku.ext.startTrace
@@ -38,6 +37,7 @@ import com.kuaishou.akdanmaku.layout.*
 import com.kuaishou.akdanmaku.layout.TopCenterLayouter
 import com.kuaishou.akdanmaku.layout.TopRollingLayouter
 import com.kuaishou.akdanmaku.render.DanmakuRenderer
+import com.kuaishou.akdanmaku.runtime.DanmakuRuntime
 import com.kuaishou.akdanmaku.utils.DanmakuTimer
 
 /**
@@ -65,17 +65,7 @@ class DanmakuEngine(
      * 弹幕基础 System，数据相关
      */
     private val BASE_SYSTEMS = arrayOf(
-      DanmakuSystem::class.java,
-      DataSystem::class.java
-    )
-
-    /**
-     * 展现相关的 System
-     */
-    private val VISUAL_SYSTEMS = arrayOf(
-      LayoutSystem::class.java,
-      ActionSystem::class.java,
-      RenderSystem::class.java
+      DanmakuSystem::class.java
     )
 
     private fun createDefaultLayouter() = TypedDanmakuLayouter(
@@ -97,6 +87,7 @@ class DanmakuEngine(
 
   internal val context = DanmakuContext(renderer)
   internal val timer: DanmakuTimer = context.timer
+  internal val runtime = DanmakuRuntime(context)
 
   init {
     // Add systems
@@ -106,12 +97,9 @@ class DanmakuEngine(
         this.priority = order++
       })
     }
-    VISUAL_SYSTEMS.forEach {
-      addSystem(createSystem(it, context).apply {
-        this.priority = order++
-      })
-    }
-    getSystem(LayoutSystem::class.java)?.layouter = layouter
+    // 新运行时已经接管数据、布局、缓存调度和渲染；旧视觉 System 保留源码兼容，不进入播放热路径。
+    @Suppress("UNUSED_VARIABLE")
+    val legacyLayouter = layouter
   }
 
   internal fun step(deltaTimeSeconds: Float? = null) {
@@ -131,6 +119,7 @@ class DanmakuEngine(
     timer.let {
       val interval = it.currentTimeMs - lastActTime
       update(it.deltaTimeSeconds)
+      runtime.update()
       val cost = SystemClock.elapsedRealtime() - startTime
       if (cost >= 20) {
         Log.w(
@@ -144,14 +133,13 @@ class DanmakuEngine(
   }
 
   internal fun preAct() {
-    getSystem(DataSystem::class.java)?.updateEntities()
   }
 
   /**
    * 负责绘制流程
    */
   internal fun draw(canvas: Canvas, onRenderReady: () -> Unit) {
-    getSystem(RenderSystem::class.java)?.draw(canvas, onRenderReady)
+    runtime.draw(canvas, onRenderReady)
   }
 
   internal fun getCurrentTimeMs(): Long {
@@ -159,6 +147,7 @@ class DanmakuEngine(
   }
 
   internal fun start() {
+    runtime.warmUp()
     timer.start()
     timer.paused = false
   }
@@ -169,6 +158,7 @@ class DanmakuEngine(
 
   internal fun release() {
     timer.paused = true
+    runtime.release()
     systems.forEach { system ->
       removeSystem(system)
     }
@@ -177,6 +167,7 @@ class DanmakuEngine(
 
   internal fun seekTo(positionMs: Long) {
     timer.start(positionMs)
+    runtime.seekTo(positionMs)
     context.config.updateVisibility()
     context.config.updateRetainer()
     context.config.updateLayout()
@@ -186,8 +177,13 @@ class DanmakuEngine(
     getSystem(DanmakuSystem::class.java)?.updateDanmakuConfig(danmakuConfig)
   }
 
+  internal fun setInitialConfig(danmakuConfig: DanmakuConfig) {
+    context.updateConfig(danmakuConfig)
+    getSystem(DanmakuSystem::class.java)?.clearPendingConfig()
+  }
+
   internal fun getConfig(): DanmakuConfig? {
-    return getSystem(DanmakuSystem::class.java)?.newConfig
+    return getSystem(DanmakuSystem::class.java)?.newConfig ?: context.config
   }
 
   internal fun updateTimerFactor(factor: Float) {

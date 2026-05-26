@@ -33,6 +33,10 @@ object VideoCodecSupport {
 
     fun getHardwareSupportedCodecs(): Set<VideoCodecEnum> {
         cachedHardwareCodecs?.let { return it }
+        if (isEmulatorLikeDevice()) {
+            cachedHardwareCodecs = emptySet()
+            return emptySet()
+        }
         val result = runCatching {
             MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
                 .asSequence()
@@ -47,6 +51,44 @@ object VideoCodecSupport {
         }.getOrDefault(emptySet())
         cachedHardwareCodecs = result
         return result
+    }
+
+    private fun isEmulatorLikeDevice(): Boolean {
+        val fingerprint = Build.FINGERPRINT.lowercase()
+        val board = Build.BOARD.lowercase()
+        val brand = Build.BRAND.lowercase()
+        val device = Build.DEVICE.lowercase()
+        val model = Build.MODEL.lowercase()
+        val product = Build.PRODUCT.lowercase()
+        val hardware = Build.HARDWARE.lowercase()
+        val manufacturer = Build.MANUFACTURER.lowercase()
+        val abiSummary = Build.SUPPORTED_ABIS.joinToString("|").lowercase()
+        return fingerprint.startsWith("generic") ||
+            fingerprint.contains("vbox") ||
+            fingerprint.contains("test-keys") && (hardware.contains("goldfish") || hardware.contains("ranchu")) ||
+            board.contains("goldfish") ||
+            board.contains("ranchu") ||
+            brand.startsWith("generic") ||
+            device.contains("generic") ||
+            device.contains("emulator") ||
+            device.contains("ranchu") ||
+            model.contains("emulator") ||
+            model.contains("android sdk built for") ||
+            product.contains("sdk") ||
+            product.contains("emulator") ||
+            product.contains("vbox") ||
+            hardware.contains("goldfish") ||
+            hardware.contains("ranchu") ||
+            hardware.contains("vbox") ||
+            abiSummary.contains("x86") && (
+                fingerprint.contains("generic") ||
+                    brand.startsWith("generic") ||
+                    product.contains("sdk") ||
+                    product.contains("emulator") ||
+                    hardware.contains("ranchu") ||
+                    hardware.contains("goldfish")
+                ) ||
+            manufacturer.contains("genymotion")
     }
 
     fun buildSupportSummary(supportedCodecs: Collection<VideoCodecEnum>): String {

@@ -64,6 +64,7 @@ internal class DataSystem(context: DanmakuContext) :
   private val pendingAddItems = mutableListOf<DanmakuItem>()
   private val pendingCreateItems = mutableListOf<DanmakuItem>()
   private val pendingUpdateItems = mutableListOf<DanmakuItem>()
+  private val pendingCreateIdSet = hashSetOf<Long>()
   private var shouldSort = false
   private var startTimeMills = 0L
   private var endTimeMills = 0L
@@ -91,6 +92,7 @@ internal class DataSystem(context: DanmakuContext) :
       pendingAddItems.clear()
       pendingCreateItems.clear()
       pendingUpdateItems.clear()
+      pendingCreateIdSet.clear()
     }
     sortedData.clear()
     idSet.clear()
@@ -186,6 +188,7 @@ internal class DataSystem(context: DanmakuContext) :
       updateCurrentSlice()
       forceUpdate = false
     }
+    enqueueDueCurrentData()
     createPendingItems()
   }
 
@@ -216,33 +219,57 @@ internal class DataSystem(context: DanmakuContext) :
       }
 
       startTrace("DataSystem_getCurrentEntity_${newData.size}")
-      val oldData = currentData
       currentData =
         Danmakus(Collections.synchronizedList(newData.toMutableList()), startTimeMills, endTimeMills, startIndex, endIndex)
       endTrace()
 
       startTrace("DataSystem_diffAndCreateEntity")
-      var addCount = 0
-      // 不重叠时直接添加所有 newData 至 entity
-      if (startIndex > oldData.endIndex || endIndex <= oldData.startIndex) {
-        addCount += newData.size
-        createEntityBeforeEntry(newData)
-        Log.d(DanmakuEngine.TAG, "[Data] Add all new data [$startIndex, $endIndex]")
-      } else {
-        createEntityBeforeEntry(newData)
-      }
+      // 切片只代表当前时间范围内的数据集合，Entity 延后到临近入场才创建。
+      // 这样 seek/窗口追加时不会把十几秒内的弹幕一次性测量、布局。
+      val addCount = enqueueDueItems(newData)
       endTrace()
 
       Log.d(DanmakuEngine.TAG, "[Data] Add $addCount in [$startTimeMills, $endTimeMills]")
     }
   }
 
-  private fun createEntityBeforeEntry(data: List<DanmakuItem>): Int {
-    pendingCreateItems.addAll(data)
-    return data.size
+  private fun enqueueDueCurrentData(): Int {
+    if (currentData.data.isEmpty()) return 0
+    return enqueueDueItems(currentData.data)
+  }
+
+  private fun enqueueDueItems(data: List<DanmakuItem>): Int {
+    var count = 0
+    synchronized(this) {
+      for (item in data) {
+        if (item.timePosition > entityEntryTime) {
+          continue
+        }
+        if (idSet.contains(item.data.danmakuId) || pendingCreateIdSet.contains(item.data.danmakuId)) {
+          continue
+        }
+        pendingCreateItems.add(item)
+        pendingCreateIdSet.add(item.data.danmakuId)
+        count++
+      }
+    }
+    return count
+  }
+
+  private fun enqueuePendingCreateItems(items: Collection<DanmakuItem>) {
+    synchronized(this) {
+      for (item in items) {
+        if (idSet.contains(item.data.danmakuId) || pendingCreateIdSet.contains(item.data.danmakuId)) {
+          continue
+        }
+        pendingCreateItems.add(item)
+        pendingCreateIdSet.add(item.data.danmakuId)
+      }
+    }
   }
 
   private fun createItemEntity(item: DanmakuItem) {
+    pendingCreateIdSet.remove(item.data.danmakuId)
     if (idSet.contains(item.data.danmakuId)) {
       return
     }
@@ -291,7 +318,7 @@ internal class DataSystem(context: DanmakuContext) :
       currentData.startIndex += beforeStartCount
       currentData.endIndex += (beforeStartCount + currentItems.size)
       currentData.data.addAll(currentItems)
-      pendingCreateItems.addAll(currentItems)
+      enqueuePendingCreateItems(currentItems)
       if (currentItems.isNotEmpty()) {
         currentData.shouldSort = true
       }
@@ -309,7 +336,7 @@ internal class DataSystem(context: DanmakuContext) :
     currentData.data.removeAll(currentUpdateItems)
     currentData.data.addAll(currentUpdateItems)
     currentData.data.addAll(currentItems)
-    pendingCreateItems.addAll(currentItems)
+    enqueueDueItems(currentItems)
 
     if (pendingItems.isNotEmpty() || updateItems.isNotEmpty()) {
       shouldSort = true
@@ -321,16 +348,22 @@ internal class DataSystem(context: DanmakuContext) :
     val pendingItems = synchronized(this) {
       val items = pendingCreateItems.toList()
       pendingCreateItems.clear()
+      pendingCreateIdSet.clear()
       items
     }
     val maxEntities = if (liveMode) MAX_ACTIVE_ENTITIES_LIVE else MAX_ACTIVE_ENTITIES_VIDEO
     val activeCount = getEntities().size
     val remaining = (maxEntities - activeCount).coerceAtLeast(0)
-    val createCount = minOf(remaining, MAX_CREATE_PER_TICK)
+    val createBudget = if (liveMode) MAX_CREATE_PER_TICK_LIVE else MAX_CREATE_PER_TICK_VIDEO
+    val createCount = minOf(remaining, createBudget)
     pendingItems.take(createCount).forEach(::createItemEntity)
     if (pendingItems.size > createCount) {
       synchronized(this) {
-        pendingCreateItems.addAll(pendingItems.drop(createCount))
+        for (i in createCount until pendingItems.size) {
+          val item = pendingItems[i]
+          pendingCreateItems.add(item)
+          pendingCreateIdSet.add(item.data.danmakuId)
+        }
       }
     }
   }
@@ -434,10 +467,11 @@ internal class DataSystem(context: DanmakuContext) :
   }
 
   companion object {
-    const val PRE_ENTRY_ENTITY_TIME_MS = 100L
+    const val PRE_ENTRY_ENTITY_TIME_MS = 350L
     private const val MAX_ACTIVE_ENTITIES_LIVE = 150
     private const val MAX_ACTIVE_ENTITIES_VIDEO = 500
-    private const val MAX_CREATE_PER_TICK = 80
+    private const val MAX_CREATE_PER_TICK_LIVE = 80
+    private const val MAX_CREATE_PER_TICK_VIDEO = 24
   }
 
   override fun onDataAdded(additionalItems: List<DanmakuItem>) {

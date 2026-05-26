@@ -103,4 +103,8 @@ internal class DanmakuSystem(context: DanmakuContext) : DanmakuEntitySystem(cont
   fun updateDanmakuConfig(danmakuConfig: DanmakuConfig) {
     this.newConfig = danmakuConfig
   }
+
+  fun clearPendingConfig() {
+    newConfig = null
+  }
 }

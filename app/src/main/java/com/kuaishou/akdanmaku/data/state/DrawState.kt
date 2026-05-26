@@ -26,7 +26,6 @@ package com.kuaishou.akdanmaku.data.state
 import android.graphics.Matrix
 import android.graphics.RectF
 import com.kuaishou.akdanmaku.cache.DrawingCache
-import com.kuaishou.akdanmaku.utils.onChange
 
 /**
  * 绘图状态
@@ -56,20 +55,73 @@ internal class DrawState : State() {
   var cacheGeneration: Int by generationMap
   override var generation: Int by generationMap
 
-  private val marker = { _: Float -> markDirty() }
   var drawingCache: DrawingCache = DrawingCache.EMPTY_DRAWING_CACHE
   var visibility: Boolean = false
   var alpha: Float = 1f
-  var positionX: Float by onChange(0f, marker)
-  var positionY: Float by onChange(0f, marker)
-  var width: Float by onChange(0f, marker)
-  var height: Float by onChange(0f, marker)
+  var positionX: Float = 0f
+    set(value) {
+      if (field != value) {
+        field = value
+        markDirty()
+      }
+    }
+  var positionY: Float = 0f
+    set(value) {
+      if (field != value) {
+        field = value
+        markDirty()
+      }
+    }
+  var width: Float = 0f
+    set(value) {
+      if (field != value) {
+        field = value
+        markDirty()
+      }
+    }
+  var height: Float = 0f
+    set(value) {
+      if (field != value) {
+        field = value
+        markDirty()
+      }
+    }
 
-  var translateX: Float by onChange(0f, marker)
-  var translateY: Float by onChange(0f, marker)
-  var scaleX: Float by onChange(1f, marker)
-  var scaleY: Float by onChange(1f, marker)
-  var rotation: Float by onChange(0f, marker)
+  var translateX: Float = 0f
+    set(value) {
+      if (field != value) {
+        field = value
+        markDirty()
+      }
+    }
+  var translateY: Float = 0f
+    set(value) {
+      if (field != value) {
+        field = value
+        markDirty()
+      }
+    }
+  var scaleX: Float = 1f
+    set(value) {
+      if (field != value) {
+        field = value
+        markDirty()
+      }
+    }
+  var scaleY: Float = 1f
+    set(value) {
+      if (field != value) {
+        field = value
+        markDirty()
+      }
+    }
+  var rotation: Float = 0f
+    set(value) {
+      if (field != value) {
+        field = value
+        markDirty()
+      }
+    }
 
   fun isMeasured(measureGeneration: Int): Boolean = width > 0f && height > 0f &&
     this.measureGeneration == measureGeneration

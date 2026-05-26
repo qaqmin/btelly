@@ -41,6 +41,7 @@ import com.kuaishou.akdanmaku.ui.DanmakuDisplayer
 import com.kuaishou.akdanmaku.utils.Size
 import com.btelly.feature.player.view.VipDanmakuTextureCache
 import java.util.HashMap
+import java.util.LinkedHashMap
 import kotlin.math.roundToInt
 
 /**
@@ -113,9 +114,21 @@ open class SimpleRenderer : DanmakuRenderer {
   ): Size {
     updatePaint(item, displayer, config)
     val danmakuItemData = item.data
+    val key = measureCacheKey(
+      content = danmakuItemData.content,
+      textSize = textPaint.textSize,
+      bold = config.bold
+    )
+    synchronized(measureCache) {
+      measureCache[key]?.let { return it }
+    }
     val textWidth = textPaint.measureText(danmakuItemData.content)
     val textHeight = getCacheHeight(textPaint)
-    return Size(textWidth.roundToInt() + CANVAS_PADDING, textHeight.roundToInt() + CANVAS_PADDING)
+    val size = Size(textWidth.roundToInt() + CANVAS_PADDING, textHeight.roundToInt() + CANVAS_PADDING)
+    synchronized(measureCache) {
+      measureCache[key] = size
+    }
+    return size
   }
 
   override fun draw(
@@ -352,6 +365,11 @@ open class SimpleRenderer : DanmakuRenderer {
     private val sTextHeightCache: MutableMap<Float, Float> = HashMap()
     private val vipPaletteCache = HashMap<Int, IntArray>()
     private val vipShaderCache = HashMap<String, LinearGradient>()
+    private val measureCache = object : LinkedHashMap<Long, Size>(512, 0.75f, true) {
+      override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Size>?): Boolean {
+        return size > MEASURE_CACHE_MAX
+      }
+    }
 
     private fun getCacheHeight(paint: Paint): Float {
       val textSize = paint.textSize
@@ -362,5 +380,15 @@ open class SimpleRenderer : DanmakuRenderer {
         textHeight
       }
     }
+
+    private fun measureCacheKey(content: String, textSize: Float, bold: Boolean): Long {
+      var acc = 1469598103934665603L
+      acc = (acc xor content.hashCode().toLong()) * 1099511628211L
+      acc = (acc xor textSize.toBits().toLong()) * 1099511628211L
+      acc = (acc xor if (bold) 1L else 0L) * 1099511628211L
+      return acc
+    }
+
+    private const val MEASURE_CACHE_MAX = 2048
   }
 }

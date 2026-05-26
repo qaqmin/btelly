@@ -139,6 +139,8 @@ internal class RenderSystem(context: DanmakuContext) : DanmakuEntitySystem(conte
     // 链式调用每帧产生的两次 ArrayList 分配。
     var i = 0
     val total = entities.size()
+    var hasRolling = false
+    var hasFixed = false
     while (i < total) {
       val entity = entities[i]
       i++
@@ -170,21 +172,34 @@ internal class RenderSystem(context: DanmakuContext) : DanmakuEntitySystem(conte
         action.toTransformMatrix(obj.transform)
         obj.alpha = action.alpha
         obj.transform.postConcat(drawState.transform)
+        obj.simpleTranslate = false
       } else {
-        obj.transform.set(drawState.transform)
+        obj.transform.reset()
+        obj.simpleTranslate = true
       }
       obj.position.set(drawState.positionX, drawState.positionY)
-      obj.rect.set(drawState.rect)
+      // 普通滚动弹幕只需要 x/y 绘制，不在每帧强制刷新 DrawState.rect。
+      // 命中测试和 debug 绘制走轻量 bounds 计算，减少 TV 4K 下的主线程热路径开销。
+      if (!obj.simpleTranslate || debugPaint != null) {
+        obj.rect.set(drawState.rect)
+      } else {
+        obj.rect.setEmpty()
+      }
       if (item.isHolding) {
         obj.alpha = 1f
         obj.holding = true
       }
       newRenderObjects.add(obj)
+      if (item.data.mode == DanmakuItemData.DANMAKU_MODE_ROLLING) {
+        hasRolling = true
+      } else {
+        hasFixed = true
+      }
     }
 
     // 按弹幕类型排序：滚动弹幕先绘制（底层），顶部/底部弹幕后绘制（顶层）。
     // 使用提前缓存的 Comparator 避免每帧分配 lambda。
-    if (newRenderObjects.size > 1) {
+    if (hasRolling && hasFixed && newRenderObjects.size > 1) {
       newRenderObjects.sortWith(renderOrderComparator)
     }
 
@@ -284,7 +299,13 @@ internal class RenderSystem(context: DanmakuContext) : DanmakuEntitySystem(conte
       val displayer = danmakuDisplayer
       renderResult.renderObjects.forEach { renderObj ->
         debugPaint?.let {
-          canvas.drawRect(renderObj.rect, it)
+          canvas.drawRect(
+            renderLeft(renderObj),
+            renderTop(renderObj),
+            renderRight(renderObj),
+            renderBottom(renderObj),
+            it
+          )
         }
         if (renderObj.holding) {
           holdingObj = renderObj
@@ -317,22 +338,48 @@ internal class RenderSystem(context: DanmakuContext) : DanmakuEntitySystem(conte
   fun getDanmakus(point: Point): List<DanmakuItem>? {
     if (!danmakuContext.config.visibility) return null
     val renderResult = this.renderResult ?: return null
-    return renderResult.renderObjects
-      .asSequence()
-      .filter { it.rect.contains(point.x.toFloat(), point.y.toFloat()) }
-      .map { r -> r.item }
-      .toList()
+    val result = ArrayList<DanmakuItem>()
+    val x = point.x.toFloat()
+    val y = point.y.toFloat()
+    for (obj in renderResult.renderObjects) {
+      if (containsRenderObject(obj, x, y)) {
+        result.add(obj.item)
+      }
+    }
+    return result
   }
 
   fun getDanmakus(rect: RectF): List<DanmakuItem>? {
     if (!danmakuContext.config.visibility) return null
     val renderResult = this.renderResult ?: return null
-    return renderResult.renderObjects
-      .asSequence()
-      .filter { it.rect.intersects(rect.left, rect.top, rect.right, rect.bottom) }
-      .map { r -> r.item }
-      .toList()
+    val result = ArrayList<DanmakuItem>()
+    for (obj in renderResult.renderObjects) {
+      if (intersectsRenderObject(obj, rect)) {
+        result.add(obj.item)
+      }
+    }
+    return result
   }
+
+  private fun containsRenderObject(obj: RenderObject, x: Float, y: Float): Boolean =
+    x >= renderLeft(obj) && x <= renderRight(obj) &&
+      y >= renderTop(obj) && y <= renderBottom(obj)
+
+  private fun intersectsRenderObject(obj: RenderObject, rect: RectF): Boolean =
+    rect.left < renderRight(obj) && rect.right > renderLeft(obj) &&
+      rect.top < renderBottom(obj) && rect.bottom > renderTop(obj)
+
+  private fun renderLeft(obj: RenderObject): Float =
+    if (obj.simpleTranslate) obj.position.x else obj.rect.left
+
+  private fun renderTop(obj: RenderObject): Float =
+    if (obj.simpleTranslate) obj.position.y else obj.rect.top
+
+  private fun renderRight(obj: RenderObject): Float =
+    if (obj.simpleTranslate) obj.position.x + obj.item.drawState.width else obj.rect.right
+
+  private fun renderBottom(obj: RenderObject): Float =
+    if (obj.simpleTranslate) obj.position.y + obj.item.drawState.height else obj.rect.bottom
 
   private fun drawRenderObject(
     canvas: Canvas,
@@ -346,7 +393,11 @@ internal class RenderSystem(context: DanmakuContext) : DanmakuEntitySystem(conte
       obj.item.state >= ItemState.Rendered) {
       obj.drawingCache.get()?.bitmap?.let {
         if (it.isRecycled) return false
-        canvas.drawBitmap(it, obj.transform, drawPaint)
+        if (obj.simpleTranslate) {
+          canvas.drawBitmap(it, obj.position.x, obj.position.y, drawPaint)
+        } else {
+          canvas.drawBitmap(it, obj.transform, drawPaint)
+        }
         true
       } ?: false
     } else {
@@ -381,6 +432,7 @@ internal class RenderSystem(context: DanmakuContext) : DanmakuEntitySystem(conte
         transform.reset()
         alpha = 1f
         holding = false
+        simpleTranslate = false
       }
     }
   }
