@@ -194,7 +194,11 @@ object WebmaskParser {
 
     private fun svgPathToAndroidPath(d: String, viewWidth: Float, viewHeight: Float): Path? {
         try {
-            val path = Path()
+            // webmask 协议的 path 是「整画面减人物」的带洞填充，B 站编码端用 SVG fill-rule="evenodd"
+            // 表达"外圈减内圈"——外轮廓 + 人物轮廓内圈相消才能让人物区域成为"洞"。
+            // Android Path 默认 WINDING（非零环绕规则）会把内圈也算成 fill 内部，clipPath 时
+            // 人物区域反而被算作"允许绘制"，弹幕从人物身上漏出来——必须显式改成 EVEN_ODD。
+            val path = Path().apply { fillType = Path.FillType.EVEN_ODD }
             val tokens = tokenizeSvgPath(d.trim())
             var i = 0
             var currentCommand = 'M'

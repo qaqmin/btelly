@@ -243,12 +243,27 @@ class MyPlayerView @JvmOverloads constructor(
     private var timebarSeekTargetMs = 0L
     private val timebarSeekIdleTimeoutMs = 200L
 
+    // mask provider 的复用容器：videoBoundsProvider 由 host.dispatchDraw 60Hz 调用，
+    // 每帧 new Rect + 2 个 IntArray 会触发可观的 minor GC，复用单例消除分配。
+    // 仅主线程访问（dispatchDraw 在主线程），无需同步。
+    private val reusableMaskBoundsRect = android.graphics.Rect()
+    private val reusableSurfaceLoc = IntArray(2)
+    private val reusableHostLoc = IntArray(2)
+
     private val maskVideoBoundsProvider: () -> android.graphics.Rect = {
         computeMaskVideoBounds()
     }
 
     private val maskPtsProvider: () -> Long = {
         dmMaskController.currentVideoPtsMs()
+    }
+
+    private val maskShouldRenderProvider: () -> Boolean = {
+        dmMaskController.shouldRenderMask()
+    }
+
+    private val maskFrameQueryReporter: (Long, Long) -> Unit = { queryPts, framePts ->
+        dmMaskController.reportFrameQuery(queryPts, framePts)
     }
 
     interface ControllerVisibilityListener {
@@ -670,19 +685,25 @@ class MyPlayerView @JvmOverloads constructor(
      * 触发时机：每次 DanmakuMaskHostLayout.dispatchDraw 时实时读取。
      */
     private fun computeMaskVideoBounds(): android.graphics.Rect {
+        val rect = reusableMaskBoundsRect
         val surface = videoSurfaceView
         val maskHost = dmkMaskHost
-        if (surface == null || maskHost == null) return android.graphics.Rect()
+        if (surface == null || maskHost == null) {
+            rect.setEmpty()
+            return rect
+        }
         val w = surface.width
         val h = surface.height
-        if (w <= 0 || h <= 0) return android.graphics.Rect()
-        val surfaceLoc = IntArray(2)
-        val hostLoc = IntArray(2)
-        surface.getLocationInWindow(surfaceLoc)
-        maskHost.getLocationInWindow(hostLoc)
-        val left = surfaceLoc[0] - hostLoc[0]
-        val top = surfaceLoc[1] - hostLoc[1]
-        return android.graphics.Rect(left, top, left + w, top + h)
+        if (w <= 0 || h <= 0) {
+            rect.setEmpty()
+            return rect
+        }
+        surface.getLocationInWindow(reusableSurfaceLoc)
+        maskHost.getLocationInWindow(reusableHostLoc)
+        val left = reusableSurfaceLoc[0] - reusableHostLoc[0]
+        val top = reusableSurfaceLoc[1] - reusableHostLoc[1]
+        rect.set(left, top, left + w, top + h)
+        return rect
     }
 
     private fun updateBuffering() {
@@ -1850,6 +1871,8 @@ class MyPlayerView @JvmOverloads constructor(
             if (host.ptsProvider == null) {
                 host.ptsProvider = maskPtsProvider
                 host.videoBoundsProvider = maskVideoBoundsProvider
+                host.shouldRenderMask = maskShouldRenderProvider
+                host.frameQueryReporter = maskFrameQueryReporter
             }
         }
         if (forceSeek) {
@@ -1873,6 +1896,8 @@ class MyPlayerView @JvmOverloads constructor(
             dmkMaskHost?.let { host ->
                 host.ptsProvider = maskPtsProvider
                 host.videoBoundsProvider = maskVideoBoundsProvider
+                host.shouldRenderMask = maskShouldRenderProvider
+                host.frameQueryReporter = maskFrameQueryReporter
             }
             dmMaskController.setEnabled(true)
         }
