@@ -814,6 +814,15 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
             pendingInitialVideoFocusAfterFirstDraw = false
             binding.recyclerViewRight.post {
                 if (isAdded && view != null && videoAdapter.itemCount > 0) {
+                    val focused = activity?.currentFocus
+                    if (focused != null &&
+                        focused !== binding.recyclerViewRight &&
+                        focused !== binding.recyclerViewLeft &&
+                        !focused.isDescendantOf(binding.recyclerViewRight) &&
+                        !focused.isDescendantOf(binding.recyclerViewLeft)
+                    ) {
+                        return@post
+                    }
                     requestPreferredContentFocus(fallbackToAlternate = true)
                 }
             }
