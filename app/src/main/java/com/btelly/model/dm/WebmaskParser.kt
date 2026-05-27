@@ -62,7 +62,7 @@ object WebmaskParser {
         return DmMaskData(fps = fps, rawSegments = segments)
     }
 
-    fun parseSegmentFrames(segment: LazyMaskSegment, fps: Int): List<MaskFrame>? {
+    fun parseSegmentFrames(segment: LazyMaskSegment, fps: Int, segDurationMs: Long = 0L): List<MaskFrame>? {
         val data = segment.rawData ?: return null
         val startOffset = segment.startOffset
         val endOffset = segment.endOffset
@@ -86,13 +86,17 @@ object WebmaskParser {
 
         var diagLogged = false
         var emptyCount = 0
+        val totalFrames = parts.size - 1
+        val frameIntervalMs = if (fps > 0 && totalFrames > 0) segDurationMs / totalFrames else 0L
         val frames = mutableListOf<MaskFrame>()
         for (frameIdx in 1 until parts.size) {
+            val localIdx = frameIdx - 1
+            val ptsMs = segment.timeMs + localIdx * frameIntervalMs
             val b64Data = parts[frameIdx]
             val svgBytes = try {
                 Base64.decode(b64Data, Base64.DEFAULT)
             } catch (e: Exception) {
-                frames.add(MaskFrame(paths = emptyList()))
+                frames.add(MaskFrame(presentationTimeMs = ptsMs, paths = emptyList()))
                 emptyCount++
                 continue
             }
@@ -105,6 +109,7 @@ object WebmaskParser {
             if (parsed.paths.isEmpty()) emptyCount++
             frames.add(
                 MaskFrame(
+                    presentationTimeMs = ptsMs,
                     paths = parsed.paths,
                     svgWidth = parsed.width,
                     svgHeight = parsed.height,
@@ -113,14 +118,18 @@ object WebmaskParser {
         }
 
         // 前向填充：空帧用前一个有 path 的帧替代，避免遮罩冻结。
-        // 直接复用整个 MaskFrame 对象，paths 与 svgWidth/svgHeight 一并继承，确保竖屏数据
-        // 的 SVG 标定尺寸不会因为 forward fill 而丢失。
         var lastFrame: MaskFrame? = null
         for (i in frames.indices) {
             if (frames[i].paths.isNotEmpty()) {
                 lastFrame = frames[i]
             } else if (lastFrame != null) {
-                frames[i] = lastFrame
+                // 保留当前帧的 PTS，只继承 paths/svgWidth/svgHeight
+                frames[i] = MaskFrame(
+                    presentationTimeMs = frames[i].presentationTimeMs,
+                    paths = lastFrame.paths,
+                    svgWidth = lastFrame.svgWidth,
+                    svgHeight = lastFrame.svgHeight,
+                )
                 emptyCount--
             }
         }

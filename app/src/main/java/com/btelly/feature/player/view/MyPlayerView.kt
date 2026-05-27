@@ -6,12 +6,10 @@ import android.content.Context
 import android.graphics.Color
 import android.os.Build
 import android.os.Handler
-import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.Choreographer
-import android.view.FrameMetrics
 import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.LayoutInflater
@@ -21,14 +19,12 @@ import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewConfiguration
-import android.view.Window
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.view.ViewStub
 import androidx.annotation.OptIn
-import androidx.annotation.RequiresApi
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
@@ -184,7 +180,6 @@ class MyPlayerView @JvmOverloads constructor(
         repository = DmMaskRepository()
     ).also {
         it.playerPositionProvider = { player?.currentPosition ?: 0L }
-        // Choreographer vsync 驱动 mask 更新，不再依赖 DanmakuView.onDraw
     }
 
     /**
@@ -199,16 +194,6 @@ class MyPlayerView @JvmOverloads constructor(
         dmMaskController.onVideoFrameAnchor(presentationTimeUs, releaseTimeNs)
     }
 
-    /**
-     * Window FrameMetrics 处理：API 24+ 持续推送上一帧的渲染管道时延。我们把它实测值
-     * 推给 mask 控制器做 EMA，让"mask 上屏延迟估计"自适应当前设备/负载状态，
-     * 替代原来的硬编码 33ms。
-     *
-     * 在独立的 [HandlerThread] 上接收 metrics，避免主线程被 metric 计算挤占。
-     */
-    private var frameMetricsThread: HandlerThread? = null
-    private var frameMetricsHandler: Handler? = null
-    private var frameMetricsListener: Window.OnFrameMetricsAvailableListener? = null
     private var uiFrameMonitorStarted = false
     private var lastUiFrameTimeNs = 0L
     private val uiFrameCallback = object : Choreographer.FrameCallback {
@@ -258,14 +243,12 @@ class MyPlayerView @JvmOverloads constructor(
     private var timebarSeekTargetMs = 0L
     private val timebarSeekIdleTimeoutMs = 200L
 
-    // 必须放在 init {} 之前，否则 init 中的 setupSurfaceView() 会先访问到 null 字段，
-    // 造成 ViewRoot performLayout 时 OnLayoutChangeListener 列表里有 null → NPE 崩溃。
-    private val maskBoundsUpdater = Runnable { updateMaskVideoBounds() }
+    private val maskVideoBoundsProvider: () -> android.graphics.Rect = {
+        computeMaskVideoBounds()
+    }
 
-    private val maskBoundsLayoutListener = OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-        // post 到下一帧，等待 surface view 完成 layout 后再读尺寸，避免拿到中间状态。
-        handler.removeCallbacks(maskBoundsUpdater)
-        handler.post(maskBoundsUpdater)
+    private val maskPtsProvider: () -> Long = {
+        dmMaskController.currentVideoPtsMs()
     }
 
     interface ControllerVisibilityListener {
@@ -340,8 +323,6 @@ class MyPlayerView @JvmOverloads constructor(
 
         override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
             updateAspectRatio()
-            // 视频分辨率/像素宽高比变化会让 letterbox 矩形改变，立即同步给 mask。
-            updateMaskVideoBounds()
         }
 
         override fun onRenderedFirstFrame() {
@@ -408,9 +389,6 @@ class MyPlayerView @JvmOverloads constructor(
             surfaceView.layoutParams = layoutParams
             videoSurfaceView = surfaceView
             frame.addView(surfaceView, 0)
-            // 监听 video surface 与 mask host 的 layout，让 mask 缩放始终对齐视频实际显示矩形。
-            surfaceView.addOnLayoutChangeListener(maskBoundsLayoutListener)
-            dmkMaskHost?.addOnLayoutChangeListener(maskBoundsLayoutListener)
         }
     }
 
@@ -689,22 +667,22 @@ class MyPlayerView @JvmOverloads constructor(
 
     /**
      * 把 video surface 的当前显示矩形换算到 maskHost 坐标系，推送给 [DmMaskController]。
-     * 触发时机：video size 变化、resize mode 切换、surface view 重新 layout、mask host 自身 layout 变化。
+     * 触发时机：每次 DanmakuMaskHostLayout.dispatchDraw 时实时读取。
      */
-    private fun updateMaskVideoBounds() {
-        val surface = videoSurfaceView ?: return
-        val maskHost = dmkMaskHost ?: return
+    private fun computeMaskVideoBounds(): android.graphics.Rect {
+        val surface = videoSurfaceView
+        val maskHost = dmkMaskHost
+        if (surface == null || maskHost == null) return android.graphics.Rect()
         val w = surface.width
         val h = surface.height
-        if (w <= 0 || h <= 0) return
-        // surface view 与 mask host 都以 player view 为根，可直接用 view-tree 内坐标差。
+        if (w <= 0 || h <= 0) return android.graphics.Rect()
         val surfaceLoc = IntArray(2)
         val hostLoc = IntArray(2)
         surface.getLocationInWindow(surfaceLoc)
         maskHost.getLocationInWindow(hostLoc)
         val left = surfaceLoc[0] - hostLoc[0]
         val top = surfaceLoc[1] - hostLoc[1]
-        dmMaskController.setVideoBounds(left, top, w, h)
+        return android.graphics.Rect(left, top, left + w, top + h)
     }
 
     private fun updateBuffering() {
@@ -1361,10 +1339,6 @@ class MyPlayerView @JvmOverloads constructor(
     fun setResizeMode(resizeMode: Int) {
         contentFrame?.setResizeMode(resizeMode)
         settingView?.setCurrentScreenRatio(resizeMode)
-        // resize mode 变化会改变 letterbox 大小；surface view 完成 layout 后自然会回调
-        // maskBoundsLayoutListener，这里再 post 一次防止边界 case 漏掉。
-        handler.removeCallbacks(maskBoundsUpdater)
-        handler.post(maskBoundsUpdater)
     }
 
     fun setTitle(title: String?) {
@@ -1558,14 +1532,12 @@ class MyPlayerView @JvmOverloads constructor(
         // 首次开启镜像：从 SurfaceView 切换到 TextureView
         currentPlayer.clearVideoSurfaceView(currentSurface as SurfaceView)
         frame.removeView(currentSurface)
-        currentSurface.removeOnLayoutChangeListener(maskBoundsLayoutListener)
 
         val layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
         val textureView = TextureView(context)
         textureView.layoutParams = layoutParams
         videoSurfaceView = textureView
         frame.addView(textureView, 0)
-        textureView.addOnLayoutChangeListener(maskBoundsLayoutListener)
         currentPlayer.setVideoTextureView(textureView)
 
         // 布局完成后再设置 scaleX，避免 TV 设备硬件层尺寸异常
@@ -1742,8 +1714,6 @@ class MyPlayerView @JvmOverloads constructor(
         controller?.removeVisibilityListener(controllerComponentListener)
         handler.removeCallbacksAndMessages(null)
         stopUiFrameMonitor()
-        // 反注册 FrameMetrics 并停掉后台线程（onDetachedFromWindow 通常会先走，但 destroy 兜底）。
-        uninstallFrameMetricsListener()
         danmakuController.release()
         specialDanmakuController.release()
         dmMaskController.dispose()
@@ -1752,16 +1722,11 @@ class MyPlayerView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         startUiFrameMonitor()
-        // FrameMetrics API 24+，旧设备静默回退到 [DmMaskController] 内部硬编码默认值。
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            installFrameMetricsListener()
-        }
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         stopUiFrameMonitor()
-        uninstallFrameMetricsListener()
     }
 
     private fun startUiFrameMonitor() {
@@ -1776,49 +1741,6 @@ class MyPlayerView @JvmOverloads constructor(
         uiFrameMonitorStarted = false
         lastUiFrameTimeNs = 0L
         Choreographer.getInstance().removeFrameCallback(uiFrameCallback)
-    }
-
-    @RequiresApi(Build.VERSION_CODES.N)
-    private fun installFrameMetricsListener() {
-        if (frameMetricsListener != null) return
-        val activity = context as? Activity ?: return
-        val window = activity.window ?: return
-        val thread = HandlerThread("mask-frame-metrics", Thread.NORM_PRIORITY - 1).apply { start() }
-        val handler = Handler(thread.looper)
-        // 各阶段毫秒粒度延迟：合并起来 ≈ 应用层渲染管道总耗时。
-        // 不取 TOTAL_DURATION，因为它包含了"等待下一个 vsync"的空闲时间，会高估实际工作量。
-        val listener = Window.OnFrameMetricsAvailableListener { _, metrics, _ ->
-            try {
-                val draw = metrics.getMetric(FrameMetrics.DRAW_DURATION)
-                val sync = metrics.getMetric(FrameMetrics.SYNC_DURATION)
-                val issue = metrics.getMetric(FrameMetrics.COMMAND_ISSUE_DURATION)
-                val swap = metrics.getMetric(FrameMetrics.SWAP_BUFFERS_DURATION)
-                val app = draw + sync + issue + swap
-                if (app > 0L) {
-                    dmMaskController.onMaskFrameMetrics(app)
-                }
-            } catch (_: Throwable) {
-                // 某些 metric 在特定设备上不可用：忽略此帧，不影响主功能。
-            }
-        }
-        window.addOnFrameMetricsAvailableListener(listener, handler)
-        frameMetricsThread = thread
-        frameMetricsHandler = handler
-        frameMetricsListener = listener
-    }
-
-    private fun uninstallFrameMetricsListener() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            val activity = context as? Activity
-            val listener = frameMetricsListener
-            if (activity != null && listener != null) {
-                activity.window?.removeOnFrameMetricsAvailableListener(listener)
-            }
-        }
-        frameMetricsThread?.quitSafely()
-        frameMetricsThread = null
-        frameMetricsHandler = null
-        frameMetricsListener = null
     }
 
     fun cancelInDoubleTapMode() {
@@ -1923,19 +1845,17 @@ class MyPlayerView @JvmOverloads constructor(
     fun syncDanmakuPosition(positionMs: Long, forceSeek: Boolean = false) {
         danmakuController.syncPosition(positionMs, forceSeek)
         specialDanmakuController.syncPosition(positionMs, forceSeek)
-        // mask buffer 的尺寸必须用 maskHost（最终绘制目标）而不是 dmkView，否则与
-        // [updateMaskVideoBounds] 推过去的 videoBounds（也是 maskHost 坐标系）不在同一参考系，
-        // path 缩放后会出现像素级偏移，看起来像"贴合不上"。
-        val host = dmkMaskHost
-        dmMaskController.onViewSizeChanged(host?.width ?: 0, host?.height ?: 0)
-        // 关键：mask 的连续播放更新由 [DmMaskController.frameCallback] 独占（vsync 60Hz +
-        // 视频帧 anchor 精确推算）。这里**只在 seek 时**额外推一次位置，让 mask 立即清空旧内容
-        // 并按目标位置重渲染；非 seek 路径若并行 push 会与 frameCallback 用不同的 lookahead 公式
-        // 互相打架，导致 mask 帧在两个相邻帧之间"瞬移跳变"，肉眼即"对不齐 / 抖动"。
+        // 注入 providers 到 host layout（如果尚未注入）
+        dmkMaskHost?.let { host ->
+            if (host.ptsProvider == null) {
+                host.ptsProvider = maskPtsProvider
+                host.videoBoundsProvider = maskVideoBoundsProvider
+            }
+        }
         if (forceSeek) {
             dmMaskController.onSeek()
-            dmMaskController.onPositionChanged(positionMs)
         }
+        dmMaskController.pushMaskUpdate()
     }
 
     fun setDmMaskRepository(repository: com.btelly.model.dm.DmMaskRepository) {
@@ -1950,7 +1870,10 @@ class MyPlayerView @JvmOverloads constructor(
         }
         val success = dmMaskController.loadMask(maskUrl, cid, fps)
         if (success) {
-            dmMaskController.onViewSizeChanged(dmkView?.width ?: 0, dmkView?.height ?: 0)
+            dmkMaskHost?.let { host ->
+                host.ptsProvider = maskPtsProvider
+                host.videoBoundsProvider = maskVideoBoundsProvider
+            }
             dmMaskController.setEnabled(true)
         }
         return success

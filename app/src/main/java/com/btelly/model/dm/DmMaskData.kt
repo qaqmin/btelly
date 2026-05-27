@@ -13,20 +13,16 @@ data class LazyMaskSegment(
     val endOffset: Int,
     val rawData: ByteArray? = null
 ) {
-    // 延迟解析的帧缓存
     @Volatile
     var cachedFrames: List<MaskFrame>? = null
 }
 
 data class MaskFrame(
+    /** 该帧对应的视频 PTS（毫秒），由段起始时间 + 帧索引推算。 */
+    val presentationTimeMs: Long,
     val paths: List<Path>,
-    /**
-     * 该帧对应 SVG 标定的宽度（像素）。webmask 协议下，横屏视频常见为 320，竖屏视频则可能
-     * 是 180、240 等小一号尺寸。**0 表示未知**——回退到旧的 320×180 兼容路径。
-     *
-     * 渲染时需要按 `videoWidth / svgWidth, videoHeight / svgHeight` 缩放 path 坐标系，硬
-     * 编码 320×180 会让竖屏视频严重错位。
-     */
+    /** SVG 标定宽度，0 表示未知（回退 320）。 */
     val svgWidth: Int = 0,
+    /** SVG 标定高度，0 表示未知（回退 180）。 */
     val svgHeight: Int = 0,
 )

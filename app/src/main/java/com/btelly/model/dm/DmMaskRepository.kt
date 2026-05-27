@@ -15,6 +15,7 @@ class DmMaskRepository {
     }
 
     private val cache = LruCache<Long, DmMaskData>(MAX_CACHE_SIZE)
+    private val timelineCache = LruCache<Long, DmMaskTimeline>(MAX_CACHE_SIZE)
 
     suspend fun downloadAndParse(maskUrl: String, cid: Long, fps: Int): DmMaskData? {
         cache.get(cid)?.let {
@@ -39,14 +40,14 @@ class DmMaskRepository {
 
                 val maskData = WebmaskParser.parse(data, fps)
                 if (maskData != null) {
-                    if (maskData.rawSegments.isNotEmpty()) {
-                        WebmaskParser.parseSegmentFrames(maskData.rawSegments[0], maskData.fps)?.let {
-                            maskData.rawSegments[0].cachedFrames = it
-                            AppLog.d(TAG, "Segment pre-parsed: seg=0, frames=${it.size}")
-                        }
+                    // 预解析所有 segment 并构建时间线
+                    val timeline = DmMaskTimeline.build(maskData)
+                    if (timeline != null) {
+                        timelineCache.put(cid, timeline)
                     }
                     cache.put(cid, maskData)
-                    AppLog.d(TAG, "Webmask parsed: cid=$cid, segments=${maskData.rawSegments.size}, fps=$fps")
+                    AppLog.d(TAG, "Webmask parsed: cid=$cid, segments=${maskData.rawSegments.size}, " +
+                        "fps=$fps, timelineSegs=${timeline?.totalSegments() ?: 0}")
                 }
                 maskData
             } catch (e: Exception) {
@@ -55,6 +56,13 @@ class DmMaskRepository {
             }
         }
     }
+
+    /** 通过时间线查询指定 PTS 最近的帧（O(log N)），供新的 clipOutPath 渲染路径使用。 */
+    fun queryTimelineFrame(cid: Long, ptsMs: Long): MaskFrame? {
+        return timelineCache.get(cid)?.queryAt(ptsMs)
+    }
+
+    fun getTimeline(cid: Long): DmMaskTimeline? = timelineCache.get(cid)
 
     data class FrameResult(
         val frame: MaskFrame,
@@ -78,7 +86,12 @@ class DmMaskRepository {
 
         var frames = segment.cachedFrames
         if (frames == null) {
-            frames = WebmaskParser.parseSegmentFrames(segment, maskData.fps) ?: emptyList()
+            val segDurationMs = if (segIndex + 1 < segments.size) {
+                (segments[segIndex + 1].timeMs - segment.timeMs).coerceAtLeast(1)
+            } else {
+                (300L * 1000L / maskData.fps.coerceAtLeast(1)).coerceAtLeast(1)
+            }
+            frames = WebmaskParser.parseSegmentFrames(segment, maskData.fps, segDurationMs) ?: emptyList()
             segment.cachedFrames = frames
             AppLog.d(TAG, "Segment parsed: seg=$segIndex, timeMs=${segment.timeMs}, frames=${frames.size}")
         }
@@ -90,9 +103,6 @@ class DmMaskRepository {
         } else {
             (frames.size.toLong() * 1000L / maskData.fps.coerceAtLeast(1)).coerceAtLeast(1)
         }
-        // 四舍五入到最近一帧——floor 会让 mask 永远显示"过去最近的帧"，平均滞后 +半帧
-        // (30fps 即 +16.7ms)。改为 round 后误差变成 ±半帧、平均 ~0，肉眼感知的"延迟"
-        // 直接减半。等价于在 query 上加 segDurationMs/(2*frames.size) 的 lookahead。
         val frameIndex = ((offsetMs * frames.size + segDurationMs / 2) / segDurationMs).toInt()
             .coerceIn(0, frames.size - 1)
 
@@ -110,16 +120,23 @@ class DmMaskRepository {
         if (segIndex < 0 || segIndex >= segments.size) return
         val segment = segments[segIndex]
         if (segment.cachedFrames != null) return
-        val frames = WebmaskParser.parseSegmentFrames(segment, maskData.fps) ?: emptyList()
+        val segDurationMs = if (segIndex + 1 < segments.size) {
+            (segments[segIndex + 1].timeMs - segment.timeMs).coerceAtLeast(1)
+        } else {
+            (300L * 1000L / maskData.fps.coerceAtLeast(1)).coerceAtLeast(1)
+        }
+        val frames = WebmaskParser.parseSegmentFrames(segment, maskData.fps, segDurationMs) ?: emptyList()
         segment.cachedFrames = frames
         AppLog.d(TAG, "Segment preloaded: seg=$segIndex, frames=${frames.size}")
     }
 
     fun clear(cid: Long) {
         cache.remove(cid)
+        timelineCache.remove(cid)
     }
 
     fun clearAll() {
         cache.evictAll()
+        timelineCache.evictAll()
     }
 }
