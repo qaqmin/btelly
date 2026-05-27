@@ -37,12 +37,12 @@ class CircleClipTapView @JvmOverloads constructor(
         backgroundPaint.apply {
             style = Paint.Style.FILL
             isAntiAlias = true
-            color = ContextCompat.getColor(context, R.color.dtpv_yt_background_circle_color)
+            color = ContextCompat.getColor(context, R.color.seek_overlay_background_circle_color)
         }
         circlePaint.apply {
             style = Paint.Style.FILL
             isAntiAlias = true
-            color = ContextCompat.getColor(context, R.color.dtpv_yt_tap_circle_color)
+            color = ContextCompat.getColor(context, R.color.seek_overlay_tap_circle_color)
         }
 
         val displayMetrics: DisplayMetrics = context.resources.displayMetrics

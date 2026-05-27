@@ -32,7 +32,7 @@ import com.kuaishou.akdanmaku.data.DanmakuItem
 import com.kuaishou.akdanmaku.data.DanmakuItemData
 import com.kuaishou.akdanmaku.data.ItemState
 import com.kuaishou.akdanmaku.data.state.DrawState
-import com.kuaishou.akdanmaku.ecs.DanmakuEngine
+import com.kuaishou.akdanmaku.engine.DanmakuEngine
 import com.kuaishou.akdanmaku.ext.endTrace
 import com.kuaishou.akdanmaku.ext.startTrace
 import com.kuaishou.akdanmaku.render.DanmakuRenderer
@@ -172,11 +172,19 @@ class CacheManager(private val callbackHandler: Handler, private val renderer: D
           val drawState = item.drawState
           // check measure
           if (!drawState.isMeasured(config.measureGeneration)) {
-            val size = renderer.measure(item, info.displayer, config)
-            drawState.width = size.width.toFloat()
-            drawState.height = size.height.toFloat()
-            drawState.measureGeneration = config.measureGeneration
-            item.state = ItemState.Measured
+            try {
+              val size = renderer.measure(item, info.displayer, config)
+              drawState.width = size.width.toFloat()
+              drawState.height = size.height.toFloat()
+              drawState.measureGeneration = config.measureGeneration
+              synchronized(measureSizeCache) {
+                measureSizeCache[item.data.danmakuId] = size
+              }
+              item.state = ItemState.Measured
+            } catch (e: Exception) {
+              Log.e(DanmakuEngine.TAG, "CacheManager.measure failed", e)
+              item.state = ItemState.Error
+            }
           }
           endTrace()
         }

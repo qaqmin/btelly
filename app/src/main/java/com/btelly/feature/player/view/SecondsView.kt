@@ -54,7 +54,7 @@ class SecondsView @JvmOverloads constructor(
     private val previewSurface: FrameLayout
 
     init {
-        val view = LayoutInflater.from(context).inflate(R.layout.yt_seconds_view, this, true)
+        val view = LayoutInflater.from(context).inflate(R.layout.seek_seconds_view, this, true)
         previewContainer = view.findViewById(R.id.preview_container)
         previewSurface = view.findViewById(R.id.preview_surface)
         triangleContainer = view.findViewById(R.id.triangle_container)

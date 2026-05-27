@@ -1,6 +1,6 @@
 package com.btelly.feature.player.sponsor
 
-import android.util.Log
+import com.btelly.core.common.log.AppLog
 
 class SponsorBlockUseCase {
 
@@ -33,9 +33,8 @@ class SponsorBlockUseCase {
             segments = result.segments
             lastError = result.error
             nextSegmentIndex = 0
-            Log.d(TAG, "加载了 ${segments.size} 个空降片段")
         } catch (e: Exception) {
-            Log.w(TAG, "加载空降片段失败: ${e.message}")
+            AppLog.w(TAG, "加载空降片段失败: ${e.message}")
             lastError = "空降助手加载失败"
         }
     }

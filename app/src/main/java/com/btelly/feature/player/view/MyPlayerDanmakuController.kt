@@ -7,8 +7,8 @@ import androidx.media3.common.Player
 import com.kuaishou.akdanmaku.DanmakuConfig
 import com.kuaishou.akdanmaku.data.DanmakuItemData
 import com.kuaishou.akdanmaku.data.DanmakuVipGradientStyle
-import com.kuaishou.akdanmaku.ecs.component.filter.DanmakuDataFilter
-import com.kuaishou.akdanmaku.ecs.component.filter.TypeFilter
+import com.kuaishou.akdanmaku.filter.DanmakuDataFilter
+import com.kuaishou.akdanmaku.filter.TypeFilter
 import com.kuaishou.akdanmaku.render.SimpleRenderer
 import com.kuaishou.akdanmaku.ui.DanmakuPlayer
 import com.kuaishou.akdanmaku.ui.DanmakuView
@@ -74,6 +74,7 @@ class MyPlayerDanmakuController(
         private const val WINDOW_REFRESH_MIN_INTERVAL_MS = 1_000L
         private const val STARTUP_DATA_DEFER_MS = 1_200L
         private const val FIRST_FRAME_STABLE_DEFER_MS = 2_500L
+        private const val SMART_FILTER_PROFILE_LOG_MS = 2L
     }
 
     data class SettingsSnapshot(
@@ -1427,6 +1428,7 @@ class MyPlayerDanmakuController(
     }
 
     private fun List<DmModel>.applySmartFilter(level: Int, stage: String): List<DmModel> {
+        val startedAt = SystemClock.elapsedRealtime()
         val normalizedLevel = level.normalizeSmartFilterLevel()
         if (normalizedLevel == SMART_FILTER_LEVEL_OFF || isEmpty()) {
             return this
@@ -1439,10 +1441,20 @@ class MyPlayerDanmakuController(
         }
         if (maxPositiveScore == 0) return this
         val threshold = resolveSmartFilterThreshold(normalizedLevel, maxPositiveScore)
-        return filter { item ->
+        val filtered = filter { item ->
             val score = item.aiFlagScore
             score <= 0 || score < threshold
         }
+        val costMs = SystemClock.elapsedRealtime() - startedAt
+        val dropped = size - filtered.size
+        if (costMs >= SMART_FILTER_PROFILE_LOG_MS || dropped > 0) {
+            AppLog.i(
+                TAG,
+                "smart filter stage=$stage level=$normalizedLevel raw=${size} kept=${filtered.size} " +
+                    "dropped=$dropped threshold=$threshold maxScore=$maxPositiveScore cost=${costMs}ms"
+            )
+        }
+        return filtered
     }
 
     private fun resolveSmartFilterThreshold(level: Int, maxPositiveScore: Int): Int {

@@ -72,9 +72,9 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"/>
     <ViewStub
-        android:id="@+id/view_youtube_overlay_stub"
-        android:inflatedId="@+id/view_youtube_overlay"
-        android:layout="@layout/view_youtube_overlay"
+        android:id="@+id/view_seek_overlay_stub"
+        android:inflatedId="@+id/view_seek_overlay"
+        android:layout="@layout/view_seek_overlay"
         android:visibility="gone"
         android:layout_width="match_parent"
         android:layout_height="match_parent"/>

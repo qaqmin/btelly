@@ -5,7 +5,6 @@ import android.animation.AnimatorListenerAdapter
 import android.annotation.SuppressLint
 import android.content.Context
 import android.util.AttributeSet
-import android.util.Log
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -16,6 +15,7 @@ import android.widget.ImageView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
+import com.btelly.core.common.log.AppLog
 import com.btelly.feature.player.settings.AfterPlayMode
 import com.btelly.feature.player.LiveQualityInfo
 import com.btelly.model.dm.DmScreenArea
@@ -31,6 +31,7 @@ class MyPlayerSettingView @JvmOverloads constructor(
 ) : FrameLayout(context, attrs, defStyleAttr), View.OnClickListener {
 
     companion object {
+        private const val SETTING_FOCUS_LOG_ENABLED = false
         internal val PLAYBACK_SPEEDS = floatArrayOf(0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
         internal val DM_ALPHA_VALUES = floatArrayOf(0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f)
         internal val DM_TEXT_SIZE_VALUES = intArrayOf(30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55)
@@ -168,7 +169,7 @@ class MyPlayerSettingView @JvmOverloads constructor(
     }
 
     fun onBack(): Boolean {
-        Log.d("SettingFocus", "onBack level=$menuLevel menuKey=${adapter.currentMenuKey} mainPos=$lastFocusedMainItemPosition dmPos=$lastFocusedDmItemPosition")
+        logSettingFocus("onBack level=$menuLevel menuKey=${adapter.currentMenuKey} mainPos=$lastFocusedMainItemPosition dmPos=$lastFocusedDmItemPosition")
         return when {
             menuLevel == LEVEL_MAIN -> {
                 showHide(false)
@@ -412,17 +413,17 @@ class MyPlayerSettingView @JvmOverloads constructor(
 
     private fun onItemClicked(item: PlayerSettingRow.Item) {
         val focusedPos = findFocusedAdapterPosition()
-        Log.d("SettingFocus", "onItemClicked level=$menuLevel item=${item.id} title=${item.title} focusedPos=$focusedPos currentMain=$lastFocusedMainItemPosition currentDm=$lastFocusedDmItemPosition menuKey=${adapter.currentMenuKey}")
+        logSettingFocus("onItemClicked level=$menuLevel item=${item.id} title=${item.title} focusedPos=$focusedPos currentMain=$lastFocusedMainItemPosition currentDm=$lastFocusedDmItemPosition menuKey=${adapter.currentMenuKey}")
         when (menuLevel) {
             LEVEL_MAIN -> {
                 lastFocusedMainItemPosition = focusedPos
-                Log.d("SettingFocus", "  -> saved mainPos=$lastFocusedMainItemPosition")
+                logSettingFocus("  -> saved mainPos=$lastFocusedMainItemPosition")
                 handleMainMenuClick(item.id)
             }
             LEVEL_SUB -> {
                 if (adapter.currentMenuKey == ITEM_DM_SETTING) {
                     lastFocusedDmItemPosition = focusedPos
-                    Log.d("SettingFocus", "  -> saved dmPos=$lastFocusedDmItemPosition")
+                    logSettingFocus("  -> saved dmPos=$lastFocusedDmItemPosition")
                 }
                 handleSubMenuClick(item.id)
             }
@@ -652,7 +653,7 @@ class MyPlayerSettingView @JvmOverloads constructor(
     }
 
     private fun showDmSettingMenu(animateTransition: Boolean) {
-        Log.d("SettingFocus", "showDmSettingMenu dmPos=$lastFocusedDmItemPosition animate=$animateTransition")
+        logSettingFocus("showDmSettingMenu dmPos=$lastFocusedDmItemPosition animate=$animateTransition")
         menuLevel = LEVEL_SUB
         updateBackIcon()
         submitMenuRows(
@@ -678,7 +679,7 @@ class MyPlayerSettingView @JvmOverloads constructor(
     }
 
     private fun goBackToMainMenu() {
-        Log.d("SettingFocus", "goBackToMainMenu mainPos=$lastFocusedMainItemPosition")
+        logSettingFocus("goBackToMainMenu mainPos=$lastFocusedMainItemPosition")
         menuLevel = LEVEL_MAIN
         updateMainMenu(animateTransition = true, focusPosition = lastFocusedMainItemPosition)
         updateBackIcon()
@@ -858,18 +859,24 @@ class MyPlayerSettingView @JvmOverloads constructor(
     }
 
     private fun requestMenuFocus(preferredPosition: Int = 1) {
-        Log.d("SettingFocus", "requestMenuFocus preferred=$preferredPosition itemCount=${adapter.itemCount} menuKey=${adapter.currentMenuKey}")
+        logSettingFocus("requestMenuFocus preferred=$preferredPosition itemCount=${adapter.itemCount} menuKey=${adapter.currentMenuKey}")
         recyclerView.post {
             val pos = preferredPosition.coerceIn(0, (adapter.itemCount - 1).coerceAtLeast(0))
             val targetView = recyclerView.findViewHolderForAdapterPosition(pos)?.itemView
                 ?: recyclerView.layoutManager?.findViewByPosition(pos)
-            Log.d("SettingFocus", "  post: pos=$pos targetView=$targetView isFocusable=${targetView?.isFocusable}")
+            logSettingFocus("  post: pos=$pos targetView=$targetView isFocusable=${targetView?.isFocusable}")
             if (targetView?.isFocusable == true) {
                 targetView.requestFocus()
             } else {
                 recyclerView.requestFocus()
             }
-            Log.d("SettingFocus", "  post: focusAfter=${findFocus()}")
+            logSettingFocus("  post: focusAfter=${findFocus()}")
+        }
+    }
+
+    private fun logSettingFocus(message: String) {
+        if (SETTING_FOCUS_LOG_ENABLED) {
+            AppLog.d("SettingFocus", message)
         }
     }
 

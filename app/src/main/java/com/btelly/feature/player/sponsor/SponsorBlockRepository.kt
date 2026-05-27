@@ -1,8 +1,8 @@
 package com.btelly.feature.player.sponsor
 
-import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -44,7 +44,7 @@ object SponsorBlockRepository {
             val response = client.newCall(request).execute()
             if (response.code == 200) null else "空降助手服务异常 (${response.code})"
         } catch (e: Exception) {
-            Log.e(TAG, "连通性测试失败: ${e.message}")
+            AppLog.e(TAG, "连通性测试失败: ${e.message}")
             "空降助手连接失败，请检查网络"
         }
     }
@@ -73,7 +73,7 @@ object SponsorBlockRepository {
                 "测试通过：连接和解析正常（当前无测试数据）"
             }
         } catch (e: Exception) {
-            Log.e(TAG, "片段拉取测试失败: ${e.message}", e)
+            AppLog.e(TAG, "片段拉取测试失败: ${e.message}", e)
             "测试失败：${e.message}"
         }
     }
@@ -129,18 +129,17 @@ object SponsorBlockRepository {
                         ?.segments
                         ?: emptyList()
                     val segments = normalizeSegments(allSegments)
-                    Log.d(TAG, "$bvid: ${segments.size} segments")
                     cache[cacheKey] = CacheEntry(segments)
                     SegmentResult(segments)
                 }
                 404 -> SegmentResult()
                 else -> {
-                    Log.w(TAG, "$bvid: API error ${response.code}")
+                    AppLog.w(TAG, "$bvid: API error ${response.code}")
                     SegmentResult(error = "空降助手服务异常 (${response.code})")
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "$bvid: ${e.message}")
+            AppLog.w(TAG, "$bvid: ${e.message}")
             SegmentResult(error = "空降助手连接失败，请检查网络")
         }
     }

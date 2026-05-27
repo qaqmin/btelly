@@ -89,7 +89,7 @@ class MyPlayerView @JvmOverloads constructor(
 
     private var controller: MyPlayerControlView? = null
     private var settingView: MyPlayerSettingView? = null
-    private var tapOverlayView: YouTubeOverlay? = null
+    private var seekOverlayView: SeekOverlayView? = null
     private var dmkView: DanmakuView? = null
     private var specialDmkOverlayView: SpecialDanmakuOverlayView? = null
     private var dmkMaskHost: DanmakuMaskHostLayout? = null
@@ -135,6 +135,7 @@ class MyPlayerView @JvmOverloads constructor(
     private var pendingTimeTextVisible: Boolean? = null
     private var pendingSettingButtonVisible: Boolean? = null
     private var pendingOwnerButtonVisible: Boolean? = null
+    private var pendingSeekPreviewSnapshot: VideoSnapshotData? = null
     private var pendingSponsorSegments: List<SponsorSegment> = emptyList()
     private var pendingSponsorDurationMs: Long = 0L
 
@@ -360,11 +361,6 @@ class MyPlayerView @JvmOverloads constructor(
                 }
                 ?.start()
             renderEventListener?.onRenderedFirstFrame()
-            post {
-                val overlayStartMs = SystemClock.elapsedRealtime()
-                setupYouTubeOverlay()
-                AppLog.i("PlayerViewPerf", "setupYouTubeOverlay deferred elapsed=${SystemClock.elapsedRealtime() - overlayStartMs}ms")
-            }
         }
     }
 
@@ -565,18 +561,23 @@ class MyPlayerView @JvmOverloads constructor(
         syncDanmakuSettings()
     }
 
-    private fun setupYouTubeOverlay() {
-        if (tapOverlayView != null) return
-        tapOverlayView = findViewById(R.id.view_youtube_overlay)
-            ?: findViewById<ViewStub>(R.id.view_youtube_overlay_stub)?.inflate() as? YouTubeOverlay
-        tapOverlayView?.setPlayerView(this)
-        tapOverlayView?.setPlayer(player)
-        tapOverlayView?.setUiCoordinator(uiCoordinator)
-        tapOverlayView?.setPersistentBottomProgressEnabled(persistentBottomProgressEnabled)
-        tapOverlayView?.setCallback(object : YouTubeOverlay.Callback {
-            override fun onAnimationStart(displayMode: YouTubeOverlay.DisplayMode) = Unit
+    private fun ensureSeekOverlay(reason: String): SeekOverlayView? {
+        seekOverlayView?.let { return it }
+        val startMs = SystemClock.elapsedRealtime()
+        val overlay = findViewById<SeekOverlayView>(R.id.view_seek_overlay)
+            ?: findViewById<ViewStub>(R.id.view_seek_overlay_stub)?.inflate() as? SeekOverlayView
+            ?: return null
+        seekOverlayView = overlay
+        overlay.setPlayerView(this)
+        overlay.setPlayer(player)
+        overlay.setUiCoordinator(uiCoordinator)
+        overlay.setPersistentBottomProgressEnabled(persistentBottomProgressEnabled)
+        pendingSeekSeconds?.let { overlay.seekSeconds = it }
+        overlay.setSeekPreviewSnapshot(pendingSeekPreviewSnapshot)
+        overlay.setCallback(object : SeekOverlayView.Callback {
+            override fun onAnimationStart(displayMode: SeekOverlayView.DisplayMode) = Unit
 
-            override fun onAnimationEnd(displayMode: YouTubeOverlay.DisplayMode) = Unit
+            override fun onAnimationEnd(displayMode: SeekOverlayView.DisplayMode) = Unit
 
             override fun shouldForward(player: Player, playerView: MyPlayerView, x: Float): Boolean? {
                 val currentPosition = player.currentPosition
@@ -601,12 +602,14 @@ class MyPlayerView @JvmOverloads constructor(
         gestureListener.setCallback { _, _ ->
             togglePlaybackByDoubleTap()
         }
+        AppLog.i("PlayerViewPerf", "setupSeekOverlay lazy reason=$reason elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
+        return overlay
     }
 
     fun setUiCoordinator(coordinator: com.btelly.feature.player.PlaybackUiCoordinator?) {
         uiCoordinator = coordinator
         controller?.uiCoordinator = coordinator
-        tapOverlayView?.setUiCoordinator(coordinator)
+        seekOverlayView?.setUiCoordinator(coordinator)
     }
 
     fun setPlayer(player: ExoPlayer?) {
@@ -635,7 +638,7 @@ class MyPlayerView @JvmOverloads constructor(
 
         controller?.setPlayer(player)
         controller?.setRepeatMode(player?.repeatMode ?: Player.REPEAT_MODE_OFF)
-        tapOverlayView?.setPlayer(player)
+        seekOverlayView?.setPlayer(player)
 
         updateBuffering()
         updateErrorMessage()
@@ -765,7 +768,7 @@ class MyPlayerView @JvmOverloads constructor(
 
     private fun maybeShowController(isForced: Boolean) {
         if (!useController() || player == null) return
-        if (tapOverlayView?.isOverlayShowing() == true) return
+        if (seekOverlayView?.isOverlayShowing() == true) return
 
         val shouldShowIndefinitely = shouldShowControllerIndefinitely()
         val currentController = controller
@@ -904,7 +907,7 @@ class MyPlayerView @JvmOverloads constructor(
             cancelPendingHoldStart()
             cancelPendingExitSeekProgressOnly()
             controller?.cancelSeekPreview()
-            tapOverlayView?.cancelSwipeSeek()
+            seekOverlayView?.cancelSwipeSeek()
             controller?.exitSeekProgressOnly()
         }
 
@@ -926,7 +929,7 @@ class MyPlayerView @JvmOverloads constructor(
                 cancelPendingHoldStart()
                 cancelPendingExitSeekProgressOnly()
                 controller?.cancelSeekPreview()
-                tapOverlayView?.cancelSwipeSeek()
+                seekOverlayView?.cancelSwipeSeek()
                 controller?.exitSeekProgressOnly()
                 // Restore appropriate UI state
                 if (wasTimebarSeek) {
@@ -1110,7 +1113,7 @@ class MyPlayerView @JvmOverloads constructor(
                             seekSession?.finishSeek()
                             controller?.cancelSeekPreview()
                             controller?.exitSeekProgressOnly()
-                            tapOverlayView?.finishSwipeSeek()
+                            seekOverlayView?.finishSwipeSeek()
                             syncDanmakuPosition(
                                 player?.currentPosition?.coerceAtLeast(0L) ?: 0L,
                                 forceSeek = true
@@ -1157,7 +1160,7 @@ class MyPlayerView @JvmOverloads constructor(
 
         controller?.beginSeekPreview(targetMs)
         val seekSeconds = kotlin.math.abs(tapAccumulateDeltaMs / 1000L).toInt().coerceAtLeast(1)
-        tapOverlayView?.showSwipeSeek(
+        ensureSeekOverlay("tap_seek")?.showSwipeSeek(
             targetPositionMs = targetMs,
             durationMs = duration,
             deltaMs = tapAccumulateDeltaMs,
@@ -1174,7 +1177,7 @@ class MyPlayerView @JvmOverloads constructor(
             onUserSeekListener?.invoke(finalTarget)
             syncDanmakuPosition(finalTarget, forceSeek = true)
             controller?.cancelSeekPreview()
-            tapOverlayView?.finishSwipeSeek()
+            seekOverlayView?.finishSwipeSeek()
             if (wasTimebarSeek) {
                 timebarSeekActive = false
                 timebarSeekStartMs = 0L
@@ -1409,7 +1412,7 @@ class MyPlayerView @JvmOverloads constructor(
 
     fun setPersistentBottomProgressEnabled(enabled: Boolean) {
         persistentBottomProgressEnabled = enabled
-        tapOverlayView?.setPersistentBottomProgressEnabled(enabled)
+        seekOverlayView?.setPersistentBottomProgressEnabled(enabled)
         controller?.setProgressOnlyUiEnabled(!enabled)
         if (!enabled) {
             uiCoordinator?.clearSeekPreview()
@@ -1417,7 +1420,7 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     fun showHoldSeekOverlay(targetPositionMs: Long, durationMs: Long, deltaMs: Long) {
-        tapOverlayView?.showSwipeSeek(
+        ensureSeekOverlay("hold_seek")?.showSwipeSeek(
             targetPositionMs = targetPositionMs,
             durationMs = durationMs,
             deltaMs = deltaMs,
@@ -1427,7 +1430,7 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     fun finishHoldSeekOverlay() {
-        tapOverlayView?.finishSwipeSeek()
+        seekOverlayView?.finishSwipeSeek()
     }
 
     fun setShowBuffering(mode: Int) {
@@ -1512,7 +1515,7 @@ class MyPlayerView @JvmOverloads constructor(
 
     fun setSeekSecond(seconds: Int) {
         pendingSeekSeconds = seconds
-        tapOverlayView?.seekSeconds = seconds
+        seekOverlayView?.seekSeconds = seconds
         controller?.setFfDuration(seconds.coerceAtLeast(1).toLong() * 1000L)
     }
 
@@ -1839,7 +1842,8 @@ class MyPlayerView @JvmOverloads constructor(
     fun getDoubleTapDelay(): Long = gestureListener.doubleTapDelay
 
     fun setSeekPreviewSnapshot(snapshot: VideoSnapshotData?) {
-        tapOverlayView?.setSeekPreviewSnapshot(snapshot)
+        pendingSeekPreviewSnapshot = snapshot
+        seekOverlayView?.setSeekPreviewSnapshot(snapshot)
     }
 
     fun setControllerAutoShow(autoShow: Boolean) {
@@ -1939,12 +1943,15 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     suspend fun loadDmMask(maskUrl: String, cid: Long, fps: Int): Boolean {
+        val shieldEnabled = settingView?.getDmSmartShield() ?: true
+        if (!shieldEnabled) {
+            AppLog.d("DmMask", "loadDmMask skipped: smart shield disabled, cid=$cid")
+            return false
+        }
         val success = dmMaskController.loadMask(maskUrl, cid, fps)
         if (success) {
             dmMaskController.onViewSizeChanged(dmkView?.width ?: 0, dmkView?.height ?: 0)
-            // 从设置读取开关状态
-            val shieldEnabled = settingView?.getDmSmartShield() ?: true
-            dmMaskController.setEnabled(shieldEnabled)
+            dmMaskController.setEnabled(true)
         }
         return success
     }
@@ -2078,7 +2085,7 @@ class MyPlayerView @JvmOverloads constructor(
                 controller?.endSeekPreview(swipeSeekTargetPositionMs, 180L)
                 uiCoordinator?.transition(com.btelly.feature.player.UiEvent.SeekFinished)
                 controller?.exitSeekProgressOnly()
-                tapOverlayView?.finishSwipeSeek()
+                seekOverlayView?.finishSwipeSeek()
                 isSwipeSeeking = false
                 swipeSeekUsesControllerPreview = false
                 parent?.requestDisallowInterceptTouchEvent(false)
@@ -2093,7 +2100,7 @@ class MyPlayerView @JvmOverloads constructor(
                 uiCoordinator?.clearSeekPreview()
                 uiCoordinator?.transition(com.btelly.feature.player.UiEvent.SeekCancelled)
                 controller?.exitSeekProgressOnly()
-                tapOverlayView?.cancelSwipeSeek()
+                seekOverlayView?.cancelSwipeSeek()
                 isSwipeSeeking = false
                 swipeSeekUsesControllerPreview = false
                 parent?.requestDisallowInterceptTouchEvent(false)
@@ -2115,13 +2122,13 @@ class MyPlayerView @JvmOverloads constructor(
         ) return
         if (!currentPlayer.isCurrentMediaItemSeekable || currentPlayer.duration <= 0L) return
 
-        val seekMs = (tapOverlayView?.seekSeconds ?: 10) * 1000L
+        val seekMs = (pendingSeekSeconds ?: seekOverlayView?.seekSeconds ?: 10) * 1000L
         val deltaMs = seekMs * if (forward) 1 else -1
         val targetMs = (currentPlayer.currentPosition + deltaMs).coerceIn(0L, currentPlayer.duration)
         currentPlayer.seekTo(targetMs)
         syncDanmakuPosition(targetMs, forceSeek = true)
 
-        tapOverlayView?.showControllerSeek(
+        ensureSeekOverlay("controller_seek")?.showControllerSeek(
             targetPositionMs = targetMs,
             durationMs = currentPlayer.duration,
             deltaMs = deltaMs,
@@ -2140,7 +2147,7 @@ class MyPlayerView @JvmOverloads constructor(
 
     private fun renderSwipeSeekPreview(targetPositionMs: Long, durationMs: Long, deltaMs: Long) {
         controller?.beginSeekPreview(targetPositionMs)
-        tapOverlayView?.showSwipeSeek(
+        ensureSeekOverlay("swipe_seek")?.showSwipeSeek(
             targetPositionMs = targetPositionMs,
             durationMs = durationMs,
             deltaMs = deltaMs,
@@ -2149,4 +2156,5 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
 }
+
 

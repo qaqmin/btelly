@@ -38,7 +38,7 @@ import com.kuaishou.akdanmaku.DanmakuConfig
 import com.kuaishou.akdanmaku.data.DanmakuItemData
 import com.kuaishou.akdanmaku.data.DanmakuItem
 import com.kuaishou.akdanmaku.data.DataSource
-import com.kuaishou.akdanmaku.ecs.DanmakuEngine
+import com.kuaishou.akdanmaku.engine.DanmakuEngine
 import com.kuaishou.akdanmaku.ext.endTrace
 import com.kuaishou.akdanmaku.ext.startTrace
 import com.kuaishou.akdanmaku.render.DanmakuRenderer
@@ -71,6 +71,7 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
 
     private const val PLAYER_WIDTH = 682
     private const val RELEASE_LATCH_TIMEOUT_MS = 220L
+    private const val MAX_PRIME_MEASURE_ON_UPDATE = 48
     const val MIN_DANMAKU_DURATION: Long = 4000
     const val MAX_DANMAKU_DURATION_HIGH_DENSITY: Long = 9000
     /**
@@ -177,15 +178,18 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     if (isReleased) {
       return
     }
+    if (!started) {
+      // 暂停只冻结时间线，不能把当前弹幕帧清空；否则播放器暂停后 View 重绘会让弹幕瞬间消失。
+      engine.draw(canvas) {
+        // 暂停态没有 action 线程等待绘制信号，这里只保留最后一帧渲染。
+      }
+      return
+    }
     if (!isManualStep) {
       // Time goes one step.
       engine.step()
     }
     drawSemaphore.tryAcquire()
-    if (!started) {
-      releaseSemaphore()
-      return
-    }
     engine.draw(canvas) {
       releaseSemaphore()
     }
@@ -232,18 +236,55 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     if (!started) {
       started = true
       if (!isManualStep) {
-        actionHandler.post { postFrameCallback() }
+        startFrameLoop()
       }
     }
   }
 
   fun pause() {
+    stopFrameLoop()
     engine.pause()
   }
 
   fun stop() {
-    engine.pause()
+    stopFrameLoop()
     seekTo(0)
+    engine.pause()
+  }
+
+  private fun stopFrameLoop() {
+    if (!started) {
+      return
+    }
+    started = false
+    releaseSemaphore()
+    if (actionThread.isAlive) {
+      actionHandler.postAtFrontOfQueue {
+        runCatching {
+          Choreographer.getInstance().removeFrameCallback(frameCallback)
+        }
+        actionHandler.removeMessages(MSG_FRAME_UPDATE)
+      }
+    } else {
+      actionHandler.removeMessages(MSG_FRAME_UPDATE)
+    }
+  }
+
+  private fun startFrameLoop() {
+    // 恢复播放时主动踢一帧。只挂 Choreographer 在部分暂停/恢复时序下可能没有立即触发 View 绘制，
+    // action 线程就会停在等待绘制信号的位置，表现为弹幕停在暂停画面不再滚动。
+    releaseSemaphore()
+    danmakuView?.postInvalidateOnAnimation()
+    if (actionThread.isAlive) {
+      actionHandler.post {
+        actionHandler.removeMessages(MSG_FRAME_UPDATE)
+        runCatching {
+          Choreographer.getInstance().removeFrameCallback(frameCallback)
+        }
+        postFrameCallback()
+        actionHandler.sendEmptyMessage(MSG_FRAME_UPDATE)
+      }
+    }
   }
 
   /**
@@ -302,6 +343,7 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     for (data in dataList) {
       items.add(obtainItem(data))
     }
+    engine.runtime.primeMeasureItems(items, MAX_PRIME_MEASURE_ON_UPDATE)
     engine.runtime.addItems(items)
     return items
   }

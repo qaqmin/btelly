@@ -44,9 +44,9 @@
 package com.kuaishou.akdanmaku
 
 import com.kuaishou.akdanmaku.ext.AkLog as Log
-import com.kuaishou.akdanmaku.ecs.DanmakuEngine
-import com.kuaishou.akdanmaku.ecs.component.filter.DanmakuDataFilter
-import com.kuaishou.akdanmaku.ecs.component.filter.DanmakuLayoutFilter
+import com.kuaishou.akdanmaku.engine.DanmakuEngine
+import com.kuaishou.akdanmaku.filter.DanmakuDataFilter
+import com.kuaishou.akdanmaku.filter.DanmakuLayoutFilter
 import com.kuaishou.akdanmaku.ext.RETAINER_AKDANMAKU
 
 /**

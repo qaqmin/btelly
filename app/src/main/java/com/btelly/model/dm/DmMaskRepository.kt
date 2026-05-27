@@ -39,6 +39,12 @@ class DmMaskRepository {
 
                 val maskData = WebmaskParser.parse(data, fps)
                 if (maskData != null) {
+                    if (maskData.rawSegments.isNotEmpty()) {
+                        WebmaskParser.parseSegmentFrames(maskData.rawSegments[0], maskData.fps)?.let {
+                            maskData.rawSegments[0].cachedFrames = it
+                            AppLog.d(TAG, "Segment pre-parsed: seg=0, frames=${it.size}")
+                        }
+                    }
                     cache.put(cid, maskData)
                     AppLog.d(TAG, "Webmask parsed: cid=$cid, segments=${maskData.rawSegments.size}, fps=$fps")
                 }
@@ -56,7 +62,8 @@ class DmMaskRepository {
         val frameIndex: Int,
         val segStartTimeMs: Long,
         val segDurationMs: Long,
-        val totalFrames: Int
+        val totalFrames: Int,
+        val totalSegments: Int
     )
 
     fun queryFrameWithIndex(cid: Long, positionMs: Long): FrameResult? {
@@ -93,8 +100,19 @@ class DmMaskRepository {
         return FrameResult(
             frame = frame, segIndex = segIndex, frameIndex = frameIndex,
             segStartTimeMs = segment.timeMs, segDurationMs = segDurationMs,
-            totalFrames = frames.size
+            totalFrames = frames.size, totalSegments = segments.size
         )
+    }
+
+    fun preloadSegmentFrames(cid: Long, segIndex: Int) {
+        val maskData = cache.get(cid) ?: return
+        val segments = maskData.rawSegments
+        if (segIndex < 0 || segIndex >= segments.size) return
+        val segment = segments[segIndex]
+        if (segment.cachedFrames != null) return
+        val frames = WebmaskParser.parseSegmentFrames(segment, maskData.fps) ?: emptyList()
+        segment.cachedFrames = frames
+        AppLog.d(TAG, "Segment preloaded: seg=$segIndex, frames=${frames.size}")
     }
 
     fun clear(cid: Long) {

@@ -253,6 +253,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     private var latestControllerVisibility: Int = View.GONE
     private var latestPlaybackPositionMs: Long = 0L
     private var latestPlaybackDurationMs: Long = 0L
+    private var pendingRelatedVideosBeforeFirstFrame: List<VideoModel>? = null
     private lateinit var slimTimelineRenderer: SlimTimelineRenderer
     private val sessionCoordinator = PlayerSessionCoordinator()
     private var resumePlaybackWhenStarted: Boolean = false
@@ -779,6 +780,10 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                     )
                 }
                 viewModel.onPlaybackFirstFrame()
+                pendingRelatedVideosBeforeFirstFrame?.let { rawRelated ->
+                    pendingRelatedVideosBeforeFirstFrame = null
+                    applyRelatedVideos(rawRelated)
+                }
                 startupTrace
                     ?.takeIf { !it.firstFrameLogged }
                     ?.also {
@@ -959,6 +964,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 activeStartupTraceId = playbackRequest.startupTraceId
                 activeStartupTraceStartElapsedMs = playbackRequest.startupTraceStartElapsedMs
                 activeStartupFirstFrameLogged = false
+                pendingRelatedVideosBeforeFirstFrame = null
                 playerPerfTrace = PlayerPerfTrace(prepareMs = System.currentTimeMillis())
                 suppressPlaybackEnvironmentSync = true
                 try {
@@ -1155,11 +1161,17 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
 
         lifecycleScope.launch {
             viewModel.relatedVideos.collect { rawRelated ->
-                val related = ContentFilter.filterVideos(this@PlayerActivity, rawRelated)
-                sessionCoordinator.updateRelatedVideos(related)
-                schedulePreloadAndHeaderRefresh()
-                relatedAdapter.setData(related)
-                playerView.showHideRelatedButton(related.isNotEmpty())
+                if (!activeStartupFirstFrameLogged && rawRelated.isNotEmpty()) {
+                    pendingRelatedVideosBeforeFirstFrame = rawRelated
+                    PlaybackStartupTrace.log(
+                        traceId = activeStartupTraceId,
+                        startElapsedMs = activeStartupTraceStartElapsedMs,
+                        step = "related_filter_deferred",
+                        message = "count=${rawRelated.size}"
+                    )
+                    return@collect
+                }
+                applyRelatedVideos(rawRelated)
             }
         }
 
@@ -1320,6 +1332,14 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     }
 
     private var tagCheckDoneForCurrentVideo = false
+
+    private fun applyRelatedVideos(rawRelated: List<VideoModel>) {
+        val related = ContentFilter.filterVideos(this@PlayerActivity, rawRelated)
+        sessionCoordinator.updateRelatedVideos(related)
+        schedulePreloadAndHeaderRefresh()
+        relatedAdapter.setData(related)
+        playerView.showHideRelatedButton(related.isNotEmpty())
+    }
 
     private fun checkTagsAndExitIfNeeded(info: VideoDetailModel?) {
         if (info == null || tagCheckDoneForCurrentVideo) return

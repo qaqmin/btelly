@@ -19,7 +19,7 @@ import kotlin.math.abs
  */
 internal class RollingTrackAllocator {
   private val rows = ArrayList<Row>(32)
-  private val itemToRow = HashMap<DanmakuItem, Row>(256)
+  private val itemToRow = HashMap<Long, Row>(256)
   private var maxBottom = 0
 
   fun layout(
@@ -36,9 +36,12 @@ internal class RollingTrackAllocator {
     }
 
     val drawState = item.drawState
-    val row = itemToRow[item] ?: findOrCreateRow(item, nowMs, width, margin, config) ?: return false
-    itemToRow[item] = row
-    row.touch(item, nowMs)
+    val row = itemToRow[item.data.danmakuId] ?: run {
+      val newRow = findOrCreateRow(item, nowMs, width, margin, config) ?: return false
+      itemToRow[item.data.danmakuId] = newRow
+      newRow.add(item)
+      newRow
+    }
 
     val deltaTime = (nowMs - item.timePosition).toFloat()
     drawState.positionX = width - (deltaTime / config.rollingDurationMs) * (width + drawState.width)
@@ -49,7 +52,7 @@ internal class RollingTrackAllocator {
   }
 
   fun remove(item: DanmakuItem) {
-    val row = itemToRow.remove(item) ?: return
+    val row = itemToRow.remove(item.data.danmakuId) ?: return
     row.remove(item)
   }
 
@@ -88,11 +91,8 @@ internal class RollingTrackAllocator {
     val tail: DanmakuItem?
       get() = items.lastOrNull()
 
-    fun touch(item: DanmakuItem, nowMs: Long) {
-      dropExpired(nowMs)
-      if (!items.contains(item)) {
-        items.addLast(item)
-      }
+    fun add(item: DanmakuItem) {
+      items.addLast(item)
     }
 
     fun remove(item: DanmakuItem) {
@@ -146,7 +146,7 @@ internal class RollingTrackAllocator {
  */
 internal class FixedTrackAllocator(private val fromBottom: Boolean) {
   private val rows = ArrayList<Row>(16)
-  private val itemToRow = HashMap<DanmakuItem, Row>(64)
+  private val itemToRow = HashMap<Long, Row>(64)
   private var lastMaxBottom = 0
 
   fun layout(
@@ -162,9 +162,12 @@ internal class FixedTrackAllocator(private val fromBottom: Boolean) {
       lastMaxBottom = maxBottom
       clear()
     }
-    val row = itemToRow[item] ?: findOrCreateRow(item, nowMs, margin, config, maxBottom) ?: return false
-    itemToRow[item] = row
-    row.item = item
+    val row = itemToRow[item.data.danmakuId] ?: run {
+      val newRow = findOrCreateRow(item, nowMs, margin, config, maxBottom) ?: return false
+      itemToRow[item.data.danmakuId] = newRow
+      newRow.item = item
+      newRow
+    }
     val drawState = item.drawState
     drawState.positionX = ((width - drawState.width) * 0.5f).coerceAtLeast(0f)
     drawState.positionY = row.top.toFloat()
@@ -174,7 +177,7 @@ internal class FixedTrackAllocator(private val fromBottom: Boolean) {
   }
 
   fun remove(item: DanmakuItem) {
-    val row = itemToRow.remove(item) ?: return
+    val row = itemToRow.remove(item.data.danmakuId) ?: return
     if (row.item == item) {
       row.item = null
     }

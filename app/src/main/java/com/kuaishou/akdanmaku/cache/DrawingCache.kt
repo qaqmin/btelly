@@ -27,7 +27,7 @@ import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.os.Build
 import com.kuaishou.akdanmaku.ext.AkLog as Log
-import com.kuaishou.akdanmaku.ecs.DanmakuEngine
+import com.kuaishou.akdanmaku.engine.DanmakuEngine
 import com.kuaishou.akdanmaku.ext.EMPTY_BITMAP
 
 /**

@@ -29,9 +29,9 @@ import com.badlogic.gdx.utils.Array
 import com.kuaishou.akdanmaku.data.DanmakuItemData.Companion.DANMAKU_ITEM_DATA_EMPTY
 import com.kuaishou.akdanmaku.data.state.HoldState
 import com.kuaishou.akdanmaku.data.state.DrawState
-import com.kuaishou.akdanmaku.ecs.DanmakuContext.Companion.NONE_CONTEXT
-import com.kuaishou.akdanmaku.ecs.DanmakuEngine
-import com.kuaishou.akdanmaku.ecs.component.action.Action
+import com.kuaishou.akdanmaku.engine.DanmakuContext.Companion.NONE_CONTEXT
+import com.kuaishou.akdanmaku.engine.DanmakuEngine
+import com.kuaishou.akdanmaku.action.Action
 import com.kuaishou.akdanmaku.ui.DanmakuPlayer
 
 /**

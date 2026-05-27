@@ -42,27 +42,27 @@
         <attr name="layout_order" />
     </declare-styleable>
 
-    <!-- Custom overlay attrs kept from the reference project. -->
-    <attr name="yt_animationDuration" format="integer" />
-    <attr name="yt_arcSize" format="dimension" />
-    <attr name="yt_backgroundCircleColor" format="color" />
-    <attr name="yt_icon" format="reference" />
-    <attr name="yt_iconAnimationDuration" format="integer" />
-    <attr name="yt_playerView" format="reference" />
-    <attr name="yt_seekSeconds" format="integer" />
-    <attr name="yt_tapCircleColor" format="color" />
-    <attr name="yt_textAppearance" format="reference" />
+    <!-- Seek overlay attrs. -->
+    <attr name="seekOverlay_animationDuration" format="integer" />
+    <attr name="seekOverlay_arcSize" format="dimension" />
+    <attr name="seekOverlay_backgroundCircleColor" format="color" />
+    <attr name="seekOverlay_icon" format="reference" />
+    <attr name="seekOverlay_iconAnimationDuration" format="integer" />
+    <attr name="seekOverlay_playerView" format="reference" />
+    <attr name="seekOverlay_seekSeconds" format="integer" />
+    <attr name="seekOverlay_tapCircleColor" format="color" />
+    <attr name="seekOverlay_textAppearance" format="reference" />
 
-    <declare-styleable name="YouTubeOverlay">
-        <attr name="yt_animationDuration" />
-        <attr name="yt_arcSize" />
-        <attr name="yt_backgroundCircleColor" />
-        <attr name="yt_icon" />
-        <attr name="yt_iconAnimationDuration" />
-        <attr name="yt_playerView" />
-        <attr name="yt_seekSeconds" />
-        <attr name="yt_tapCircleColor" />
-        <attr name="yt_textAppearance" />
+    <declare-styleable name="SeekOverlayView">
+        <attr name="seekOverlay_animationDuration" />
+        <attr name="seekOverlay_arcSize" />
+        <attr name="seekOverlay_backgroundCircleColor" />
+        <attr name="seekOverlay_icon" />
+        <attr name="seekOverlay_iconAnimationDuration" />
+        <attr name="seekOverlay_playerView" />
+        <attr name="seekOverlay_seekSeconds" />
+        <attr name="seekOverlay_tapCircleColor" />
+        <attr name="seekOverlay_textAppearance" />
     </declare-styleable>
 
     <!-- DefaultTimeBar attrs -->

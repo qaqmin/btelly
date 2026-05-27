@@ -577,6 +577,15 @@ class DmMaskController(
         lastSegIndex = result.segIndex
         lastFrameIndex = result.frameIndex
 
+        // 段切换时在渲染线程预解析下一段，避免 queryFrameWithIndex 在主线程同步解析
+        if (result.segIndex + 1 < result.totalSegments) {
+            val nextSeg = result.segIndex + 1
+            val preloadCid = currentCid
+            postToRender {
+                repository.preloadSegmentFrames(preloadCid, nextSeg)
+            }
+        }
+
         if (diagCount < DIAG_LOG_LIMIT) {
             val segStartMs = result.segStartTimeMs
             val segDurMs = result.segDurationMs

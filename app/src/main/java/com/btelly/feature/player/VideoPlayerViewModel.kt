@@ -4,6 +4,7 @@ package com.btelly.feature.player
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import java.util.Locale
@@ -105,6 +106,8 @@ class VideoPlayerViewModel(
         private const val SOFTWARE_DECODER_MIN_KEEP_QUALITY_ID = 32
         private const val KEY_SOFTWARE_DECODER_SAFE_PLAYBACK = "player_software_decoder_safe_playback"
         private const val KEY_SOFTWARE_DECODER_SAFE_QUALITY_ID = "player_software_decoder_safe_quality_id"
+        private const val FIRST_FRAME_DEFERRED_WORK_DELAY_MS = 250L
+        private const val FIRST_FRAME_SPONSOR_LOAD_DELAY_MS = 1_500L
         private val verboseDanmakuCandidateLog =
             java.lang.Boolean.getBoolean("btelly.verbose_danmaku_candidate_log")
         @Volatile
@@ -440,6 +443,10 @@ class VideoPlayerViewModel(
     private val _sponsorSkipState = MutableStateFlow<SponsorSkipUiState>(SponsorSkipUiState.Hidden)
     val sponsorSkipState: StateFlow<SponsorSkipUiState> = _sponsorSkipState
     private var sponsorSkipPending = false
+    private var sponsorLoadJob: Job? = null
+    private var pendingSponsorBvid: String? = null
+    private var pendingSponsorCid: Long = 0L
+    private var pendingSponsorLoadGeneration: Long = 0L
 
     private val _sponsorSegments = MutableStateFlow<List<SponsorSegment>>(emptyList())
     val sponsorSegments: StateFlow<List<SponsorSegment>> = _sponsorSegments
@@ -778,6 +785,8 @@ class VideoPlayerViewModel(
         val isSameVideoReplay = cid > 0L && isRecentlyPlayed(cid)
         if (isSameVideoReplay) {
         }
+        // 先清理上一条播放的预加载，再启动当前视频弹幕预热；否则后续初始化会把刚启动的弹幕预热取消掉。
+        clearPreloadedPlaybackIfDifferent(currentPlayRequestIdentity(), cancelJob = true)
         viewModelScope.launch {
             runCatching { playInfoGateway.warmupWbiKeys() }
         }
@@ -789,16 +798,11 @@ class VideoPlayerViewModel(
             preloadInitialDanmakuSegment(cid = cid, aid = aid ?: 0L, segmentIndex = resumeSegment)
         }
 
-        // 加载空降助手片段（不阻塞主流程）
-        if (bvid?.isNotBlank() == true && cid > 0L && currentSettings.sponsorBlockEnabled) {
-            viewModelScope.launch {
-                sponsorBlockUseCase.loadSegments(bvid, cid)
-                sponsorBlockUseCase.lastError?.let { error ->
-                    Toast.makeText(appContext, error, Toast.LENGTH_SHORT).show()
-                }
-                _sponsorSegments.value = sponsorBlockUseCase.getSegments()
-            }
-        }
+        prepareDeferredSponsorLoad(
+            bvid = bvid,
+            cid = cid,
+            loadGeneration = loadGeneration
+        )
 
         viewModelScope.launch {
             _isLoading.value = true
@@ -823,13 +827,14 @@ class VideoPlayerViewModel(
             resetFallbackState()
             softwareDecoderDowngradeAttemptedCid = 0L
             // 自动连播倒计时已经准备好的同一目标不能在入口重置时被清掉，否则会退回冷启动链路。
-            clearPreloadedPlaybackIfDifferent(currentPlayRequestIdentity(), cancelJob = true)
+            clearPreloadedPlaybackIfDifferent(currentPlayRequestIdentity(), cancelJob = false)
             hasReachedFirstFrame = false
             currentDashSession = null
             _selectedSubtitleIndex.value = -1
             _currentSubtitleText.value = null
             currentSubtitleCueIndex = 0
             clearDanmaku()
+            sponsorLoadJob?.cancel()
             sponsorBlockUseCase.reset()
             _sponsorSkipState.value = SponsorSkipUiState.Hidden
             _sponsorSegments.value = emptyList()
@@ -2515,21 +2520,10 @@ class VideoPlayerViewModel(
 
     fun onPlaybackFirstFrame() {
         hasReachedFirstFrame = true
-        pendingResumeToastPositionMs?.let { positionMs ->
-            pendingResumeToastPositionMs = null
-            showResumePositionToast(positionMs)
-        }
         val cid = currentCid.takeIf { it > 0L }
-        if (cid != null) {
-            markRecentlyPlayed(cid)
-        }
-        reportPlaybackHeartbeat(playType = PLAY_TYPE_START)
         if (cid == null) return
-        if (pendingPlayerExtrasCid == cid && loadedPlayerExtrasCid != cid) {
-            pendingPlayerExtrasCid = 0L
-            loadedPlayerExtrasCid = cid
-            loadPlayerExtras()
-        }
+        val resumeToastPositionMs = pendingResumeToastPositionMs
+        pendingResumeToastPositionMs = null
         if (loadedDanmakuCid != cid) {
             val danmakuAid = currentAid ?: 0L
             loadedDanmakuCid = cid
@@ -2537,6 +2531,77 @@ class VideoPlayerViewModel(
                 cid = cid,
                 aid = danmakuAid,
                 durationMs = currentPlayInfo?.timeLength ?: 0L
+            )
+        }
+        scheduleDeferredSponsorLoadAfterFirstFrame(cid)
+        viewModelScope.launch {
+            // 首帧后先把弹幕链路放出去，Toast/心跳/扩展信息延后一个很短的窗口，降低首显附近主线程抖动。
+            delay(FIRST_FRAME_DEFERRED_WORK_DELAY_MS)
+            if (currentCid != cid) return@launch
+            resumeToastPositionMs?.let { showResumePositionToast(it) }
+            markRecentlyPlayed(cid)
+            reportPlaybackHeartbeat(playType = PLAY_TYPE_START)
+            if (pendingPlayerExtrasCid == cid && loadedPlayerExtrasCid != cid) {
+                pendingPlayerExtrasCid = 0L
+                loadedPlayerExtrasCid = cid
+                loadPlayerExtras()
+            }
+        }
+    }
+
+    private fun prepareDeferredSponsorLoad(
+        bvid: String?,
+        cid: Long,
+        loadGeneration: Long
+    ) {
+        sponsorLoadJob?.cancel()
+        pendingSponsorBvid = null
+        pendingSponsorCid = 0L
+        pendingSponsorLoadGeneration = 0L
+        if (bvid.isNullOrBlank() || cid <= 0L || !currentSettings.sponsorBlockEnabled) {
+            return
+        }
+        pendingSponsorBvid = bvid
+        pendingSponsorCid = cid
+        pendingSponsorLoadGeneration = loadGeneration
+        PlaybackStartupTrace.log(
+            traceId = currentStartupTraceId,
+            startElapsedMs = currentStartupTraceStartElapsedMs,
+            step = "sponsor_load_deferred",
+            message = "cid=$cid bvid=$bvid"
+        )
+    }
+
+    private fun scheduleDeferredSponsorLoadAfterFirstFrame(cid: Long) {
+        val bvid = pendingSponsorBvid ?: return
+        val targetCid = pendingSponsorCid.takeIf { it == cid } ?: return
+        val generation = pendingSponsorLoadGeneration
+        if (generation <= 0L) return
+        sponsorLoadJob?.cancel()
+        sponsorLoadJob = viewModelScope.launch {
+            delay(FIRST_FRAME_SPONSOR_LOAD_DELAY_MS)
+            if (!isActiveVideoLoad(generation) || currentCid != targetCid) {
+                return@launch
+            }
+            PlaybackStartupTrace.log(
+                traceId = currentStartupTraceId,
+                startElapsedMs = currentStartupTraceStartElapsedMs,
+                step = "sponsor_load_started",
+                message = "cid=$targetCid bvid=$bvid"
+            )
+            sponsorBlockUseCase.loadSegments(bvid, targetCid)
+            if (!isActiveVideoLoad(generation) || currentCid != targetCid) {
+                return@launch
+            }
+            sponsorBlockUseCase.lastError?.let { error ->
+                Toast.makeText(appContext, error, Toast.LENGTH_SHORT).show()
+            }
+            _sponsorSegments.value = sponsorBlockUseCase.getSegments()
+            PlaybackStartupTrace.log(
+                traceId = currentStartupTraceId,
+                startElapsedMs = currentStartupTraceStartElapsedMs,
+                step = "sponsor_load_ready",
+                message = "cid=$targetCid count=${_sponsorSegments.value.size}"
             )
         }
     }
@@ -3337,6 +3402,55 @@ class VideoPlayerViewModel(
         val loadGeneration = ++danmakuLoadGeneration
         val seekPositionMs = pendingSeekPositionMs
         danmakuLoadJob = viewModelScope.launch {
+            val fallbackSegmentCount = maxOf(1, ((durationMs.coerceAtLeast(1L) - 1L) / 360000L + 1L).toInt())
+            val eagerInitialSegment = ((seekPositionMs.coerceAtLeast(0L) / 360_000L) + 1L)
+                .toInt()
+                .coerceIn(1, fallbackSegmentCount)
+            val eagerPreloadJob = danmakuSegmentPreloadJob?.takeIf {
+                preloadedDanmakuSegmentCid == cid &&
+                    preloadedDanmakuSegmentAid == aid &&
+                    preloadedDanmakuSegmentIndex == eagerInitialSegment
+            }
+            val eagerSegmentDeferred = async(Dispatchers.IO) {
+                val waitStartMs = SystemClock.elapsedRealtime()
+                eagerPreloadJob?.join()
+                if (eagerPreloadJob != null) {
+                    PlaybackStartupTrace.log(
+                        traceId = currentStartupTraceId,
+                        startElapsedMs = currentStartupTraceStartElapsedMs,
+                        step = "danmaku_segment_preload_waited",
+                        message = "cid=$cid segment=$eagerInitialSegment waitMs=${SystemClock.elapsedRealtime() - waitStartMs}"
+                    )
+                }
+                val preloaded = withContext(Dispatchers.Main.immediate) {
+                    consumePreloadedDanmakuSegment(
+                        cid = cid,
+                        aid = aid,
+                        segmentIndex = eagerInitialSegment
+                    )
+                }
+                if (preloaded != null) {
+                    PlaybackStartupTrace.log(
+                        traceId = currentStartupTraceId,
+                        startElapsedMs = currentStartupTraceStartElapsedMs,
+                        step = "danmaku_segment_preload_hit",
+                        message = "cid=$cid segment=$eagerInitialSegment regular=${preloaded.regularItems.size} special=${preloaded.specialItems.size}"
+                    )
+                    preloaded
+                } else {
+                    PlaybackStartupTrace.log(
+                        traceId = currentStartupTraceId,
+                        startElapsedMs = currentStartupTraceStartElapsedMs,
+                        step = "danmaku_segment_preload_miss",
+                        message = "cid=$cid segment=$eagerInitialSegment"
+                    )
+                    loadDanmakuSegmentPayload(
+                        cid = cid,
+                        aid = aid,
+                        segmentIndices = listOf(eagerInitialSegment)
+                    )
+                }
+            }
             // 1. 获取弹幕 view 元数据（优先：预加载 > 缓存 > 网络）
             var danmakuViewSource = "none"
             val danmakuView = if (preloadedDanmakuViewCid == cid) {
@@ -3378,7 +3492,7 @@ class VideoPlayerViewModel(
 
             val segmentCount = danmakuView?.totalSegments
                 ?.takeIf { it > 0 }
-                ?: maxOf(1, ((durationMs.coerceAtLeast(1L) - 1L) / 360000L + 1L).toInt())
+                ?: fallbackSegmentCount
             logDanmakuMeta(
                 cid = cid,
                 aid = aid,
@@ -3395,7 +3509,7 @@ class VideoPlayerViewModel(
 
             // 2. 计算初始段（根据 seekPosition，使用协程启动前的快照）
             val initialSegment = resolveDanmakuSegmentIndex(seekPositionMs)
-                .takeIf { it > 0 } ?: 1
+                .takeIf { it > 0 } ?: eagerInitialSegment
             currentDanmakuSegmentIndex = initialSegment
             PlaybackStartupTrace.log(
                 traceId = currentStartupTraceId,
@@ -3407,17 +3521,10 @@ class VideoPlayerViewModel(
             // 3. 当前段先发布；特殊弹幕和下一段后台补，避免首段弹幕被额外请求拖慢。
             danmakuLoadingSegments.add(initialSegment)
             val currentPayload = try {
-                val preloadJobForInitial = danmakuSegmentPreloadJob?.takeIf {
-                    preloadedDanmakuSegmentCid == cid &&
-                        preloadedDanmakuSegmentAid == aid &&
-                        preloadedDanmakuSegmentIndex == initialSegment
-                }
-                preloadJobForInitial?.join()
-                consumePreloadedDanmakuSegment(
-                    cid = cid,
-                    aid = aid,
-                    segmentIndex = initialSegment
-                ) ?: withContext(Dispatchers.IO) {
+                if (initialSegment == eagerInitialSegment) {
+                    eagerSegmentDeferred.await()
+                } else {
+                    eagerSegmentDeferred.cancel()
                     loadDanmakuSegmentPayload(
                         cid = cid,
                         aid = aid,
@@ -3733,16 +3840,9 @@ class VideoPlayerViewModel(
 
     private fun clearDanmaku() {
         danmakuLoadJob?.cancel()
-        danmakuSegmentPreloadJob?.cancel()
-        danmakuSegmentPreloadJob = null
-        danmakuViewPreloadJob?.cancel()
-        danmakuViewPreloadJob = null
-        preloadedDanmakuViewCid = 0L
-        preloadedDanmakuView = null
-        preloadedDanmakuSegmentCid = 0L
-        preloadedDanmakuSegmentAid = 0L
-        preloadedDanmakuSegmentIndex = 0
-        preloadedDanmakuSegmentPayload = null
+        // segment preload 和 view preload 不在此取消：
+        // 它们是为下一条播放预加载的，clearDanmaku 只是清理当前播放的弹幕状态。
+        // 新的 preload 启动时会自行取消旧 job（见 preloadInitialDanmakuSegment line 3913）。
         _danmaku.value = emptyList()
         _specialDanmaku.value = emptyList()
         danmakuSegmentPayloads.clear()
@@ -3808,7 +3908,14 @@ class VideoPlayerViewModel(
         preloadedDanmakuSegmentAid = aid
         preloadedDanmakuSegmentIndex = segmentIndex
         preloadedDanmakuSegmentPayload = null
+        PlaybackStartupTrace.log(
+            traceId = currentStartupTraceId,
+            startElapsedMs = currentStartupTraceStartElapsedMs,
+            step = "danmaku_segment_preload_started",
+            message = "cid=$cid segment=$segmentIndex"
+        )
         danmakuSegmentPreloadJob = viewModelScope.launch(Dispatchers.IO) {
+            val startedAt = SystemClock.elapsedRealtime()
             val payload = loadDanmakuSegmentPayload(
                 cid = cid,
                 aid = aid,
@@ -3820,6 +3927,12 @@ class VideoPlayerViewModel(
                 preloadedDanmakuSegmentIndex = segmentIndex
                 preloadedDanmakuSegmentPayload = payload
                 danmakuSegmentPreloadJob = null
+                PlaybackStartupTrace.log(
+                    traceId = currentStartupTraceId,
+                    startElapsedMs = currentStartupTraceStartElapsedMs,
+                    step = "danmaku_segment_preload_ready",
+                    message = "cid=$cid segment=$segmentIndex elapsedMs=${SystemClock.elapsedRealtime() - startedAt} regular=${payload.regularItems.size} special=${payload.specialItems.size}"
+                )
             }
         }
     }

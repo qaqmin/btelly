@@ -3524,7 +3524,7 @@
         <item name="android:windowEnterAnimation">@null</item>
         <item name="android:windowExitAnimation">@null</item>
     </style>
-    <style name="YTOSecondsTextAppearance" parent="@style/TextAppearance.AppCompat">
+    <style name="SeekOverlaySecondsTextAppearance" parent="@style/TextAppearance.AppCompat">
         <item name="android:textSize">17sp</item>
         <item name="android:textColor">@android:color/white</item>
     </style>

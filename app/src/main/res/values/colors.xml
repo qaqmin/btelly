@@ -81,8 +81,8 @@
     <color name="divideColorPink">#fadbe9</color>
     <color name="divideColorPurple">#685772</color>
     <color name="divideColorRed">#932641</color>
-    <color name="dtpv_yt_background_circle_color">#20eeeeee</color>
-    <color name="dtpv_yt_tap_circle_color">#18ffffff</color>
+    <color name="seek_overlay_background_circle_color">#20eeeeee</color>
+    <color name="seek_overlay_tap_circle_color">#18ffffff</color>
     <color name="error_color_material_dark">#ff7043</color>
     <color name="error_color_material_light">#ff5722</color>
     <color name="exo_black_opacity_60">#98000000</color>
