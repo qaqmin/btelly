@@ -1074,10 +1074,10 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
     }
 
     private fun toggleSponsorBlock() {
-        val setting = playerSettings.getOrNull(16) ?: return
+        val setting = playerSettings.getOrNull(12) ?: return
         val currentValue = setting.info
         val newValue = if (currentValue == "开") "关" else "开"
-        updateSetting(playerSettings, 16, newValue)
+        updateSetting(playerSettings, 12, newValue)
         appSettings.putStringAsync(KEY_SPONSOR_BLOCK_ENABLED, newValue)
 
         if (newValue == "关") {
