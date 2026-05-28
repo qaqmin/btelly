@@ -223,6 +223,7 @@ class VideoPlayerViewModel(
         val seekPositionMs: Long,
         val playWhenReady: Boolean,
         val replaceInPlace: Boolean,
+        val reuseSameSource: Boolean = false,
         val playbackIntentId: String = "",
         val continuationIntentId: String? = null,
         val startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
@@ -1937,6 +1938,7 @@ class VideoPlayerViewModel(
                         seekPositionMs = effectiveSeekMs,
                         playWhenReady = true,
                         replaceInPlace = false,
+                        reuseSameSource = true,
                         playbackIntentId = activePlaybackIntentId,
                         startupTraceId = currentStartupTraceId,
                         startupTraceStartElapsedMs = currentStartupTraceStartElapsedMs
@@ -3302,9 +3304,8 @@ class VideoPlayerViewModel(
                     interactionLoadingEdgeId = -1L
                 }
                 val dmMask = wrapper.dmMask
-                AppLog.d(TAG, "dm_mask received: $dmMask")
                 if (dmMask != null && dmMask.maskUrl.isNotBlank()) {
-                    AppLog.d(TAG, "dm_mask Ready: cid=${dmMask.cid}, fps=${dmMask.fps}, url=${dmMask.maskUrl}")
+                    AppLog.d(TAG, "dm_mask ready: cid=${dmMask.cid} fps=${dmMask.fps}")
                     _dmMaskState.value = DmMaskState.Ready(
                         maskUrl = dmMask.maskUrl,
                         cid = dmMask.cid,
@@ -3816,7 +3817,6 @@ class VideoPlayerViewModel(
         viewModelScope.launch {
             delay(FIRST_FRAME_DM_MASK_LOAD_DELAY_MS)
             if (!isActiveVideoLoad(callbackGeneration) || currentCid != dmMask.cid) return@launch
-            AppLog.d(TAG, "dm_mask callback: onDmMaskReady=$onDmMaskReady, vm=${this@VideoPlayerViewModel.hashCode()}")
             onDmMaskReady?.invoke(dmMask.maskUrl, dmMask.cid, dmMask.fps)
         }
     }

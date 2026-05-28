@@ -89,8 +89,9 @@ object PlayerInstancePool {
         isAttached = false
         player.playWhenReady = false
         player.stop()
-        player.clearMediaItems()
         player.clearVideoSurface()
+        // 不调用 clearMediaItems()，保留 MediaSource 以便同一视频热重播。
+        // reuseSameSource 路径只需 prepare() + seekTo()，跳过 setMediaSource()。
         schedule_release()
     }
 

@@ -969,22 +969,37 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 suppressPlaybackEnvironmentSync = true
                 try {
                     currentPlayer.playWhenReady = false
-                    currentPlayer.stop()
-                    currentPlayer.setMediaSource(playbackRequest.mediaSource, playbackRequest.seekPositionMs)
-                    PlaybackStartupTrace.log(
-                        traceId = activeStartupTraceId,
-                        startElapsedMs = activeStartupTraceStartElapsedMs,
-                        step = "media_source_set",
-                        message = "intentId=${playbackRequest.playbackIntentId} seek=${playbackRequest.seekPositionMs}"
-                    )
-                    currentPlayer.prepare()
-                    PlaybackStartupTrace.log(
-                        traceId = activeStartupTraceId,
-                        startElapsedMs = activeStartupTraceStartElapsedMs,
-                        step = "player_prepare_called",
-                        message = "playWhenReady=${playbackRequest.playWhenReady}"
-                    )
-                    currentPlayer.playWhenReady = playbackRequest.playWhenReady
+                    if (playbackRequest.reuseSameSource) {
+                        // 暖路径：MediaSource 仍挂载在 player 上，跳过 setMediaSource()
+                        // player 被 stop() 过（STATE_IDLE），需 prepare() 重新起播
+                        PlaybackStartupTrace.log(
+                            traceId = activeStartupTraceId,
+                            startElapsedMs = activeStartupTraceStartElapsedMs,
+                            step = "warm_reuse_prepare",
+                            message = "seek=${playbackRequest.seekPositionMs}"
+                        )
+                        currentPlayer.prepare()
+                        currentPlayer.seekTo(playbackRequest.seekPositionMs)
+                        currentPlayer.playWhenReady = playbackRequest.playWhenReady
+                    } else {
+                        // 冷路径：不同视频，完整重建管线
+                        currentPlayer.stop()
+                        currentPlayer.setMediaSource(playbackRequest.mediaSource, playbackRequest.seekPositionMs)
+                        PlaybackStartupTrace.log(
+                            traceId = activeStartupTraceId,
+                            startElapsedMs = activeStartupTraceStartElapsedMs,
+                            step = "media_source_set",
+                            message = "intentId=${playbackRequest.playbackIntentId} seek=${playbackRequest.seekPositionMs}"
+                        )
+                        currentPlayer.prepare()
+                        PlaybackStartupTrace.log(
+                            traceId = activeStartupTraceId,
+                            startElapsedMs = activeStartupTraceStartElapsedMs,
+                            step = "player_prepare_called",
+                            message = "playWhenReady=${playbackRequest.playWhenReady}"
+                        )
+                        currentPlayer.playWhenReady = playbackRequest.playWhenReady
+                    }
                 } finally {
                     suppressPlaybackEnvironmentSync = false
                 }
@@ -1122,12 +1137,15 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         viewModel.onDmMaskReady = { maskUrl, cid, fps ->
             playerView.setDmMaskRepository(viewModel.dmMaskRepository)
             lifecycleScope.launch {
-                val success = playerView.loadDmMask(maskUrl, cid, fps)
-                AppLog.d(TAG, "loadDmMask result: $success, cid=$cid")
+                playerView.loadDmMask(maskUrl, cid, fps)
             }
         }
         viewModel.onDmMaskReset = {
             playerView.releaseDmMask()
+        }
+        // mask 因渲染掉帧被自动关闭时弹 toast 提示用户（controller 已切回主线程）
+        playerView.setOnMaskAutoDisabledListener { reason ->
+            Toast.makeText(applicationContext, reason, Toast.LENGTH_LONG).show()
         }
 
         lifecycleScope.launch {

@@ -771,22 +771,35 @@ class VideoPlayerFragment : Fragment() {
                 suppressPlaybackEnvironmentSync = true
                 try {
                     currentPlayer.playWhenReady = false
-                    currentPlayer.stop()
-                    currentPlayer.setMediaSource(playbackRequest.mediaSource, playbackRequest.seekPositionMs)
-                    PlaybackStartupTrace.log(
-                        traceId = activeStartupTraceId,
-                        startElapsedMs = activeStartupTraceStartElapsedMs,
-                        step = "media_source_set",
-                        message = "intentId=${playbackRequest.playbackIntentId} seek=${playbackRequest.seekPositionMs}"
-                    )
-                    currentPlayer.prepare()
-                    PlaybackStartupTrace.log(
-                        traceId = activeStartupTraceId,
-                        startElapsedMs = activeStartupTraceStartElapsedMs,
-                        step = "player_prepare_called",
-                        message = "playWhenReady=${playbackRequest.playWhenReady}"
-                    )
-                    currentPlayer.playWhenReady = playbackRequest.playWhenReady
+                    if (playbackRequest.reuseSameSource) {
+                        // 暖路径：MediaSource 仍挂载在 player 上，跳过 setMediaSource()
+                        PlaybackStartupTrace.log(
+                            traceId = activeStartupTraceId,
+                            startElapsedMs = activeStartupTraceStartElapsedMs,
+                            step = "warm_reuse_prepare",
+                            message = "seek=${playbackRequest.seekPositionMs}"
+                        )
+                        currentPlayer.prepare()
+                        currentPlayer.seekTo(playbackRequest.seekPositionMs)
+                        currentPlayer.playWhenReady = playbackRequest.playWhenReady
+                    } else {
+                        currentPlayer.stop()
+                        currentPlayer.setMediaSource(playbackRequest.mediaSource, playbackRequest.seekPositionMs)
+                        PlaybackStartupTrace.log(
+                            traceId = activeStartupTraceId,
+                            startElapsedMs = activeStartupTraceStartElapsedMs,
+                            step = "media_source_set",
+                            message = "intentId=${playbackRequest.playbackIntentId} seek=${playbackRequest.seekPositionMs}"
+                        )
+                        currentPlayer.prepare()
+                        PlaybackStartupTrace.log(
+                            traceId = activeStartupTraceId,
+                            startElapsedMs = activeStartupTraceStartElapsedMs,
+                            step = "player_prepare_called",
+                            message = "playWhenReady=${playbackRequest.playWhenReady}"
+                        )
+                        currentPlayer.playWhenReady = playbackRequest.playWhenReady
+                    }
                 } finally {
                     suppressPlaybackEnvironmentSync = false
                 }
