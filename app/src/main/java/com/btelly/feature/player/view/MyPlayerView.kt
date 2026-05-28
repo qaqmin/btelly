@@ -266,6 +266,14 @@ class MyPlayerView @JvmOverloads constructor(
         dmMaskController.reportFrameQuery(queryPts, framePts)
     }
 
+    private val maskPipelineDelayReporter: (Long) -> Unit = { totalDurationNs ->
+        dmMaskController.reportFramePipelineDelay(totalDurationNs)
+    }
+
+    private val maskVsyncPeriodReporter: (Long) -> Unit = { periodNs ->
+        dmMaskController.reportVsyncPeriod(periodNs)
+    }
+
     interface ControllerVisibilityListener {
         fun onVisibilityChanged(visibility: Int)
     }
@@ -394,6 +402,9 @@ class MyPlayerView @JvmOverloads constructor(
         descendantFocusability = FOCUS_AFTER_DESCENDANTS
 
         isDoubleTapEnabled = true
+        gestureListener.setCallback { _, _ ->
+            togglePlaybackByDoubleTap()
+        }
         AppLog.i("PlayerViewPerf", "MyPlayerView init elapsed=${SystemClock.elapsedRealtime() - initStartMs}ms")
     }
 
@@ -592,9 +603,6 @@ class MyPlayerView @JvmOverloads constructor(
                 return true
             }
         })
-        gestureListener.setCallback { _, _ ->
-            togglePlaybackByDoubleTap()
-        }
         AppLog.i("PlayerViewPerf", "setupSeekOverlay lazy reason=$reason elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
         return overlay
     }
@@ -1873,6 +1881,8 @@ class MyPlayerView @JvmOverloads constructor(
                 host.videoBoundsProvider = maskVideoBoundsProvider
                 host.shouldRenderMask = maskShouldRenderProvider
                 host.frameQueryReporter = maskFrameQueryReporter
+                host.pipelineDelayReporter = maskPipelineDelayReporter
+                host.vsyncPeriodReporter = maskVsyncPeriodReporter
             }
         }
         if (forceSeek) {
@@ -1883,6 +1893,14 @@ class MyPlayerView @JvmOverloads constructor(
 
     fun setDmMaskRepository(repository: com.btelly.model.dm.DmMaskRepository) {
         dmMaskController.setRepository(repository)
+    }
+
+    /**
+     * 注册「mask 因掉帧自动关闭」的回调，PlayerActivity 用它弹 toast。
+     * Controller 已经把回调切到主线程。
+     */
+    fun setOnMaskAutoDisabledListener(listener: ((reason: String) -> Unit)?) {
+        dmMaskController.onMaskAutoDisabled = listener
     }
 
     suspend fun loadDmMask(maskUrl: String, cid: Long, fps: Int): Boolean {
@@ -1898,6 +1916,8 @@ class MyPlayerView @JvmOverloads constructor(
                 host.videoBoundsProvider = maskVideoBoundsProvider
                 host.shouldRenderMask = maskShouldRenderProvider
                 host.frameQueryReporter = maskFrameQueryReporter
+                host.pipelineDelayReporter = maskPipelineDelayReporter
+                host.vsyncPeriodReporter = maskVsyncPeriodReporter
             }
             dmMaskController.setEnabled(true)
         }
