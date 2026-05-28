@@ -164,7 +164,7 @@ class LiveFragment : BaseFragment<FragmentLiveBinding>(), MainTabFocusTarget {
                         MainNavigationViewModel.Event.MenuPressed ->
                             adapter.getCurrentFragment(viewPager.currentItem)?.onExplicitRefresh()
 
-                        MainNavigationViewModel.Event.BackPressed -> scrollToTop()
+                        MainNavigationViewModel.Event.BackPressed -> Unit
                         else -> Unit
                     }
                 }

@@ -450,9 +450,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
                             loadData()
                         }
 
-                        MainNavigationViewModel.Event.BackPressed -> {
-                            scrollVideoListToTop()
-                        }
+                        MainNavigationViewModel.Event.BackPressed -> Unit
 
                         else -> Unit
                     }

@@ -345,7 +345,7 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
         when (event) {
             MeTabPage.HostEvent.SELECT_TAB4 -> onTabSelected()
             MeTabPage.HostEvent.CLICK_TAB4 -> onTabReselected()
-            MeTabPage.HostEvent.BACK_PRESSED -> scrollToTop()
+            MeTabPage.HostEvent.BACK_PRESSED -> Unit
             MeTabPage.HostEvent.KEY_MENU_PRESS -> loadFavoriteFolders()
         }
         return true

@@ -136,8 +136,7 @@ class CategoryFragment : BaseFragment<FragmentCategoryBinding>(), MainTabFocusTa
                         MainNavigationViewModel.Event.MenuPressed ->
                             adapter.getCurrentFragment(viewPager.currentItem)?.refresh()
 
-                        MainNavigationViewModel.Event.BackPressed ->
-                            adapter.getCurrentFragment(viewPager.currentItem)?.scrollToTop()
+                        MainNavigationViewModel.Event.BackPressed -> Unit
 
                         else -> Unit
                     }

@@ -166,7 +166,7 @@ class MeFragment : BaseFragment<FragmentMeBinding>(), MainTabFocusTarget {
 
                         MainNavigationViewModel.Event.BackPressed -> {
                             dispatchHostEvent(MeTabPage.HostEvent.BACK_PRESSED) {
-                                getCurrentTabPage()?.scrollToTop()
+                                Unit
                             }
                         }
 

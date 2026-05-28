@@ -307,7 +307,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     }
 
     private fun onVideoClick(video: VideoModel) {
-        val act = activity
+        val act = activity ?: (context as? androidx.appcompat.app.AppCompatActivity)
         if (act == null || act.isFinishing || act.isDestroyed) {
             AppLog.w("MeList", "onVideoClick dropped: activity=$act finishing=${act?.isFinishing} destroyed=${act?.isDestroyed} bvid=${video.bvid}")
             return
@@ -325,7 +325,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     }
 
     private fun onHistoryVideoClick(video: HistoryVideoModel) {
-        val act = activity
+        val act = activity ?: (context as? androidx.appcompat.app.AppCompatActivity)
         if (act == null || act.isFinishing || act.isDestroyed) {
             AppLog.w("MeList", "onHistoryVideoClick dropped: activity=$act finishing=${act?.isFinishing} destroyed=${act?.isDestroyed}")
             return

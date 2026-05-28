@@ -220,7 +220,7 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
                             }
                         }
 
-                        MainNavigationViewModel.Event.BackPressed -> scrollToTop()
+                        MainNavigationViewModel.Event.BackPressed -> Unit
                         else -> Unit
                     }
                 }

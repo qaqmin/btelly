@@ -181,9 +181,7 @@ class SeriesTimelineFragment : BaseFragment<FragmentSeriesTimelineBinding>() {
                             }
                         }
 
-                        MainNavigationViewModel.Event.BackPressed -> {
-                            binding.recyclerView.scrollToPosition(0)
-                        }
+                        MainNavigationViewModel.Event.BackPressed -> Unit
 
                         else -> Unit
                     }
