@@ -636,9 +636,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             playerView.defaultFocusHighlightEnabled = false
         }
         bottomProgressBar = binding.bottomProgressBar
-        slimTimelineRenderer = SlimTimelineRenderer(bottomProgressBar) {
-            ::playerSettings.isInitialized && playerSettings.showBottomProgressBar && latestControllerVisibility != View.VISIBLE
-        }
+        slimTimelineRenderer = SlimTimelineRenderer(bottomProgressBar)
         textClock = binding.textClock
         textSubtitle = binding.textSubtitle
         textDebug = binding.textDebug

@@ -168,7 +168,7 @@ class VideoPlayerFragment : Fragment() {
     }
     private val progressCoordinator = VideoPlayerProgressCoordinator(
         playerProvider = { player },
-        publishProgressStateProvider = { _binding != null && bottomProgressBar.isVisible },
+        publishProgressStateProvider = { _binding != null },
         onProgressPublished = { positionMs, durationMs, publishProgressState ->
             viewModel.updatePlaybackPosition(positionMs, durationMs, publishProgressState)
         },
@@ -361,9 +361,7 @@ class VideoPlayerFragment : Fragment() {
             playerView.defaultFocusHighlightEnabled = false
         }
         bottomProgressBar = binding.bottomProgressBar
-        slimTimelineRenderer = SlimTimelineRenderer(bottomProgressBar) {
-            ::playerSettings.isInitialized && playerSettings.showBottomProgressBar && latestControllerVisibility != View.VISIBLE
-        }
+        slimTimelineRenderer = SlimTimelineRenderer(bottomProgressBar)
         textClock = binding.textClock
         textSubtitle = binding.textSubtitle
         textDebug = binding.textDebug

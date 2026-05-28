@@ -17,7 +17,6 @@ class SponsorProgressMarkerView @JvmOverloads constructor(
     private var positionMs: Long = 0L
     private var sponsorDurationMs: Long = 0L
 
-    private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x33FFFFFF }
     private val playedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF0088BB.toInt() }
     private val segmentPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
@@ -42,9 +41,6 @@ class SponsorProgressMarkerView @JvmOverloads constructor(
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
-
-        // 背景
-        canvas.drawRect(0f, 0f, w, h, bgPaint)
 
         // 已播放进度
         if (durationMs > 0L) {

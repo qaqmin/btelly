@@ -5,19 +5,18 @@ import com.btelly.feature.player.sponsor.SponsorProgressMarkerView
 import com.btelly.feature.player.sponsor.SponsorSegment
 
 class SlimTimelineRenderer(
-    private val markerView: SponsorProgressMarkerView,
-    private val shouldShowProvider: () -> Boolean
+    private val markerView: SponsorProgressMarkerView
 ) : TimelineRenderer {
 
     private var active = false
 
     override fun show(positionMs: Long, durationMs: Long) {
-        active = shouldShowProvider()
-        if (!active || durationMs <= 0L) {
+        if (durationMs <= 0L) {
             active = false
             markerView.isVisible = false
             return
         }
+        active = true
         markerView.isVisible = true
         markerView.setProgress(positionMs, durationMs)
     }
