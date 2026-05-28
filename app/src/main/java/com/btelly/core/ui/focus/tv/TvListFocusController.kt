@@ -213,6 +213,11 @@ class TvListFocusController(
     }
 
     private fun focusPosition(position: Int, offsetTop: Int, reason: String): Boolean {
+        val focused = recyclerView.rootView?.findFocus()
+        if (focused != null && !isDescendantOf(focused, recyclerView) && reason != "move" && reason != "primary") {
+            AppLog.d(TAG, "focusPosition: BLOCKED reason=$reason — focus is outside RV on ${focused.javaClass.simpleName}")
+            return false
+        }
         AppLog.d(TAG, "focusPosition: pos=$position offset=$offsetTop reason=$reason")
         return operator.focusPosition(position, offsetTop, reason) { focusedPosition ->
             currentAnchor = strategy.anchorFor(

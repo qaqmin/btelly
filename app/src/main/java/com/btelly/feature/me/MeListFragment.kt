@@ -83,6 +83,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     private var lastRenderedHistorySignature = ""
     private var lastRenderedLaterSignature = ""
     private var allowHistoryLoadMore = false
+    private var returningFromPlayer = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -201,6 +202,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         super.onResume()
         val restoringFromPlayer = pendingRestoreFocus
         if (pendingRestoreFocus) {
+            returningFromPlayer = true
             restoreContentFocus()
         }
         if (type == TYPE_HISTORY || type == TYPE_LATER) {
@@ -656,6 +658,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     }
 
     override fun refresh() {
+        returningFromPlayer = false
         currentPage = 1
         pendingRestoreFocus = false
         pendingHistoryReturnRestore = false
@@ -673,13 +676,18 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     }
 
     override fun onTabSelected() {
-        AppLog.d("MeDebug", "[$type] onTabSelected: isAdded=$isAdded, hasView=${view != null}, loading=${viewModel.loading.value}, hasContent=${hasContentItems()}")
+        AppLog.d("MeDebug", "[$type] onTabSelected: isAdded=$isAdded, hasView=${view != null}, loading=${viewModel.loading.value}, hasContent=${hasContentItems()}, returningFromPlayer=$returningFromPlayer")
         if (!isAdded || view == null) {
             AppLog.d("MeDebug", "[$type] onTabSelected: EARLY RETURN (isAdded/view)")
             return
         }
         if (pendingRestoreFocus && hasContentItems()) {
             AppLog.d("MeDebug", "[$type] onTabSelected: restore pending, keep current anchor")
+            restoreContentFocus()
+            return
+        }
+        if (returningFromPlayer && hasContentItems()) {
+            AppLog.d("MeDebug", "[$type] onTabSelected: returning from player, skip reload")
             restoreContentFocus()
             return
         }
@@ -726,7 +734,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         when (event) {
             MeTabPage.HostEvent.SELECT_TAB4 -> onTabSelected()
             MeTabPage.HostEvent.CLICK_TAB4 -> refresh()
-            MeTabPage.HostEvent.BACK_PRESSED -> scrollToTop()
+            MeTabPage.HostEvent.BACK_PRESSED -> Unit
             MeTabPage.HostEvent.KEY_MENU_PRESS -> refresh()
         }
         return true
@@ -775,6 +783,12 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
 
     private fun restoreContentFocus() {
         if (!isAdded || view == null || binding.recyclerView.visibility != View.VISIBLE) {
+            pendingRestoreFocus = false
+            returningFromPlayer = false
+            if (type == TYPE_HISTORY) {
+                pendingHistoryReturnRestore = false
+                pendingHistoryScrollToTop = false
+            }
             return
         }
         pendingRestoreFocus = false
@@ -784,8 +798,10 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         }
         binding.recyclerView.post {
             if (!isAdded || binding.recyclerView.visibility != View.VISIBLE) {
+                returningFromPlayer = false
                 return@post
             }
+            returningFromPlayer = false
             if (type == TYPE_HISTORY) {
                 val adapter = historyAdapter ?: return@post
                 restoreHistoryViewportAnchor()

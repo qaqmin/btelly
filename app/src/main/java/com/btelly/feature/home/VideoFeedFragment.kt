@@ -3,10 +3,12 @@ package com.btelly.feature.home
 import android.os.SystemClock
 import android.view.View
 import android.view.ViewTreeObserver
+import androidx.annotation.OptIn
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.media3.common.util.UnstableApi
 import com.btelly.R
 import com.btelly.core.common.ext.toast
 import com.btelly.core.common.log.AppLog
@@ -16,6 +18,7 @@ import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.core.ui.base.RecyclerViewPoolPrewarmer
 import com.btelly.core.ui.focus.tv.TvDataChangeReason
 import com.btelly.core.ui.render.FirstScreenRenderer
+import com.btelly.feature.player.PlayerInstancePool
 import com.btelly.model.video.VideoModel
 import com.btelly.ui.activity.MainActivity
 import com.btelly.ui.adapter.VideoAdapter
@@ -39,6 +42,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     private var contentReadyDispatchScheduled = false
     private var contentReadyDispatched = false
     private var latestOpenStartMs = 0L
+    private var focusWarmupRunnable: Runnable? = null
 
     override val autoLoad: Boolean = false
     override val initialViewHolderPrewarmPlan: RecyclerViewPoolPrewarmer.Plan = RecyclerViewPoolPrewarmer.Plan.VideoFeed
@@ -51,6 +55,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
             onTopEdgeUp = ::focusTopTab,
             onItemFocusedWithView = { view, position ->
                 tvFocusController?.onItemFocused(view, position)
+                scheduleFocusWarmup()
             },
             onItemDpad = { view, keyCode, event ->
                 tvFocusController?.handleKey(view, keyCode, event) == true
@@ -204,7 +209,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
                             }
                         }
 
-                        MainNavigationViewModel.Event.BackPressed -> scrollToTop()
+                        MainNavigationViewModel.Event.BackPressed -> Unit
                         else -> Unit
                     }
                 }
@@ -447,11 +452,28 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
         )
     }
 
+    @OptIn(UnstableApi::class)
+    private fun scheduleFocusWarmup() {
+        val hostView = view ?: rootView ?: return
+        focusWarmupRunnable?.let(hostView::removeCallbacks)
+        val runnable = Runnable {
+            val ctx = context ?: return@Runnable
+            PlayerInstancePool.prewarm(ctx.applicationContext)
+        }
+        focusWarmupRunnable = runnable
+        hostView.postDelayed(runnable, 500L)
+    }
+
     override fun onVideoBlocked(aid: Long, bvid: String) {
         (adapter as? VideoAdapter)?.removeByVideoId(aid, bvid)
     }
 
     override fun onDestroyView() {
+        focusWarmupRunnable?.let { runnable ->
+            view?.removeCallbacks(runnable)
+            rootView?.removeCallbacks(runnable)
+        }
+        focusWarmupRunnable = null
         initialLoadAfterFirstDrawArmed = false
         contentReadyDispatchScheduled = false
         super.onDestroyView()
