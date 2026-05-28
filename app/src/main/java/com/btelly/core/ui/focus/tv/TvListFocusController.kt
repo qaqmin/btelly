@@ -79,12 +79,26 @@ class TvListFocusController(
         }
 
         if (reason == TvDataChangeReason.APPEND) {
-            // Don't auto-move focus — let the user's next DOWN press navigate into the
-            // newly loaded items naturally. Never restore anchor on APPEND: if the user is
-            // navigating by D-pad the focused item is preserved by DiffUtil; if the user is
-            // touch-scrolling there is no focus to restore and scrolling back to the stale
-            // anchor causes a visible jump.
             pendingMoveAfterLoadMore = null
+            // Don't auto-move focus to new items (preserves existing design).
+            // But if focus was lost during a fast-scroll + loadMore cycle, recover it.
+            if (!hasValidFocusedItem()) {
+                val focused = recyclerView.rootView?.findFocus()
+                if (focused == null || isDescendantOf(focused, recyclerView)) {
+                    val anchor = currentAnchor ?: capturedAnchor
+                    if (anchor != null) {
+                        val resolved = resolveAnchorPosition(anchor)
+                        if (resolved != RecyclerView.NO_POSITION) {
+                            focusPosition(resolved, anchor.offsetTop, "appendFocusRecovery")
+                        }
+                    } else {
+                        val firstVisible = firstVisibleFocusablePosition()
+                        if (firstVisible != RecyclerView.NO_POSITION) {
+                            focusPosition(firstVisible, 0, "appendFocusRecovery")
+                        }
+                    }
+                }
+            }
             return
         }
 

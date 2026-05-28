@@ -93,12 +93,7 @@ class RecyclerViewFocusOperator(
                 scheduleAttachRetry(position, offsetTop, token, retryLeft - 1, onFocused)
                 return@post
             }
-            if (stillVisible) {
-                AppLog.w(TAG, "focusPosition post: direct focus failed for visible pos=$position")
-                pendingFocusPosition = RecyclerView.NO_POSITION
-                return@post
-            }
-            AppLog.w(TAG, "focusPosition post: direct focus failed, trying sameColumn then nearestVisible for pos=$position")
+            AppLog.w(TAG, "focusPosition post: retries exhausted (visible=$stillVisible) for pos=$position, trying fallback")
             val spanCount = (recyclerView.layoutManager as? GridLayoutManager)?.spanCount ?: 0
             if (spanCount > 0 && focusSameColumnVisible(position, spanCount, onFocused)) {
                 pendingFocusPosition = RecyclerView.NO_POSITION

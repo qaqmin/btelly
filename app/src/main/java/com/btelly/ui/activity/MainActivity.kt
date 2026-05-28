@@ -587,6 +587,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
 
     private fun handleBackPressed() {
         if (dispatchBackPressedToVisibleFragment()) {
+            schedulePostBackFocusRestore()
             return
         }
 
@@ -606,6 +607,19 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
 
         exitTime = System.currentTimeMillis()
         Toast.makeText(applicationContext, R.string.app_exit, Toast.LENGTH_SHORT).show()
+        schedulePostBackFocusRestore()
+    }
+
+    private fun schedulePostBackFocusRestore() {
+        binding.root.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            val currentFocus = currentFocus
+            if (currentFocus != null) return@postDelayed
+            val handledByContent = focusCurrentMainContent(anchorView = null, preferSpatialEntry = false)
+            if (!handledByContent) {
+                binding.myTabView.focusCurrentTab()
+            }
+        }, 100L)
     }
 
     fun closeTopOverlayFromUi() {
