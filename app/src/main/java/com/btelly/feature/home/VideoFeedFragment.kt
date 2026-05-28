@@ -326,7 +326,18 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
                 logFirstCardsDraw(videos.size, source = if (wasPendingScrollToTop) "refresh" else "replace")
                 if (wasPendingScrollToTop && !isPendingReturnRestore()) {
                     scrollToTop()
-                    tvFocusController?.requestFocusPosition(0)
+                    val rv = recyclerView
+                    if (rv != null) {
+                        rv.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+                            override fun onPreDraw(): Boolean {
+                                rv.viewTreeObserver.removeOnPreDrawListener(this)
+                                if (isAdded && view != null) {
+                                    tvFocusController?.requestRefreshFocus(0)
+                                }
+                                return true
+                            }
+                        })
+                    }
                 }
             }
         )

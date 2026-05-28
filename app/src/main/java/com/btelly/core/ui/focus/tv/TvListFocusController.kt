@@ -21,11 +21,24 @@ class TvListFocusController(
     private var currentAnchor: TvFocusAnchor? = null
     private var capturedAnchor: TvFocusAnchor? = null
     private var pendingMoveAfterLoadMore: TvFocusAnchor? = null
+    private var refreshFocusTarget: Int? = null
 
     fun onItemFocused(view: View, position: Int) {
         if (!adapter.isFocusablePosition(position)) {
             AppLog.w(TAG, "onItemFocused: pos=$position NOT focusable, itemCount=${adapter.focusableItemCount()}")
             return
+        }
+        val target = refreshFocusTarget
+        if (target != null && position != target) {
+            return
+        }
+        if (target != null && position == target) {
+            val capturedTarget = target
+            recyclerView.postDelayed({
+                if (refreshFocusTarget != capturedTarget) return@postDelayed
+                refreshFocusTarget = null
+                restoreAllFocus()
+            }, 200)
         }
         currentAnchor = createAnchor(view, position, TvFocusAnchor.Source.FOCUS)
         val anchor = currentAnchor
@@ -44,6 +57,11 @@ class TvListFocusController(
             else -> return false
         }
         val dirName = directionName(direction)
+        // User pressed a key — cancel refresh suppression so navigation works normally
+        if (refreshFocusTarget != null) {
+            refreshFocusTarget = null
+            restoreAllFocus()
+        }
         if (direction != View.FOCUS_DOWN) {
             pendingMoveAfterLoadMore = null
         }
@@ -172,6 +190,20 @@ class TvListFocusController(
         return focusPosition(target, 0, "primary", allowOutsideFocus = true)
     }
 
+    /**
+     * Requests focus at [position] for a user-initiated refresh.
+     * Suppresses focus on all other items so the framework cannot steal focus
+     * during subsequent layout passes. Focusability is restored after layout settles.
+     */
+    fun requestRefreshFocus(position: Int): Boolean {
+        if (!adapter.isFocusablePosition(position)) {
+            return false
+        }
+        refreshFocusTarget = position
+        suppressOtherFocus(position)
+        return focusPosition(position, 0, "refresh", allowOutsideFocus = true)
+    }
+
     fun requestFocusPosition(position: Int): Boolean {
         if (!adapter.isFocusablePosition(position)) {
             return false
@@ -208,11 +240,35 @@ class TvListFocusController(
         currentAnchor = null
         capturedAnchor = null
         pendingMoveAfterLoadMore = null
+        refreshFocusTarget = null
+        restoreAllFocus()
         operator.cancelPendingFocus()
     }
 
     fun release() {
+        refreshFocusTarget = null
+        restoreAllFocus()
         clearAnchorForUserRefresh()
+    }
+
+    private fun suppressOtherFocus(targetPosition: Int) {
+        for (i in 0 until recyclerView.childCount) {
+            val child = recyclerView.getChildAt(i)
+            val pos = recyclerView.getChildAdapterPosition(child)
+            if (pos != targetPosition) {
+                child.isFocusable = false
+            }
+        }
+    }
+
+    private fun restoreAllFocus() {
+        for (i in 0 until recyclerView.childCount) {
+            val child = recyclerView.getChildAt(i)
+            val pos = recyclerView.getChildAdapterPosition(child)
+            if (pos != RecyclerView.NO_POSITION && adapter.isFocusablePosition(pos)) {
+                child.isFocusable = true
+            }
+        }
     }
 
     private fun move(direction: Int): Boolean {
