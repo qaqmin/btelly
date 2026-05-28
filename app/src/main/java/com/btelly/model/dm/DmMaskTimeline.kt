@@ -1,13 +1,14 @@
 package com.btelly.model.dm
 
-import com.btelly.core.common.log.AppLog
-
 /**
  * 基于 segment 的懒加载时间线。
  *
- * 不一次性解析所有 segment（124 段 × 300 帧 = 15+ 秒），
- * 而是预解析 segment 0，其余按需解析。query 在 O(1) 定位段 + O(1) 定位帧。
- * 段内帧解析结果缓存在 [LazyMaskSegment.cachedFrames]，同一段只解析一次。
+ * Range 加载策略下，构造时段字节均未下载——
+ * 实际下载 + 解析由 [com.btelly.feature.player.view.DmMaskController.preloadAhead]
+ * 在后台按播放进度触发。本 timeline 只负责：
+ *  - O(log N) 二分定位 segment
+ *  - O(1) 在 [LazyMaskSegment.cachedFrames] 里 round-to-nearest 取帧
+ *  - 主线程查询绝不触发解析（dispatchDraw 不能同步阻塞）
  */
 class DmMaskTimeline(
     private val segments: List<LazyMaskSegment>,
@@ -15,32 +16,9 @@ class DmMaskTimeline(
 ) {
 
     companion object {
-        private const val TAG = "DmMaskTimeline"
-
-        /**
-         * 构建时间线：只预解析 segment 0，其余按需解析。
-         * 必须在 IO/后台线程调用。
-         */
         fun build(data: DmMaskData): DmMaskTimeline? {
             val segments = data.rawSegments
             if (segments.isEmpty()) return null
-
-            // 预解析首段
-            val seg0 = segments[0]
-            if (seg0.cachedFrames == null) {
-                val segDurationMs = if (segments.size > 1) {
-                    segments[1].timeMs - seg0.timeMs
-                } else {
-                    300L * 1000L / data.fps.coerceAtLeast(1)
-                }
-                WebmaskParser.parseSegmentFrames(seg0, data.fps, segDurationMs)?.let {
-                    seg0.cachedFrames = it
-                    AppLog.d(TAG, "Segment 0 pre-parsed: frames=${it.size}")
-                }
-            }
-
-            AppLog.d(TAG, "Timeline built: segments=${segments.size}, fps=${data.fps}, " +
-                "range=[${segments.first().timeMs}..${segments.last().timeMs}]ms")
             return DmMaskTimeline(segments, data.fps)
         }
     }

@@ -1550,8 +1550,18 @@ class MyPlayerView @JvmOverloads constructor(
 
         val currentSurface = videoSurfaceView
 
-        // 已经是 TextureView，只需切换 scaleX，不重建 View
+        // 已经是 TextureView，只需切换 scaleX，不重建 View。
+        //
+        // ⚠️ 必须显式 setLayerType(LAYER_TYPE_HARDWARE) 锁住硬件层。
+        // 原因：TextureView 在 scaleX != 1f 时 view 系统会自动套一个临时
+        // hardware layer，切回 scaleX = 1f 又会销毁它。Adreno 驱动在这种反复
+        // 创建/销毁 RenderTarget 时会触发 EGL_BAD_MATCH（eglSurfaceAttrib 1338），
+        // OpenGLRenderer 反复重建上下文 → 主线程 jank 100ms+。
+        // 一直保持 LAYER_TYPE_HARDWARE 后 scaleX 切换只是 GPU matrix 改动，无重建。
         if (currentSurface is TextureView) {
+            if (currentSurface.layerType != LAYER_TYPE_HARDWARE) {
+                currentSurface.setLayerType(LAYER_TYPE_HARDWARE, null)
+            }
             currentSurface.scaleX = if (enabled) -1f else 1f
             return
         }
@@ -1582,6 +1592,9 @@ class MyPlayerView @JvmOverloads constructor(
         val textureView = TextureView(context)
         textureView.layoutParams = layoutParams
         textureView.isOpaque = true
+        // 预先锁住硬件层，避免后续每次 scaleX 切换时 view 系统反复创建/销毁 hardware
+        // layer，导致 Adreno 驱动报 EGL_BAD_MATCH（详见上方注释）。
+        textureView.setLayerType(LAYER_TYPE_HARDWARE, null)
 
         textureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(s: SurfaceTexture, w: Int, h: Int) {
