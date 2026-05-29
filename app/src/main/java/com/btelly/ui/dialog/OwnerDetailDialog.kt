@@ -18,6 +18,7 @@ import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.UserRepository
 import com.btelly.ui.activity.PlayerActivity
 import com.btelly.ui.adapter.VideoAdapter
+import com.btelly.core.ui.base.VideoRecyclerViewTuning
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
 import com.btelly.core.common.content.ContentFilter
@@ -79,7 +80,7 @@ class OwnerDetailDialog(
         val spacing = context.resources.getDimensionPixelSize(R.dimen.px10)
         binding.recyclerView.layoutManager = WrapContentGridLayoutManager(context, 3)
         binding.recyclerView.adapter = videoAdapter
-        binding.recyclerView.itemAnimator = null
+        VideoRecyclerViewTuning.apply(binding.recyclerView, videoAdapter)
         binding.recyclerView.setPadding(0, -spacing, 0, binding.recyclerView.paddingBottom)
         if (binding.recyclerView.itemDecorationCount == 0) {
             binding.recyclerView.addItemDecoration(

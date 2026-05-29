@@ -13,6 +13,7 @@ import com.btelly.model.search.SearchCategoryItem
 import com.btelly.model.search.SearchItemModel
 import com.btelly.model.search.SearchType
 import com.btelly.core.ui.base.BaseListFragment
+import com.btelly.core.ui.base.VideoRecyclerViewTuning
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.ui.focus.TabContentFocusHelper
@@ -191,7 +192,9 @@ class SearchResultPagerAdapter(
                 binding.recyclerViewResult.layoutManager =
                     WrapContentGridLayoutManager(binding.root.context, spanCount)
                 binding.recyclerViewResult.adapter = currentAdapter
-                binding.recyclerViewResult.setRecycledViewPool(BaseListFragment.sharedVideoPool)
+                currentAdapter?.let { adapter ->
+                    VideoRecyclerViewTuning.apply(binding.recyclerViewResult, adapter)
+                }
                 while (binding.recyclerViewResult.itemDecorationCount > 0) {
                     binding.recyclerViewResult.removeItemDecorationAt(0)
                 }

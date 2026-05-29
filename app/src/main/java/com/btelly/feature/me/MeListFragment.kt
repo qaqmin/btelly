@@ -22,6 +22,7 @@ import com.btelly.ui.adapter.HistoryVideoAdapter
 import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.ui.base.BaseListFragment
+import com.btelly.core.ui.base.VideoRecyclerViewTuning
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.common.log.AppLog
@@ -149,8 +150,9 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         val layoutManager = WrapContentGridLayoutManager(requireContext(), 4)
         binding.recyclerView.layoutManager = layoutManager
         binding.recyclerView.adapter = historyAdapter ?: videoAdapter
-        binding.recyclerView.setRecycledViewPool(BaseListFragment.sharedVideoPool)
-        binding.recyclerView.setHasFixedSize(true)
+        (historyAdapter ?: videoAdapter)?.let { adapter ->
+            VideoRecyclerViewTuning.apply(binding.recyclerView, adapter)
+        }
         binding.emptyContainer.visibility = View.GONE
         binding.progressBar.visibility = View.GONE
         binding.btnRetry.setOnClickListener {

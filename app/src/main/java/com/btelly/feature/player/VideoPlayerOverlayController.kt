@@ -21,6 +21,7 @@ import com.btelly.ui.dialog.OwnerDetailDialog
 import com.btelly.ui.dialog.PlayerActionDialog
 import com.btelly.ui.dialog.VideoInfoDialog
 import com.btelly.feature.detail.UserSpaceFragment
+import com.btelly.core.ui.base.VideoRecyclerViewTuning
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.feature.player.view.MyPlayerView
 
@@ -187,7 +188,7 @@ class VideoPlayerOverlayController(
         recyclerViewRelated.layoutManager =
             GridLayoutManager(activity, 1, RecyclerView.HORIZONTAL, false)
         recyclerViewRelated.adapter = relatedAdapter
-        recyclerViewRelated.itemAnimator = null
+        VideoRecyclerViewTuning.apply(recyclerViewRelated, relatedAdapter)
         if (viewRelated.isVisible) {
             focusRelatedItem()
             return

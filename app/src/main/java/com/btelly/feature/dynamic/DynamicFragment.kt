@@ -19,8 +19,8 @@ import com.btelly.model.user.FollowingModel
 import com.btelly.model.video.VideoModel
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.core.ui.base.BaseFragment
-import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.core.ui.base.RecyclerViewPoolPrewarmer
+import com.btelly.core.ui.base.VideoRecyclerViewTuning
 import android.os.SystemClock
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.log.PagePerfLogger
@@ -147,11 +147,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
         )
         binding.recyclerViewRight.layoutManager = WrapContentGridLayoutManager(requireContext(), 3)
         binding.recyclerViewRight.adapter = videoAdapter
-        binding.recyclerViewRight.itemAnimator = null
-        binding.recyclerViewRight.setHasFixedSize(true)
-        binding.recyclerViewRight.setItemViewCacheSize(8)
-        binding.recyclerViewRight.setRecycledViewPool(BaseListFragment.sharedVideoPool)
-        BaseListFragment.sharedVideoPool.setMaxRecycledViews(videoAdapter.getItemViewType(0), 60)
+        VideoRecyclerViewTuning.apply(binding.recyclerViewRight, videoAdapter)
         RecyclerViewPoolPrewarmer.prewarm(
             recyclerView = binding.recyclerViewRight,
             adapter = videoAdapter,
