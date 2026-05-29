@@ -31,7 +31,7 @@ class RecommendViewModel(
     private var currentPage = 0
     private var nextRecommendFetchRow = 1
     private var hasLoadedInitial = false
-    private val seenBvids = mutableSetOf<String>()
+    private val seenVideoIds = mutableSetOf<String>()
 
     override fun loadInitial() {
         if (hasLoadedInitial) return
@@ -89,11 +89,11 @@ class RecommendViewModel(
                     TAG,
                     "STARTUP T6 sharedFirstPage hit elapsed=${SystemClock.elapsedRealtime() - sharedStart}ms items=${firstPage.items.size}"
                 )
-                seenBvids.clear()
+                seenVideoIds.clear()
                 val filterStart = SystemClock.elapsedRealtime()
                 val filteredItems = firstPage.items.filterForDisplay()
                 AppLog.i(TAG, "STARTUP sharedFirstPage filterForInitial=${SystemClock.elapsedRealtime() - filterStart}ms")
-                filteredItems.mapNotNullTo(seenBvids) { it.bvid.takeIf(String::isNotBlank) }
+                filteredItems.mapNotNullTo(seenVideoIds) { it.bvid.takeIf(String::isNotBlank) }
                 currentPage = 1
                 nextRecommendFetchRow = nextFetchRowAfter(firstPage)
                 _uiState.value = FeedUiState(
@@ -143,10 +143,10 @@ class RecommendViewModel(
             AppLog.i(TAG, "STARTUP T7 network page=$page freshIdx=$freshIdx fetchRow=$fetchRow source=${pageResult.source} raw=${pageResult.rawCount} ready items=${pageResult.items.size}")
             val filteredItems = pageResult.items.filterForDisplay()
             if (replace) {
-                seenBvids.clear()
+                seenVideoIds.clear()
             }
-            val dedupedItems = filteredItems.filter { it.bvid.isBlank() || it.bvid !in seenBvids }
-            dedupedItems.mapNotNullTo(seenBvids) { it.bvid.takeIf(String::isNotBlank) }
+            val dedupedItems = filteredItems.filter { it.bvid.isBlank() || it.bvid !in seenVideoIds }
+            dedupedItems.mapNotNullTo(seenVideoIds) { it.bvid.takeIf(String::isNotBlank) }
             val mergedItems = if (replace) {
                 dedupedItems
             } else {

@@ -74,7 +74,7 @@ class DynamicViewModel(
     private var followingTotal = 0
     private var followingHasMore = false
     private var followingLoading = false
-    private val loadedFollowingMids = linkedSetOf<Long>()
+    private val loadedFollowingMidIds = linkedSetOf<Long>()
 
     private data class CachedUpVideos(
         val videos: List<VideoModel>,
@@ -107,14 +107,13 @@ class DynamicViewModel(
             followingTotal = 0
             followingHasMore = false
             followingLoading = false
-            loadedFollowingMids.clear()
+            loadedFollowingMidIds.clear()
             _status.value = DynamicStatus.NotLoggedIn
             _screenState.value = ScreenState.NotLoggedIn
             return
         }
 
         followingLoadJob = viewModelScope.launch {
-            val startMs = SystemClock.elapsedRealtime()
             AppLog.i(TAG, "DYN D0 loadFollowingList start")
             _loading.value = true
             _error.value = null
@@ -125,7 +124,7 @@ class DynamicViewModel(
             followingTotal = 0
             followingHasMore = false
             followingLoading = false
-            loadedFollowingMids.clear()
+            loadedFollowingMidIds.clear()
 
             val defaultItems = listOf(
                 FollowingModel(
@@ -221,9 +220,9 @@ class DynamicViewModel(
                         followingTotal = wrapper?.total ?: followingTotal
                         followingPage = nextPage
                         if (pageItems.isNotEmpty()) {
-                            val appendedItems = pageItems.filter { loadedFollowingMids.add(it.mid) }
+                            val appendedItems = pageItems.filter { loadedFollowingMidIds.add(it.mid) }
                             if (appendedItems.isNotEmpty()) {
-                                _followingList.value = _followingList.value + appendedItems
+                                _followingList.value += appendedItems
                             }
                         }
                         followingHasMore = shouldLoadMoreFollowing()
@@ -441,12 +440,12 @@ class DynamicViewModel(
         page: Int,
         total: Int
     ) {
-        loadedFollowingMids.clear()
-        val uniqueItems = items.filter { loadedFollowingMids.add(it.mid) }
+        loadedFollowingMidIds.clear()
+        val uniqueItems = items.filter { loadedFollowingMidIds.add(it.mid) }
         _followingList.value = defaultItems + uniqueItems
         followingPage = page
         followingHasMore = when {
-            total > 0 -> loadedFollowingMids.size < total
+            total > 0 -> loadedFollowingMidIds.size < total
             else -> uniqueItems.size >= FOLLOWING_PAGE_SIZE
         }
     }
@@ -468,13 +467,13 @@ class DynamicViewModel(
         _followingList.value = emptyList()
         _videos.value = emptyList()
         currentVideoItems = emptyList()
-        loadedFollowingMids.clear()
+        loadedFollowingMidIds.clear()
     }
 
     private fun shouldLoadMoreFollowing(): Boolean {
         return when {
-            followingTotal > 0 -> loadedFollowingMids.size < followingTotal
-            else -> loadedFollowingMids.isNotEmpty() && loadedFollowingMids.size % FOLLOWING_PAGE_SIZE == 0
+            followingTotal > 0 -> loadedFollowingMidIds.size < followingTotal
+            else -> loadedFollowingMidIds.isNotEmpty() && loadedFollowingMidIds.size % FOLLOWING_PAGE_SIZE == 0
         }
     }
 }

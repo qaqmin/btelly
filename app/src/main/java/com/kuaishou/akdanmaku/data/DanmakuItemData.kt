@@ -97,6 +97,7 @@ class DanmakuItemData(
   var mergedType: Int = MERGED_TYPE_NORMAL
 ) : Comparable<DanmakuItemData> {
 
+  @Suppress("unused")
   val isImportant: Boolean
     get() = score > 0
 
@@ -106,7 +107,9 @@ class DanmakuItemData(
     const val DANMAKU_MODE_CENTER_TOP = 0x5   // 00000101(5)
 
     const val DANMAKU_STYLE_NONE = 0x1   // 00000001(1)
+    @Suppress("unused")
     const val DANMAKU_STYLE_ICON_UP = 0x2   // 00000010(2)
+    @Suppress("unused")
     const val DANMAKU_STYLE_USER_AVATAR = 0x4   // 00000100(4)
     const val DANMAKU_STYLE_SELF_SEND = 0x8   // 00001000(8)
 
@@ -124,15 +127,15 @@ class DanmakuItemData(
      */
     private const val DANMAKU_ITEM_DATA_POSITION_INVALID = Long.MAX_VALUE
 
-    private fun createSimpleDanmakuItemData(position: Long): DanmakuItemData {
+    private fun createEmptyDanmakuItemData(): DanmakuItemData {
       return DanmakuItemData(
-        DANMAKU_ITEM_DATA_ID_INVALID, position,
+        DANMAKU_ITEM_DATA_ID_INVALID, DANMAKU_ITEM_DATA_POSITION_INVALID,
         "", 0, 0, 0
       )
     }
 
     val DANMAKU_ITEM_DATA_EMPTY =
-      createSimpleDanmakuItemData(DANMAKU_ITEM_DATA_POSITION_INVALID)
+      createEmptyDanmakuItemData()
   }
 
   override fun compareTo(other: DanmakuItemData): Int {

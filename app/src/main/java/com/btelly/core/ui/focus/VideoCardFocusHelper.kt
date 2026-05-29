@@ -167,9 +167,8 @@ object VideoCardFocusHelper {
             }
 
             KeyEvent.KEYCODE_DPAD_UP -> {
-                RecyclerViewLoadMoreFocusController.fromView(target)?.let { controller ->
-                    controller.notifyItemVerticalNavigation(target, View.FOCUS_UP)
-                }
+                RecyclerViewLoadMoreFocusController.fromView(target)
+                    ?.notifyItemVerticalNavigation(target, View.FOCUS_UP)
                 val atTopEdge = isAtTopEdge(target)
                 AppLog.d(TAG, "DPAD_UP pos=$pos atTop=$atTopEdge")
                 if (atTopEdge && onTopEdgeUp != null) {
@@ -177,7 +176,6 @@ object VideoCardFocusHelper {
                     AppLog.d(TAG, "DPAD_UP pos=$pos topEdge→handled=$result")
                     return result
                 }
-                false
             }
 
             KeyEvent.KEYCODE_DPAD_DOWN -> {
@@ -212,7 +210,6 @@ object VideoCardFocusHelper {
                     }
                 }
                 AppLog.d(TAG, "DPAD_DOWN pos=$pos no next focus found, returning false")
-                false
             }
         }
         return false
@@ -279,14 +276,9 @@ object VideoCardFocusHelper {
                     } else {
                         val currentGroup = layoutManager.spanSizeLookup
                             .getSpanGroupIndex(position, spanCount)
-                        var nextPos = position + 1
-                        while (nextPos < adapter.itemCount) {
-                            val nextGroup = layoutManager.spanSizeLookup
-                                .getSpanGroupIndex(nextPos, spanCount)
-                            if (nextGroup != currentGroup) break
-                            return false
-                        }
-                        true
+                        val nextPosition = position + 1
+                        nextPosition >= adapter.itemCount || layoutManager.spanSizeLookup
+                            .getSpanGroupIndex(nextPosition, spanCount) != currentGroup
                     }
                 }
             }

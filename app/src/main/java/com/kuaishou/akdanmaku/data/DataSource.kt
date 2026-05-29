@@ -21,6 +21,8 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+@file:Suppress("SpellCheckingInspection")
+
 package com.kuaishou.akdanmaku.data
 
 import com.kuaishou.akdanmaku.collection.TreeList

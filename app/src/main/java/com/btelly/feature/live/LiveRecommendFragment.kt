@@ -24,7 +24,6 @@ import com.btelly.core.common.ext.toast
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.log.PagePerfLogger
 import com.btelly.core.ui.render.FirstScreenRenderer
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
