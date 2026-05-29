@@ -224,6 +224,7 @@ class VideoPlayerViewModel(
         val playWhenReady: Boolean,
         val replaceInPlace: Boolean,
         val reuseSameSource: Boolean = false,
+        val durationMs: Long = 0L,
         val playbackIntentId: String = "",
         val continuationIntentId: String? = null,
         val startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
@@ -1692,6 +1693,7 @@ class VideoPlayerViewModel(
             seekPositionMs = pendingSeekPositionMs,
             playWhenReady = pendingPlayWhenReady,
             replaceInPlace = true,
+            durationMs = playInfo.timeLength,
             playbackIntentId = activePlaybackIntentId,
             startupTraceId = currentStartupTraceId,
             startupTraceStartElapsedMs = currentStartupTraceStartElapsedMs
@@ -1939,6 +1941,7 @@ class VideoPlayerViewModel(
                         playWhenReady = true,
                         replaceInPlace = false,
                         reuseSameSource = true,
+                        durationMs = playInfo.timeLength,
                         playbackIntentId = activePlaybackIntentId,
                         startupTraceId = currentStartupTraceId,
                         startupTraceStartElapsedMs = currentStartupTraceStartElapsedMs
@@ -2438,6 +2441,7 @@ class VideoPlayerViewModel(
             seekPositionMs = preparedPlayback.seekToStart,
             playWhenReady = preparedPlayback.playWhenReady,
             replaceInPlace = preparedPlayback.replaceInPlace,
+            durationMs = preparedPlayback.playInfo.timeLength,
             playbackIntentId = preparedPlayback.playbackIntentId,
             continuationIntentId = preparedPlayback.continuationIntentId,
             startupTraceId = preparedPlayback.startupTraceId,
@@ -2852,6 +2856,7 @@ class VideoPlayerViewModel(
                 seekPositionMs = seekPositionMs,
                 playWhenReady = true,
                 replaceInPlace = true,
+                durationMs = plan.durationMs,
                 playbackIntentId = activePlaybackIntentId,
                 startupTraceId = currentStartupTraceId,
                 startupTraceStartElapsedMs = currentStartupTraceStartElapsedMs
@@ -2896,6 +2901,7 @@ class VideoPlayerViewModel(
                 seekPositionMs = seekPositionMs,
                 playWhenReady = true,
                 replaceInPlace = true,
+                durationMs = route.durationMs,
                 playbackIntentId = activePlaybackIntentId,
                 startupTraceId = currentStartupTraceId,
                 startupTraceStartElapsedMs = currentStartupTraceStartElapsedMs

@@ -42,9 +42,8 @@ class SponsorProgressMarkerView @JvmOverloads constructor(
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
 
-        // 已播放进度
-        if (durationMs > 0L) {
-            val progressEnd = (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) * w
+        val progressEnd = SponsorProgressMarkerGeometry.playedEndPx(w, positionMs, durationMs)
+        if (progressEnd > 0f) {
             canvas.drawRect(0f, 0f, progressEnd, h, playedPaint)
         }
 
@@ -57,5 +56,14 @@ class SponsorProgressMarkerView @JvmOverloads constructor(
                 canvas.drawRect(left, 0f, right, h, segmentPaint)
             }
         }
+    }
+}
+
+internal object SponsorProgressMarkerGeometry {
+    fun playedEndPx(widthPx: Float, positionMs: Long, durationMs: Long): Float {
+        if (widthPx <= 0f || durationMs <= 0L) {
+            return 0f
+        }
+        return (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) * widthPx
     }
 }

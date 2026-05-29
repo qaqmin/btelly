@@ -284,6 +284,11 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         publishProgressStateProvider = { bottomProgressBar.isVisible },
         onProgressPublished = { positionMs, durationMs, publishProgressState ->
             viewModel.updatePlaybackPosition(positionMs, durationMs, publishProgressState)
+            if (publishProgressState) {
+                latestPlaybackPositionMs = positionMs.coerceAtLeast(0L)
+                latestPlaybackDurationMs = durationMs.coerceAtLeast(0L)
+                renderBottomProgressBar()
+            }
         },
         onPlaybackPositionChanged = { positionMs ->
             playerView.syncDanmakuPosition(positionMs)
@@ -950,10 +955,11 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                     playerView.prepareForPlaybackTransition()
                     viewModel.resetPlaybackProgress()
                     latestPlaybackPositionMs = 0L
-                    latestPlaybackDurationMs = 0L
-                    if (::slimTimelineRenderer.isInitialized) {
-                        slimTimelineRenderer.show(0L, 0L)
-                    }
+                    latestPlaybackDurationMs = playbackRequest.durationMs.coerceAtLeast(0L)
+                    renderBottomProgressBar()
+                } else if (playbackRequest.durationMs > 0L) {
+                    latestPlaybackDurationMs = playbackRequest.durationMs
+                    renderBottomProgressBar()
                 }
                 startupTrace = StartupTrace(
                     sequence = ++startupTraceSequence,
@@ -1596,13 +1602,31 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             bottomProgressBar.isVisible = false
             return
         }
-        val shouldShow = uiCoordinator.bottomOccupant == PlaybackUiCoordinator.BottomOccupant.SlimTimeline
-                && uiCoordinator.seekState == PlaybackUiCoordinator.SeekState.None
+        refreshAmbientSlimTimelineState()
+        val shouldShow = ::playerSettings.isInitialized &&
+                playerSettings.showBottomProgressBar &&
+                latestControllerVisibility == View.GONE &&
+                uiCoordinator.bottomOccupant == PlaybackUiCoordinator.BottomOccupant.SlimTimeline &&
+                uiCoordinator.seekState == PlaybackUiCoordinator.SeekState.None &&
+                uiCoordinator.panelState == PlaybackUiCoordinator.PanelState.None
         if (shouldShow) {
             slimTimelineRenderer.show(latestPlaybackPositionMs, latestPlaybackDurationMs)
         } else {
             slimTimelineRenderer.hide()
         }
+    }
+
+    private fun refreshAmbientSlimTimelineState() {
+        if (!::playerSettings.isInitialized || latestControllerVisibility != View.GONE) {
+            return
+        }
+        if (
+            uiCoordinator.seekState != PlaybackUiCoordinator.SeekState.None ||
+            uiCoordinator.panelState != PlaybackUiCoordinator.PanelState.None
+        ) {
+            return
+        }
+        uiCoordinator.syncAmbientChrome(playerSettings.showBottomProgressBar)
     }
 
     private fun capturePlaybackSnapshot(): Pair<Long, Boolean> {

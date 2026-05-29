@@ -396,6 +396,13 @@ class PlaybackUiCoordinator {
 
     fun hasVisiblePanel(): Boolean = panelState != PanelState.None
 
+    fun syncAmbientChrome(showBottomProgressBar: Boolean) {
+        chromeState = ChromeState.Hidden
+        bottomOccupant = if (showBottomProgressBar) BottomOccupant.SlimTimeline else BottomOccupant.None
+        hudState = HudState.Ambient
+        focusOwner = FocusOwner.PlayerRoot
+    }
+
     fun <T> withState(block: (PlaybackUiCoordinator) -> T): T = block(this)
 
     interface OnStateChangedListener {

@@ -11,11 +11,6 @@ class SlimTimelineRenderer(
     private var active = false
 
     override fun show(positionMs: Long, durationMs: Long) {
-        if (durationMs <= 0L) {
-            active = false
-            markerView.isVisible = false
-            return
-        }
         active = true
         markerView.isVisible = true
         markerView.setProgress(positionMs, durationMs)
