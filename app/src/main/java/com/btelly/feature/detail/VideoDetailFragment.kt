@@ -190,6 +190,11 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
         binding.buttonBack1.setOnClickListener {
             navigateBackFromUi()
         }
+        binding.buttonBack1.onFocusChangeListener = View.OnFocusChangeListener { view, hasFocus ->
+            if (hasFocus) {
+                AppLog.d(TAG, "buttonBack1 focused: ${describeFocusView(view)}")
+            }
+        }
 
         contentAdapter = VideoDetailContentAdapter(
             onPlayClick = {
@@ -206,6 +211,12 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
             onUgcOrderToggle = { toggleUgcOrder() },
             onRelatedVideoClick = { model -> onRelatedVideoClicked(model) },
             onDescriptionClick = { desc -> showDescriptionDialog(desc) },
+            onBackFocus = {
+                val before = binding.root.findFocus()
+                val result = binding.buttonBack1.requestFocus()
+                AppLog.d(TAG, "onBackFocus request: before=${describeFocusView(before)} result=$result after=${describeFocusView(binding.root.findFocus())}")
+                result
+            },
             onFollowClick = { toggleFollow() },
             onTripleAction = { tripleAction() }
         )
@@ -916,5 +927,15 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
         if (found == 0) {
             AppLog.d(TAG, "$label: NO ProgressBar found in view hierarchy")
         }
+    }
+
+    private fun describeFocusView(view: View?): String {
+        if (view == null) return "null"
+        val idName = if (view.id == View.NO_ID) {
+            "no-id"
+        } else {
+            runCatching { resources.getResourceEntryName(view.id) }.getOrDefault(view.id.toString())
+        }
+        return "${view.javaClass.simpleName}(id=$idName,attached=${view.isAttachedToWindow},shown=${view.isShown},focusable=${view.isFocusable})"
     }
 }

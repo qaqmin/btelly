@@ -13,7 +13,11 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.flexbox.FlexboxLayout
 import com.btelly.R
+import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.base.VideoRecyclerViewTuning
+import com.btelly.core.ui.focus.tv.LinearTvFocusStrategy
+import com.btelly.core.ui.focus.tv.TvDataChangeReason
+import com.btelly.core.ui.focus.tv.TvListFocusController
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.ui.system.ScreenUtils
 import com.btelly.core.common.format.NumberUtils
@@ -40,6 +44,7 @@ class VideoDetailContentAdapter(
     private val onUgcOrderToggle: () -> Unit,
     private val onRelatedVideoClick: (VideoModel) -> Unit,
     private val onDescriptionClick: (CharSequence) -> Unit,
+    private val onBackFocus: () -> Boolean,
     private val onFollowClick: () -> Unit,
     private val onTripleAction: () -> Unit
 ) : ListAdapter<VideoDetailContentAdapter.Row, RecyclerView.ViewHolder>(RowItemCallback) {
@@ -86,6 +91,7 @@ class VideoDetailContentAdapter(
                 onFavoriteClick,
                 onTagClick,
                 onDescriptionClick,
+                onBackFocus,
                 onFollowClick,
                 onTripleAction,
                 parent.context
@@ -127,6 +133,7 @@ class VideoDetailContentAdapter(
         private val onFavoriteClick: () -> Unit,
         private val onTagClick: (Tag) -> Unit,
         private val onDescriptionClick: (CharSequence) -> Unit,
+        private val onBackFocus: () -> Boolean,
         private val onFollowClick: () -> Unit,
         private val onTripleAction: () -> Unit,
         private val context: Context
@@ -175,7 +182,9 @@ class VideoDetailContentAdapter(
                 false
             }
             binding.buttonPlay.setOnKeyListener { _, keyCode, event ->
-                if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER || keyCode == android.view.KeyEvent.KEYCODE_ENTER) {
+                if (handleBackFocusKey(keyCode, event)) {
+                    true
+                } else if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER || keyCode == android.view.KeyEvent.KEYCODE_ENTER) {
                     if (event.action == android.view.KeyEvent.ACTION_DOWN) {
                         animatePlayPress(1.0f)
                     } else if (event.action == android.view.KeyEvent.ACTION_UP) {
@@ -212,7 +221,9 @@ class VideoDetailContentAdapter(
                 false
             }
             binding.buttonLike.setOnKeyListener { v, keyCode, event ->
-                if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER || keyCode == android.view.KeyEvent.KEYCODE_ENTER) {
+                if (handleBackFocusKey(keyCode, event)) {
+                    true
+                } else if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER || keyCode == android.view.KeyEvent.KEYCODE_ENTER) {
                     if (event.action == android.view.KeyEvent.ACTION_DOWN) {
                         tripleActionTriggered = false
                         v.removeCallbacks(tripleStartRunnable)
@@ -231,6 +242,11 @@ class VideoDetailContentAdapter(
                     true
                 } else false
             }
+            val backFocusKeyListener = View.OnKeyListener { _, keyCode, event ->
+                handleBackFocusKey(keyCode, event)
+            }
+            binding.buttonCoin.setOnKeyListener(backFocusKeyListener)
+            binding.buttonFavorite.setOnKeyListener(backFocusKeyListener)
 
             val scrollListener = View.OnFocusChangeListener { _, hasFocus ->
                 if (hasFocus) {
@@ -265,6 +281,11 @@ class VideoDetailContentAdapter(
         private fun animatePlayPress(scale: Float) {
             binding.viewPlayRing.animate().scaleX(scale).scaleY(scale).setDuration(100).start()
             binding.iconPlayButton.animate().scaleX(scale).scaleY(scale).setDuration(100).start()
+        }
+
+        private fun handleBackFocusKey(keyCode: Int, event: android.view.KeyEvent): Boolean {
+            return VideoDetailHeaderFocusKeys.shouldFocusBack(keyCode, event.action) &&
+                onBackFocus()
         }
 
         fun bind(view: VideoView, tags: List<Tag>, isLiked: Boolean, isCoined: Boolean, isFavorited: Boolean) {
@@ -507,7 +528,16 @@ class VideoDetailContentAdapter(
         private val onOrderToggle: () -> Unit
     ) : RecyclerView.ViewHolder(binding.root) {
 
-        private val videoAdapter = VideoAdapter(itemWidthPx = ScreenUtils.getScreenWidth(binding.root.context) / 5)
+        private var tvFocusController: TvListFocusController? = null
+        private val videoAdapter = VideoAdapter(
+            itemWidthPx = ScreenUtils.getScreenWidth(binding.root.context) / 5,
+            onItemFocusedWithView = { view, position ->
+                tvFocusController?.onItemFocused(view, position)
+            },
+            onItemDpad = { view, keyCode, event ->
+                tvFocusController?.handleKey(view, keyCode, event) == true
+            }
+        )
         val innerRecyclerView: RecyclerView get() = binding.recyclerView
         private var lastIsReverse: Boolean? = null
         private var lastCurrentAid: Long = 0
@@ -518,6 +548,16 @@ class VideoDetailContentAdapter(
                 LinearLayoutManager(binding.root.context, RecyclerView.HORIZONTAL, false)
             binding.recyclerView.adapter = videoAdapter
             VideoRecyclerViewTuning.apply(binding.recyclerView, videoAdapter)
+            tvFocusController = TvListFocusController(
+                recyclerView = binding.recyclerView,
+                adapter = videoAdapter,
+                strategy = LinearTvFocusStrategy(RecyclerView.HORIZONTAL),
+                canLoadMore = { false },
+                loadMore = {},
+                restoreAppendFocusFromOutside = true,
+                restoreFocusOnFocusedDetach = true,
+                debugName = "detail-ugc"
+            )
             binding.recyclerView.isFocusable = false
             binding.buttonOrder.visibility = View.VISIBLE
             binding.buttonOrder.setOnClickListener {
@@ -536,7 +576,13 @@ class VideoDetailContentAdapter(
                 lastIsReverse = isReverse
                 lastCurrentAid = currentAid
                 videoAdapter.currentPlayingAid = currentAid
+                val reason = dataChangeReasonFor(videoAdapter.contentCount(), items.size)
+                AppLog.d(
+                    "VideoDetailFocus",
+                    "ugc bind setData reason=$reason oldCount=${videoAdapter.contentCount()} newCount=${items.size} currentAid=$currentAid"
+                )
                 videoAdapter.setData(items) {
+                    tvFocusController?.onDataChanged(reason)
                     scrollToCurrentVideo(items, currentAid)
                 }
             } else if (lastCurrentAid != currentAid) {
@@ -569,7 +615,16 @@ class VideoDetailContentAdapter(
         onVideoClick: (VideoModel) -> Unit
     ) : RecyclerView.ViewHolder(binding.root) {
 
-        private val videoAdapter = VideoAdapter(itemWidthPx = ScreenUtils.getScreenWidth(binding.root.context) / 5)
+        private var tvFocusController: TvListFocusController? = null
+        private val videoAdapter = VideoAdapter(
+            itemWidthPx = ScreenUtils.getScreenWidth(binding.root.context) / 5,
+            onItemFocusedWithView = { view, position ->
+                tvFocusController?.onItemFocused(view, position)
+            },
+            onItemDpad = { view, keyCode, event ->
+                tvFocusController?.handleKey(view, keyCode, event) == true
+            }
+        )
 
         init {
             videoAdapter.setShowLoadMore(false)
@@ -577,6 +632,16 @@ class VideoDetailContentAdapter(
                 LinearLayoutManager(binding.root.context, RecyclerView.HORIZONTAL, false)
             binding.recyclerView.adapter = videoAdapter
             VideoRecyclerViewTuning.apply(binding.recyclerView, videoAdapter)
+            tvFocusController = TvListFocusController(
+                recyclerView = binding.recyclerView,
+                adapter = videoAdapter,
+                strategy = LinearTvFocusStrategy(RecyclerView.HORIZONTAL),
+                canLoadMore = { false },
+                loadMore = {},
+                restoreAppendFocusFromOutside = true,
+                restoreFocusOnFocusedDetach = true,
+                debugName = "detail-related"
+            )
             binding.recyclerView.isFocusable = false
             binding.buttonOrder.visibility = View.GONE
             videoAdapter.setOnItemClickListener { _, item ->
@@ -587,7 +652,14 @@ class VideoDetailContentAdapter(
 
         fun bind(items: List<VideoModel>) {
             binding.topTitle.text = binding.root.context.getString(R.string.related_video)
-            videoAdapter.setData(items)
+            val reason = dataChangeReasonFor(videoAdapter.contentCount(), items.size)
+            AppLog.d(
+                "VideoDetailFocus",
+                "related bind setData reason=$reason oldCount=${videoAdapter.contentCount()} newCount=${items.size}"
+            )
+            videoAdapter.setData(items) {
+                tvFocusController?.onDataChanged(reason)
+            }
         }
     }
 
@@ -596,6 +668,14 @@ class VideoDetailContentAdapter(
         private const val VIEW_TYPE_PAGES = 1
         private const val VIEW_TYPE_UGC_SEASON = 2
         private const val VIEW_TYPE_RELATED = 3
+
+        internal fun dataChangeReasonFor(oldCount: Int, newCount: Int): TvDataChangeReason {
+            return if (oldCount > 0 && newCount > oldCount) {
+                TvDataChangeReason.APPEND
+            } else {
+                TvDataChangeReason.REPLACE_PRESERVE_ANCHOR
+            }
+        }
 
         private fun bindBackButtonOnScroll(recyclerView: RecyclerView) {
             recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
@@ -633,5 +713,12 @@ class VideoDetailContentAdapter(
                 }
             }
         }
+    }
+}
+
+internal object VideoDetailHeaderFocusKeys {
+    fun shouldFocusBack(keyCode: Int, action: Int): Boolean {
+        return keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT &&
+            action == android.view.KeyEvent.ACTION_DOWN
     }
 }

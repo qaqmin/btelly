@@ -51,7 +51,9 @@ class RecyclerViewFocusOperator(
         AppLog.d(TAG, "focusPosition: pos=$position reason=$reason visible=$alreadyVisible attached=${recyclerView.isAttachedToWindow}")
         if (!alreadyVisible) {
             if (layoutManager is LinearLayoutManager) {
-                layoutManager.scrollToPositionWithOffset(position, offsetTop)
+                val offset = scrollOffsetFor(layoutManager, position, offsetTop)
+                AppLog.d(TAG, "focusPosition: scroll pos=$position offset=$offset orientation=${layoutManager.orientation}")
+                layoutManager.scrollToPositionWithOffset(position, offset)
             } else {
                 recyclerView.scrollToPosition(position)
             }
@@ -195,7 +197,7 @@ class RecyclerViewFocusOperator(
             return false
         }
         if (!isPartiallyVisible(itemView)) {
-            AppLog.w(TAG, "requestFocus: pos=$position not partiallyVisible top=${itemView.top} bottom=${itemView.bottom} rvHeight=${recyclerView.height}")
+            AppLog.w(TAG, "requestFocus: pos=$position not partiallyVisible left=${itemView.left} right=${itemView.right} top=${itemView.top} bottom=${itemView.bottom} rvW=${recyclerView.width} rvH=${recyclerView.height}")
             return false
         }
         if (itemView.isFocused || itemView.hasFocus()) {
@@ -216,12 +218,76 @@ class RecyclerViewFocusOperator(
     }
 
     private fun isPartiallyVisible(itemView: View): Boolean {
-        val parentHeight = recyclerView.height
-        if (parentHeight <= 0) {
-            return false
+        val layoutManager = recyclerView.layoutManager as? LinearLayoutManager
+        return if (layoutManager?.orientation == RecyclerView.HORIZONTAL) {
+            val parentWidth = recyclerView.width
+            if (parentWidth <= 0) return false
+            val parentStart = recyclerView.paddingLeft
+            val parentEnd = parentWidth - recyclerView.paddingRight
+            itemView.right > parentStart && itemView.left < parentEnd
+        } else {
+            val parentHeight = recyclerView.height
+            if (parentHeight <= 0) return false
+            val parentTop = recyclerView.paddingTop
+            val parentBottom = parentHeight - recyclerView.paddingBottom
+            itemView.bottom > parentTop && itemView.top < parentBottom
         }
-        val parentTop = recyclerView.paddingTop
-        val parentBottom = parentHeight - recyclerView.paddingBottom
-        return itemView.bottom > parentTop && itemView.top < parentBottom
+    }
+
+    private fun scrollOffsetFor(
+        layoutManager: LinearLayoutManager,
+        position: Int,
+        requestedOffset: Int
+    ): Int {
+        if (layoutManager.orientation != RecyclerView.HORIZONTAL) {
+            return requestedOffset
+        }
+        return TvFocusScrollPolicy.horizontalOffsetForPendingTarget(
+            position = position,
+            firstVisible = layoutManager.findFirstVisibleItemPosition(),
+            lastVisible = layoutManager.findLastVisibleItemPosition(),
+            viewportWidth = recyclerView.width,
+            paddingLeft = recyclerView.paddingLeft,
+            paddingRight = recyclerView.paddingRight,
+            estimatedItemWidth = estimateHorizontalItemWidth(layoutManager)
+        )
+    }
+
+    private fun estimateHorizontalItemWidth(layoutManager: LinearLayoutManager): Int {
+        for (i in 0 until recyclerView.childCount) {
+            val child = recyclerView.getChildAt(i) ?: continue
+            val decoratedWidth = layoutManager.getDecoratedMeasuredWidth(child)
+            if (decoratedWidth > 0) {
+                return decoratedWidth
+            }
+            if (child.width > 0) {
+                return child.width
+            }
+        }
+        return recyclerView.width
+    }
+}
+
+internal object TvFocusScrollPolicy {
+    fun horizontalOffsetForPendingTarget(
+        position: Int,
+        firstVisible: Int,
+        lastVisible: Int,
+        viewportWidth: Int,
+        paddingLeft: Int,
+        paddingRight: Int,
+        estimatedItemWidth: Int
+    ): Int {
+        if (firstVisible == RecyclerView.NO_POSITION || lastVisible == RecyclerView.NO_POSITION) {
+            return paddingLeft
+        }
+        if (position < firstVisible) {
+            return paddingLeft
+        }
+        if (position > lastVisible) {
+            val trailingOffset = viewportWidth - paddingRight - estimatedItemWidth
+            return trailingOffset.coerceAtLeast(paddingLeft)
+        }
+        return paddingLeft
     }
 }

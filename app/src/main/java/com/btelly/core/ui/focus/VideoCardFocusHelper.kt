@@ -10,11 +10,13 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
 import com.btelly.core.common.log.AppLog
+import com.btelly.core.ui.focus.tv.TvFocusableAdapter
 import com.btelly.ui.activity.MainActivity
 
 object VideoCardFocusHelper {
     private const val TAG = "VideoCardFocus"
     private val TAG_DETACH_LISTENER = R.id.tag_focus_detach_listener
+    private val TAG_LINEAR_FOCUS_TOKEN = R.id.tag_linear_focus_token
 
     fun bindSidebarExit(
         view: View,
@@ -27,6 +29,11 @@ object VideoCardFocusHelper {
     ) {
         installDetachProtection(view)
         view.setOnKeyListener { target, keyCode, event ->
+            if (shouldOfferHorizontalKeyToChainedListener(target, keyCode, event)) {
+                if (chainedListener?.onKey(target, keyCode, event) == true) {
+                    return@setOnKeyListener true
+                }
+            }
             val handledBySidebar = handleSidebarNavigation(
                 target, keyCode, event,
                 onTopEdgeUp, onLeftEdge, onRightEdge, onBottomEdgeDown, handleListDpadDown
@@ -37,6 +44,22 @@ object VideoCardFocusHelper {
                 chainedListener?.onKey(target, keyCode, event) ?: false
             }
         }
+    }
+
+    private fun shouldOfferHorizontalKeyToChainedListener(
+        target: View,
+        keyCode: Int,
+        event: KeyEvent
+    ): Boolean {
+        if (event.action != KeyEvent.ACTION_DOWN) {
+            return false
+        }
+        if (keyCode != KeyEvent.KEYCODE_DPAD_LEFT && keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) {
+            return false
+        }
+        val layoutManager = target.findParentRecyclerView()?.layoutManager as? LinearLayoutManager
+            ?: return false
+        return layoutManager.orientation == RecyclerView.HORIZONTAL
     }
 
     private fun installDetachProtection(view: View) {
@@ -62,6 +85,9 @@ object VideoCardFocusHelper {
                 val focused = detached.rootView.findFocus() ?: return
                 if (focused !== detached && !isDescendantOf(focused, detached)) return
                 val lm = rv.layoutManager as? LinearLayoutManager ?: return
+                if (lm.orientation == RecyclerView.HORIZONTAL) {
+                    return
+                }
                 val first = lm.findFirstVisibleItemPosition()
                 val last = lm.findLastVisibleItemPosition()
                 if (first == RecyclerView.NO_POSITION) return
@@ -146,6 +172,9 @@ object VideoCardFocusHelper {
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 val atLeftEdge = isAtLeftEdge(target)
                 AppLog.d(TAG, "DPAD_LEFT pos=$pos atLeft=$atLeftEdge")
+                if (handleHorizontalLinearNavigation(target, -1)) {
+                    return true
+                }
                 if (!atLeftEdge) {
                     return false
                 }
@@ -158,6 +187,9 @@ object VideoCardFocusHelper {
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 val atRightEdge = isAtRightEdge(target)
                 AppLog.d(TAG, "DPAD_RIGHT pos=$pos atRight=$atRightEdge")
+                if (handleHorizontalLinearNavigation(target, 1)) {
+                    return true
+                }
                 if (!atRightEdge) {
                     return false
                 }
@@ -213,6 +245,49 @@ object VideoCardFocusHelper {
             }
         }
         return false
+    }
+
+    private fun handleHorizontalLinearNavigation(view: View, direction: Int): Boolean {
+        val recyclerView = view.findParentRecyclerView() ?: return false
+        val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return false
+        if (layoutManager.orientation != RecyclerView.HORIZONTAL) {
+            return false
+        }
+        val adapter = recyclerView.adapter ?: return false
+        val position = recyclerView.getChildAdapterPosition(view)
+        val targetPosition = LinearFocusStep.resolveTargetPosition(
+            position = position,
+            itemCount = (adapter as? TvFocusableAdapter)?.focusableItemCount() ?: adapter.itemCount,
+            direction = direction
+        )
+        if (targetPosition == RecyclerView.NO_POSITION) {
+            return false
+        }
+        val token = ((recyclerView.getTag(TAG_LINEAR_FOCUS_TOKEN) as? Int) ?: 0) + 1
+        recyclerView.setTag(TAG_LINEAR_FOCUS_TOKEN, token)
+        if (requestHorizontalPositionFocus(recyclerView, targetPosition)) {
+            return true
+        }
+        layoutManager.scrollToPositionWithOffset(targetPosition, 0)
+        recyclerView.post {
+            if ((recyclerView.getTag(TAG_LINEAR_FOCUS_TOKEN) as? Int) != token) {
+                return@post
+            }
+            requestHorizontalPositionFocus(recyclerView, targetPosition)
+        }
+        return true
+    }
+
+    private fun requestHorizontalPositionFocus(
+        recyclerView: RecyclerView,
+        position: Int
+    ): Boolean {
+        val holder = recyclerView.findViewHolderForAdapterPosition(position) ?: return false
+        val itemView = holder.itemView
+        if (!itemView.isAttachedToWindow || !itemView.isShown || !itemView.isFocusable) {
+            return false
+        }
+        return itemView.requestFocus()
     }
 
     private fun isAtLeftEdge(view: View): Boolean {
@@ -340,5 +415,22 @@ object VideoCardFocusHelper {
             current = current.baseContext
         }
         return null
+    }
+}
+
+internal object LinearFocusStep {
+    fun resolveTargetPosition(position: Int, itemCount: Int, direction: Int): Int {
+        if (position == RecyclerView.NO_POSITION || itemCount <= 0) {
+            return RecyclerView.NO_POSITION
+        }
+        if (direction != -1 && direction != 1) {
+            return RecyclerView.NO_POSITION
+        }
+        val targetPosition = position + direction
+        return if (targetPosition in 0 until itemCount) {
+            targetPosition
+        } else {
+            RecyclerView.NO_POSITION
+        }
     }
 }

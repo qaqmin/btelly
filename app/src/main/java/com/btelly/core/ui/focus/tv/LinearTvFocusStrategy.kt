@@ -1,8 +1,11 @@
 package com.btelly.core.ui.focus.tv
 
 import android.view.View
+import androidx.recyclerview.widget.RecyclerView
 
-class LinearTvFocusStrategy : TvFocusStrategy {
+class LinearTvFocusStrategy(
+    private val orientation: Int = RecyclerView.VERTICAL
+) : TvFocusStrategy {
     override fun anchorFor(
         position: Int,
         stableKey: String?,
@@ -24,8 +27,26 @@ class LinearTvFocusStrategy : TvFocusStrategy {
             return null
         }
         return when (direction) {
-            View.FOCUS_UP -> (anchor.adapterPosition - 1).takeIf { it >= 0 }
-            View.FOCUS_DOWN -> (anchor.adapterPosition + 1).takeIf { it < itemCount }
+            View.FOCUS_UP -> if (orientation == RecyclerView.VERTICAL) {
+                (anchor.adapterPosition - 1).takeIf { it >= 0 }
+            } else {
+                null
+            }
+            View.FOCUS_DOWN -> if (orientation == RecyclerView.VERTICAL) {
+                (anchor.adapterPosition + 1).takeIf { it < itemCount }
+            } else {
+                null
+            }
+            View.FOCUS_LEFT -> if (orientation == RecyclerView.HORIZONTAL) {
+                (anchor.adapterPosition - 1).takeIf { it >= 0 }
+            } else {
+                null
+            }
+            View.FOCUS_RIGHT -> if (orientation == RecyclerView.HORIZONTAL) {
+                (anchor.adapterPosition + 1).takeIf { it < itemCount }
+            } else {
+                null
+            }
             else -> null
         }
     }
