@@ -51,24 +51,23 @@ class SearchItemAdapter(
     private val viewTypeBase = nextViewTypeBase.getAndAdd(VIEW_TYPE_STRIDE)
 
     fun setItems(list: List<SearchItemModel>) {
-        if (items.size == list.size) {
-            var identical = true
-            for (i in items.indices) {
-                if (searchItemKey(items[i]) != searchItemKey(list[i])) {
-                    identical = false
-                    break
-                }
+        val plan = SearchItemUpdatePlanner.plan(
+            oldKeys = items.map(::searchItemKey),
+            newKeys = list.map(::searchItemKey)
+        )
+        when (plan) {
+            SearchItemUpdatePlan.NoChange -> return
+            is SearchItemUpdatePlan.Append -> {
+                items.addAll(list.subList(plan.positionStart, plan.positionStart + plan.itemCount))
+                notifyItemRangeInserted(plan.positionStart, plan.itemCount)
+                return
             }
-            if (identical) return
+            SearchItemUpdatePlan.Replace -> {
+                items.clear()
+                items.addAll(list)
+                notifyDataSetChanged()
+            }
         }
-        if (items.isEmpty() && list.isNotEmpty()) {
-            items.addAll(list)
-            notifyItemRangeInserted(0, list.size)
-            return
-        }
-        items.clear()
-        items.addAll(list)
-        notifyDataSetChanged()
     }
 
     override fun focusableItemCount(): Int = itemCount
@@ -428,5 +427,30 @@ class SearchItemAdapter(
         const val VIEW_TYPE_USER_OFFSET = 3
         const val VIEW_TYPE_STRIDE = 8
         val nextViewTypeBase = AtomicInteger(0x5C0100)
+    }
+}
+
+internal sealed class SearchItemUpdatePlan {
+    data object NoChange : SearchItemUpdatePlan()
+    data class Append(val positionStart: Int, val itemCount: Int) : SearchItemUpdatePlan()
+    data object Replace : SearchItemUpdatePlan()
+}
+
+internal object SearchItemUpdatePlanner {
+    fun plan(oldKeys: List<String>, newKeys: List<String>): SearchItemUpdatePlan {
+        val sharedSize = minOf(oldKeys.size, newKeys.size)
+        for (i in 0 until sharedSize) {
+            if (oldKeys[i] != newKeys[i]) {
+                return SearchItemUpdatePlan.Replace
+            }
+        }
+        return when {
+            oldKeys.size == newKeys.size -> SearchItemUpdatePlan.NoChange
+            newKeys.size > oldKeys.size -> SearchItemUpdatePlan.Append(
+                positionStart = oldKeys.size,
+                itemCount = newKeys.size - oldKeys.size
+            )
+            else -> SearchItemUpdatePlan.Replace
+        }
     }
 }

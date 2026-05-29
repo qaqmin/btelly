@@ -22,6 +22,7 @@ class TvListFocusController(
     private var capturedAnchor: TvFocusAnchor? = null
     private var pendingMoveAfterLoadMore: TvFocusAnchor? = null
     private var refreshFocusTarget: Int? = null
+    private var userNavigationToken = 0
 
     fun onItemFocused(view: View, position: Int) {
         if (!adapter.isFocusablePosition(position)) {
@@ -57,6 +58,7 @@ class TvListFocusController(
             else -> return false
         }
         val dirName = directionName(direction)
+        userNavigationToken++
         // User pressed a key — cancel refresh suppression so navigation works normally
         if (refreshFocusTarget != null) {
             refreshFocusTarget = null
@@ -97,10 +99,13 @@ class TvListFocusController(
         }
 
         if (reason == TvDataChangeReason.APPEND) {
+            val anchorBeforeAppend = currentAnchor ?: capturedAnchor
+            val navigationToken = userNavigationToken
             pendingMoveAfterLoadMore = null
             // Don't auto-move focus to new items (preserves existing design).
             // But if focus was lost during a fast-scroll + loadMore cycle, recover it.
             ensureValidFocus("appendFocusRecovery")
+            scheduleAppendFocusRestore(anchorBeforeAppend, navigationToken)
             return
         }
 
@@ -269,6 +274,29 @@ class TvListFocusController(
                 child.isFocusable = true
             }
         }
+    }
+
+    private fun scheduleAppendFocusRestore(anchor: TvFocusAnchor?, navigationToken: Int) {
+        if (anchor == null || !isAnchorNearViewport(anchor)) {
+            return
+        }
+        recyclerView.postDelayed({
+            if (navigationToken != userNavigationToken) {
+                return@postDelayed
+            }
+            val focused = recyclerView.rootView?.findFocus()
+            val focusedPosition = focused?.let(::resolveAdapterPosition) ?: RecyclerView.NO_POSITION
+            val resolved = resolveAnchorPosition(anchor)
+            if (resolved == RecyclerView.NO_POSITION || focusedPosition == resolved) {
+                return@postDelayed
+            }
+            val focusInsideList = focused != null && isDescendantOf(focused, recyclerView)
+            if (focused != null && !focusInsideList) {
+                return@postDelayed
+            }
+            AppLog.d(TAG, "appendFocusRestore: focused=$focusedPosition → anchor=$resolved")
+            focusPosition(resolved, anchor.offsetTop, "appendAnchorRestore")
+        }, 80L)
     }
 
     private fun move(direction: Int): Boolean {
