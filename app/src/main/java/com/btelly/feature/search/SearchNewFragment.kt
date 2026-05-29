@@ -86,6 +86,7 @@ class SearchNewFragment :
 
     companion object {
         private const val ARG_KEYWORD = "keyword"
+        private const val SEARCH_PANEL_FOCUS_DELAY_MS = 48L
 
         fun newInstance(): SearchNewFragment = SearchNewFragment()
 
@@ -201,7 +202,7 @@ class SearchNewFragment :
                 KeyEvent.KEYCODE_DPAD_LEFT -> mainActivity?.focusLeftFunctionArea(view) == true
                 KeyEvent.KEYCODE_DPAD_DOWN -> {
                     if (isResultPanelVisible) {
-                        focusResultHeader(view) || focusCurrentResultContent(view)
+                        focusCurrentResultContent(view) || focusResultHeader(view, includeOrderButton = false)
                     } else {
                         focusCenterColumn(view) ||
                             focusHotColumn(view) ||
@@ -254,11 +255,6 @@ class SearchNewFragment :
     private fun setupKeyboard() {
         binding.viewKeyboard.setKeySelectListener(this)
         binding.viewKeyboard.setDispatchKeyDel(true)
-        binding.viewKeyboard.post {
-            if (isAdded) {
-                binding.viewKeyboard.requestPrimaryFocus()
-            }
-        }
     }
 
     private fun setupKeywordColumns() {
@@ -327,8 +323,8 @@ class SearchNewFragment :
                 }
                 when (keyCode) {
                     KeyEvent.KEYCODE_DPAD_LEFT -> mainActivity?.focusLeftFunctionArea(view) == true
-                    KeyEvent.KEYCODE_DPAD_RIGHT,
-                    KeyEvent.KEYCODE_DPAD_DOWN -> focusResultPrimaryActions(view) || focusCurrentResultContent(view)
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> focusResultPrimaryActions(view) || focusCurrentResultContent(view)
+                    KeyEvent.KEYCODE_DPAD_DOWN -> focusCurrentResultContent(view) || focusResultHeader(view, includeOrderButton = false)
                     KeyEvent.KEYCODE_DPAD_UP -> true
                     KeyEvent.KEYCODE_DPAD_CENTER,
                     KeyEvent.KEYCODE_ENTER -> {
@@ -487,11 +483,11 @@ class SearchNewFragment :
         binding.textSearchEmpty.isVisible = false
         handleInputChanged(binding.editText.text?.toString().orEmpty(), requestSuggest = true)
         syncCenterColumn()
-        binding.viewKeyboard.post {
+        binding.viewKeyboard.postDelayed({
             if (isAdded && binding.viewKeyboard.isVisible) {
                 restoreSearchPanelFocus()
             }
-        }
+        }, SEARCH_PANEL_FOCUS_DELAY_MS)
     }
 
     private fun syncCenterColumn() {
@@ -779,13 +775,16 @@ class SearchNewFragment :
         )
     }
 
-    private fun focusResultHeader(anchorView: View? = view?.findFocus()): Boolean {
+    private fun focusResultHeader(
+        anchorView: View? = view?.findFocus(),
+        includeOrderButton: Boolean = true
+    ): Boolean {
         val candidates = buildList {
             binding.buttonResultBack.takeIf { it.isVisible && it.isFocusable }?.let {
                 add(it)
             }
             addAll(resultTabViews())
-            if (binding.buttonOrder.isVisible && binding.buttonOrder.isFocusable) {
+            if (includeOrderButton && binding.buttonOrder.isVisible && binding.buttonOrder.isFocusable) {
                 add(binding.buttonOrder)
             }
         }

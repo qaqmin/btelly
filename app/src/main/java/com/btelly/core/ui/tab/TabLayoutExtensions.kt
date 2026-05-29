@@ -46,6 +46,7 @@ fun TabLayout.enableTouchNavigation(
                                 } else {
                                     getTabAt(index)?.select()
                                 }
+                                keepSelectedTabFocused(tabStrip, index, viewPager)
                                 true
                             }
                             KeyEvent.KEYCODE_DPAD_DOWN -> {
@@ -87,6 +88,7 @@ fun TabLayout.enableTouchNavigation(
                 } else {
                     getTabAt(index)?.select()
                 }
+                keepSelectedTabFocused(tabStrip, index, viewPager)
             }
         }
     }
@@ -186,6 +188,48 @@ fun TabLayout.focusNearestTabTo(anchorView: View?): Boolean {
     )
 }
 
+private fun TabLayout.keepSelectedTabFocused(
+    tabStrip: ViewGroup,
+    index: Int,
+    viewPager: ViewPager2
+) {
+    val target = tabStrip.getChildAt(index) ?: return
+    if (!target.isShown || !target.isFocusable) {
+        return
+    }
+    target.requestFocus()
+    post {
+        requestSelectedTabFocusIfNeeded(tabStrip, index, viewPager)
+    }
+    postDelayed({
+        requestSelectedTabFocusIfNeeded(tabStrip, index, viewPager)
+    }, TAB_SWITCH_MAX_DURATION_MS + 32L)
+}
+
+private fun TabLayout.requestSelectedTabFocusIfNeeded(
+    tabStrip: ViewGroup,
+    index: Int,
+    viewPager: ViewPager2
+) {
+    if (selectedTabPosition != index) {
+        return
+    }
+    val target = tabStrip.getChildAt(index) ?: return
+    if (!target.isShown || !target.isFocusable || target.hasFocus()) {
+        return
+    }
+    val focused = rootView?.findFocus()
+    if (
+        focused == null ||
+        !focused.isAttachedToWindow ||
+        !focused.isShown ||
+        isDescendantOf(focused, tabStrip) ||
+        isDescendantOf(focused, viewPager)
+    ) {
+        target.requestFocus()
+    }
+}
+
 private fun focusViewPagerContent(viewPager: ViewPager2): Boolean {
     val pagerRecycler = viewPager.getChildAt(0) as? RecyclerView ?: return false
     val currentPage = pagerRecycler.layoutManager?.findViewByPosition(viewPager.currentItem)
@@ -226,6 +270,17 @@ private fun tryFocusFirstFocusableDescendant(view: View): Boolean {
                 }
             }
         }
+    }
+    return false
+}
+
+private fun isDescendantOf(view: View?, ancestor: View?): Boolean {
+    var current = view
+    while (current != null) {
+        if (current === ancestor) {
+            return true
+        }
+        current = current.parent as? View
     }
     return false
 }

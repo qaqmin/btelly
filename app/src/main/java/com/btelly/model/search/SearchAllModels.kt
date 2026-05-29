@@ -106,6 +106,12 @@ data class SearchItemModel(
     val upic: String = "",
     @SerializedName("usign")
     val usign: String = "",
+    @SerializedName("fans")
+    val fans: Long = 0,
+    @SerializedName("videos")
+    val videos: Long = 0,
+    @SerializedName("level")
+    val level: Int = 0,
     @SerializedName("play")
     val play: Long = 0,
     @SerializedName("danmaku")

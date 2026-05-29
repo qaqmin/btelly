@@ -312,7 +312,10 @@ class SearchItemAdapter(
 
         fun bind(item: SearchItemModel) {
             binding.textView.text = item.uname
-            binding.textSub.text = item.usign
+            binding.textLevel.visibility = if (item.level > 0) View.VISIBLE else View.INVISIBLE
+            binding.textLevel.text = "LV${item.level}"
+            binding.textMeta.text = buildUserMetaText(item)
+            binding.textSub.text = item.usign.ifBlank { item.desc }
 
             ImageLoader.loadCircle(
                 imageView = binding.imageView,
@@ -324,6 +327,17 @@ class SearchItemAdapter(
                 officialVerifyType = item.officialVerify?.type ?: -1
             )
         }
+    }
+
+    private fun buildUserMetaText(item: SearchItemModel): String {
+        val parts = mutableListOf<String>()
+        if (item.fans > 0L) {
+            parts.add("${NumberUtils.formatCount(item.fans)}粉丝")
+        }
+        if (item.videos > 0L) {
+            parts.add("${NumberUtils.formatCount(item.videos)}个视频")
+        }
+        return parts.joinToString(" · ").ifBlank { "0粉丝 · 0个视频" }
     }
 
     private fun RecyclerView.ViewHolder.bindInteraction(

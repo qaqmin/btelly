@@ -171,8 +171,9 @@ class SearchResultPagerAdapter(
                     SearchType.LiveRoom -> 4
 
                     SearchType.Animation,
-                    SearchType.FilmAndTv,
-                    SearchType.User -> 6
+                    SearchType.FilmAndTv -> 6
+
+                    SearchType.User -> 4
                 }
                 currentSpanCount = spanCount
                 currentAdapter = SearchItemAdapter(

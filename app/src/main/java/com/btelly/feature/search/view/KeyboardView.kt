@@ -76,12 +76,12 @@ class KeyboardView @JvmOverloads constructor(
     private var activeOverlay: View? = null
     private var activePrimaryKey: View? = null
     private var activeCandidates: T9CandidateSet? = null
+    private var keyboardBuilt = false
 
     init {
         val startMs = SystemClock.elapsedRealtime()
         orientation = VERTICAL
         clipChildren = false
-        buildKeyboard()
         AppLog.i(TAG, "KeyboardView init elapsed=${SystemClock.elapsedRealtime() - startMs}ms mode=${if (isT9Keyboard) "T9" else "QWE"}")
     }
 
@@ -95,10 +95,13 @@ class KeyboardView @JvmOverloads constructor(
 
     fun setSquareKey(enabled: Boolean) {
         squareKey = enabled
-        renderKeyboard()
+        if (keyboardBuilt) {
+            renderKeyboard()
+        }
     }
 
     fun requestPrimaryFocus(): Boolean {
+        ensureKeyboardBuilt()
         return findFirstFocusableChild(keyboardContainer ?: this)?.requestFocus() == true
     }
 
@@ -147,6 +150,9 @@ class KeyboardView @JvmOverloads constructor(
     }
 
     private fun buildKeyboard() {
+        if (keyboardBuilt) {
+            return
+        }
         val startMs = SystemClock.elapsedRealtime()
         removeAllViews()
 
@@ -168,7 +174,14 @@ class KeyboardView @JvmOverloads constructor(
 
         bindHeaderAndFooterButtons()
         renderKeyboard()
+        keyboardBuilt = true
         AppLog.i(TAG, "buildKeyboard elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
+    }
+
+    private fun ensureKeyboardBuilt() {
+        if (!keyboardBuilt) {
+            buildKeyboard()
+        }
     }
 
     private fun bindHeaderAndFooterButtons() {
