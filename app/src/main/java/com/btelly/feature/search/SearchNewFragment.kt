@@ -324,7 +324,7 @@ class SearchNewFragment :
                 when (keyCode) {
                     KeyEvent.KEYCODE_DPAD_LEFT -> mainActivity?.focusLeftFunctionArea(view) == true
                     KeyEvent.KEYCODE_DPAD_RIGHT -> focusResultPrimaryActions(view) || focusCurrentResultContent(view)
-                    KeyEvent.KEYCODE_DPAD_DOWN -> focusCurrentResultContent(view) || focusResultHeader(view, includeOrderButton = false)
+                    KeyEvent.KEYCODE_DPAD_DOWN -> focusSelectedResultTab() || focusCurrentResultContent(view)
                     KeyEvent.KEYCODE_DPAD_UP -> true
                     KeyEvent.KEYCODE_DPAD_CENTER,
                     KeyEvent.KEYCODE_ENTER -> {
@@ -823,6 +823,10 @@ class SearchNewFragment :
         } else {
             false
         }
+    }
+
+    private fun focusSelectedResultTab(): Boolean {
+        return binding.tabSearchResult.isVisible && binding.tabSearchResult.focusSelectedTab()
     }
 
     private fun focusKeyboardFromSearchColumn(anchorView: View): Boolean {
