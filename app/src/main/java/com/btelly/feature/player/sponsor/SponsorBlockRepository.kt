@@ -37,7 +37,7 @@ object SponsorBlockRepository {
                 .url("$BASE_URL/status")
                 .header("User-Agent", "BTelly/1.0")
                 .header("origin", "com.btelly")
-                .header("x-ext-version", "1.0")
+                .header("x-ext-version", "0.13.0")
                 .get()
                 .build()
 
@@ -56,7 +56,7 @@ object SponsorBlockRepository {
                 .url(url)
                 .header("User-Agent", "BTelly/1.0")
                 .header("origin", "com.btelly")
-                .header("x-ext-version", "1.0")
+                .header("x-ext-version", "0.13.0")
                 .get()
                 .build()
 
@@ -114,7 +114,7 @@ object SponsorBlockRepository {
                 .url(url)
                 .header("User-Agent", "BTelly/1.0")
                 .header("origin", "com.btelly")
-                .header("x-ext-version", "1.0")
+                .header("x-ext-version", "0.13.0")
                 .get()
                 .build()
 

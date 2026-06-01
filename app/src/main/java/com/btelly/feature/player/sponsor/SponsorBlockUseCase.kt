@@ -1,6 +1,7 @@
 package com.btelly.feature.player.sponsor
 
 import com.btelly.core.common.log.AppLog
+import kotlinx.coroutines.CancellationException
 
 class SponsorBlockUseCase {
 
@@ -33,8 +34,10 @@ class SponsorBlockUseCase {
             segments = result.segments
             lastError = result.error
             nextSegmentIndex = 0
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            AppLog.w(TAG, "加载空降片段失败: ${e.message}")
+            AppLog.e(TAG, "加载空降片段失败: ${e.javaClass.simpleName}: ${e.message}", e)
             lastError = "空降助手加载失败"
         }
     }
