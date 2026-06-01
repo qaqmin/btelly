@@ -18,6 +18,13 @@ object VideoCardPerfLogger {
     private val bindStats = ConcurrentHashMap<String, Stats>()
     private val phaseStats = ConcurrentHashMap<String, Stats>()
 
+    private fun AtomicLong.updateMax(value: Long) {
+        var old = get()
+        while (value > old && !compareAndSet(old, value)) {
+            old = get()
+        }
+    }
+
     fun <T> measureInflate(source: String, block: () -> T): T {
         val startMs = SystemClock.elapsedRealtime()
         return block().also {
@@ -25,7 +32,7 @@ object VideoCardPerfLogger {
             val stats = inflateStats.getOrPut(source) { Stats() }
             val count = stats.count.incrementAndGet()
             val total = stats.totalMs.addAndGet(elapsed)
-            stats.maxMs.updateAndGet { old -> maxOf(old, elapsed) }
+            stats.maxMs.updateMax(elapsed)
             if (count <= 12 || count % 20 == 0 || elapsed >= 8) {
                 AppLog.i(TAG, "cell_video inflate source=$source count=$count elapsed=${elapsed}ms")
             }
@@ -45,7 +52,7 @@ object VideoCardPerfLogger {
         val stats = bindStats.getOrPut(source) { Stats() }
         val count = stats.count.incrementAndGet()
         val total = stats.totalMs.addAndGet(elapsed)
-        stats.maxMs.updateAndGet { old -> maxOf(old, elapsed) }
+        stats.maxMs.updateMax(elapsed)
         if (count <= 12 || count % 20 == 0 || elapsed >= 4) {
             AppLog.i(TAG, "cell_video bind source=$source count=$count elapsed=${elapsed}ms")
         }
@@ -62,7 +69,7 @@ object VideoCardPerfLogger {
         val stats = phaseStats.getOrPut("$source/$phase") { Stats() }
         val count = stats.count.incrementAndGet()
         val total = stats.totalMs.addAndGet(elapsedUs)
-        stats.maxMs.updateAndGet { old -> maxOf(old, elapsedUs) }
+        stats.maxMs.updateMax(elapsedUs)
         if (count == 4 || count == 12 || count % 20 == 0 || elapsedUs >= 8_000L) {
             AppLog.i(
                 TAG,

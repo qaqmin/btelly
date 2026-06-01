@@ -11,6 +11,7 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
+import android.os.Build
 import android.os.SystemClock
 import android.text.TextPaint
 import android.text.TextUtils
@@ -34,7 +35,9 @@ object VideoLightCardFactory {
             id = R.id.click_view
             isClickable = true
             isFocusable = true
-            defaultFocusHighlightEnabled = false
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                defaultFocusHighlightEnabled = false
+            }
             setBackgroundResource(R.drawable.cell_background)
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
