@@ -188,6 +188,9 @@ class TvListFocusController(
         }
 
         if (reason == TvDataChangeReason.APPEND) {
+            if (recyclerView.isInTouchMode) {
+                return
+            }
             val anchorBeforeAppend = currentAnchor ?: capturedAnchor
             val navigationToken = userNavigationToken
             pendingMoveAfterLoadMore = null
@@ -220,6 +223,9 @@ class TvListFocusController(
     fun ensureValidFocus(reason: String, allowWhenFocusOutside: Boolean = false): Boolean {
         if (hasValidFocusedItem()) {
             return true
+        }
+        if (recyclerView.isInTouchMode) {
+            return false
         }
         val focused = recyclerView.rootView?.findFocus()
         val focusInsideList = focused != null && isDescendantOf(focused, recyclerView)
@@ -316,6 +322,8 @@ class TvListFocusController(
         val position = focused?.let(::resolveAdapterPosition) ?: RecyclerView.NO_POSITION
         capturedAnchor = if (focused != null && position != RecyclerView.NO_POSITION && adapter.isFocusablePosition(position)) {
             createAnchor(focused, position, TvFocusAnchor.Source.RETURN_RESTORE)
+        } else if (currentAnchor != null && resolveAnchorPosition(currentAnchor!!) != RecyclerView.NO_POSITION) {
+            currentAnchor
         } else {
             anchorFromVisibleOrCurrent()
         }
