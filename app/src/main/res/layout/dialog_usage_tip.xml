@@ -31,7 +31,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:lineSpacingMultiplier="1.4"
-            android:text="@string/usage_tip_content"
+            android:text=""
             android:textColor="?android:attr/textColorSecondary"
             android:textSize="@dimen/px30" />
     </com.btelly.ui.widget.NonFocusableScrollView>
