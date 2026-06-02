@@ -38,7 +38,11 @@ class RiskControlCooldownManager {
             else -> SINGLE_KEY_COOLDOWN_MS
         }
         keyCooldownUntil[key] = now + cooldownMs
-        val failures = keyFailureCount.merge(key, 1, Int::plus) ?: 1
+        val failures = keyFailureCount.getOrPut(key) { 0 }.let { old ->
+            val newValue = old + 1
+            keyFailureCount[key] = newValue
+            newValue
+        }
         val globalFailures = ++consecutiveGlobalFailures
         if (globalFailures >= GLOBAL_FAILURE_THRESHOLD) {
             globalCooldownUntilMs = now + GLOBAL_COOLDOWN_MS

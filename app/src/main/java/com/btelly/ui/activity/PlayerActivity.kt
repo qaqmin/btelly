@@ -1267,6 +1267,13 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         // 重新绑定 video surface，恢复视频解码器
         playerView.reattachVideoSurface()
         player?.let(::enableVideoTrack)
+        // 视频轨道重新启用后 seekTo 当前位置，强制解码器重建
+        // 避免某些设备上 surface 变更后解码器无法恢复输出导致画面冻结
+        player?.let { p ->
+            if (p.playbackState == Player.STATE_READY || p.playbackState == Player.STATE_BUFFERING) {
+                p.seekTo(p.currentPosition)
+            }
+        }
         resumePlaybackIfNeeded()
         if (resumePlaybackWhenStarted) {
             playerView.resumeDanmaku()
@@ -1296,6 +1303,13 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         stopProgressUpdates()
         // 提前释放视频解码器，避免后台持有硬件解码器资源
         playerView.detachVideoSurface()
+        // 禁用视频轨道以彻底释放硬件解码器
+        player?.let { p ->
+            p.trackSelectionParameters = p.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
+                .build()
+        }
         syncPlaybackEnvironment()
     }
 

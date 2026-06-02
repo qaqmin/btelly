@@ -18,6 +18,13 @@ object VideoCardPerfLogger {
     private val bindStats = ConcurrentHashMap<String, Stats>()
     private val phaseStats = ConcurrentHashMap<String, Stats>()
 
+    private fun AtomicLong.updateMax(value: Long) {
+        var old = get()
+        while (value > old && !compareAndSet(old, value)) {
+            old = get()
+        }
+    }
+
     fun <T> measureInflate(source: String, block: () -> T): T {
         val startMs = SystemClock.elapsedRealtime()
         return block().also {

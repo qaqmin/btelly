@@ -24,6 +24,8 @@ data class SponsorSegment(
         CATEGORY_MUSIC_OFFTOPIC -> "音乐:非音乐部分"
         CATEGORY_POI_HIGHLIGHT -> "精彩时刻/重点"
         CATEGORY_FILLER -> "离题闲聊/玩笑"
+        CATEGORY_PADDING -> "内容填充"
+        CATEGORY_EXCLUSIVE_ACCESS -> "付费/专属内容"
         else -> category
     }
 
@@ -37,6 +39,8 @@ data class SponsorSegment(
         CATEGORY_MUSIC_OFFTOPIC -> 0xFFFF9900
         CATEGORY_POI_HIGHLIGHT -> 0xFFFF1684
         CATEGORY_FILLER -> 0xFF7300FF
+        CATEGORY_PADDING -> 0xFF222222
+        CATEGORY_EXCLUSIVE_ACCESS -> 0xFF008A5C
         else -> 0xFF00D400
     }
 
@@ -50,6 +54,12 @@ data class SponsorSegment(
         const val CATEGORY_MUSIC_OFFTOPIC = "music_offtopic"
         const val CATEGORY_POI_HIGHLIGHT = "poi_highlight"
         const val CATEGORY_FILLER = "filler"
-        val ALL_CATEGORIES = listOf(CATEGORY_SPONSOR, CATEGORY_INTRO, CATEGORY_OUTRO)
+        const val CATEGORY_PADDING = "padding"
+        const val CATEGORY_EXCLUSIVE_ACCESS = "exclusive_access"
+        val ALL_CATEGORIES = listOf(
+            CATEGORY_SPONSOR,
+            CATEGORY_INTRO,
+            CATEGORY_OUTRO
+        )
     }
 }
