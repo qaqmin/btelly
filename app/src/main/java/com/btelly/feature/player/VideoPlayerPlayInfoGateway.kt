@@ -41,6 +41,11 @@ class VideoPlayerPlayInfoGateway(
         val state: Int
     )
 
+    private data class DanmakuSegmentExpectation(
+        val expectedCount: Int,
+        val minimumUsefulCount: Int
+    )
+
     data class PlayInfoResult(
         val code: Int,
         val message: String,
@@ -473,8 +478,10 @@ class VideoPlayerPlayInfoGateway(
     suspend fun requestDanmakuSegmentBytes(
         cid: Long,
         aid: Long,
-        segmentIndex: Int
+        segmentIndex: Int,
+        expectedSegmentCount: Int = 0
     ): ByteArray? {
+        val expectation = buildDanmakuSegmentExpectation(expectedSegmentCount)
         val normalBytes = runCatching {
             apiService.getVideoComment(
                 oid = cid,
@@ -492,14 +499,17 @@ class VideoPlayerPlayInfoGateway(
             segmentIndex = segmentIndex,
             probe = normalProbe
         )
-        if (normalProbe != null && !isSuspiciousDanmakuSegment(normalProbe)) {
+        if (normalProbe != null && !isSuspiciousDanmakuSegment(normalProbe, expectation)) {
             return normalProbe.bytes
         }
 
         if (normalProbe != null) {
             AppLog.w(
                 logTag,
-                "requestDanmakuSegment suspicious normal payload: cid=$cid, aid=$aid, segment=$segmentIndex, bytes=${normalProbe.bytes.size}, elems=${normalProbe.elemCount}, state=${normalProbe.state}"
+                "requestDanmakuSegment suspicious normal payload: cid=$cid, aid=$aid, " +
+                    "segment=$segmentIndex, bytes=${normalProbe.bytes.size}, elems=${normalProbe.elemCount}, " +
+                    "state=${normalProbe.state}, expected=${expectation?.expectedCount ?: 0}, " +
+                    "minUseful=${expectation?.minimumUsefulCount ?: 0}"
             )
         }
 
@@ -532,10 +542,22 @@ class VideoPlayerPlayInfoGateway(
             probe = wbiProbe
         )
         if (wbiProbe != null) {
-            if (!isSuspiciousDanmakuSegment(wbiProbe)) {
+            if (!isSuspiciousDanmakuSegment(wbiProbe, expectation)) {
+                AppLog.i(
+                    logTag,
+                    "requestDanmakuSegment use wbi fallback: cid=$cid, aid=$aid, " +
+                        "segment=$segmentIndex, normalElems=${normalProbe?.elemCount ?: -1}, " +
+                        "wbiElems=${wbiProbe.elemCount}, expected=${expectation?.expectedCount ?: 0}"
+                )
                 return wbiProbe.bytes
             }
             if (normalProbe == null || wbiProbe.elemCount > normalProbe.elemCount || wbiProbe.bytes.size > normalProbe.bytes.size) {
+                AppLog.w(
+                    logTag,
+                    "requestDanmakuSegment use larger suspicious wbi payload: cid=$cid, aid=$aid, " +
+                        "segment=$segmentIndex, normalElems=${normalProbe?.elemCount ?: -1}, " +
+                        "wbiElems=${wbiProbe.elemCount}, expected=${expectation?.expectedCount ?: 0}"
+                )
                 return wbiProbe.bytes
             }
         }
@@ -554,8 +576,22 @@ class VideoPlayerPlayInfoGateway(
         )
     }
 
-    private fun isSuspiciousDanmakuSegment(probe: DanmakuSegmentProbe): Boolean {
-        return probe.bytes.size in 1..64 && probe.elemCount == 0
+    private fun buildDanmakuSegmentExpectation(expectedSegmentCount: Int): DanmakuSegmentExpectation? {
+        val expectedCount = expectedSegmentCount.takeIf { it >= 200 } ?: return null
+        return DanmakuSegmentExpectation(
+            expectedCount = expectedCount,
+            minimumUsefulCount = (expectedCount * 3 / 5).coerceAtLeast(120)
+        )
+    }
+
+    private fun isSuspiciousDanmakuSegment(
+        probe: DanmakuSegmentProbe,
+        expectation: DanmakuSegmentExpectation?
+    ): Boolean {
+        if (probe.bytes.size in 1..64 && probe.elemCount == 0) return true
+        return expectation != null &&
+            probe.elemCount >= 0 &&
+            probe.elemCount < expectation.minimumUsefulCount
     }
 
     private fun logDanmakuSegmentProbe(

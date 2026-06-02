@@ -40,6 +40,8 @@ class DrawingCachePool(private var maxMemorySize: Int) {
 
   companion object {
     private const val BUCKET_SIZE = 16
+    private const val MAX_EXTRA_WIDTH = 64
+    private const val MAX_EXTRA_HEIGHT = 16
   }
 
   private val caches = mutableSetOf<DrawingCache>()
@@ -52,21 +54,9 @@ class DrawingCachePool(private var maxMemorySize: Int) {
 
   fun acquire(width: Int, height: Int): DrawingCache? {
     synchronized(this) {
-      val key = bucketKey(width, height)
-      val bucket = bucketMap[key] ?: return null
-      val iter = bucket.iterator()
-      while (iter.hasNext()) {
-        val cache = iter.next()
-        if (cache.width >= width && cache.height >= height &&
-          cache.width - width < 5 && cache.height - height < 5
-        ) {
-          iter.remove()
-          caches.remove(cache)
-          memorySize -= cache.size
-          return cache
-        }
-      }
-      return null
+      val cache = findReusableCache(width, height) ?: return null
+      removeFromPool(cache)
+      return cache
     }
   }
 
@@ -144,5 +134,42 @@ class DrawingCachePool(private var maxMemorySize: Int) {
       bucketMap.clear()
       memorySize = 0
     }
+  }
+
+  private fun findReusableCache(width: Int, height: Int): DrawingCache? {
+    var best: DrawingCache? = null
+    var bestArea = Int.MAX_VALUE
+    val widthBucket = width / BUCKET_SIZE
+    val heightBucket = height / BUCKET_SIZE
+    val maxWidthBucket = (width + MAX_EXTRA_WIDTH) / BUCKET_SIZE
+    val maxHeightBucket = (height + MAX_EXTRA_HEIGHT) / BUCKET_SIZE
+    for (bucketW in widthBucket..maxWidthBucket) {
+      for (bucketH in heightBucket..maxHeightBucket) {
+        val bucket = bucketMap[bucketKeyFromBuckets(bucketW, bucketH)] ?: continue
+        for (cache in bucket) {
+          if (!isReusable(cache, width, height)) continue
+          val area = cache.width * cache.height
+          if (area < bestArea) {
+            best = cache
+            bestArea = area
+          }
+        }
+      }
+    }
+    return best
+  }
+
+  private fun isReusable(cache: DrawingCache, width: Int, height: Int): Boolean {
+    return DrawingCacheReusePolicy.isReusable(cache.width, cache.height, width, height)
+  }
+
+  private fun removeFromPool(cache: DrawingCache) {
+    caches.remove(cache)
+    bucketMap[bucketKey(cache.width, cache.height)]?.remove(cache)
+    memorySize -= cache.size
+  }
+
+  private fun bucketKeyFromBuckets(widthBucket: Int, heightBucket: Int): Long {
+    return (widthBucket.toLong() shl 32) or heightBucket.toLong()
   }
 }

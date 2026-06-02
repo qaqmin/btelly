@@ -28,6 +28,8 @@ import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.max
 
+private typealias RawWindowRange = DanmakuWindowRangePolicy.Range
+
 /**
  * Owns danmaku-specific state so MyPlayerView only coordinates player UI and gestures.
  */
@@ -64,17 +66,20 @@ class MyPlayerDanmakuController(
         private const val LIVE_MERGE_BUFFER_MS = 800L
         private const val LIVE_DENSITY_TRACK_MS = 5000L
         private const val INITIAL_WINDOW_BEHIND_MS = 0L
-        private const val INITIAL_WINDOW_AHEAD_MS = 12_000L
-        private const val INITIAL_WINDOW_MAX_ITEMS = 64
-        private const val ACTIVE_WINDOW_BEHIND_MS = 8_000L
-        private const val ACTIVE_WINDOW_AHEAD_MS = 18_000L
-        private const val ACTIVE_WINDOW_APPEND_BATCH_SIZE = 80
+        private const val INITIAL_WINDOW_AHEAD_MS = 16_000L
+        private const val INITIAL_WINDOW_MAX_ITEMS = 144
+        private const val ACTIVE_WINDOW_BEHIND_MS = 6_000L
+        private const val ACTIVE_WINDOW_AHEAD_MS = 16_000L
+        private const val ACTIVE_WINDOW_APPEND_BATCH_SIZE = 96
+        private const val ACTIVE_WINDOW_FULL_SUBMIT_MAX_ITEMS = 180
+        private const val ACTIVE_WINDOW_MIN_WARM_ITEMS = 144
         private const val WINDOW_REFRESH_AHEAD_THRESHOLD_MS = 3_000L
         private const val WINDOW_REFRESH_MIN_PROGRESS_MS = 6_000L
         private const val WINDOW_REFRESH_MIN_INTERVAL_MS = 1_000L
         private const val STARTUP_DATA_DEFER_MS = 1_200L
         private const val FIRST_FRAME_STABLE_DEFER_MS = 2_500L
         private const val SMART_FILTER_PROFILE_LOG_MS = 2L
+        private const val DANMAKU_PRE_CACHE_TIME_MS = 900L
     }
 
     data class SettingsSnapshot(
@@ -89,17 +94,6 @@ class MyPlayerDanmakuController(
         val smartFilterLevel: Int,
         val mergeDuplicate: Boolean
     )
-
-    private data class RawWindowRange(
-        val startIndex: Int,
-        val endIndex: Int,
-        val naturalEndIndex: Int,
-        val windowStartMs: Long,
-        val windowEndMs: Long
-    ) {
-        val isCapped: Boolean
-            get() = endIndex < naturalEndIndex
-    }
 
     private data class PreparedWindow(
         val data: List<DanmakuItemData>,
@@ -122,7 +116,10 @@ class MyPlayerDanmakuController(
     }
 
     private var danmakuPlayer: DanmakuPlayer? = null
-    private var danmakuConfig = DanmakuConfig(dataFilter = listOf(TypeFilter()))
+    private var danmakuConfig = DanmakuConfig(
+        preCacheTimeMs = DANMAKU_PRE_CACHE_TIME_MS,
+        dataFilter = listOf(TypeFilter())
+    )
     private var danmakuTimeline: DanmakuTimeline = DanmakuTimeline.EMPTY
     private var danmakuData: List<DanmakuItemData> = emptyList()
     private var rawDanmakuData: List<DmModel> = emptyList()
@@ -464,6 +461,7 @@ class MyPlayerDanmakuController(
         val durationMs = snapshot.speed.toDanmakuDurationMs()
         val newConfig = danmakuConfig.copy(
             visibility = snapshot.enabled,
+            preCacheTimeMs = DANMAKU_PRE_CACHE_TIME_MS,
             alpha = snapshot.alpha.coerceIn(0.1f, 1f),
             textSizeScale = snapshot.textSize.toDanmakuTextScale(),
             durationMs = durationMs,
@@ -616,11 +614,13 @@ class MyPlayerDanmakuController(
             return
         }
         val currentTime = player.getCurrentTimeMs()
-        scheduleActiveWindowRefresh(
-            positionMs = safePosition,
-            force = forceSeek,
-            reason = if (forceSeek) "sync_seek" else "playback_tick"
-        )
+        if (!forceSeek) {
+            scheduleActiveWindowRefresh(
+                positionMs = safePosition,
+                force = false,
+                reason = "playback_tick"
+            )
+        }
         if (!forceSeek && safePosition < currentTime) {
             return
         }
@@ -947,15 +947,25 @@ class MyPlayerDanmakuController(
                 positionMs = positionMs,
                 behindMs = ACTIVE_WINDOW_BEHIND_MS,
                 aheadMs = ACTIVE_WINDOW_AHEAD_MS,
-                maxItems = Int.MAX_VALUE
+                maxItems = Int.MAX_VALUE,
+                anchorAtPositionWhenCapped = false
             )
-            val appendStartIndex = if (force || activeWindowSubmittedEndIndex < 0) {
+            val replaceWindow = DanmakuWindowRangePolicy.shouldReplaceWindow(
+                positionMs = positionMs,
+                activeWindowStartMs = activeWindowStartMs,
+                activeWindowEndMs = activeWindowEndMs,
+                hasSubmittedWindow = activeWindowSubmittedEndIndex >= 0,
+                force = force
+            )
+            val appendStartIndex = if (replaceWindow) {
+                timeline.data.lowerBoundProgress(positionMs)
+                    .coerceIn(fullRange.startIndex, fullRange.naturalEndIndex)
+            } else if (activeWindowSubmittedEndIndex < 0) {
                 fullRange.startIndex
             } else {
                 max(activeWindowSubmittedEndIndex, fullRange.startIndex)
             }
-            val appendEndIndex = (appendStartIndex + ACTIVE_WINDOW_APPEND_BATCH_SIZE)
-                .coerceAtMost(fullRange.naturalEndIndex)
+            val appendEndIndex = fullRange.resolveAdaptiveAppendEndIndex(appendStartIndex)
             if (appendStartIndex >= appendEndIndex) {
                 return@launch
             }
@@ -982,7 +992,7 @@ class MyPlayerDanmakuController(
                     return@withContext
                 }
                 val player = danmakuPlayer ?: return@withContext
-                if (force) {
+                if (replaceWindow) {
                     applyPreparedWindowState(preparedWindow, signature)
                     replacePlayerWindowData(
                         player = player,
@@ -1017,6 +1027,23 @@ class MyPlayerDanmakuController(
         val anchor = activeWindowAnchorMs
         if (anchor == Long.MIN_VALUE) return false
         return positionMs - anchor < WINDOW_REFRESH_MIN_PROGRESS_MS
+    }
+
+    private fun RawWindowRange.resolveAdaptiveAppendEndIndex(appendStartIndex: Int): Int {
+        val remainingItems = naturalEndIndex - appendStartIndex
+        if (remainingItems <= 0) return appendStartIndex
+        val naturalWindowItems = naturalEndIndex - startIndex
+        val submittedItems = (activeWindowSubmittedEndIndex - activeWindowSubmittedStartIndex)
+            .coerceAtLeast(0)
+        val batchSize = when {
+            naturalWindowItems <= ACTIVE_WINDOW_FULL_SUBMIT_MAX_ITEMS -> remainingItems
+            submittedItems < ACTIVE_WINDOW_MIN_WARM_ITEMS -> {
+                max(ACTIVE_WINDOW_APPEND_BATCH_SIZE, ACTIVE_WINDOW_MIN_WARM_ITEMS - submittedItems)
+                    .coerceAtMost(remainingItems)
+            }
+            else -> ACTIVE_WINDOW_APPEND_BATCH_SIZE.coerceAtMost(remainingItems)
+        }
+        return (appendStartIndex + batchSize).coerceAtMost(naturalEndIndex)
     }
 
     private fun applyPreparedWindowState(window: PreparedWindow, signature: Long) {
@@ -1572,33 +1599,17 @@ class MyPlayerDanmakuController(
         positionMs: Long,
         behindMs: Long,
         aheadMs: Long,
-        maxItems: Int
+        maxItems: Int,
+        anchorAtPositionWhenCapped: Boolean = true
     ): RawWindowRange {
-        if (isEmpty()) {
-            val startMs = (positionMs - behindMs).coerceAtLeast(0L)
-            return RawWindowRange(
-                startIndex = 0,
-                endIndex = 0,
-                naturalEndIndex = 0,
-                windowStartMs = startMs,
-                windowEndMs = positionMs + aheadMs
-            )
-        }
-        val windowStart = (positionMs - behindMs).coerceAtLeast(0L)
-        val windowEnd = positionMs + aheadMs
-        val startIndex = lowerBoundProgress(windowStart)
-        val naturalEndIndex = upperBoundProgress(windowEnd)
-        val cappedEndIndex = if (maxItems == Int.MAX_VALUE) {
-            naturalEndIndex
-        } else {
-            (startIndex + maxItems).coerceAtMost(naturalEndIndex)
-        }
-        return RawWindowRange(
-            startIndex = startIndex,
-            endIndex = cappedEndIndex.coerceAtLeast(startIndex),
-            naturalEndIndex = naturalEndIndex,
-            windowStartMs = windowStart,
-            windowEndMs = windowEnd
+        return DanmakuWindowRangePolicy.resolve(
+            itemCount = size,
+            positionMs = positionMs,
+            behindMs = behindMs,
+            aheadMs = aheadMs,
+            maxItems = maxItems,
+            progressAt = { index -> this[index].progress.toLong() },
+            anchorAtPositionWhenCapped = anchorAtPositionWhenCapped
         )
     }
 

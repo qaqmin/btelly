@@ -17,12 +17,14 @@ import androidx.core.graphics.withTranslation
 import com.kuaishou.akdanmaku.DanmakuConfig
 import com.kuaishou.akdanmaku.cache.DrawingCache
 import com.kuaishou.akdanmaku.data.DanmakuItem
+import com.kuaishou.akdanmaku.data.DanmakuItem.Companion.ROLLING_START_TIME_UNSET
 import com.kuaishou.akdanmaku.data.DanmakuItemData
 import com.kuaishou.akdanmaku.data.ItemState
 import com.kuaishou.akdanmaku.engine.DanmakuContext
 import com.kuaishou.akdanmaku.engine.DanmakuEngine
 import com.kuaishou.akdanmaku.ext.AkLog as Log
 import com.kuaishou.akdanmaku.ext.isOutside
+import com.kuaishou.akdanmaku.ext.isLate
 import com.kuaishou.akdanmaku.ext.isTimeout
 import com.kuaishou.akdanmaku.ui.DanmakuListener
 import com.kuaishou.akdanmaku.utils.Fraction
@@ -47,6 +49,8 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   private val pendingAddItems = ArrayList<DanmakuItem>(128)
   private val sortedItems = ArrayList<DanmakuItem>(2048)
   private val activeItems = ArrayList<DanmakuItem>(256)
+  private val measureCandidatePool = ArrayList<MeasureItemCandidate>(256)
+  private val measureCandidates = ArrayList<MeasureItemCandidate>(256)
   private val activeIds = HashSet<Long>(512)
 
   private val rollingTracks = RollingTrackAllocator()
@@ -63,6 +67,9 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   private var cacheGeneration = -1
   private var visibilityGeneration = -1
   private var layoutProfileTick = 0
+  private var loadShedLevel = 0
+  private var filterCacheableGeneration = -1
+  private var filterResultCacheable = false
 
   @Volatile
   private var frame: RuntimeFrame? = null
@@ -105,12 +112,29 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       scheduled++
     }
     val costMs = SystemClock.elapsedRealtime() - startedAt
-    if (scheduled >= 24 || costMs >= 4L) {
+    if (items.size >= 96 || scheduled >= 24 || costMs >= 4L) {
       Log.i(
         DanmakuEngine.TAG,
         "[Runtime] prime measure scheduled=$scheduled cacheHit=$cacheHits total=${items.size} cost=${costMs}ms"
       )
     }
+  }
+
+  @Synchronized
+  fun primeMeasureItem(item: DanmakuItem) {
+    val config = context.config
+    if (item.state == ItemState.Measuring) return
+    if (item.drawState.isMeasured(config.measureGeneration) && item.state >= ItemState.Measured) return
+    val cachedSize = context.cacheManager.getDanmakuSize(item.data)
+    if (cachedSize != null) {
+      item.drawState.width = cachedSize.width.toFloat()
+      item.drawState.height = cachedSize.height.toFloat()
+      item.drawState.measureGeneration = config.measureGeneration
+      item.state = ItemState.Measured
+      return
+    }
+    item.state = ItemState.Measuring
+    context.cacheManager.requestMeasure(item, context.displayer, config)
   }
 
   @Synchronized
@@ -136,9 +160,12 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       item.reset()
     }
     activeItems.clear()
+    measureCandidatePool.clear()
+    measureCandidates.clear()
     activeIds.clear()
     scanIndex = 0
     holdingItem = null
+    loadShedLevel = 0
     clearTracks()
     releaseFrame(frame)
     frame = null
@@ -155,7 +182,10 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       item.drawState.layoutGeneration = -1
     }
     activeItems.clear()
+    measureCandidatePool.clear()
+    measureCandidates.clear()
     activeIds.clear()
+    loadShedLevel = 0
     clearTracks()
     releaseFrame(frame)
     frame = null
@@ -318,7 +348,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       } else {
         config.durationMs
       }
-      if (!item.isHolding && item.isTimeout(now)) {
+      if (!item.isHolding && item.isRuntimeTimeout(now)) {
         activeIds.remove(item.data.danmakuId)
         removeFromTracks(item)
         item.cacheRecycle()
@@ -335,13 +365,15 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       scanIndex = lowerBound(windowStart)
     }
 
-    val entryEnd = now + PREPARE_AHEAD_MS
+    val entryEnd = now + entryAheadMs(config)
     var added = 0
-    while (scanIndex < sortedItems.size && added < MAX_ENQUEUE_PER_FRAME) {
+    val enqueueBudget = DanmakuLoadShedder.enqueueBudget(loadShedLevel)
+    while (scanIndex < sortedItems.size && added < enqueueBudget) {
       val item = sortedItems[scanIndex]
       if (item.timePosition > entryEnd) break
       scanIndex++
       if (item.timePosition < windowStart) continue
+      if (DanmakuLoadShedder.shouldSkipItem(item, loadShedLevel)) continue
       if (activeIds.add(item.data.danmakuId)) {
         item.duration = if (item.data.mode == DanmakuItemData.DANMAKU_MODE_ROLLING) {
           config.rollingDurationMs
@@ -349,6 +381,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
           config.durationMs
         }
         item.drawState.layoutGeneration = -1
+        item.rollingStartTimeMs = ROLLING_START_TIME_UNSET
         activeItems.add(item)
         added++
       }
@@ -358,11 +391,26 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   private fun scheduleMeasureActiveItems(config: DanmakuConfig): Int {
     var scheduled = 0
     val startedAt = SystemClock.elapsedRealtime()
-    for (item in activeItems) {
-      if (scheduled >= MAX_MEASURE_PER_FRAME) break
+    measureCandidates.clear()
+    for (index in activeItems.indices) {
+      val candidate = if (index < measureCandidatePool.size) {
+        measureCandidatePool[index]
+      } else {
+        MeasureItemCandidate().also { measureCandidatePool.add(it) }
+      }
+      candidate.item = activeItems[index]
+      measureCandidates.add(candidate)
+    }
+    val candidates = DanmakuMeasureScheduler.collectCandidates(
+      items = measureCandidates,
+      nowMs = context.timer.currentTimeMs,
+      measureGeneration = config.measureGeneration,
+      maxCount = MAX_MEASURE_PER_FRAME,
+      scheduleAheadMs = entryAheadMs(config)
+    )
+    for (candidate in candidates) {
       if (SystemClock.elapsedRealtime() - startedAt >= MEASURE_SCHEDULE_BUDGET_MS) break
-      if (item.state == ItemState.Measuring) continue
-      if (item.drawState.isMeasured(config.measureGeneration) && item.state >= ItemState.Measured) continue
+      val item = candidate.item
       val cachedSize = context.cacheManager.getDanmakuSize(item.data)
       if (cachedSize != null) {
         item.drawState.width = cachedSize.width.toFloat()
@@ -379,10 +427,13 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     return scheduled
   }
 
+  private fun entryAheadMs(config: DanmakuConfig): Long =
+    max(PREPARE_AHEAD_MS, config.preCacheTimeMs)
+
   private fun layoutAndBuildFrame(now: Long, config: DanmakuConfig): ArrayList<DrawCommand> {
     val displayer = context.displayer
     val commands = ArrayList<DrawCommand>(activeItems.size)
-    val fixedCommands = ArrayList<DrawCommand>(16)
+    var fixedCommands: ArrayList<DrawCommand>? = null
     val startedAt = SystemClock.elapsedRealtime()
     val profileDetails = (++layoutProfileTick % LAYOUT_PROFILE_DETAIL_INTERVAL) == 0
     var filterMs = 0L
@@ -393,11 +444,18 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     var unmeasuredCount = 0
     var outsideCount = 0
     var trackRejectedCount = 0
+    var trackFastCount = 0
+    var trackLayoutCount = 0
     var cacheRequestedCount = 0
     var cacheDeferredCount = 0
     var cacheRequestBudget = MAX_CACHE_REQUESTS_PER_FRAME
-    for (item in activeItems) {
-      if (item.isOutside(now)) {
+    val width = displayer.width
+    val height = displayer.height
+    val margin = displayer.margin
+    val iterator = activeItems.iterator()
+    while (iterator.hasNext()) {
+      val item = iterator.next()
+      if (item.isRuntimeOutside(now)) {
         outsideCount++
         continue
       }
@@ -406,7 +464,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         continue
       }
       var stepAt = if (profileDetails) SystemClock.elapsedRealtime() else 0L
-      if (context.filter.filterData(item, context.timer, config).filtered) {
+      if (isDataFiltered(item, config)) {
         if (profileDetails) filterMs += SystemClock.elapsedRealtime() - stepAt
         filteredCount++
         continue
@@ -414,14 +472,33 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       if (profileDetails) filterMs += SystemClock.elapsedRealtime() - stepAt
 
       stepAt = if (profileDetails) SystemClock.elapsedRealtime() else 0L
-      val visible = when (item.data.mode) {
-        DanmakuItemData.DANMAKU_MODE_CENTER_TOP -> topTracks.layout(item, now, displayer.width, displayer.height, displayer.margin, config)
-        DanmakuItemData.DANMAKU_MODE_CENTER_BOTTOM -> bottomTracks.layout(item, now, displayer.width, displayer.height, displayer.margin, config)
-        else -> rollingTracks.layout(item, now, displayer.width, displayer.height, displayer.margin, config)
+      val mode = item.data.mode
+      val visible = if (item.drawState.layoutGeneration == config.layoutGeneration) {
+        val updated = when (mode) {
+          DanmakuItemData.DANMAKU_MODE_CENTER_TOP -> topTracks.updateExisting(item, width, height, config)
+          DanmakuItemData.DANMAKU_MODE_CENTER_BOTTOM -> bottomTracks.updateExisting(item, width, height, config)
+          else -> rollingTracks.updateExisting(item, now, width, height, config)
+        }
+        if (updated) {
+          trackFastCount++
+          true
+        } else {
+          trackLayoutCount++
+          layoutTrack(item, now, width, height, margin, config)
+        }
+      } else {
+        trackLayoutCount++
+        layoutTrack(item, now, width, height, margin, config)
       }
       if (profileDetails) trackMs += SystemClock.elapsedRealtime() - stepAt
       if (!visible) {
         trackRejectedCount++
+        if (DanmakuRejectionPolicy.shouldDropRejectedItem(item)) {
+          activeIds.remove(item.data.danmakuId)
+          removeFromTracks(item)
+          item.cacheRecycle()
+          iterator.remove()
+        }
         continue
       }
       if (item.state < ItemState.Rendering) {
@@ -451,34 +528,72 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         right = drawState.positionX + drawState.width,
         bottom = drawState.positionY + drawState.height
       )
-      if (item.data.mode == DanmakuItemData.DANMAKU_MODE_CENTER_TOP ||
-        item.data.mode == DanmakuItemData.DANMAKU_MODE_CENTER_BOTTOM) {
+      if (mode == DanmakuItemData.DANMAKU_MODE_CENTER_TOP ||
+        mode == DanmakuItemData.DANMAKU_MODE_CENTER_BOTTOM) {
         // 悬停弹幕始终最后绘制，保证层级压在滚动弹幕上方。
-        fixedCommands.add(command)
+        val fixed = fixedCommands ?: ArrayList<DrawCommand>(8).also { fixedCommands = it }
+        fixed.add(command)
       } else {
         commands.add(command)
       }
       if (profileDetails) commandMs += SystemClock.elapsedRealtime() - stepAt
     }
-    commands.addAll(fixedCommands)
+    fixedCommands?.let { commands.addAll(it) }
     val cost = SystemClock.elapsedRealtime() - startedAt
+    updateLoadShedLevel(
+      layoutCostMs = cost,
+      rejectedCount = trackRejectedCount,
+      unmeasuredCount = unmeasuredCount
+    )
     if (cost >= LAYOUT_OVERLOAD_MS && profileDetails) {
       Log.w(
         DanmakuEngine.TAG,
         "[Runtime] layout profile cost=${cost}ms filter=${filterMs}ms track=${trackMs}ms cache=${cacheMs}ms " +
           "command=${commandMs}ms active=${activeItems.size} draw=${commands.size} outside=$outsideCount " +
           "unmeasured=$unmeasuredCount filtered=$filteredCount rejected=$trackRejectedCount " +
-          "cacheReq=$cacheRequestedCount cacheDef=$cacheDeferredCount"
+          "trackFast=$trackFastCount trackLayout=$trackLayoutCount cacheReq=$cacheRequestedCount cacheDef=$cacheDeferredCount"
       )
     } else if (cost >= LAYOUT_OVERLOAD_MS) {
       Log.w(
         DanmakuEngine.TAG,
         "[Runtime] layout overload cost=${cost}ms active=${activeItems.size} draw=${commands.size} outside=$outsideCount " +
           "unmeasured=$unmeasuredCount filtered=$filteredCount rejected=$trackRejectedCount " +
-          "cacheReq=$cacheRequestedCount cacheDef=$cacheDeferredCount"
+          "trackFast=$trackFastCount trackLayout=$trackLayoutCount cacheReq=$cacheRequestedCount cacheDef=$cacheDeferredCount"
       )
     }
     return commands
+  }
+
+  private fun layoutTrack(
+    item: DanmakuItem,
+    now: Long,
+    width: Int,
+    height: Int,
+    margin: Int,
+    config: DanmakuConfig
+  ): Boolean =
+    when (item.data.mode) {
+      DanmakuItemData.DANMAKU_MODE_CENTER_TOP -> topTracks.layout(item, now, width, height, margin, config)
+      DanmakuItemData.DANMAKU_MODE_CENTER_BOTTOM -> bottomTracks.layout(item, now, width, height, margin, config)
+      else -> rollingTracks.layout(item, now, width, height, margin, config)
+    }
+
+  private fun isDataFiltered(item: DanmakuItem, config: DanmakuConfig): Boolean {
+    val filters = context.filter
+    if (filterCacheableGeneration != config.filterGeneration) {
+      filterCacheableGeneration = config.filterGeneration
+      filterResultCacheable = filters.isDataFilterResultCacheable
+    }
+    if (!filterResultCacheable) {
+      return filters.isDataFiltered(item, context.timer, config)
+    }
+    if (item.filterGeneration == config.filterGeneration) {
+      return item.filteredInGeneration
+    }
+    val filtered = filters.isDataFiltered(item, context.timer, config)
+    item.filterGeneration = config.filterGeneration
+    item.filteredInGeneration = filtered
+    return filtered
   }
 
   private fun drawCommand(canvas: Canvas, command: DrawCommand, config: DanmakuConfig): Boolean {
@@ -540,6 +655,37 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     bottomTracks.remove(item)
   }
 
+  private fun updateLoadShedLevel(layoutCostMs: Long, rejectedCount: Int, unmeasuredCount: Int) {
+    val oldLevel = loadShedLevel
+    loadShedLevel = DanmakuLoadShedder.nextLevel(
+      currentLevel = loadShedLevel,
+      layoutCostMs = layoutCostMs,
+      rejectedCount = rejectedCount,
+      unmeasuredCount = unmeasuredCount
+    )
+    if (loadShedLevel != oldLevel) {
+      Log.i(
+        DanmakuEngine.TAG,
+        "[Runtime] load shed level=$loadShedLevel cost=${layoutCostMs}ms rejected=$rejectedCount unmeasured=$unmeasuredCount"
+      )
+    }
+  }
+
+  private fun DanmakuItem.isRuntimeTimeout(now: Long): Boolean {
+    if (data.mode != DanmakuItemData.DANMAKU_MODE_ROLLING) {
+      return isTimeout(now)
+    }
+    val startTime = RollingDanmakuTiming.resolvedStartTime(rollingStartTimeMs, timePosition)
+    return RollingDanmakuTiming.isTimeout(now, startTime, duration)
+  }
+
+  private fun DanmakuItem.isRuntimeOutside(now: Long): Boolean {
+    if (data.mode != DanmakuItemData.DANMAKU_MODE_ROLLING) {
+      return isOutside(now)
+    }
+    return isLate(now) || isRuntimeTimeout(now)
+  }
+
   private fun lowerBound(timeMs: Long): Int {
     var low = 0
     var high = sortedItems.size
@@ -577,9 +723,21 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     val bottom: Float
   )
 
+  private class MeasureItemCandidate : DanmakuMeasureScheduler.MeasureCandidate {
+    lateinit var item: DanmakuItem
+    override val timePositionMs: Long
+      get() = item.timePosition
+    override val contentLength: Int
+      get() = item.data.content.length
+    override val measureState: ItemState
+      get() = item.state
+
+    override fun isMeasured(measureGeneration: Int): Boolean =
+      item.drawState.isMeasured(measureGeneration)
+  }
+
   companion object {
     private const val PREPARE_AHEAD_MS = 300L
-    private const val MAX_ENQUEUE_PER_FRAME = 32
     private const val MAX_MEASURE_PER_FRAME = 12
     private const val MAX_CACHE_REQUESTS_PER_FRAME = 4
     private const val MEASURE_SCHEDULE_BUDGET_MS = 2L

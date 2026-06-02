@@ -3457,6 +3457,10 @@ class VideoPlayerViewModel(
             val segmentCount = danmakuView?.totalSegments
                 ?.takeIf { it > 0 }
                 ?: fallbackSegmentCount
+            val expectedSegmentCount = resolveExpectedDanmakuSegmentCount(
+                totalCount = danmakuView?.totalCount ?: 0L,
+                totalSegments = segmentCount
+            )
             logDanmakuMeta(
                 cid = cid,
                 aid = aid,
@@ -3506,7 +3510,8 @@ class VideoPlayerViewModel(
                     loadDanmakuSegmentPayload(
                         cid = cid,
                         aid = aid,
-                        segmentIndices = listOf(initialSegment)
+                        segmentIndices = listOf(initialSegment),
+                        expectedSegmentCount = expectedSegmentCount
                     )
                 }
             } finally {
@@ -3557,7 +3562,8 @@ class VideoPlayerViewModel(
     private suspend fun loadDanmakuSegmentPayload(
         cid: Long,
         aid: Long,
-        segmentIndices: List<Int>
+        segmentIndices: List<Int>,
+        expectedSegmentCount: Int = 0
     ): SpecialDanmakuPayload = withContext(Dispatchers.IO) {
         val regularItems = mutableListOf<DmModel>()
         val specialItems = mutableListOf<SpecialDanmakuModel>()
@@ -3565,7 +3571,8 @@ class VideoPlayerViewModel(
             val bytes = playInfoGateway.requestDanmakuSegmentBytes(
                 cid = cid,
                 aid = aid,
-                segmentIndex = segmentIndex
+                segmentIndex = segmentIndex,
+                expectedSegmentCount = expectedSegmentCount
             ) ?: return@forEach
             PlaybackStartupTrace.log(
                 traceId = currentStartupTraceId,
@@ -3708,6 +3715,13 @@ class VideoPlayerViewModel(
             "DanmakuMeta",
             "cid=$cid aid=$aid duration=${durationMs}ms segments=$segmentCount totalCount=${danmakuView.totalCount} special=${danmakuView.specialDanmakuUrls.size} filterLevel=${filter.resolvedLevel} filterEnabled=${filter.resolvedEnabled} cloudLvl=${filter.cloudLevel} cloudSw=${filter.cloudSwitch} playerLvl=${filter.playerLevel} playerOn=${filter.playerEnabled} defaultLvl=${filter.defaultLevel} defaultOn=${filter.defaultEnabled}"
         )
+    }
+
+    private fun resolveExpectedDanmakuSegmentCount(totalCount: Long, totalSegments: Int): Int {
+        if (totalCount <= 0L || totalSegments <= 0) return 0
+        return ((totalCount + totalSegments - 1L) / totalSegments)
+            .coerceAtMost(Int.MAX_VALUE.toLong())
+            .toInt()
     }
 
     private fun logDanmakuDiagnostics(
@@ -3908,7 +3922,11 @@ class VideoPlayerViewModel(
             val payload = loadDanmakuSegmentPayload(
                 cid = cid,
                 aid = aid,
-                segmentIndices = listOf(segmentIndex)
+                segmentIndices = listOf(segmentIndex),
+                expectedSegmentCount = resolveExpectedDanmakuSegmentCount(
+                    totalCount = preloadedDanmakuView?.totalCount ?: danmakuViewCache[cid]?.first?.totalCount ?: 0L,
+                    totalSegments = preloadedDanmakuView?.totalSegments ?: danmakuViewCache[cid]?.first?.totalSegments ?: 0
+                )
             )
             withContext(Dispatchers.Main) {
                 preloadedDanmakuSegmentCid = cid
@@ -4052,11 +4070,16 @@ class VideoPlayerViewModel(
             message = "cid=$cid segment=$segmentIndex"
         )
         viewModelScope.launch(Dispatchers.IO) {
+            val expectedSegmentCount = resolveExpectedDanmakuSegmentCount(
+                totalCount = danmakuViewCache[cid]?.first?.totalCount ?: 0L,
+                totalSegments = danmakuTotalSegments
+            )
             var payload = runCatching {
                 loadDanmakuSegmentPayload(
                     cid = cid,
                     aid = aid,
-                    segmentIndices = listOf(segmentIndex)
+                    segmentIndices = listOf(segmentIndex),
+                    expectedSegmentCount = expectedSegmentCount
                 )
             }.getOrNull()
             if (payload == null) {
@@ -4065,7 +4088,8 @@ class VideoPlayerViewModel(
                     loadDanmakuSegmentPayload(
                         cid = cid,
                         aid = aid,
-                        segmentIndices = listOf(segmentIndex)
+                        segmentIndices = listOf(segmentIndex),
+                        expectedSegmentCount = expectedSegmentCount
                     )
                 }.getOrNull()
             }

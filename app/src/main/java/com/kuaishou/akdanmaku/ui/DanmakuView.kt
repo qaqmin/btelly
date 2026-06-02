@@ -42,7 +42,7 @@ class DanmakuView @JvmOverloads constructor(
     val costMs = SystemClock.elapsedRealtime() - startedAtMs
     val intervalMs = if (lastDrawAtMs > 0L) startedAtMs - lastDrawAtMs else 0L
     lastDrawAtMs = startedAtMs
-    if (costMs >= 12L || intervalMs >= 40L) {
+    if (costMs >= 16L || intervalMs >= 120L) {
       AppLog.w(
         "PlaybackPerf",
         "danmaku_draw cost=${costMs}ms interval=${intervalMs}ms size=${width}x$height"

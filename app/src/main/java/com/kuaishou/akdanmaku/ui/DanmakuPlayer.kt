@@ -71,7 +71,8 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
 
     private const val PLAYER_WIDTH = 682
     private const val RELEASE_LATCH_TIMEOUT_MS = 220L
-    private const val MAX_PRIME_MEASURE_ON_UPDATE = 48
+    private const val MAX_PRIME_MEASURE_ON_UPDATE = 160
+    private const val MAX_PRIME_MEASURE_ON_APPEND = 12
     const val MIN_DANMAKU_DURATION: Long = 4000
     const val MAX_DANMAKU_DURATION_HIGH_DENSITY: Long = 9000
     /**
@@ -84,6 +85,7 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
   internal val engine = DanmakuEngine.get(renderer)
   private val dataSourceListener = object : DataSource.DataChangeListener {
     override fun onDataAdded(additionalItems: List<DanmakuItem>) {
+      engine.runtime.primeMeasureItems(additionalItems, MAX_PRIME_MEASURE_ON_APPEND)
       engine.runtime.addItems(additionalItems)
     }
 
@@ -166,7 +168,7 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     endTrace()
     endTrace()
     val totalMs = SystemClock.elapsedRealtime() - frameStartedAtMs
-    if (waitDrawMs >= 20L || actMs >= 12L || totalMs >= 32L) {
+    if (waitDrawMs >= 80L || actMs >= 12L || totalMs >= 96L) {
       AppLog.w(
         "PlaybackPerf",
         "danmaku_action waitDraw=${waitDrawMs}ms act=${actMs}ms total=${totalMs}ms manual=$isManualStep"
@@ -353,16 +355,19 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
    * 可以进行扩展的
    */
   fun updateItems(items: List<DanmakuItem>) {
+    engine.runtime.primeMeasureItems(items, MAX_PRIME_MEASURE_ON_APPEND)
     engine.runtime.addItems(items)
   }
 
   fun send(danmaku: DanmakuItemData): DanmakuItem {
     val item = obtainItem(danmaku)
+    engine.runtime.primeMeasureItem(item)
     engine.runtime.addItem(item)
     return item
   }
 
   fun send(item: DanmakuItem) {
+    engine.runtime.primeMeasureItem(item)
     engine.runtime.addItem(item)
   }
 

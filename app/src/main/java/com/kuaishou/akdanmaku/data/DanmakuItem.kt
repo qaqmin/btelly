@@ -54,6 +54,9 @@ open class DanmakuItem(var data: DanmakuItemData, player: DanmakuPlayer? = null)
   private val holdState = HoldState(timer)
   internal val drawState = DrawState()
   internal var shownGeneration = -1
+  internal var rollingStartTimeMs = ROLLING_START_TIME_UNSET
+  internal var filterGeneration = -1
+  internal var filteredInGeneration = false
 
 
   val rect: RectF
@@ -82,6 +85,9 @@ open class DanmakuItem(var data: DanmakuItemData, player: DanmakuPlayer? = null)
     rect.setEmpty()
     holdState.reset()
     drawState.reset()
+    rollingStartTimeMs = ROLLING_START_TIME_UNSET
+    filterGeneration = -1
+    filteredInGeneration = false
   }
 
   override fun compareTo(other: DanmakuItem): Int {
@@ -107,6 +113,7 @@ open class DanmakuItem(var data: DanmakuItemData, player: DanmakuPlayer? = null)
   }
 
   companion object {
+    internal const val ROLLING_START_TIME_UNSET = Long.MIN_VALUE
     @Suppress("unused")
     val DANMAKU_ITEM_EMPTY = DanmakuItem(DANMAKU_ITEM_DATA_EMPTY)
   }

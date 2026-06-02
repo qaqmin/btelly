@@ -32,6 +32,31 @@ class DanmakuFilters {
   var dataFilter = emptyList<DanmakuDataFilter>()
   var layoutFilter = emptyList<DanmakuLayoutFilter>()
 
+  val isDataFilterResultCacheable: Boolean
+    get() {
+      for (filter in dataFilter) {
+        when (filter) {
+          is BlockedTextFilter,
+          is DuplicateMergedFilter,
+          is GuestFilter,
+          is TextColorFilter,
+          is TypeFilter,
+          is UserIdFilter -> continue
+          else -> return false
+        }
+      }
+      return true
+    }
+
+  fun isDataFiltered(item: DanmakuItem, timer: DanmakuTimer, config: DanmakuConfig): Boolean {
+    for (filter in dataFilter) {
+      if (filter.filter(item, timer, config)) {
+        return true
+      }
+    }
+    return false
+  }
+
   fun filterData(item: DanmakuItem, timer: DanmakuTimer, config: DanmakuConfig): FilterResult {
     var filtered = false
     var param = 0
