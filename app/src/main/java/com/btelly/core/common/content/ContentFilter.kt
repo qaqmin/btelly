@@ -1,3 +1,5 @@
+@file:Suppress("SpellCheckingInspection")
+
 package com.btelly.core.common.content
 
 import android.content.Context
@@ -387,12 +389,6 @@ object ContentFilter {
 
     private val CONTEXTUAL_RISK_KEYWORDS_LOWER = normalizeKeywords(CONTEXTUAL_RISK_KEYWORDS)
 
-    private val TITLE_BLOCKED_REGEX = buildKeywordRegex(TITLE_BLOCKED_KEYWORDS_LOWER)
-    private val DESC_BLOCKED_REGEX = buildKeywordRegex(DESC_BLOCKED_KEYWORDS_LOWER)
-    private val TAG_BLOCKED_REGEX = buildKeywordRegex(TAG_BLOCKED_KEYWORDS_LOWER)
-    private val CONTEXTUAL_SUBJECT_REGEX = buildKeywordRegex(CONTEXTUAL_SUBJECT_KEYWORDS_LOWER)
-    private val CONTEXTUAL_RISK_REGEX = buildKeywordRegex(CONTEXTUAL_RISK_KEYWORDS_LOWER)
-
     private val BLOCKED_TYPE_NAMES_LOWER = VIDEO_BLOCKED_TYPE_NAMES
         .map { it.trim().lowercase() }
         .filter { it.isNotEmpty() }
@@ -408,16 +404,19 @@ object ContentFilter {
         .filter { it.isNotEmpty() }
         .toSet()
 
+    @Suppress("UNUSED_PARAMETER")
     fun isMinorProtectionEnabled(context: Context): Boolean {
         return appSettings.getCachedString(KEY_MINOR_PROTECTION) != "关"
     }
 
+    @Suppress("unused", "UNUSED_PARAMETER")
     fun addBlockedUpName(context: Context, name: String) {
         val existing = appSettings.getCachedStringSet(KEY_BLOCKED_UP_NAMES).toMutableSet()
         existing.add(name)
         appSettings.putStringSetAsync(KEY_BLOCKED_UP_NAMES, existing)
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun addBlockedVideo(
         context: Context,
         aid: Long = 0,
@@ -432,6 +431,7 @@ object ContentFilter {
         appSettings.putStringSetAsync(KEY_BLOCKED_VIDEO_KEYS, existing)
     }
 
+    @Suppress("unused")
     fun addBlockedVideo(context: Context, video: VideoModel) {
         addBlockedVideo(
             context = context,
@@ -442,16 +442,19 @@ object ContentFilter {
         )
     }
 
+    @Suppress("unused", "UNUSED_PARAMETER")
     fun removeBlockedUpName(context: Context, name: String) {
         val existing = appSettings.getCachedStringSet(KEY_BLOCKED_UP_NAMES).toMutableSet()
         existing.remove(name)
         appSettings.putStringSetAsync(KEY_BLOCKED_UP_NAMES, existing)
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun getBlockedUpNames(context: Context): Set<String> {
         return appSettings.getCachedStringSet(KEY_BLOCKED_UP_NAMES)
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun getBlockedVideoKeys(context: Context): Set<String> {
         return appSettings.getCachedStringSet(KEY_BLOCKED_VIDEO_KEYS)
     }
@@ -552,6 +555,7 @@ object ContentFilter {
         return false
     }
 
+    @Suppress("unused")
     fun isLiveRoomBlocked(context: Context, areaName: String, parentAreaName: String, anchorName: String = "", title: String = ""): Boolean {
         if (anchorName.isNotEmpty() && isUpNameBlocked(context, anchorName)) {
             return true
@@ -678,14 +682,6 @@ object ContentFilter {
 
     private fun containsAny(valueLower: String, keywordsLower: Collection<String>): Boolean {
         return keywordsLower.any { valueLower.contains(it) }
-    }
-
-    private fun buildKeywordRegex(keywords: Collection<String>): Regex {
-        if (keywords.isEmpty()) return Regex("^$")
-        return keywords
-            .sortedByDescending { it.length }
-            .joinToString("|") { Regex.escape(it) }
-            .let { Regex(it, RegexOption.IGNORE_CASE) }
     }
 
     private fun normalizeKeywords(keywords: Collection<String>): List<String> {

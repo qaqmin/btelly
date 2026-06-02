@@ -47,7 +47,7 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
     }
 
     override fun get(index: Int): E {
-        checkInterval(index, 0, _size - 1)
+        checkInterval(index, _size - 1)
         return root!!.get(index).value
     }
 
@@ -60,7 +60,7 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
     override fun listIterator(): MutableListIterator<E> = listIterator(0)
 
     override fun listIterator(fromIndex: Int): MutableListIterator<E> {
-        checkInterval(fromIndex, 0, _size)
+        checkInterval(fromIndex, _size)
         return TreeListIterator(this, fromIndex)
     }
 
@@ -79,7 +79,7 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
 
     override fun add(index: Int, element: E) {
         modCount++
-        checkInterval(index, 0, _size)
+        checkInterval(index, _size)
         root = if (root == null) {
             AVLNode(index, element, null, null)
         } else {
@@ -98,7 +98,7 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
     }
 
     override fun set(index: Int, element: E): E {
-        checkInterval(index, 0, _size - 1)
+        checkInterval(index, _size - 1)
         val node = root!!.get(index)
         val result = node.value
         node.value = element
@@ -107,7 +107,7 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
 
     override fun removeAt(index: Int): E {
         modCount++
-        checkInterval(index, 0, _size - 1)
+        checkInterval(index, _size - 1)
         val result = get(index)
         root = root!!.remove(index)
         _size--
@@ -120,8 +120,8 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
         _size = 0
     }
 
-    private fun checkInterval(index: Int, startIndex: Int, endIndex: Int) {
-        if (index !in startIndex..endIndex) {
+    private fun checkInterval(index: Int, endIndex: Int) {
+        if (index !in 0..endIndex) {
             throw IndexOutOfBoundsException("Invalid index:$index, size=${_size}")
         }
     }
@@ -491,7 +491,7 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
                     sAncestor.setLeft(s, null)
                     s = sAncestor.balance()
                 }
-                return checkNotNull(s)
+                return s
             }
 
             val otherTreeVar: AVLNode<E>? = otherTree.removeMin()
@@ -528,7 +528,7 @@ class TreeList<E : Comparable<E>>(coll: Collection<E>? = null) : AbstractList<E>
                 sAncestor.setRight(s, null)
                 s = sAncestor.balance()
             }
-            return checkNotNull(s)
+            return s
         }
 
         override fun toString(): String {

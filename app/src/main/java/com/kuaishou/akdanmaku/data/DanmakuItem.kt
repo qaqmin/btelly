@@ -21,6 +21,8 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+@file:Suppress("SpellCheckingInspection")
+
 package com.kuaishou.akdanmaku.data
 
 import android.graphics.RectF
@@ -66,6 +68,7 @@ open class DanmakuItem(var data: DanmakuItemData, player: DanmakuPlayer? = null)
     get() = timePosition > timer.currentTimeMs
   val isTimeout: Boolean
     get() = timePosition < timer.currentTimeMs + duration
+  @Suppress("unused")
   val isOutside: Boolean
     get() = isLate || isTimeout
 
@@ -98,11 +101,13 @@ open class DanmakuItem(var data: DanmakuItemData, player: DanmakuPlayer? = null)
     }
   }
 
+  @Suppress("unused")
   fun addAction(vararg action: Action) {
     actions.addAll(*action)
   }
 
   companion object {
+    @Suppress("unused")
     val DANMAKU_ITEM_EMPTY = DanmakuItem(DANMAKU_ITEM_DATA_EMPTY)
   }
 }

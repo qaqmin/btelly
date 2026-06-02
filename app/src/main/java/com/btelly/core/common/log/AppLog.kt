@@ -92,7 +92,7 @@ object AppLog {
             runCatching {
                 val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
                 val time = timeFormat.format(System.currentTimeMillis())
-                val stackTrace = android.util.Log.getStackTraceString(throwable)
+                val stackTrace = Log.getStackTraceString(throwable)
                 val content = buildString {
                     append("=== CRASH ===\n")
                     append("Time: $time\n")

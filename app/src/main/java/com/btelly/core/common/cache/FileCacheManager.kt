@@ -6,7 +6,6 @@ import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.network.http.NetworkClientFactory
 import java.io.File
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -19,7 +18,6 @@ object FileCacheManager {
     private const val CACHE_SIZE_200_MB: Long = 200L * 1024L * 1024L
     private const val CACHE_SIZE_500_MB: Long = 500L * 1024L * 1024L
     private const val CACHE_SIZE_1_GB: Long = 1024L * 1024L * 1024L
-    private const val MAX_FILE_COUNT = Int.MAX_VALUE
 
     private val appSettings: AppSettingsDataStore get() = KoinPlatform.getKoin().get()
 
@@ -37,7 +35,6 @@ object FileCacheManager {
         java.util.LinkedHashMap(16, 0.75f, true)
 
     private val totalSize = AtomicLong(0)
-    private val totalCount = AtomicInteger(0)
     private val gson: Gson by lazy { NetworkClientFactory.createGson() }
 
     @Volatile
@@ -56,6 +53,7 @@ object FileCacheManager {
      * 在 Application.onCreate 里提前将指定缓存 key 对应的文件内容读入 OS 页缓存。
      * 后续 Fragment 真正调用 getAsync 时命中页缓存，避免冷启动首次磁盘寻道延迟。
      */
+    @Suppress("unused")
     fun prewarmKeys(vararg keys: String) {
         if (keys.isEmpty()) return
         Thread {
@@ -74,7 +72,6 @@ object FileCacheManager {
             for (file in files) {
                 if (file.isFile) {
                     totalSize.addAndGet(file.length())
-                    totalCount.incrementAndGet()
                     fileMap[file] = file.lastModified()
                 }
             }
@@ -168,19 +165,9 @@ object FileCacheManager {
                 0L
             }
 
-            totalCount.incrementAndGet()
             val maxCacheSize = resolveMaxCacheSize()
             // 淘汰直到总大小不超限，每次最多移除一个最旧条目
             while (maxCacheSize != Long.MAX_VALUE && totalSize.get() + length - oldSize > maxCacheSize) {
-                val evicted = evictOldestInternal()
-                if (evicted <= 0L) {
-                    break
-                }
-                totalSize.addAndGet(-evicted)
-            }
-
-            while (totalCount.get() > MAX_FILE_COUNT) {
-                totalCount.decrementAndGet()
                 val evicted = evictOldestInternal()
                 if (evicted <= 0L) {
                     break
@@ -208,7 +195,6 @@ object FileCacheManager {
         val length = oldestFile.length()
         if (oldestFile.delete()) {
             iterator.remove()
-            totalCount.decrementAndGet()
         }
         return length
     }
@@ -222,7 +208,6 @@ object FileCacheManager {
                 if (file.delete()) {
                     fileMap.remove(file)
                     totalSize.addAndGet(-length)
-                    totalCount.decrementAndGet()
                 }
             }
         }
@@ -249,7 +234,6 @@ object FileCacheManager {
             }
             fileMap.clear()
             totalSize.set(0)
-            totalCount.set(0)
         }
     }
 

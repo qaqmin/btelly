@@ -39,7 +39,7 @@ object VideoRouteNavigator {
             context.toast("当前卡片数据不完整，暂时无法播放")
             return
         }
-        if (!forcePlayer && shouldOpenVideoDetailFirst(context, video)) {
+        if (!forcePlayer && shouldOpenVideoDetailFirst(video)) {
             val hostActivity = findMainActivityHost(context)
             AppLog.d(TAG, "openVideo: detailFirst=true, host=$hostActivity")
             if (hostActivity != null) {
@@ -78,8 +78,8 @@ object VideoRouteNavigator {
         )
     }
 
-    private fun shouldOpenVideoDetailFirst(context: Context, video: VideoModel): Boolean {
-        if (!context.isOpenDetailFirstEnabled()) {
+    private fun shouldOpenVideoDetailFirst(video: VideoModel): Boolean {
+        if (!isOpenDetailFirstEnabled()) {
             return false
         }
         if (video.isLive || video.roomId > 0L || video.historyBusiness == "live") {

@@ -1,3 +1,5 @@
+@file:Suppress("SpellCheckingInspection")
+
 package com.btelly.core.common.media
 
 import android.content.Context
@@ -188,6 +190,7 @@ object VideoCodecSupport {
         return priorityOrder.indexOf(codec).takeIf { it >= 0 } ?: Int.MAX_VALUE
     }
 
+    @Suppress("unused")
     fun isHdrSupported(context: Context? = null): Boolean {
         cachedHdrSupported?.let { return it }
         val decoderOk = hasDecoder("video/hevc")
@@ -198,12 +201,12 @@ object VideoCodecSupport {
         if (context == null) {
             return decoderOk
         }
-        val displayOk = hasHdrDisplaySupport(context)
-        val result = displayOk
+        val result = hasHdrDisplaySupport(context)
         cachedHdrSupported = result
         return result
     }
 
+    @Suppress("unused")
     fun isDolbyVisionSupported(context: Context? = null): Boolean {
         cachedDolbyVisionSupported?.let { return it }
         val decoderOk = hasDecoder("video/dolby-vision") ||

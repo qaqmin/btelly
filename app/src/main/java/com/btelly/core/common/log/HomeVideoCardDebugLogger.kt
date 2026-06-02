@@ -1,3 +1,5 @@
+@file:Suppress("SpellCheckingInspection")
+
 package com.btelly.core.common.log
 
 import com.btelly.model.video.VideoModel

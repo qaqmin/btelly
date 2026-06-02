@@ -124,7 +124,7 @@ class HomeFragment : Fragment(), MainTabFocusTarget {
     }
 
     private fun getDefaultTabIndex(): Int {
-        return requireContext().getHomeDefaultStartPageIndex(
+        return getHomeDefaultStartPageIndex(
             maxIndex = adapter.itemCount - 1,
             defaultIndex = 0
         )

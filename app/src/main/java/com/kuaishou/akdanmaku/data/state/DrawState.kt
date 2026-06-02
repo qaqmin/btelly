@@ -126,6 +126,7 @@ internal class DrawState : State() {
   fun isMeasured(measureGeneration: Int): Boolean = width > 0f && height > 0f &&
     this.measureGeneration == measureGeneration
 
+  @Suppress("unused")
   fun resetActionProperty() {
     translateX = 0f
     translateY = 0f

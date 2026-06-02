@@ -1,3 +1,5 @@
+@file:Suppress("unused")
+
 package com.btelly.core.common.ext
 
 import android.content.Context
@@ -30,11 +32,11 @@ fun Context.toast(@StringRes resId: Int, duration: Int = Toast.LENGTH_SHORT) {
     Toast.makeText(applicationContext, resId, duration).show()
 }
 
-fun Context.isOpenDetailFirstEnabled(): Boolean {
+fun isOpenDetailFirstEnabled(): Boolean {
     return getToggleSetting("show_video_detail", false)
 }
 
-fun Context.getDanmakuSmartFilterLevel(): Int {
+fun getDanmakuSmartFilterLevel(): Int {
     val raw = appSettings.getCachedString("dm_filter_weight")?.trim() ?: return 0
     val parsed = raw.toIntOrNull()
     if (parsed != null && parsed in VALUE_FILTER_LEVEL_MIN..VALUE_FILTER_LEVEL_MAX) {
@@ -64,15 +66,15 @@ fun normalizeDanmakuSmartFilterValue(value: String?): String {
     }
 }
 
-fun Context.isVipColorfulDanmakuAllowed(): Boolean {
+fun isVipColorfulDanmakuAllowed(): Boolean {
     return getToggleSetting("dm_allow_vip_colorful_dm", true)
 }
 
-fun Context.isAdvancedDanmakuEnabled(): Boolean {
+fun isAdvancedDanmakuEnabled(): Boolean {
     return getToggleSetting("dm_show_advanced", true)
 }
 
-fun Context.getHomeDefaultStartPageIndex(maxIndex: Int, defaultIndex: Int = 1): Int {
+fun getHomeDefaultStartPageIndex(maxIndex: Int, defaultIndex: Int = 1): Int {
     val safeMaxIndex = maxIndex.coerceAtLeast(0)
     val clampedDefault = defaultIndex.coerceIn(0, safeMaxIndex)
     val mappedFromLabel = when (appSettings.getCachedString("default_start_page")?.trim()) {
