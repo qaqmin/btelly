@@ -14,10 +14,17 @@ object BiliClient {
     private const val TAG = "BiliClient"
     private const val API_BASE = "https://api.bilibili.com/"
 
-    private lateinit var client: OkHttpClient
+    @Volatile
+    private var client: OkHttpClient? = null
 
     fun init(okHttpClient: OkHttpClient) {
         client = okHttpClient
+    }
+
+    private fun okHttpClient(): OkHttpClient {
+        return client ?: NetworkManager.getOkHttpClient().also { resolvedClient ->
+            client = resolvedClient
+        }
     }
 
     suspend fun getJson(url: String, extraHeaders: Map<String, String>? = null): JSONObject {
@@ -25,7 +32,7 @@ object BiliClient {
             val t0 = SystemClock.elapsedRealtime()
             val reqBuilder = Request.Builder().url(url)
             extraHeaders?.forEach { (k, v) -> reqBuilder.header(k, v) }
-            val call = client.newCall(reqBuilder.build())
+            val call = okHttpClient().newCall(reqBuilder.build())
             val t1 = SystemClock.elapsedRealtime()
             call.execute().use { resp ->
                 val t2 = SystemClock.elapsedRealtime()
@@ -53,7 +60,7 @@ object BiliClient {
                 .url(url)
                 .post(formBody)
             extraHeaders?.forEach { (k, v) -> reqBuilder.header(k, v) }
-            client.newCall(reqBuilder.build()).execute().use { resp ->
+            okHttpClient().newCall(reqBuilder.build()).execute().use { resp ->
                 val t1 = SystemClock.elapsedRealtime()
                 val body = resp.body?.string().orEmpty()
                 val t2 = SystemClock.elapsedRealtime()

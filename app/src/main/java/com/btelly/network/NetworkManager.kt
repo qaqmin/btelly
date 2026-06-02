@@ -194,6 +194,7 @@ object NetworkManager {
         gson
         retrofit
         apiService
+        BiliClient.init(internalOkHttpClient)
     }
 
     // 已删除 preheatApiHosts()：实测两个 appScope.launch 并发启动时 preheat 抢不过 preload，
