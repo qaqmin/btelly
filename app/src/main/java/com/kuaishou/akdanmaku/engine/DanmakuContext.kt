@@ -19,6 +19,8 @@ import com.kuaishou.akdanmaku.render.DanmakuRenderer
 import com.kuaishou.akdanmaku.ui.DanmakuDisplayer
 import com.kuaishou.akdanmaku.utils.DanmakuTimer
 import com.kuaishou.akdanmaku.utils.Size
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * 弹幕运行上下文。
@@ -28,8 +30,9 @@ import com.kuaishou.akdanmaku.utils.Size
  */
 internal class DanmakuContext(val renderer: DanmakuRenderer) {
   val timer = DanmakuTimer()
-  val cacheManager = CacheManager(CacheCallbackHandler(Looper.myLooper()!!), renderer)
+  val cacheManager = CacheManager(CacheCallbackHandler(Looper.myLooper()!!), this)
   val filter = DanmakuFilters()
+  private val rendererLock = ReentrantLock()
 
   var config = DanmakuConfig()
     private set
@@ -52,6 +55,40 @@ internal class DanmakuContext(val renderer: DanmakuRenderer) {
     this.config = config
     filter.dataFilter = config.dataFilter.toList()
     filter.layoutFilter = config.layoutFilter.toList()
+  }
+
+  fun measureRenderer(
+    item: DanmakuItem,
+    displayer: DanmakuDisplayer,
+    config: DanmakuConfig
+  ): Size = rendererLock.withLock {
+    renderer.measure(item, displayer, config)
+  }
+
+  fun drawRenderer(
+    item: DanmakuItem,
+    canvas: Canvas,
+    displayer: DanmakuDisplayer,
+    config: DanmakuConfig
+  ) {
+    rendererLock.withLock {
+      renderer.draw(item, canvas, displayer, config)
+    }
+  }
+
+  fun tryDrawRenderer(
+    item: DanmakuItem,
+    canvas: Canvas,
+    displayer: DanmakuDisplayer,
+    config: DanmakuConfig
+  ): Boolean {
+    if (!rendererLock.tryLock()) return false
+    return try {
+      renderer.draw(item, canvas, displayer, config)
+      true
+    } finally {
+      rendererLock.unlock()
+    }
   }
 
   private fun markGenerationsForChangedValues(current: DanmakuConfig, next: DanmakuConfig) {

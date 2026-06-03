@@ -29,10 +29,16 @@ internal class RollingTrackAllocator {
     height: Int,
     config: DanmakuConfig
   ): Boolean {
+    return updateExisting(item, height, config)
+  }
+
+  fun updateExisting(
+    item: DanmakuItem,
+    height: Int,
+    config: DanmakuConfig
+  ): Boolean {
     if (!refreshMaxBottom(height, config)) return false
-    val placement = placements[item.data.danmakuId] ?: return false
-    placement.updatePosition(item, nowMs, width, config.rollingDurationMs, config.layoutGeneration)
-    return true
+    return placements.containsKey(item.data.danmakuId)
   }
 
   fun layout(
@@ -67,10 +73,10 @@ internal class RollingTrackAllocator {
       )
       placements[item.data.danmakuId] = newPlacement
       newRow.add(newPlacement)
+      newPlacement.applyInitialLayout(item, config.layoutGeneration)
       newPlacement
     }
 
-    placement.updatePosition(item, nowMs, width, config.rollingDurationMs, config.layoutGeneration)
     return true
   }
 
@@ -189,16 +195,9 @@ internal class RollingTrackAllocator {
     var next: RollingPlacement? = null
     var linked: Boolean = false
 
-    fun updatePosition(
-      item: DanmakuItem,
-      nowMs: Long,
-      screenWidth: Int,
-      durationMs: Long,
-      layoutGeneration: Int
-    ) {
+    fun applyInitialLayout(item: DanmakuItem, layoutGeneration: Int) {
       val drawState = item.drawState
-      drawState.positionX = screenWidth - (nowMs - startTimeMs).toFloat() / durationMs * (screenWidth + drawState.width)
-      drawState.positionY = topFloat
+      drawState.setRuntimePosition(0f, topFloat)
       drawState.visibility = true
       drawState.layoutGeneration = layoutGeneration
     }
@@ -278,9 +277,7 @@ internal class FixedTrackAllocator(private val fromBottom: Boolean) {
     config: DanmakuConfig
   ): Boolean {
     if (!refreshMaxBottom(height, config)) return false
-    val placement = placements[item.data.danmakuId] ?: return false
-    updatePosition(item, placement.top, width, config)
-    return true
+    return placements.containsKey(item.data.danmakuId)
   }
 
   fun layout(
@@ -303,9 +300,9 @@ internal class FixedTrackAllocator(private val fromBottom: Boolean) {
       )
       placements[item.data.danmakuId] = newPlacement
       newRow.placement = newPlacement
+      updatePosition(item, newPlacement.top, width, config)
       newPlacement
     }
-    updatePosition(item, placement.top, width, config)
     return true
   }
 
@@ -325,8 +322,10 @@ internal class FixedTrackAllocator(private val fromBottom: Boolean) {
     config: DanmakuConfig
   ) {
     val drawState = item.drawState
-    drawState.positionX = ((width - drawState.width) * 0.5f).coerceAtLeast(0f)
-    drawState.positionY = rowTop.toFloat()
+    drawState.setRuntimePosition(
+      ((width - drawState.width) * 0.5f).coerceAtLeast(0f),
+      rowTop.toFloat()
+    )
     drawState.visibility = true
     drawState.layoutGeneration = config.layoutGeneration
   }

@@ -48,27 +48,30 @@ internal class DrawState : State() {
       return field
     }
 
-  private val generationMap = mutableMapOf<String, Int>().withDefault { -1 }
-
-  var layoutGeneration: Int by generationMap
-  var measureGeneration: Int by generationMap
-  var cacheGeneration: Int by generationMap
-  override var generation: Int by generationMap
+  var layoutGeneration: Int = -1
+  var measureGeneration: Int = -1
+  var cacheGeneration: Int = -1
+  override var generation: Int = -1
 
   var drawingCache: DrawingCache = DrawingCache.EMPTY_DRAWING_CACHE
   var visibility: Boolean = false
   var alpha: Float = 1f
-  var positionX: Float = 0f
+  private var positionXValue: Float = 0f
+  private var positionYValue: Float = 0f
+
+  var positionX: Float
+    get() = positionXValue
     set(value) {
-      if (field != value) {
-        field = value
+      if (positionXValue != value) {
+        positionXValue = value
         markDirty()
       }
     }
-  var positionY: Float = 0f
+  var positionY: Float
+    get() = positionYValue
     set(value) {
-      if (field != value) {
-        field = value
+      if (positionYValue != value) {
+        positionYValue = value
         markDirty()
       }
     }
@@ -126,6 +129,17 @@ internal class DrawState : State() {
   fun isMeasured(measureGeneration: Int): Boolean = width > 0f && height > 0f &&
     this.measureGeneration == measureGeneration
 
+  fun setRuntimePosition(x: Float, y: Float) {
+    val changed = positionXValue != x || positionYValue != y
+    positionXValue = x
+    positionYValue = y
+    if (changed) markDirty()
+  }
+
+  fun setRuntimePositionX(x: Float) {
+    positionXValue = x
+  }
+
   @Suppress("unused")
   fun resetActionProperty() {
     translateX = 0f
@@ -168,7 +182,7 @@ internal class DrawState : State() {
 
   private fun updateRect(rect: RectF) {
     rectDirty = false
-    rect.set(positionX, positionY, positionX + width, positionY + height)
+    rect.set(positionXValue, positionYValue, positionXValue + width, positionYValue + height)
   }
 
   private fun updateMatrix(matrix: Matrix) {
@@ -176,7 +190,7 @@ internal class DrawState : State() {
     matrix.reset()
     matrix.setScale(scaleX, scaleY)
     matrix.postRotate(rotation)
-    matrix.postTranslate(positionX + translateX, positionY + translateY)
+    matrix.postTranslate(positionXValue + translateX, positionYValue + translateY)
   }
 
   private fun markDirty() {

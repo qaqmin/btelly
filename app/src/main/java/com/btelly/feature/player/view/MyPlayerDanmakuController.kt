@@ -896,10 +896,15 @@ class MyPlayerDanmakuController(
         player: DanmakuPlayer,
         data: List<DanmakuItemData>,
         reason: String,
-        generation: Long
+        generation: Long,
+        keepLastFrame: Boolean = false
     ) {
         if (prepareGeneration != generation) return
-        player.clearData()
+        if (keepLastFrame) {
+            player.clearDataKeepingLastFrame()
+        } else {
+            player.clearData()
+        }
         if (data.isNotEmpty()) {
             player.updateData(data)
         }
@@ -998,7 +1003,8 @@ class MyPlayerDanmakuController(
                         player = player,
                         data = preparedWindow.data,
                         reason = reason,
-                        generation = generation
+                        generation = generation,
+                        keepLastFrame = force
                     )
                 } else {
                     appendPlayerWindowData(
@@ -1250,7 +1256,7 @@ class MyPlayerDanmakuController(
             return
         }
         if (forceSeek && !bypassDedup && !isActiveWindowFreshFor(targetPositionMs)) {
-            player.clearData()
+            player.clearDataKeepingLastFrame()
             clearActiveWindowState()
             scheduleActiveWindowRefresh(
                 positionMs = targetPositionMs,

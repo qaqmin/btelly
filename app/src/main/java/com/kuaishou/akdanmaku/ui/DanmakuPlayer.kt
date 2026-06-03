@@ -357,6 +357,10 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     engine.runtime.clearAllData()
   }
 
+  fun clearDataKeepingLastFrame() {
+    engine.runtime.clearRuntimeData(keepCurrentFrame = true)
+  }
+
   fun updateData(dataList: List<DanmakuItemData>): List<DanmakuItem> {
     val items = ArrayList<DanmakuItem>(dataList.size)
     for (data in dataList) {
