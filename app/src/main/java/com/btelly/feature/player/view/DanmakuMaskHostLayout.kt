@@ -1,6 +1,5 @@
 package com.btelly.feature.player.view
 
-import android.app.Activity
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Matrix
@@ -8,11 +7,7 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.Region
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.util.AttributeSet
-import android.view.FrameMetrics
-import android.view.Window
 import android.widget.FrameLayout
 import com.btelly.model.dm.DmMaskTimeline
 import com.btelly.model.dm.MaskFrame
@@ -20,18 +15,12 @@ import com.btelly.model.dm.MaskFrame
 /**
  * 弹幕防挡蒙版宿主容器（clipPath 方案）。
  *
- * 渲染思路：把每帧多个 [android.graphics.Path] **UNION 合并成单个 mergedPath**，
- * 一次 `canvas.clipPath(mergedPath)` 把弹幕子 view 的绘制区裁剪到「背景区」。
- * 人物区域因为 [Path.FillType.EVEN_ODD]（在 [com.btelly.model.dm.WebmaskParser] 里设置）
- * 是 path 的"洞"，clipPath 不允许绘制 → 弹幕被人物挡住。
- *
- * 必须 UNION 不能 INTERSECT：`canvas.clipPath` 默认是和当前 clip 取交集——多 path 连续 clip
- * 会把允许绘制的区域越缩越小，最后变成空集，弹幕完全画不出来。
- *
- * **clipPath 抗锯齿说明**：硬件加速 view 上的 `clipPath` 走 stencil mask 光栅化，
- * Android 渲染管线不保证真抗锯齿，人物轮廓边缘可能有 1-2px 锯齿。
- * 如果后续要继续优化软边，需要改成单独人物 path 的 alpha punch-out，而不是对
- * EVEN_ODD 背景 path 直接做 `DST_IN`。
+ * 按 Bilibili 参考链路重构：
+ *  - 只负责渲染裁剪，不做业务逻辑
+ *  - 多个 Path UNION 合并为单个 mergedPath，一次 clipPath 裁剪弹幕绘制区
+ *  - EVEN_ODD fill rule：人物区域是 path 的"洞"，clipPath 不允许绘制 → 弹幕被挡
+ *  - 防闪烁：queryAt 返回 null 时，回退到上一个有效 mergedPath
+ *  - 明确的缓存清除入口 `clearCachedMask()`，由 DmMaskController 在 seek/release 时调用
  */
 class DanmakuMaskHostLayout @JvmOverloads constructor(
     context: Context,
@@ -44,53 +33,45 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
     var videoBoundsProvider: (() -> Rect)? = null
 
     /**
-     * 由 controller 注入：seek 等待 video 首帧 / mask 数据未 ready 等场景返回 false，
-     * 此时直接走 super.dispatchDraw 不做任何裁剪，避免「mask 跳到新位置而视频还停在旧位置」的错位。
+     * 由 controller 注入：当前是否处于 seek 冻结状态。
+     * SEEKING 时跳过 timeline 查询，直接使用缓存的 mergedPath。
+     */
+    var isSeeking: (() -> Boolean)? = null
+
+    /**
+     * 由 controller 注入：mask 数据未 ready / seek 等待首帧等场景返回 false，
+     * 此时直接走 super.dispatchDraw 不裁剪。
      */
     var shouldRenderMask: (() -> Boolean)? = null
 
-    /**
-     * 把"这次 dispatchDraw 查到的 (queryPts, framePts) 对"反馈给 controller，
-     * controller 节流后输出统一的同步诊断日志。
-     */
+    /** 把 (queryPts, framePts) 反馈给 controller 做诊断。 */
     var frameQueryReporter: ((queryPtsMs: Long, framePtsMs: Long) -> Unit)? = null
 
-    /**
-     * 把本 window 一帧的实测渲染管线耗时（ns）上报给 controller。
-     * 当前参考时钟模型不再用它补偿 PTS，保留接线只作为诊断/兼容入口。
-     */
-    var pipelineDelayReporter: ((totalDurationNs: Long) -> Unit)? = null
-
-    /**
-     * 把 attach 时检测到的屏幕 vsync 周期（ns）上报给 controller。
-     * 当前参考时钟模型不再用它补偿 PTS，保留接线只作为诊断/兼容入口。
-     */
-    var vsyncPeriodReporter: ((periodNs: Long) -> Unit)? = null
-
-    private var frameMetricsListener: Window.OnFrameMetricsAvailableListener? = null
-    private val frameMetricsHandler by lazy { Handler(Looper.getMainLooper()) }
+    // ---- 渲染缓存 ----
 
     private val transformMatrix = Matrix()
     private val transformPath = Path()
-    // 合并后的 path 始终 EVEN_ODD：每个源 path 在 WebmaskParser 里已经设 EVEN_ODD，
-    // 合并后保留同一规则才能让"人物洞"继续作为洞参与裁剪。
     private val mergedPath = Path().apply { fillType = Path.FillType.EVEN_ODD }
 
-    /**
-     * 同帧去重缓存——**对齐 B 站官方 `if (this.maskTime !== mask.time)` 的优化**。
-     *
-     * 弹幕子 view 滚动会让 host 60Hz invalidate，但 mask 源帧只有 24~30Hz——
-     * 大部分相邻 dispatchDraw 拿到的是同一个 [MaskFrame] 引用。
-     * 缓存上次 (frame, bounds)，相同时跳过 N 个 path 的变换 + addPath 重建，
-     * 只复用已有 [mergedPath] 做裁剪。1080p、人物 path 数=4~8 时 CPU 节省 30~50%。
-     */
+    /** 同帧去重 + 防闪烁缓存：记录上一个有效帧及其 bounds。 */
     private var cachedFrame: MaskFrame? = null
     private var cachedBoundsLeft = 0
     private var cachedBoundsTop = 0
     private var cachedBoundsRight = 0
     private var cachedBoundsBottom = 0
 
-    /** 保留调试入口：必要时可强制切软件层，对比硬件合成差异。 */
+    /**
+     * 由 DmMaskController 在 seek / release 时调用：清除缓存的遮罩，
+     * 避免在新位置使用旧位置的遮罩。
+     */
+    fun clearCachedMask() {
+        cachedFrame = null
+        mergedPath.reset()
+        mergedPath.fillType = Path.FillType.EVEN_ODD
+        postInvalidateOnAnimation()
+    }
+
+    /** 保留调试入口：必要时可强制切软件层对比硬件合成差异。 */
     fun setHighQualityClipping(enabled: Boolean) {
         val target = if (enabled) LAYER_TYPE_SOFTWARE else LAYER_TYPE_NONE
         if (layerType != target) {
@@ -98,116 +79,80 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
         }
     }
 
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        attachFrameMetricsListener()
-        reportVsyncPeriod()
-    }
-
-    /**
-     * 读取屏幕真实刷新率并转成 vsync 周期（ns），上报给 controller。
-     */
-    private fun reportVsyncPeriod() {
-        val display = display ?: return
-        val refreshRate = display.refreshRate.takeIf { it > 1f } ?: return
-        val periodNs = (1_000_000_000.0 / refreshRate).toLong()
-        vsyncPeriodReporter?.invoke(periodNs)
-    }
-
-    override fun onDetachedFromWindow() {
-        detachFrameMetricsListener()
-        super.onDetachedFromWindow()
-    }
-
-    /**
-     * 注册 [Window.OnFrameMetricsAvailableListener]（API 24+）。
-     *
-     * 拿到的 `TOTAL_DURATION` 是「**这一帧从 INTENDED_VSYNC 到提交给 SurfaceFlinger 的总耗时**」。
-     * 参考时钟模型下 mask PTS 跟播放器 clock，不再靠管线延迟或魔法数字猜补偿。
-     *
-     * <24 设备上 listener 不存在，跳过即可。
-     */
-    private fun attachFrameMetricsListener() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
-        if (frameMetricsListener != null) return
-        val window = (context as? Activity)?.window ?: return
-        val listener = Window.OnFrameMetricsAvailableListener { _, fm, _ ->
-            val totalNs = fm.getMetric(FrameMetrics.TOTAL_DURATION)
-            if (totalNs > 0L) pipelineDelayReporter?.invoke(totalNs)
-        }
-        window.addOnFrameMetricsAvailableListener(listener, frameMetricsHandler)
-        frameMetricsListener = listener
-    }
-
-    private fun detachFrameMetricsListener() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
-        val listener = frameMetricsListener ?: return
-        (context as? Activity)?.window?.removeOnFrameMetricsAvailableListener(listener)
-        frameMetricsListener = null
-    }
-
     override fun dispatchDraw(canvas: Canvas) {
+        // 1. controller 说不要渲染 → 不裁剪（仅 IDLE 状态）
         if (shouldRenderMask?.invoke() == false) {
             super.dispatchDraw(canvas)
             return
         }
+
+        // 2. SEEKING 状态：冻结旧遮罩，不查询 timeline
+        if (isSeeking?.invoke() == true) {
+            val bounds = videoBoundsProvider?.invoke()
+            if (bounds == null || bounds.isEmpty || cachedFrame == null || cachedFrame!!.paths.isEmpty()) {
+                super.dispatchDraw(canvas)
+                return
+            }
+            // 直接用缓存的 mergedPath，不更新
+            val saveCount = canvas.save()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                canvas.clipPath(mergedPath)
+            } else {
+                @Suppress("DEPRECATION")
+                canvas.clipPath(mergedPath, Region.Op.INTERSECT)
+            }
+            super.dispatchDraw(canvas)
+            canvas.restoreToCount(saveCount)
+            return
+        }
+
         val tl = timeline
         val pts = ptsProvider?.invoke()
         val bounds = videoBoundsProvider?.invoke()
+
+        // 3. 查询当前 PTS 的 mask 帧
         val frame = if (tl != null && pts != null) tl.queryAt(pts) else null
 
+        // 4. 上报诊断数据
         if (frame != null && pts != null) {
-            // 把这一帧的 (queryPts, framePts) 上报给 controller 做集中诊断输出。
-            // controller 内部已经节流（每秒最多 1 条），这里只是塞数据，开销忽略不计。
             frameQueryReporter?.invoke(pts, frame.presentationTimeMs)
         }
 
+        // 5. bounds 无效 → 不裁剪
         if (bounds == null || bounds.isEmpty) {
             super.dispatchDraw(canvas)
             return
         }
 
-        val renderFrame = frame?.takeIf { it.paths.isNotEmpty() }
+        // 6. 确定本次渲染用的帧：优先用当前帧，null 时回退到缓存（防闪烁）
+        val currentFrame = frame?.takeIf { it.paths.isNotEmpty() }
+        val effectiveFrame = currentFrame ?: cachedFrame
 
-        if (renderFrame == null || renderFrame.paths.isEmpty()) {
+        if (effectiveFrame == null || effectiveFrame.paths.isEmpty()) {
             super.dispatchDraw(canvas)
             return
         }
 
-        // 同帧 + 同 bounds → 复用缓存的 mergedPath。
-        // frame 是引用比较：timeline 的 queryAt 返回的是缓存对象，相邻调用通常 ===。
-        val sameAsCache = renderFrame === cachedFrame &&
+        // 6. 同帧 + 同 bounds → 复用缓存的 mergedPath（CPU 节省 30~50%）
+        val sameAsCache = currentFrame != null &&
+            currentFrame === cachedFrame &&
             bounds.left == cachedBoundsLeft && bounds.top == cachedBoundsTop &&
             bounds.right == cachedBoundsRight && bounds.bottom == cachedBoundsBottom
 
         if (!sameAsCache) {
-            cachedFrame = renderFrame
+            // 只在帧或 bounds 变化时才更新缓存和重建 path
+            if (currentFrame != null) {
+                cachedFrame = currentFrame
+            }
             cachedBoundsLeft = bounds.left
             cachedBoundsTop = bounds.top
             cachedBoundsRight = bounds.right
             cachedBoundsBottom = bounds.bottom
 
-            val svgW = renderFrame.svgWidth.coerceAtLeast(1)
-            val svgH = renderFrame.svgHeight.coerceAtLeast(1)
-            val sx = bounds.width().toFloat() / svgW
-            val sy = bounds.height().toFloat() / svgH
-            val dx = bounds.left.toFloat()
-            val dy = bounds.top.toFloat()
-
-            transformMatrix.setScale(sx, sy)
-            transformMatrix.postTranslate(dx, dy)
-
-            // 把所有 path 在 mergedPath 上做并集（UNION，Path.addPath 默认行为）。
-            // 人物洞由 EVEN_ODD fill rule 保留下来。
-            mergedPath.reset()
-            mergedPath.fillType = Path.FillType.EVEN_ODD
-            for (path in renderFrame.paths) {
-                transformPath.set(path)
-                transformPath.transform(transformMatrix)
-                mergedPath.addPath(transformPath)
-            }
+            buildMergedPath(effectiveFrame, bounds)
         }
 
+        // 7. 裁剪绘制
         val saveCount = canvas.save()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             canvas.clipPath(mergedPath)
@@ -217,5 +162,41 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
         }
         super.dispatchDraw(canvas)
         canvas.restoreToCount(saveCount)
+    }
+
+    /**
+     * 把 effectiveFrame 的所有 path 合并到 mergedPath。
+     * 每个 path 从 SVG 坐标系变换到视频 bounds 坐标系。
+     *
+     * 坐标映射逻辑：
+     * - SVG path 坐标经过 WebmaskParser 的 * 0.1 转换后，处于 [0, vbW*0.1] 空间
+     * - 当 viewBox 存在时，缩放分母用 vbW*0.1（比 svgWidth 更准确）
+     * - 当 viewBox 不存在时，fallback 到 svgWidth（保持原有行为）
+     * - viewBox 偏移（x/y）需要从 path 坐标中减去，再映射到 bounds
+     */
+    private fun buildMergedPath(frame: MaskFrame, bounds: Rect) {
+        // 优先用 viewBox 尺寸（已 * 0.1），fallback 到 svgWidth
+        val coordW = if (frame.viewBoxWidth > 0f) frame.viewBoxWidth
+            else frame.svgWidth.toFloat().coerceAtLeast(1f)
+        val coordH = if (frame.viewBoxHeight > 0f) frame.viewBoxHeight
+            else frame.svgHeight.toFloat().coerceAtLeast(1f)
+        val vbX = frame.viewBoxX
+        val vbY = frame.viewBoxY
+
+        val sx = bounds.width().toFloat() / coordW
+        val sy = bounds.height().toFloat() / coordH
+        val dx = bounds.left.toFloat() - vbX * sx
+        val dy = bounds.top.toFloat() - vbY * sy
+
+        transformMatrix.setScale(sx, sy)
+        transformMatrix.postTranslate(dx, dy)
+
+        mergedPath.reset()
+        mergedPath.fillType = Path.FillType.EVEN_ODD
+        for (path in frame.paths) {
+            transformPath.set(path)
+            transformPath.transform(transformMatrix)
+            mergedPath.addPath(transformPath)
+        }
     }
 }

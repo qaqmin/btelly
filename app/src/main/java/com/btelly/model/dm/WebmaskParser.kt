@@ -1,6 +1,8 @@
 package com.btelly.model.dm
 
+import android.graphics.Matrix
 import android.graphics.Path
+import android.graphics.RectF
 import android.util.Base64
 import com.btelly.core.common.log.AppLog
 import java.io.ByteArrayOutputStream
@@ -8,6 +10,19 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.zip.GZIPInputStream
 
+/**
+ * webmask 文件解析器。
+ *
+ * 按 Bilibili 参考链路重构：
+ *  - 文件结构：MASK 魔数 + 段索引表 + gzip 段数据（SVG path）
+ *  - SVG path 坐标使用标准 SVG 坐标系（Y 轴向下），与 Android 屏幕坐标一致
+ *  - path 代表"背景区"，人物区域是 EVEN_ODD 的洞
+ *
+ * 关键修正：
+ *  - 去掉 Y 轴翻转（之前 viewHeight - value*0.1 导致遮罩垂直镜像）
+ *  - SVG 文本 BOM 头剥离
+ *  - 0 byte body 显式当失败
+ */
 object WebmaskParser {
 
     private const val TAG = "WebmaskParser"
@@ -18,12 +33,14 @@ object WebmaskParser {
     /** 段索引表每条目大小（timeMs 8 + byteOffset 8 = 16B）。 */
     const val META_ENTRY_SIZE = 16
 
+    /** 诊断用：是否已 dump 过 SVG 原文 */
+    private var diagDumpedSvg = false
+
+    // ---- 文件级解析 ----
+
     /**
-     * 仅解析 webmask 文件头（前 16 字节），返回段总数。
-     *
-     * 返回值：
-     *  - > 0：段总数（[parseSegmentMeta] 需用此数下载 N × 16 字节索引表）
-     *  - <= 0：文件无效 / 损坏
+     * 解析 webmask 文件头（前 16 字节），返回段总数。
+     * @return > 0 段总数；<= 0 无效
      */
     fun parseSegmentCount(headerBytes: ByteArray): Int {
         if (headerBytes.size < HEADER_SIZE) return -1
@@ -45,9 +62,6 @@ object WebmaskParser {
 
     /**
      * 解析段索引表（segmentCount × 16 字节），构建延迟加载 [DmMaskData]。
-     *
-     * 索引表后续每段的字节数据由 [DmMaskRepository] 按需 Range 下载，
-     * 填充到对应 [LazyMaskSegment.segData] 后再调用 [parseSegmentFrames]。
      */
     fun parseSegmentMeta(
         metaBytes: ByteArray,
@@ -76,8 +90,6 @@ object WebmaskParser {
 
     /**
      * 兼容入口：从完整 webmask 文件字节构建（全量下载场景 / 测试）。
-     *
-     * 会把每段的字节切片预填到 [LazyMaskSegment.segData]，所以下次 [parseSegmentFrames] 直接可用。
      */
     fun parse(data: ByteArray, fps: Int = 0): DmMaskData? {
         val segCount = parseSegmentCount(data)
@@ -87,7 +99,6 @@ object WebmaskParser {
 
         val metaBytes = data.copyOfRange(HEADER_SIZE, metaEnd)
         val dmData = parseSegmentMeta(metaBytes, segCount, data.size.toLong(), fps) ?: return null
-        // 预填字节数据，让后续 parseSegmentFrames 不用再 Range 下载
         for (seg in dmData.rawSegments) {
             val s = seg.byteOffset.toInt()
             val e = seg.byteEnd.toInt().coerceAtMost(data.size)
@@ -96,6 +107,12 @@ object WebmaskParser {
         return dmData
     }
 
+    // ---- 段级帧解析 ----
+
+    /**
+     * 解析单个段：gzip 解压 → base64 解码 → SVG path 提取。
+     * 必须在 IO 线程调用。
+     */
     fun parseSegmentFrames(segment: LazyMaskSegment, fps: Int, segDurationMs: Long = 0L): List<MaskFrame>? {
         val segBytes = segment.segData ?: return null
         if (segBytes.isEmpty()) return null
@@ -117,94 +134,244 @@ object WebmaskParser {
 
         val totalFrames = parts.size - 1
         val frames = mutableListOf<MaskFrame>()
+
         for (frameIdx in 1 until parts.size) {
             val localIdx = frameIdx - 1
-            val ptsMs = if (totalFrames > 1 && segDurationMs > 0L) {
-                segment.timeMs + (localIdx.toLong() * segDurationMs) / totalFrames
-            } else if (fps > 0) {
-                segment.timeMs + localIdx.toLong() * 1000L / fps
-            } else {
-                segment.timeMs
-            }
+            val ptsMs = calculateFramePts(segment.timeMs, localIdx, totalFrames, fps, segDurationMs)
+
             val b64Data = parts[frameIdx]
             val svgBytes = try {
                 Base64.decode(b64Data, Base64.DEFAULT)
             } catch (e: Exception) {
+                // base64 解码失败 → 空帧（保留 pts 信息）
                 frames.add(MaskFrame(presentationTimeMs = ptsMs, paths = emptyList()))
                 continue
             }
-            val svgText = svgBytes.toString(Charsets.UTF_8)
+
+            val svgText = stripBom(svgBytes.toString(Charsets.UTF_8))
+            // 诊断：dump 每帧 SVG 的 <svg 标签属性（前 300 字符足够看到 width/height/viewBox）
             val parsed = parseSvgPaths(svgText)
+            if (!diagDumpedSvg) {
+                diagDumpedSvg = true
+                AppLog.d(TAG, "SVG raw header: ${svgText.take(300)}")
+            }
             frames.add(
                 MaskFrame(
                     presentationTimeMs = ptsMs,
                     paths = parsed.paths,
                     svgWidth = parsed.width,
                     svgHeight = parsed.height,
+                    viewBoxX = parsed.viewBoxX,
+                    viewBoxY = parsed.viewBoxY,
+                    viewBoxWidth = parsed.viewBoxWidth,
+                    viewBoxHeight = parsed.viewBoxHeight,
                 )
             )
         }
 
-        // 空帧是正常的（视频里某段时间没人物 → 源数据本来就空），不报警。
         return frames.takeIf { it.isNotEmpty() }
     }
 
-    private fun splitBy(data: ByteArray, delimiter: ByteArray): List<ByteArray> {
-        val result = mutableListOf<ByteArray>()
-        var start = 0
-        var i = 0
-        while (i <= data.size - delimiter.size) {
-            var match = true
-            for (j in delimiter.indices) {
-                if (data[i + j] != delimiter[j]) {
-                    match = false
-                    break
-                }
-            }
-            if (match) {
-                result.add(data.copyOfRange(start, i))
-                start = i + delimiter.size
-                i = start
-            } else {
-                i++
-            }
+    // ---- 帧内 PTS 计算 ----
+
+    private fun calculateFramePts(
+        segStartMs: Long,
+        localIdx: Int,
+        totalFrames: Int,
+        fps: Int,
+        segDurationMs: Long,
+    ): Long {
+        return if (totalFrames > 1 && segDurationMs > 0L) {
+            segStartMs + (localIdx.toLong() * segDurationMs) / totalFrames
+        } else if (fps > 0) {
+            segStartMs + localIdx.toLong() * 1000L / fps
+        } else {
+            segStartMs
         }
-        result.add(data.copyOfRange(start, data.size))
-        return result
     }
 
-    /**
-     * 解析 SVG 文本，返回 path 列表与 SVG 标定尺寸。SVG 尺寸是渲染时缩放的关键——
-     * 横屏视频常见 320×180、竖屏可能是 180×320，硬编码会导致严重错位。
-     */
-    private data class ParsedSvg(val paths: List<Path>, val width: Int, val height: Int)
+    // ---- SVG 解析 ----
+
+    private data class ParsedSvg(
+        val paths: List<Path>,
+        val width: Int,
+        val height: Int,
+        val viewBoxX: Float,
+        val viewBoxY: Float,
+        /** viewBox 宽度 × 0.1，用于坐标映射分母。0 表示未提取到。 */
+        val viewBoxWidth: Float,
+        /** viewBox 高度 × 0.1，用于坐标映射分母。0 表示未提取到。 */
+        val viewBoxHeight: Float,
+    )
 
     private fun parseSvgPaths(svgText: String): ParsedSvg {
-        val viewWidth = extractFloat(svgText, """width="([\d.]+)px"""")
-            ?: return ParsedSvg(emptyList(), 0, 0)
-        val viewHeight = extractFloat(svgText, """height="([\d.]+)px"""")
-            ?: return ParsedSvg(emptyList(), 0, 0)
-        if (viewWidth <= 0f || viewHeight <= 0f) return ParsedSvg(emptyList(), 0, 0)
+        // 正则兼容 width="320" 和 width="320px" 两种格式
+        var viewWidth = extractFloat(svgText, """width="([\d.]+)(?:px)?"""")
+        var viewHeight = extractFloat(svgText, """height="([\d.]+)(?:px)?"""")
 
-        val pathRegex = Regex("""<path\s+d="([^"]+)"""")
+        // 解析完整 viewBox（4 个值）
+        val viewBox = extractViewBox(svgText)
+
+        // fallback：如果 width/height 缺失，用 viewBox 的 w/h
+        if (viewWidth == null || viewWidth <= 0f) {
+            viewWidth = viewBox?.w
+            if (viewWidth == null || viewWidth <= 0f) {
+                AppLog.w(TAG, "SVG parse skip: no width/viewBox, header=${svgText.take(200)}")
+                return ParsedSvg(emptyList(), 0, 0, 0f, 0f, 0f, 0f)
+            }
+        }
+        if (viewHeight == null || viewHeight <= 0f) {
+            viewHeight = viewBox?.h
+            if (viewHeight == null || viewHeight <= 0f) {
+                AppLog.w(TAG, "SVG parse skip: no height/viewBox, header=${svgText.take(200)}")
+                return ParsedSvg(emptyList(), 0, 0, 0f, 0f, 0f, 0f)
+            }
+        }
+
+        // viewBox 各分量都不需要 × 0.1（viewBox 与 width/height 同坐标空间）
+        val vbX = viewBox?.x ?: 0f
+        val vbY = viewBox?.y ?: 0f
+        val vbW = viewBox?.w ?: 0f
+        val vbH = viewBox?.h ?: 0f
+
+        // 解析 <g> transform，检测 Y 轴翻转
+        // webmask SVG 标准格式：<g transform="translate(0,H) scale(0.1,-0.1)">
+        // 我们的解析器已内联应用 × 0.1，需要补上 Y 翻转修正：y → viewHeight - y
+        val yFlipHeight = detectYFlipHeight(svgText, viewHeight)
+
+        // 匹配 <path> 标签，提取 d 属性和可选的 transform 属性
+        val pathRegex = Regex("""<path\s+([^>]*?)d="([^"]+)"([^>]*?)?/?>""")
         val results = mutableListOf<Path>()
 
         for (match in pathRegex.findAll(svgText)) {
-            val d = match.groupValues[1]
+            val preAttrs = match.groupValues[1]
+            val d = match.groupValues[2]
+            val postAttrs = match.groupValues[3]
+            val allAttrs = "$preAttrs $postAttrs"
+
             val path = svgPathToAndroidPath(d, viewWidth, viewHeight)
             if (path != null) {
+                // 应用 <g> transform 的 Y 翻转修正
+                if (yFlipHeight > 0f) {
+                    val flipMatrix = Matrix()
+                    flipMatrix.setScale(1f, -1f)
+                    flipMatrix.postTranslate(0f, yFlipHeight)
+                    path.transform(flipMatrix)
+                }
+                // 解析并应用 path 自身的 transform 属性
+                val transform = extractTransform(allAttrs)
+                if (transform != null) {
+                    path.transform(transform)
+                }
                 results.add(path)
             }
         }
-        return ParsedSvg(results, viewWidth.toInt(), viewHeight.toInt())
+        // 诊断日志：记录所有 path 的 bounds 及坐标空间信息
+        if (results.isNotEmpty()) {
+            val sb = StringBuilder()
+            sb.append("SVG diag: svgW=$viewWidth svgH=$viewHeight vbX=$vbX vbY=$vbY vbW=$vbW vbH=$vbH pathCount=${results.size}")
+            for ((idx, p) in results.withIndex()) {
+                val b = android.graphics.RectF()
+                p.computeBounds(b, true)
+                sb.append(" p$idx=[$b]")
+            }
+            AppLog.d(TAG, sb.toString())
+        }
+        return ParsedSvg(results, viewWidth.toInt(), viewHeight.toInt(), vbX, vbY, vbW, vbH)
     }
 
+    /**
+     * 从 SVG 文本中提取 viewBox 的全部 4 个值。
+     * 格式：viewBox="x y width height"
+     */
+    private fun extractViewBox(svgText: String): ViewBox? {
+        val match = Regex(
+            """viewBox="([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)""""
+        ).find(svgText) ?: return null
+        val x = match.groupValues[1].toFloatOrNull() ?: return null
+        val y = match.groupValues[2].toFloatOrNull() ?: return null
+        val w = match.groupValues[3].toFloatOrNull() ?: return null
+        val h = match.groupValues[4].toFloatOrNull() ?: return null
+        return ViewBox(x, y, w, h)
+    }
+
+    /** viewBox 的四个分量（原始值，未 × 0.1）。 */
+    private data class ViewBox(val x: Float, val y: Float, val w: Float, val h: Float)
+
+    /**
+     * 从 SVG <g> transform 中检测 Y 轴翻转。
+     * webmask 标准格式：<g transform="translate(0,H) scale(0.1,-0.1)">
+     * 如果 scale Y 分量为负，返回 viewHeight（用于 Y 翻转修正）；否则返回 0。
+     */
+    private fun detectYFlipHeight(svgText: String, viewHeight: Float): Float {
+        val gTransform = Regex("""<g\s+[^>]*?transform="([^"]+)"""")
+            .find(svgText)?.groupValues?.get(1) ?: return 0f
+        val scaleMatch = Regex("""scale\s*\(\s*([^\s,]+)\s*[,\s]\s*([^)]+)\s*\)""").find(gTransform)
+        val scaleY = scaleMatch?.groupValues?.get(2)?.trim()?.toFloatOrNull() ?: return 0f
+        return if (scaleY < 0f) viewHeight else 0f
+    }
+
+    /**
+     * 从 <path> 属性字符串中解析 transform，构建 Android Matrix。
+     * 支持的变换函数：translate(tx [, ty])、scale(sx [, sy])、rotate(angle)
+     * 多个变换函数从左到右依次应用（postConcat）。
+     */
+    private fun extractTransform(attrs: String): Matrix? {
+        val transformMatch = Regex("""transform="([^"]+)"""").find(attrs) ?: return null
+        val value = transformMatch.groupValues[1].trim()
+        if (value.isBlank()) return null
+
+        val result = Matrix()
+        val funcRegex = Regex("""(translate|scale|rotate)\s*\(([^)]+)\)""")
+        var anyApplied = false
+
+        for (funcMatch in funcRegex.findAll(value)) {
+            val func = funcMatch.groupValues[1]
+            val args = funcMatch.groupValues[2]
+                .split("""[\s,]+""".toRegex())
+                .mapNotNull { it.toFloatOrNull() }
+
+            val m = Matrix()
+            when (func) {
+                "translate" -> {
+                    if (args.size >= 2) {
+                        m.setTranslate(args[0] * 0.1f, args[1] * 0.1f)
+                    } else if (args.size == 1) {
+                        m.setTranslate(args[0] * 0.1f, 0f)
+                    } else continue
+                }
+                "scale" -> {
+                    if (args.size >= 2) {
+                        m.setScale(args[0], args[1])
+                    } else if (args.size == 1) {
+                        m.setScale(args[0], args[0])
+                    } else continue
+                }
+                "rotate" -> {
+                    if (args.size >= 1) {
+                        m.setRotate(args[0])
+                    } else continue
+                }
+                else -> continue
+            }
+            result.postConcat(m)
+            anyApplied = true
+        }
+        return if (anyApplied) result else null
+    }
+
+    /**
+     * SVG path d 属性 → Android Path。
+     *
+     * 坐标系：webmask SVG 使用标准 SVG 坐标系（Y 轴向下），与 Android 屏幕坐标一致。
+     * 坐标值 × 0.1 转为 SVG 像素（webmask 用 10× 精度编码，如 3200 = 320px）。
+     *
+     * EVEN_ODD fill rule：外圈是背景区，内圈（人物轮廓）是洞。
+     *
+     * 椭圆弧（A/a）命令：完整参数化弧线实现，将 SVG arc 端点参数转为 Android arcTo 格式。
+     */
     private fun svgPathToAndroidPath(d: String, viewWidth: Float, viewHeight: Float): Path? {
         try {
-            // webmask 协议的 path 是「整画面减人物」的带洞填充，B 站编码端用 SVG fill-rule="evenodd"
-            // 表达"外圈减内圈"——外轮廓 + 人物轮廓内圈相消才能让人物区域成为"洞"。
-            // Android Path 默认 WINDING（非零环绕规则）会把内圈也算成 fill 内部，clipPath 时
-            // 人物区域反而被算作"允许绘制"，弹幕从人物身上漏出来——必须显式改成 EVEN_ODD。
             val path = Path().apply { fillType = Path.FillType.EVEN_ODD }
             val tokens = tokenizeSvgPath(d.trim())
             var i = 0
@@ -223,10 +390,11 @@ object WebmaskParser {
                 lastQuadCtrlY = null
             }
 
+            // 坐标转换：标准 SVG（Y 向下），× 0.1 缩放
             fun absoluteX(value: String): Float = value.toFloat() * 0.1f
-            fun absoluteY(value: String): Float = viewHeight - value.toFloat() * 0.1f
+            fun absoluteY(value: String): Float = value.toFloat() * 0.1f
             fun relativeX(value: String): Float = value.toFloat() * 0.1f
-            fun relativeY(value: String): Float = value.toFloat() * -0.1f
+            fun relativeY(value: String): Float = value.toFloat() * 0.1f
 
             while (i < tokens.size) {
                 val token = tokens[i]
@@ -319,11 +487,7 @@ object WebmaskParser {
                         val y2 = absoluteY(tokens[i + 3])
                         val x = absoluteX(tokens[i + 4])
                         val y = absoluteY(tokens[i + 5])
-                        path.cubicTo(
-                            x1, y1,
-                            x2, y2,
-                            x, y
-                        )
+                        path.cubicTo(x1, y1, x2, y2, x, y)
                         lastCubicCtrlX = x2
                         lastCubicCtrlY = y2
                         lastQuadCtrlX = null
@@ -336,14 +500,10 @@ object WebmaskParser {
                         if (i + 3 >= tokens.size) break
                         val x1 = if (lastCubicCtrlX != null && lastCubicCtrlY != null) {
                             2f * currentX - lastCubicCtrlX!!
-                        } else {
-                            currentX
-                        }
+                        } else currentX
                         val y1 = if (lastCubicCtrlX != null && lastCubicCtrlY != null) {
                             2f * currentY - lastCubicCtrlY!!
-                        } else {
-                            currentY
-                        }
+                        } else currentY
                         val x2 = absoluteX(tokens[i])
                         val y2 = absoluteY(tokens[i + 1])
                         val x = absoluteX(tokens[i + 2])
@@ -382,14 +542,10 @@ object WebmaskParser {
                         if (i + 3 >= tokens.size) break
                         val x1 = if (lastCubicCtrlX != null && lastCubicCtrlY != null) {
                             2f * currentX - lastCubicCtrlX!!
-                        } else {
-                            currentX
-                        }
+                        } else currentX
                         val y1 = if (lastCubicCtrlX != null && lastCubicCtrlY != null) {
                             2f * currentY - lastCubicCtrlY!!
-                        } else {
-                            currentY
-                        }
+                        } else currentY
                         val x2 = currentX + relativeX(tokens[i])
                         val y2 = currentY + relativeY(tokens[i + 1])
                         val dx = relativeX(tokens[i + 2])
@@ -441,14 +597,10 @@ object WebmaskParser {
                         if (i + 1 >= tokens.size) break
                         val x1 = if (lastQuadCtrlX != null && lastQuadCtrlY != null) {
                             2f * currentX - lastQuadCtrlX!!
-                        } else {
-                            currentX
-                        }
+                        } else currentX
                         val y1 = if (lastQuadCtrlX != null && lastQuadCtrlY != null) {
                             2f * currentY - lastQuadCtrlY!!
-                        } else {
-                            currentY
-                        }
+                        } else currentY
                         val x = absoluteX(tokens[i])
                         val y = absoluteY(tokens[i + 1])
                         path.quadTo(x1, y1, x, y)
@@ -464,14 +616,10 @@ object WebmaskParser {
                         if (i + 1 >= tokens.size) break
                         val x1 = if (lastQuadCtrlX != null && lastQuadCtrlY != null) {
                             2f * currentX - lastQuadCtrlX!!
-                        } else {
-                            currentX
-                        }
+                        } else currentX
                         val y1 = if (lastQuadCtrlX != null && lastQuadCtrlY != null) {
                             2f * currentY - lastQuadCtrlY!!
-                        } else {
-                            currentY
-                        }
+                        } else currentY
                         val dx = relativeX(tokens[i])
                         val dy = relativeY(tokens[i + 1])
                         val x = currentX + dx
@@ -487,19 +635,31 @@ object WebmaskParser {
                     }
                     'A' -> {
                         if (i + 6 >= tokens.size) break
-                        currentX = absoluteX(tokens[i + 5])
-                        currentY = absoluteY(tokens[i + 6])
-                        path.lineTo(currentX, currentY)
+                        val rx = tokens[i].toFloat() * 0.1f
+                        val ry = tokens[i + 1].toFloat() * 0.1f
+                        val angle = tokens[i + 2].toFloat()
+                        val largeArc = tokens[i + 3].toInt() != 0
+                        val sweep = tokens[i + 4].toInt() != 0
+                        val endX = absoluteX(tokens[i + 5])
+                        val endY = absoluteY(tokens[i + 6])
+                        drawArc(path, currentX, currentY, rx, ry, angle, largeArc, sweep, endX, endY)
+                        currentX = endX
+                        currentY = endY
                         resetSmoothControls()
                         i += 7
                     }
                     'a' -> {
                         if (i + 6 >= tokens.size) break
-                        val dx = relativeX(tokens[i + 5])
-                        val dy = relativeY(tokens[i + 6])
-                        path.rLineTo(dx, dy)
-                        currentX += dx
-                        currentY += dy
+                        val rx = tokens[i].toFloat() * 0.1f
+                        val ry = tokens[i + 1].toFloat() * 0.1f
+                        val angle = tokens[i + 2].toFloat()
+                        val largeArc = tokens[i + 3].toInt() != 0
+                        val sweep = tokens[i + 4].toInt() != 0
+                        val endX = currentX + relativeX(tokens[i + 5])
+                        val endY = currentY + relativeY(tokens[i + 6])
+                        drawArc(path, currentX, currentY, rx, ry, angle, largeArc, sweep, endX, endY)
+                        currentX = endX
+                        currentY = endY
                         resetSmoothControls()
                         i += 7
                     }
@@ -512,6 +672,8 @@ object WebmaskParser {
             return null
         }
     }
+
+    // ---- 工具方法 ----
 
     private fun tokenizeSvgPath(d: String): List<String> {
         val tokens = mutableListOf<String>()
@@ -542,5 +704,126 @@ object WebmaskParser {
 
     private fun extractFloat(text: String, pattern: String): Float? {
         return Regex(pattern).find(text)?.groupValues?.get(1)?.toFloatOrNull()
+    }
+
+    /** 剥离 UTF-8 BOM 头（`﻿`），防止 Base64 解码失败。 */
+    private fun stripBom(text: String): String {
+        return if (text.startsWith("﻿")) text.substring(1) else text
+    }
+
+    /**
+     * 将 SVG 端点参数弧线（rx, ry, rotation, largeArc, sweep, endX, endY）
+     * 转换为 Android Path.arcTo 所需的中心参数格式。
+     *
+     * 算法基于 W3C SVG 规范的端点参数到中心参数转换（F.6.5 / F.6.6）。
+     * 如果半径为 0 或起点等于终点，退化为 lineTo。
+     */
+    private fun drawArc(
+        path: Path,
+        startX: Float, startY: Float,
+        rx: Float, ry: Float,
+        rotationDeg: Float,
+        largeArc: Boolean, sweep: Boolean,
+        endX: Float, endY: Float,
+    ) {
+        // 退化情况
+        if ((rx == 0f || ry == 0f) || (startX == endX && startY == endY)) {
+            path.lineTo(endX, endY)
+            return
+        }
+
+        val phi = Math.toRadians(rotationDeg.toDouble())
+        val cosPhi = Math.cos(phi).toFloat()
+        val sinPhi = Math.sin(phi).toFloat()
+
+        // F.6.5.1: 计算 (x1', y1')
+        val dx = (startX - endX) / 2f
+        val dy = (startY - endY) / 2f
+        val x1p = cosPhi * dx + sinPhi * dy
+        val y1p = -sinPhi * dx + cosPhi * dy
+
+        // F.6.5.2: 修正半径
+        val x1pSq = x1p * x1p
+        val y1pSq = y1p * y1p
+        val rxSq = rx * rx
+        val rySq = ry * ry
+        val lambda = x1pSq / rxSq + y1pSq / rySq
+        val (effectiveRx, effectiveRy) = if (lambda > 1f) {
+            val sqrtLambda = kotlin.math.sqrt(lambda)
+            Pair(rx * sqrtLambda, ry * sqrtLambda)
+        } else {
+            Pair(rx, ry)
+        }
+        val eRxSq = effectiveRx * effectiveRx
+        val eRySq = effectiveRy * effectiveRy
+
+        // F.6.5.3: 计算 (cx', cy')
+        val sqrtNumerator = (eRxSq * eRySq - eRxSq * y1pSq - eRySq * x1pSq)
+            .coerceAtLeast(0f)
+        val sqrtDenominator = eRxSq * y1pSq + eRySq * x1pSq
+        var s = 1f
+        if (largeArc == sweep) s = -1f
+        val sq = if (sqrtDenominator > 0f) kotlin.math.sqrt(sqrtNumerator / sqrtDenominator) else 0f
+        val cxp = s * sq * (effectiveRx * y1p / effectiveRy)
+        val cyp = s * sq * -(effectiveRy * x1p / effectiveRx)
+
+        // F.6.5.5: 计算 (cx, cy)
+        val cx = cosPhi * cxp - sinPhi * cyp + (startX + endX) / 2f
+        val cy = sinPhi * cxp + cosPhi * cyp + (startY + endY) / 2f
+
+        // F.6.5.6: 计算起始角和扫描角
+        fun vecAngle(ux: Float, uy: Float, vx: Float, vy: Float): Float {
+            val dot = ux * vx + uy * vy
+            val len = kotlin.math.sqrt((ux * ux + uy * uy) * (vx * vx + vy * vy))
+            var angle = kotlin.math.acos((dot / len).coerceIn(-1f, 1f).toDouble())
+            if (ux * vy - uy * vx < 0) angle = -angle
+            return angle.toFloat()
+        }
+
+        val theta1 = vecAngle(1f, 0f, (x1p - cxp) / effectiveRx, (y1p - cyp) / effectiveRy)
+        val dTheta = vecAngle(
+            (x1p - cxp) / effectiveRx, (y1p - cyp) / effectiveRy,
+            (-x1p - cxp) / effectiveRx, (-y1p - cyp) / effectiveRy
+        )
+        var sweepAngle = dTheta
+        if (sweep && sweepAngle < 0) {
+            sweepAngle += (2 * Math.PI).toFloat()
+        } else if (!sweep && sweepAngle > 0) {
+            sweepAngle -= (2 * Math.PI).toFloat()
+        }
+
+        // 使用 Android Path.arcTo 的 oval 方式
+        val oval = RectF(
+            cx - effectiveRx, cy - effectiveRy,
+            cx + effectiveRx, cy + effectiveRy
+        )
+        val startAngleDeg = Math.toDegrees(theta1.toDouble()).toFloat()
+        val sweepAngleDeg = Math.toDegrees(sweepAngle.toDouble()).toFloat()
+        path.arcTo(oval, startAngleDeg, sweepAngleDeg, false)
+    }
+
+    /** 按分隔符切分 byte 数组。 */
+    private fun splitBy(data: ByteArray, delimiter: ByteArray): List<ByteArray> {
+        val result = mutableListOf<ByteArray>()
+        var start = 0
+        var i = 0
+        while (i <= data.size - delimiter.size) {
+            var match = true
+            for (j in delimiter.indices) {
+                if (data[i + j] != delimiter[j]) {
+                    match = false
+                    break
+                }
+            }
+            if (match) {
+                result.add(data.copyOfRange(start, i))
+                start = i + delimiter.size
+                i = start
+            } else {
+                i++
+            }
+        }
+        result.add(data.copyOfRange(start, data.size))
+        return result
     }
 }

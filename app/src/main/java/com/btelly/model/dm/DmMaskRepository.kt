@@ -176,6 +176,10 @@ class DmMaskRepository {
                 return null
             }
             val bytes = conn.inputStream.buffered(16 * 1024).use { it.readBytes() }
+            if (bytes.isEmpty()) {
+                AppLog.e(TAG, "Empty body for range $start-$end")
+                return null
+            }
             val total = parseTotalFromContentRange(conn.getHeaderField("Content-Range"))
                 ?: conn.getHeaderField("Content-Length")?.toLongOrNull()?.takeIf { it > 0 }?.plus(start)
                 ?: bytes.size.toLong()

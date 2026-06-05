@@ -39,8 +39,21 @@ data class MaskFrame(
     /** 该帧对应的视频 PTS（毫秒），由段起始时间 + 帧索引推算。 */
     val presentationTimeMs: Long,
     val paths: List<Path>,
-    /** SVG 标定宽度，0 表示未知（回退 320）。 */
+    /** SVG 标定宽度（width 属性值），0 表示未知。 */
     val svgWidth: Int = 0,
-    /** SVG 标定高度，0 表示未知（回退 180）。 */
+    /** SVG 标定高度（height 属性值），0 表示未知。 */
     val svgHeight: Int = 0,
+    /** SVG viewBox X 偏移（原始值，通常为 0）。 */
+    val viewBoxX: Float = 0f,
+    /** SVG viewBox Y 偏移（原始值，通常为 0）。 */
+    val viewBoxY: Float = 0f,
+    /**
+     * viewBox 宽度（原始值，不 × 0.1），用于坐标映射的缩放分母。
+     * 0 表示未提取到 viewBox，此时 fallback 到 [svgWidth]。
+     * 实际 webmask SVG 中 viewBox="0 0 320 180" 与 width="320" 同值，
+     * path 坐标经过 × 0.1 后处于 [0, 320] 空间 = viewBoxWidth。
+     */
+    val viewBoxWidth: Float = 0f,
+    /** viewBox 高度（原始值，不 × 0.1），语义同 [viewBoxWidth]。 */
+    val viewBoxHeight: Float = 0f,
 )

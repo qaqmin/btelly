@@ -259,16 +259,12 @@ class MyPlayerView @JvmOverloads constructor(
         dmMaskController.shouldRenderMask()
     }
 
+    private val maskIsSeekingProvider: () -> Boolean = {
+        dmMaskController.isSeeking()
+    }
+
     private val maskFrameQueryReporter: (Long, Long) -> Unit = { queryPts, framePts ->
         dmMaskController.reportFrameQuery(queryPts, framePts)
-    }
-
-    private val maskPipelineDelayReporter: (Long) -> Unit = { totalDurationNs ->
-        dmMaskController.reportFramePipelineDelay(totalDurationNs)
-    }
-
-    private val maskVsyncPeriodReporter: (Long) -> Unit = { periodNs ->
-        dmMaskController.reportVsyncPeriod(periodNs)
     }
 
     interface ControllerVisibilityListener {
@@ -1830,6 +1826,8 @@ class MyPlayerView @JvmOverloads constructor(
             is SurfaceView -> currentPlayer.setVideoSurfaceView(surfaceView)
             is TextureView -> currentPlayer.setVideoTextureView(surfaceView)
         }
+        // 后台回前台：重置 jank EMA，防止脏数据触发自动关 mask
+        dmMaskController.onResume()
     }
 
     fun destroy() {
@@ -1980,9 +1978,8 @@ class MyPlayerView @JvmOverloads constructor(
                 host.ptsProvider = maskPtsProvider
                 host.videoBoundsProvider = maskVideoBoundsProvider
                 host.shouldRenderMask = maskShouldRenderProvider
+                host.isSeeking = maskIsSeekingProvider
                 host.frameQueryReporter = maskFrameQueryReporter
-                host.pipelineDelayReporter = maskPipelineDelayReporter
-                host.vsyncPeriodReporter = maskVsyncPeriodReporter
             }
         }
         if (forceSeek) {
@@ -2017,9 +2014,8 @@ class MyPlayerView @JvmOverloads constructor(
                 host.ptsProvider = maskPtsProvider
                 host.videoBoundsProvider = maskVideoBoundsProvider
                 host.shouldRenderMask = maskShouldRenderProvider
+                host.isSeeking = maskIsSeekingProvider
                 host.frameQueryReporter = maskFrameQueryReporter
-                host.pipelineDelayReporter = maskPipelineDelayReporter
-                host.vsyncPeriodReporter = maskVsyncPeriodReporter
             }
             dmMaskController.setEnabled(true)
             player?.let {
