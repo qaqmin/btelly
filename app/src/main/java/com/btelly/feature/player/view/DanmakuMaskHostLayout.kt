@@ -57,15 +57,13 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
 
     /**
      * 把本 window 一帧的实测渲染管线耗时（ns）上报给 controller。
-     * 由 [Window.OnFrameMetricsAvailableListener.FrameMetrics.TOTAL_DURATION] 给出，
-     * 物理含义：INTENDED_VSYNC → frame 完成提交到 SurfaceFlinger 的总时间。
-     * Controller 还会再加 1 vsync（SurfaceFlinger 合成）得到完整 D_mask。
+     * 当前参考时钟模型不再用它补偿 PTS，保留接线只作为诊断/兼容入口。
      */
     var pipelineDelayReporter: ((totalDurationNs: Long) -> Unit)? = null
 
     /**
-     * 把 attach 时检测到的屏幕 vsync 周期（ns）上报给 controller，
-     * 让 controller 算 D_mask 时用真实刷新率（高刷屏 8.3ms / 11.1ms / 16.7ms）。
+     * 把 attach 时检测到的屏幕 vsync 周期（ns）上报给 controller。
+     * 当前参考时钟模型不再用它补偿 PTS，保留接线只作为诊断/兼容入口。
      */
     var vsyncPeriodReporter: ((periodNs: Long) -> Unit)? = null
 
@@ -108,7 +106,6 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
 
     /**
      * 读取屏幕真实刷新率并转成 vsync 周期（ns），上报给 controller。
-     * 高刷屏（90/120Hz）周期更短，影响 SurfaceFlinger 合成那 1 vsync 的估算。
      */
     private fun reportVsyncPeriod() {
         val display = display ?: return
@@ -125,11 +122,10 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
     /**
      * 注册 [Window.OnFrameMetricsAvailableListener]（API 24+）。
      *
-     * 拿到的 `TOTAL_DURATION` 是「**这一帧从 INTENDED_VSYNC 到提交给 SurfaceFlinger 的总耗时**」
-     * ——Google 官方暴露的真实渲染管线延迟数据。controller 用它+1 vsync 算 D_mask，
-     * 不再靠魔法数字（32/48/67 ms）猜延迟。
+     * 拿到的 `TOTAL_DURATION` 是「**这一帧从 INTENDED_VSYNC 到提交给 SurfaceFlinger 的总耗时**」。
+     * 参考时钟模型下 mask PTS 跟播放器 clock，不再靠管线延迟或魔法数字猜补偿。
      *
-     * <24 设备上 listener 不存在，controller 会退回到固定的 2 vsync 估算（minSdk=23 只差 1 API）。
+     * <24 设备上 listener 不存在，跳过即可。
      */
     private fun attachFrameMetricsListener() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
@@ -166,26 +162,33 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
             frameQueryReporter?.invoke(pts, frame.presentationTimeMs)
         }
 
-        if (frame == null || bounds == null || bounds.isEmpty || frame.paths.isEmpty()) {
+        if (bounds == null || bounds.isEmpty) {
+            super.dispatchDraw(canvas)
+            return
+        }
+
+        val renderFrame = frame?.takeIf { it.paths.isNotEmpty() }
+
+        if (renderFrame == null || renderFrame.paths.isEmpty()) {
             super.dispatchDraw(canvas)
             return
         }
 
         // 同帧 + 同 bounds → 复用缓存的 mergedPath。
         // frame 是引用比较：timeline 的 queryAt 返回的是缓存对象，相邻调用通常 ===。
-        val sameAsCache = frame === cachedFrame &&
+        val sameAsCache = renderFrame === cachedFrame &&
             bounds.left == cachedBoundsLeft && bounds.top == cachedBoundsTop &&
             bounds.right == cachedBoundsRight && bounds.bottom == cachedBoundsBottom
 
         if (!sameAsCache) {
-            cachedFrame = frame
+            cachedFrame = renderFrame
             cachedBoundsLeft = bounds.left
             cachedBoundsTop = bounds.top
             cachedBoundsRight = bounds.right
             cachedBoundsBottom = bounds.bottom
 
-            val svgW = frame.svgWidth.coerceAtLeast(1)
-            val svgH = frame.svgHeight.coerceAtLeast(1)
+            val svgW = renderFrame.svgWidth.coerceAtLeast(1)
+            val svgH = renderFrame.svgHeight.coerceAtLeast(1)
             val sx = bounds.width().toFloat() / svgW
             val sy = bounds.height().toFloat() / svgH
             val dx = bounds.left.toFloat()
@@ -198,7 +201,7 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
             // 人物洞由 EVEN_ODD fill rule 保留下来。
             mergedPath.reset()
             mergedPath.fillType = Path.FillType.EVEN_ODD
-            for (path in frame.paths) {
+            for (path in renderFrame.paths) {
                 transformPath.set(path)
                 transformPath.transform(transformMatrix)
                 mergedPath.addPath(transformPath)

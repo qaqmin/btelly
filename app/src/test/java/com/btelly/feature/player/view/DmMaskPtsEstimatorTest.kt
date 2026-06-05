@@ -6,58 +6,60 @@ import org.junit.Test
 class DmMaskPtsEstimatorTest {
 
     @Test
-    fun estimateFromAnchor_usesRelativeMaskDelayInsteadOfFullFrameLookahead() {
-        val query = DmMaskPtsEstimator.estimateFromAnchor(
-            anchorPtsMs = 47_166L,
-            anchorAgeMs = -18L,
-            pipelineDelayMs = 21L,
-            vsyncPeriodMs = 17L,
+    fun estimateFromPlayerClock_usesPlayerClockPositionWithoutLocalExtrapolation() {
+        val query = DmMaskPtsEstimator.estimateFromPlayerClock(
+            playerPositionMs = 47_166L,
+            elapsedSinceClockMs = 120L,
             playbackSpeed = 1f,
-            anchorIntervalMs = 33L,
+            isPlaying = true,
         )
 
-        assertEquals(47_152L, query)
+        assertEquals(47_166L, query)
     }
 
     @Test
-    fun estimateFromAnchor_clampsStaleAnchorAgeDuringVideoJank() {
-        val query = DmMaskPtsEstimator.estimateFromAnchor(
-            anchorPtsMs = 10_000L,
-            anchorAgeMs = 500L,
-            pipelineDelayMs = 21L,
-            vsyncPeriodMs = 17L,
-            playbackSpeed = 1f,
-            anchorIntervalMs = 33L,
-        )
-
-        assertEquals(10_070L, query)
-    }
-
-    @Test
-    fun estimateFromAnchor_preservesFutureAnchorAgeOnFastDevices() {
-        val query = DmMaskPtsEstimator.estimateFromAnchor(
-            anchorPtsMs = 10_000L,
-            anchorAgeMs = -250L,
-            pipelineDelayMs = 33L,
-            vsyncPeriodMs = 17L,
-            playbackSpeed = 1f,
-            anchorIntervalMs = 33L,
-        )
-
-        assertEquals(9_766L, query)
-    }
-
-    @Test
-    fun estimateFromAnchor_scalesRelativeDelayByPlaybackSpeed() {
-        val query = DmMaskPtsEstimator.estimateFromAnchor(
-            anchorPtsMs = 10_000L,
-            anchorAgeMs = 10L,
-            pipelineDelayMs = 25L,
-            vsyncPeriodMs = 17L,
+    fun estimateFromPlayerClock_ignoresSpeedBecausePlayerPositionAlreadyIncludesIt() {
+        val query = DmMaskPtsEstimator.estimateFromPlayerClock(
+            playerPositionMs = 10_000L,
+            elapsedSinceClockMs = 100L,
             playbackSpeed = 2f,
-            anchorIntervalMs = 33L,
+            isPlaying = true,
         )
 
-        assertEquals(10_036L, query)
+        assertEquals(10_000L, query)
+    }
+
+    @Test
+    fun estimateFromPlayerClock_pausedClockDoesNotAdvance() {
+        val query = DmMaskPtsEstimator.estimateFromPlayerClock(
+            playerPositionMs = 47_166L,
+            elapsedSinceClockMs = 120L,
+            playbackSpeed = 1f,
+            isPlaying = false,
+        )
+
+        assertEquals(47_166L, query)
+    }
+
+    @Test
+    fun estimateFromPlayerClock_clampsNegativePositionToZero() {
+        val query = DmMaskPtsEstimator.estimateFromPlayerClock(
+            playerPositionMs = -1L,
+            elapsedSinceClockMs = 0L,
+            playbackSpeed = 1f,
+            isPlaying = false,
+        )
+
+        assertEquals(0L, query)
+    }
+
+    @Test
+    fun estimateFromVideoFrameAnchor_doesNotCreateASecondMaskClock() {
+        val query = DmMaskPtsEstimator.estimateFromVideoFrameAnchor(
+            presentationTimeUs = 48_000_000L,
+            releaseTimeNs = 123_456_789L,
+        )
+
+        assertEquals(null, query)
     }
 }

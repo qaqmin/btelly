@@ -7,7 +7,7 @@ package com.btelly.model.dm
  * 实际下载 + 解析由 [com.btelly.feature.player.view.DmMaskController.preloadAhead]
  * 在后台按播放进度触发。本 timeline 只负责：
  *  - O(log N) 二分定位 segment
- *  - O(1) 在 [LazyMaskSegment.cachedFrames] 里 round-to-nearest 取帧
+ *  - O(1) 在 [LazyMaskSegment.cachedFrames] 里按播放器时钟取当前帧
  *  - 主线程查询绝不触发解析（dispatchDraw 不能同步阻塞）
  */
 class DmMaskTimeline(
@@ -27,7 +27,7 @@ class DmMaskTimeline(
      * 查询指定 PTS 最近的帧。
      * 1. O(log N) 二分定位 segment
      * 2. 懒解析该 segment（首次访问时）
-     * 3. round-to-nearest 定位帧
+     * 3. floor 定位帧：只取当前 PTS 已经到达的 mask 帧，不预取未来帧
      */
     fun queryAt(ptsMs: Long): MaskFrame? {
         if (segments.isEmpty()) return null
@@ -49,14 +49,14 @@ class DmMaskTimeline(
         val frames = segment.cachedFrames ?: return null
         if (frames.isEmpty()) return null
 
-        // round-to-nearest 定位帧
+        // floor 定位帧，避免 query 落在两帧中间时提前切到未来 mask。
         val segDurationMs = if (segIdx + 1 < segments.size) {
             (segments[segIdx + 1].timeMs - segment.timeMs).coerceAtLeast(1)
         } else {
             (frames.size.toLong() * 1000L / fps.coerceAtLeast(1)).coerceAtLeast(1)
         }
         val offsetMs = ptsMs - segment.timeMs
-        val frameIndex = ((offsetMs * frames.size + segDurationMs / 2) / segDurationMs).toInt()
+        val frameIndex = (offsetMs * frames.size / segDurationMs).toInt()
             .coerceIn(0, frames.size - 1)
 
         return frames.getOrNull(frameIndex)

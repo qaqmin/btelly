@@ -115,7 +115,6 @@ object WebmaskParser {
         val parts = splitBy(decompressed, separator)
         if (parts.size <= 1) return null
 
-        var emptyCount = 0
         val totalFrames = parts.size - 1
         val frames = mutableListOf<MaskFrame>()
         for (frameIdx in 1 until parts.size) {
@@ -132,12 +131,10 @@ object WebmaskParser {
                 Base64.decode(b64Data, Base64.DEFAULT)
             } catch (e: Exception) {
                 frames.add(MaskFrame(presentationTimeMs = ptsMs, paths = emptyList()))
-                emptyCount++
                 continue
             }
             val svgText = svgBytes.toString(Charsets.UTF_8)
             val parsed = parseSvgPaths(svgText)
-            if (parsed.paths.isEmpty()) emptyCount++
             frames.add(
                 MaskFrame(
                     presentationTimeMs = ptsMs,
@@ -146,23 +143,6 @@ object WebmaskParser {
                     svgHeight = parsed.height,
                 )
             )
-        }
-
-        // 前向填充：空帧用前一个有 path 的帧替代，避免遮罩冻结。
-        var lastFrame: MaskFrame? = null
-        for (i in frames.indices) {
-            if (frames[i].paths.isNotEmpty()) {
-                lastFrame = frames[i]
-            } else if (lastFrame != null) {
-                // 保留当前帧的 PTS，只继承 paths/svgWidth/svgHeight
-                frames[i] = MaskFrame(
-                    presentationTimeMs = frames[i].presentationTimeMs,
-                    paths = lastFrame.paths,
-                    svgWidth = lastFrame.svgWidth,
-                    svgHeight = lastFrame.svgHeight,
-                )
-                emptyCount--
-            }
         }
 
         // 空帧是正常的（视频里某段时间没人物 → 源数据本来就空），不报警。

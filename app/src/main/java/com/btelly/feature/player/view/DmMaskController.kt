@@ -16,9 +16,9 @@ import kotlinx.coroutines.launch
  * 弹幕防挡蒙版控制器（clipOutPath 方案）。
  *
  * 只保留：
- *  - anchor 接入（视频帧 PTS ↔ wall clock）
+ *  - player clock 接入（对齐官方 onPlayerClockChanged/currentPosition 模型）
  *  - seek 状态机
- *  - currentVideoPtsMs() 一个公式
+ *  - currentVideoPtsMs() 统一播放器时钟查询
  *  - 后台段预解析（preloadThread）
  */
 class DmMaskController(
@@ -27,21 +27,8 @@ class DmMaskController(
 ) {
     companion object {
         private const val TAG = "DmMaskController"
-        private const val SEEK_READY_STABILIZE_MS = 80L
+        private const val SEEK_READY_STABILIZE_MS = 0L
         private const val SEEK_RECOVER_HARD_TIMEOUT_MS = 1500L
-
-        /**
-         * 屏幕 vsync 周期兜底（ms）—— 60Hz。Controller 会尽力从 Display 拿真实刷新率，
-         * 拿不到才用这个值。
-         */
-        private const val DEFAULT_VSYNC_PERIOD_MS = 17L
-
-        /**
-         * D_mask 初值（ms） = 2 vsync。Android 文档建议视图系统稳态延迟为 2 vsync
-         * （RenderThread 上传 + SurfaceFlinger 合成）。在 [reportFramePipelineDelay] 上报
-         * 真实测量值之前用此初值，几帧后就被实测值覆盖。
-         */
-        private const val PIPELINE_DELAY_INIT_MS = 33L
 
         /** 同步诊断日志节流间隔（默认 5 秒，且默认 [diagEnabled] = false 完全静默）。 */
         private const val DIAG_LOG_INTERVAL_MS = 5000L
@@ -83,11 +70,10 @@ class DmMaskController(
     private var playbackSpeed: Float = 1.0f
 
     @Volatile
-    private var hasVideoAnchor: Boolean = false
+    private var clockPositionMs: Long = 0L
+
     @Volatile
-    private var anchorPresentationTimeUs: Long = 0L
-    @Volatile
-    private var anchorReleaseTimeNs: Long = 0L
+    private var clockRealtimeMs: Long = SystemClock.elapsedRealtime()
 
     private var awaitingSeekReady: Boolean = false
     private var seekReadyAt: Long = 0L
@@ -96,8 +82,8 @@ class DmMaskController(
     private var lastPreloadedSegIndex: Int = -1
 
     /**
-     * 当前正在处理的预解析段索引（用于去重，避免 anchor 60Hz 重复 launch 协程）。
-     * -1 表示空闲。仅在主/playback 线程读写——anchor 路径用 @Volatile 隔离。
+     * 当前正在处理的预解析段索引（用于去重，避免高频帧回调重复 launch 协程）。
+     * -1 表示空闲。主线程和 playback 线程都会触发预加载，因此用 @Volatile 隔离。
      */
     @Volatile
     private var preloadingSegIndex: Int = -1
@@ -217,6 +203,9 @@ class DmMaskController(
         override fun doFrame(frameTimeNs: Long) {
             if (!running) return
             sampleAndMaybeTrigger(frameTimeNs)
+            if (isPlaying && enabled && maskReady) {
+                invalidateMaskHost()
+            }
             choreographer?.postFrameCallback(this)
         }
 
@@ -265,8 +254,11 @@ class DmMaskController(
         }
         currentTimeline = repository.getTimeline(cid)
         maskHostProvider()?.let { host -> host.timeline = currentTimeline }
-        if (enabled) invalidateMaskHost()
-        preloadAhead(0)
+        if (enabled) {
+            invalidateMaskHost()
+            jankMonitor.start()
+        }
+        maybePreloadAroundCurrentPts(currentVideoPtsMs())
         return true
     }
 
@@ -284,122 +276,45 @@ class DmMaskController(
     /**
      * 返回 mask 当前应该查询 timeline 的 PTS（ms）。
      *
-     * # 第一性原理公式（三项物理量，零魔法数字）
-     *
-     * ```
-     * query = anchor.pts + (ageMs + D_mask_relative) × playbackSpeed
-     * ```
-     *
-     * 我们想让 query 等于「mask 真实上屏的瞬间，屏上正在显示的 video PTS」。
-     * 每一项都是可测/已知物理量：
-     *
-     * ## 1. `anchor.pts + ageMs` —— 现在屏上的 video PTS
-     * - `anchor.pts` 是 ExoPlayer 通过 [VideoFrameMetadataListener] 告知的「PTS=P 的视频帧
-     *   将于 anchor.releaseTimeNs 上屏」
-     * - `ageMs = now − anchor.releaseTimeNs`（anchor 在未来时为负数）。把「未来帧」拉回到
-     *   「now 时刻」，得到当前 wall clock 屏上正在显示的 video PTS
-     * - 这一项处理 ExoPlayer 解码队列深度的差异：硬解码 ageMs≈-16~-35，软解码可达 -500
-     *
-     * ## 2. `D_mask_relative` —— mask 相对 video Surface 多出来的管线延迟
-     * - 通过 [Window.OnFrameMetricsAvailableListener]（API 24+）实测 [FrameMetrics.TOTAL_DURATION]，
-     *   加 1 vsync（SurfaceFlinger 合成）得到完整的 dispatchDraw → present 延迟
-     * - ExoPlayer 的 video anchor 已经按 video Surface 时钟排程，所以这里要减掉 video Surface
-     *   自己的 1 vsync 合成延迟，只补 mask layer 额外多走的部分
-     * - 由 [reportFramePipelineDelay] 上报后 EMA 平滑，存于 [pipelineDelayMsEma]
-     * - 不再硬编码 32/48/67ms 这类魔法数字；设备 / 负载变化时自适应
-     * - <Android N 拿不到 metrics 时退回 [PIPELINE_DELAY_INIT_MS]=33ms（2 vsync 的官方约定值）
-     *
-     * ## `× playbackSpeed`
-     * - 所有时间偏移都是 wall clock 量，按播放速度映射回 media 时间轴
-     *
-     * # 推导
-     *
-     * mask 真实上屏 wall clock 时刻 `t = now + D_mask_relative`，那一刻屏上的 video PTS：
-     * ```
-     * P_onscreen(t) = anchor.pts + (t - anchor.releaseTimeNs)
-     *               = anchor.pts + (now - anchor.releaseTimeNs) + D_mask_relative
-     *               = anchor.pts + ageMs + D_mask_relative
-     * ```
-     *
-     * playerPos 只在两种 fallback 用：
-     *  1. 启动期 anchor 还没推出
-     *  2. seek 后 anchor 被 onSeek() 清掉、还没有新 anchor 的 ~100ms 窗口
+     * 对齐参考实现：播放器 clock 的 position 是唯一权威时间。
+     * Media3 的 currentPosition 已经是当前播放器时钟；这里不再额外按
+     * elapsed/speed 外推，避免把播放器 clock 叠加推进导致提前。
      */
     fun currentVideoPtsMs(): Long {
-        if (hasVideoAnchor && isPlaying) {
-            val nowNs = System.nanoTime()
-            val ageMs = (nowNs - anchorReleaseTimeNs) / 1_000_000L
-            return DmMaskPtsEstimator.estimateFromAnchor(
-                anchorPtsMs = anchorPresentationTimeUs / 1000L,
-                anchorAgeMs = ageMs,
-                pipelineDelayMs = pipelineDelayMsEma,
-                vsyncPeriodMs = vsyncPeriodMs,
-                playbackSpeed = playbackSpeed,
-                anchorIntervalMs = anchorIntervalMsEma,
-            )
-        }
-        if (hasVideoAnchor) return anchorPresentationTimeUs / 1000L
-        val pos = playerPositionProvider?.invoke() ?: 0L
-        return pos.coerceAtLeast(0L)
+        val nowMs = SystemClock.elapsedRealtime()
+        return DmMaskPtsEstimator.estimateFromPlayerClock(
+            playerPositionMs = playerPositionProvider?.invoke() ?: clockPositionMs,
+            elapsedSinceClockMs = nowMs - clockRealtimeMs,
+            playbackSpeed = playbackSpeed,
+            isPlaying = isPlaying,
+        ).coerceAtLeast(0L)
     }
 
     /**
-     * mask 渲染管线延迟 EMA（ms），由 [reportFramePipelineDelay] 实测更新。
-     * 初值 [PIPELINE_DELAY_INIT_MS]（2 vsync），几帧后被真实测量值覆盖。
-     */
-    @Volatile
-    private var pipelineDelayMsEma: Long = PIPELINE_DELAY_INIT_MS
-
-    /**
-     * SurfaceFlinger 一个 vsync 周期（ms）兜底——60Hz=17ms。
-     * 未来可在 attach 到 window 后读 `Display.getRefreshRate()` 替换为真实刷新率。
-     */
-    @Volatile
-    private var vsyncPeriodMs: Long = DEFAULT_VSYNC_PERIOD_MS
-
-    /**
      * 由 [DanmakuMaskHostLayout] 上报：本次 frame 的 [FrameMetrics.TOTAL_DURATION]（ns）。
-     *
-     * D_mask = TOTAL_DURATION + 1 vsync（SurfaceFlinger 合成→显示）。
-     * 用 EMA(α=1/8) 平滑：几帧后即可稳定收敛到真实管线延迟。
-     *
-     * 合法范围 [4ms, 200ms]：
-     *  - <4ms：metrics 异常（帧被丢弃），忽略
-     *  - >200ms：单帧严重超时（GC / 后台 / 模拟器抖动），忽略避免污染 EMA
+     * 复刻官方播放器 clock 模型后，mask 查询不再使用 UI pipeline 延迟。
+     * 保留空实现，避免上层 host 的指标回调接线反复拆装。
      */
     fun reportFramePipelineDelay(totalDurationNs: Long) {
-        if (totalDurationNs <= 0L) return
-        val totalMs = totalDurationNs / 1_000_000L
-        if (totalMs !in 4L..200L) return
-        val pipelineMs = totalMs + vsyncPeriodMs
-        pipelineDelayMsEma = (pipelineDelayMsEma * 7 + pipelineMs) / 8
+        // Intentionally ignored: official-style mask timing follows player currentPosition.
     }
 
     /**
      * 由 host attach 时调用：把屏幕真实 vsync 周期（ns）传进来。
-     * 高刷屏（90/120Hz）周期更短，避免硬编码 60Hz=17ms 导致 D_mask 偏大。
+     * 复刻官方播放器 clock 模型后，mask 查询不再使用 vsync 估算。
      */
     fun reportVsyncPeriod(periodNs: Long) {
-        if (periodNs <= 0L) return
-        val periodMs = (periodNs / 1_000_000L).coerceIn(4L, 100L)
-        if (periodMs != vsyncPeriodMs) {
-            vsyncPeriodMs = periodMs
-            AppLog.d(TAG, "vsync period → ${periodMs}ms (${1_000_000_000L / periodNs}Hz)")
-        }
+        // Intentionally ignored: official-style mask timing follows player currentPosition.
     }
 
     /**
      * 由 [DanmakuMaskHostLayout.dispatchDraw] 在每次成功查到 mask frame 后调用。
      * 当 frame 引用变化或每秒采样窗口到达时输出一条诊断，让对齐偏差具体到数字：
      *
-     *  - `query`：mask 用来查 timeline 的 PTS（含 lookahead）
+     *  - `query`：mask 用来查 timeline 的播放器时钟 PTS
      *  - `frame.pts`：timeline 返回的 mask frame 实际 PTS（presentationTimeMs）
-     *  - `frame-query`：query 与实际 frame.pts 的偏差，± maskDt/2 是正常 round-to-nearest 量纲
-     *  - `anchor.pts`：最近 video frame anchor 的 PTS
-     *  - `anchor.age`：anchor 距 now 的 wall clock 间隔（越大说明 anchor 推送越落后）
-     *  - `anchor.interval(ema)`：anchor 推送的 EMA 间隔（video 帧率倒数，<= 50ms 正常）
+     *  - `frame-query`：floor 取帧后的帧时间偏差，通常为 `frame.pts <= query`
      *  - `playerPos`：ExoPlayer.currentPosition（master clock）
-     *  - `D_mask(ema)`：实测的 mask 渲染管线延迟；`relative`：扣掉 video Surface 合成后的补偿
      */
     fun reportFrameQuery(queryPtsMs: Long, framePtsMs: Long) {
         if (!diagEnabled) return
@@ -407,19 +322,15 @@ class DmMaskController(
         if (nowMs - lastDiagLogMs < DIAG_LOG_INTERVAL_MS) return
         lastDiagLogMs = nowMs
         val playerPos = playerPositionProvider?.invoke() ?: -1L
-        val anchorPtsMs = if (hasVideoAnchor) anchorPresentationTimeUs / 1000L else -1L
-        val nowNs = System.nanoTime()
-        val anchorAgeMs = if (hasVideoAnchor) (nowNs - anchorReleaseTimeNs) / 1_000_000L else -1L
         val frameMinusQuery = framePtsMs - queryPtsMs
         val queryMinusPlayer = if (playerPos > 0) queryPtsMs - playerPos else 0L
-        val relativeDelayMs = (pipelineDelayMsEma - vsyncPeriodMs).coerceAtLeast(0L)
+        val clockAgeMs = SystemClock.elapsedRealtime() - clockRealtimeMs
         AppLog.d(
             TAG,
             "pts diag: query=${queryPtsMs}ms frame.pts=${framePtsMs}ms frame-query=${frameMinusQuery}ms " +
-                "query-player=${queryMinusPlayer}ms anchor.pts=${anchorPtsMs}ms anchor.age=${anchorAgeMs}ms " +
-                "anchor.interval(ema)=${anchorIntervalMsEma}ms playerPos=${playerPos}ms " +
-                "speed=$playbackSpeed playing=$isPlaying " +
-                "D_mask(ema)=${pipelineDelayMsEma}ms vsync=${vsyncPeriodMs}ms relative=${relativeDelayMs}ms"
+                "query-player=${queryMinusPlayer}ms playerPos=${playerPos}ms " +
+                "clock.base=${clockPositionMs}ms clock.age=${clockAgeMs}ms " +
+                "speed=$playbackSpeed playing=$isPlaying clock=playerClockChanged"
         )
     }
 
@@ -446,59 +357,45 @@ class DmMaskController(
 
     fun setPlaying(playing: Boolean) {
         if (isPlaying == playing) return
+        updatePlayerClock(currentVideoPtsMs())
         isPlaying = playing
+        invalidateMaskHost()
     }
 
     fun setPlaybackSpeed(speed: Float) {
         if (speed.isFinite() && speed > 0f) {
-            playbackSpeed = speed
+            onPlayerClockChanged(speed, currentVideoPtsMs())
         }
     }
 
-    fun onVideoFrameAnchor(presentationTimeUs: Long, releaseTimeNs: Long) {
-        // VideoFrameMetadataListener 协议：
-        //   releaseTimeNs == 0      → "立刻 release"（特殊指令值）
-        //   releaseTimeNs == MAX    → "暂不 release"（特殊指令值）
-        // 都不能当 wall clock 用——用它做差会算出几十亿 ns 的 deltaNs，让 mask PTS 飞到几十秒后。
-        // 直接退化成 nanoTime()，让 deltaNs ≈ 0，mask 用 anchor.pts 渲染（基本对齐）。
-        val safeReleaseNs = if (releaseTimeNs > 0L && releaseTimeNs < Long.MAX_VALUE) {
-            releaseTimeNs
-        } else {
-            System.nanoTime()
+    fun onPlayerClockChanged(rate: Float, positionMs: Long) {
+        if (rate.isFinite() && rate > 0f) {
+            playbackSpeed = rate
         }
-        anchorPresentationTimeUs = presentationTimeUs
-        anchorReleaseTimeNs = safeReleaseNs
-        hasVideoAnchor = true
-
-        // 顺手测 anchor 推送间隔：间隔异常大（如 > 80ms）意味着 video 解码卡顿，
-        // mask 外推距离过远，必然错位——日志输出后用户能立刻判断是 video 端的问题。
-        recordAnchorIntervalAndMaybeWarn(safeReleaseNs)
-
-        // anchor 是视频解码侧 60Hz 推送的高频回调——天然是「播放推进」的真实信号。
-        // 利用它驱动段进度预解析，避免「pushMaskUpdate 只在 seek 触发」导致播放跨段后
-        // timeline 永远查不到 cachedFrames 的死局。
-        maybePreloadAroundCurrentPts(presentationTimeUs / 1000L)
+        updatePlayerClock(positionMs)
+        if (enabled && maskReady) {
+            maybePreloadAroundCurrentPts(clockPositionMs)
+            invalidateMaskHost()
+        }
     }
 
-    @Volatile
-    private var lastAnchorReleaseNs: Long = 0L
-    @Volatile
-    private var anchorIntervalMsEma: Long = 0L
+    fun updatePlayerClock(positionMs: Long) {
+        clockPositionMs = positionMs.coerceAtLeast(0L)
+        clockRealtimeMs = SystemClock.elapsedRealtime()
+    }
 
-    private fun recordAnchorIntervalAndMaybeWarn(releaseNs: Long) {
-        val prev = lastAnchorReleaseNs
-        lastAnchorReleaseNs = releaseNs
-        if (prev <= 0L) return
-        val intervalMs = (releaseNs - prev) / 1_000_000L
-        // 5~150ms 之间是正常视频帧间隔（6.7~200fps）；外面的极可能是 seek 跳变 / 渲染抖动。
-        if (intervalMs !in 5L..150L) return
-        anchorIntervalMsEma = if (anchorIntervalMsEma == 0L) intervalMs
-        else (anchorIntervalMsEma * 7 + intervalMs) / 8
+    fun onVideoFrameAnchor(
+        @Suppress("UNUSED_PARAMETER") presentationTimeUs: Long,
+        @Suppress("UNUSED_PARAMETER") releaseTimeNs: Long
+    ) {
+        // Compatibility entry point only. The reference path sends mask playback state from
+        // the player clock service to Chronos; using per-video-frame PTS here creates a second
+        // time source for preload and can leave draw-time queries waiting on the wrong segment.
     }
 
     /**
-     * 由 [onVideoFrameAnchor] 在 playback thread 调用。
-     * 跨段或下一段未缓存时，去重 launch 一次后台预解析（current ± 2 段）。
+     * 由播放器 clock 路径调用。跨段或下一段未缓存时，去重 launch 一次后台预解析
+     *（current ± 2 段）。
      */
     private fun maybePreloadAroundCurrentPts(ptsMs: Long) {
         val timeline = currentTimeline ?: return
@@ -519,9 +416,11 @@ class DmMaskController(
         if (playbackReady == ready) return
         playbackReady = ready
         if (ready) {
+            updatePlayerClock(currentVideoPtsMs())
             if (awaitingSeekReady && seekReadyAt == 0L) {
                 seekReadyAt = SystemClock.elapsedRealtime() + SEEK_READY_STABILIZE_MS
             }
+            invalidateMaskHost()
         } else {
             seekReadyAt = 0L
         }
@@ -535,12 +434,12 @@ class DmMaskController(
             0L
         }
         seekHardDeadlineMs = SystemClock.elapsedRealtime() + SEEK_RECOVER_HARD_TIMEOUT_MS
-        hasVideoAnchor = false
         lastPreloadedSegIndex = -1
         clearMask()
     }
 
     fun onPositionChanged(positionMs: Long) {
+        updatePlayerClock(positionMs)
         if (!enabled || !maskReady) return
         if (shouldSkipForSeek()) {
             clearMask()
@@ -613,10 +512,10 @@ class DmMaskController(
     }
 
     private fun invalidateMaskHost() {
-        maskHostProvider()?.invalidate()
+        maskHostProvider()?.postInvalidateOnAnimation()
     }
 
     private fun clearMask() {
-        maskHostProvider()?.invalidate()
+        maskHostProvider()?.postInvalidateOnAnimation()
     }
 }

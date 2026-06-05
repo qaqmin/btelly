@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.SurfaceTexture
 import android.os.Build
 import android.os.Handler
@@ -32,7 +33,6 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.kuaishou.akdanmaku.ui.DanmakuView
 import com.btelly.R
@@ -74,6 +74,7 @@ class MyPlayerView @JvmOverloads constructor(
         private const val REBUFFER_BUFFERING_INDICATOR_DELAY_MS = 150L
         private const val SHUTTER_FADE_DURATION_MS = 180L
         private const val SHUTTER_TIMEOUT_MS = 8_000L
+        private const val MASK_GEOMETRY_LOG_INTERVAL_MS = 2_000L
     }
 
     private var contentFrame: AspectRatioFrameLayout? = null
@@ -183,18 +184,6 @@ class MyPlayerView @JvmOverloads constructor(
         it.playerPositionProvider = { player?.currentPosition ?: 0L }
     }
 
-    /**
-     * ExoPlayer 在 playback thread 上每帧调用一次，告诉我们"PTS=ptsUs 这一帧将于
-     * wall_clock=releaseNs release 到 surface"。把锚点推给 mask 控制器后，mask
-     * frameCallback 就能严格推算"自身上屏时刻视频显示的 PTS"。
-     *
-     * 性能：仅写 3 个 @Volatile 字段，<1µs/帧，30~60Hz 调用对 playback thread 无影响。
-     */
-    private val videoFrameAnchorListener = VideoFrameMetadataListener {
-        presentationTimeUs, releaseTimeNs, _, _ ->
-        dmMaskController.onVideoFrameAnchor(presentationTimeUs, releaseTimeNs)
-    }
-
     private var uiFrameMonitorStarted = false
     private var lastUiFrameTimeNs = 0L
     private val uiFrameCallback = object : Choreographer.FrameCallback {
@@ -247,11 +236,18 @@ class MyPlayerView @JvmOverloads constructor(
     // mask provider 的复用容器：videoBoundsProvider 由 host.dispatchDraw 60Hz 调用，
     // 每帧 new Rect + 2 个 IntArray 会触发可观的 minor GC，复用单例消除分配。
     // 仅主线程访问（dispatchDraw 在主线程），无需同步。
-    private val reusableMaskBoundsRect = android.graphics.Rect()
+    private val reusableMaskBoundsRect = Rect()
     private val reusableSurfaceLoc = IntArray(2)
     private val reusableHostLoc = IntArray(2)
+    private var maskVideoWidth = 0
+    private var maskVideoHeight = 0
+    private var maskVideoPixelRatio = 1f
+    private var maskVideoRotationDegrees = 0
+    private var maskResizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+    private var lastMaskGeometryLogMs = 0L
+    private var lastMaskGeometryLogKey = ""
 
-    private val maskVideoBoundsProvider: () -> android.graphics.Rect = {
+    private val maskVideoBoundsProvider: () -> Rect = {
         computeMaskVideoBounds()
     }
 
@@ -301,8 +297,7 @@ class MyPlayerView @JvmOverloads constructor(
                 settingView?.setCurrentSpeed(speed)
                 danmakuController.updatePlaybackSpeed(speed)
                 specialDanmakuController.updatePlaybackSpeed(speed)
-                // mask 用 anchor 推算时按 speed 缩放时间差，倍速播放时也能严格对齐。
-                dmMaskController.setPlaybackSpeed(speed)
+                dmMaskController.onPlayerClockChanged(speed, player.currentPosition.coerceAtLeast(0L))
             }
         }
 
@@ -319,12 +314,26 @@ class MyPlayerView @JvmOverloads constructor(
             updatePauseIndicator()
             danmakuController.notifyPlaybackStateChanged(playbackState, player?.isPlaying == true)
             // mask 控制器需要知道 player 是否真的在解码、可以输出新帧。
-            // STATE_READY 后再加一段稳定窗口才放开 mask 渲染，避免 seek 完成瞬间 mask 比视频先一帧。
+            // STATE_READY 后立即同步当前播放器 clock，贴齐参考 onPlayerClockChanged。
             dmMaskController.setPlaybackReady(playbackState == Player.STATE_READY)
+            if (playbackState == Player.STATE_READY) {
+                player?.let {
+                    dmMaskController.onPlayerClockChanged(
+                        it.playbackParameters.speed,
+                        it.currentPosition.coerceAtLeast(0L)
+                    )
+                }
+            }
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            // mask 控制器需要知道是否正在播放：播放时引入 lookahead 补偿管道延迟，暂停时严格对齐当前帧。
+            // 进入/退出播放态时立即推一次播放器 clock，和官方 onPlayerClockChanged 时机对齐。
+            player?.let {
+                dmMaskController.onPlayerClockChanged(
+                    it.playbackParameters.speed,
+                    it.currentPosition.coerceAtLeast(0L)
+                )
+            }
             dmMaskController.setPlaying(isPlaying)
         }
 
@@ -346,6 +355,7 @@ class MyPlayerView @JvmOverloads constructor(
         }
 
         override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+            updateMaskVideoSize(videoSize)
             updateAspectRatio()
         }
 
@@ -620,8 +630,6 @@ class MyPlayerView @JvmOverloads constructor(
     fun setPlayer(player: ExoPlayer?) {
         val previousPlayer = this.player
         previousPlayer?.removeListener(componentListener)
-        // 反注册 video frame metadata listener，避免泄漏到上一个 player。
-        previousPlayer?.clearVideoFrameMetadataListener(videoFrameAnchorListener)
         when (val surfaceView = videoSurfaceView) {
             is SurfaceView -> previousPlayer?.clearVideoSurfaceView(surfaceView)
             is TextureView -> previousPlayer?.clearVideoTextureView(surfaceView)
@@ -631,11 +639,15 @@ class MyPlayerView @JvmOverloads constructor(
         }
         this.player = player
         player?.addListener(componentListener)
-        // 注册到新 player：每帧拿到 (PTS, releaseTimeNs) 锚点驱动 mask 时间戳精确对齐。
-        player?.setVideoFrameMetadataListener(videoFrameAnchorListener)
         // player 切换会带来新的播放参数，立即同步当前速度，避免 mask 在拿到首个
         // PARAMETERS_CHANGED 事件前用旧速度推算。
-        player?.let { dmMaskController.setPlaybackSpeed(it.playbackParameters.speed) }
+        player?.let {
+            dmMaskController.onPlayerClockChanged(
+                it.playbackParameters.speed,
+                it.currentPosition.coerceAtLeast(0L)
+            )
+            updateMaskVideoSize(it.videoSize)
+        }
         when (val surfaceView = videoSurfaceView) {
             is SurfaceView -> player?.setVideoSurfaceView(surfaceView)
             is TextureView -> player?.setVideoTextureView(surfaceView)
@@ -692,11 +704,26 @@ class MyPlayerView @JvmOverloads constructor(
         contentFrame?.setAspectRatio(aspectRatio)
     }
 
+    private fun updateMaskVideoSize(videoSize: androidx.media3.common.VideoSize) {
+        maskVideoWidth = videoSize.width
+        maskVideoHeight = videoSize.height
+        maskVideoPixelRatio = videoSize.pixelWidthHeightRatio
+            .takeIf { it.isFinite() && it > 0f }
+            ?: 1f
+        @Suppress("DEPRECATION")
+        maskVideoRotationDegrees = videoSize.unappliedRotationDegrees
+    }
+
     /**
-     * 把 video surface 的当前显示矩形换算到 maskHost 坐标系，推送给 [DmMaskController]。
+     * 把 video 的真实显示 Surface 矩形换算到 maskHost 坐标系。
+     *
+     * 官方链路里这一步对应 VideoSizeChange(origin/size/scale/translation/rotation)：
+     * Media3 的 AspectRatioFrameLayout 已经把屏占比/zoom 应用到 Surface 测量尺寸，
+     * 这里不能重复计算 resizeMode，否则会把同一个缩放应用两次。
+     *
      * 触发时机：每次 DanmakuMaskHostLayout.dispatchDraw 时实时读取。
      */
-    private fun computeMaskVideoBounds(): android.graphics.Rect {
+    private fun computeMaskVideoBounds(): Rect {
         val rect = reusableMaskBoundsRect
         val surface = videoSurfaceView
         val maskHost = dmkMaskHost
@@ -712,10 +739,33 @@ class MyPlayerView @JvmOverloads constructor(
         }
         surface.getLocationInWindow(reusableSurfaceLoc)
         maskHost.getLocationInWindow(reusableHostLoc)
-        val left = reusableSurfaceLoc[0] - reusableHostLoc[0]
-        val top = reusableSurfaceLoc[1] - reusableHostLoc[1]
-        rect.set(left, top, left + w, top + h)
+        val surfaceLeft = reusableSurfaceLoc[0] - reusableHostLoc[0]
+        val surfaceTop = reusableSurfaceLoc[1] - reusableHostLoc[1]
+        rect.set(surfaceLeft, surfaceTop, surfaceLeft + w, surfaceTop + h)
+        maybeLogMaskGeometry(w, h, rect)
         return rect
+    }
+
+    private fun maybeLogMaskGeometry(
+        surfaceW: Int,
+        surfaceH: Int,
+        hostRect: Rect
+    ) {
+        val now = SystemClock.elapsedRealtime()
+        val key = "${maskVideoWidth}x$maskVideoHeight@$maskVideoPixelRatio/" +
+            "$maskVideoRotationDegrees/$maskResizeMode/$surfaceW:$surfaceH/" +
+            "${hostRect.left},${hostRect.top},${hostRect.right},${hostRect.bottom}"
+        if (key == lastMaskGeometryLogKey && now - lastMaskGeometryLogMs < MASK_GEOMETRY_LOG_INTERVAL_MS) {
+            return
+        }
+        lastMaskGeometryLogKey = key
+        lastMaskGeometryLogMs = now
+        AppLog.d(
+            "DmMaskGeometry",
+            "video=${maskVideoWidth}x$maskVideoHeight pixel=$maskVideoPixelRatio " +
+                "rotation=$maskVideoRotationDegrees resizeMode=$maskResizeMode " +
+                "surface=${surfaceW}x$surfaceH host=$hostRect"
+        )
     }
 
     private fun updateBuffering() {
@@ -1370,8 +1420,10 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     fun setResizeMode(resizeMode: Int) {
+        maskResizeMode = resizeMode
         contentFrame?.setResizeMode(resizeMode)
         settingView?.setCurrentScreenRatio(resizeMode)
+        dmkMaskHost?.invalidate()
     }
 
     fun setTitle(title: String?) {
@@ -1784,7 +1836,6 @@ class MyPlayerView @JvmOverloads constructor(
         controller?.clearVideoSettingChangeListener()
         val currentPlayer = player
         currentPlayer?.removeListener(componentListener)
-        currentPlayer?.clearVideoFrameMetadataListener(videoFrameAnchorListener)
         when (val surfaceView = videoSurfaceView) {
             is SurfaceView -> currentPlayer?.clearVideoSurfaceView(surfaceView)
             is TextureView -> currentPlayer?.clearVideoTextureView(surfaceView)
@@ -1937,6 +1988,8 @@ class MyPlayerView @JvmOverloads constructor(
         if (forceSeek) {
             dmMaskController.onSeek()
         }
+        val speed = player?.playbackParameters?.speed ?: 1f
+        dmMaskController.onPlayerClockChanged(speed, positionMs)
         dmMaskController.pushMaskUpdate()
     }
 
@@ -1969,6 +2022,12 @@ class MyPlayerView @JvmOverloads constructor(
                 host.vsyncPeriodReporter = maskVsyncPeriodReporter
             }
             dmMaskController.setEnabled(true)
+            player?.let {
+                dmMaskController.onPlayerClockChanged(
+                    it.playbackParameters.speed,
+                    it.currentPosition.coerceAtLeast(0L)
+                )
+            }
         }
         return success
     }
