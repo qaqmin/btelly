@@ -22,6 +22,7 @@ class CookieManager : CookieJar {
     
     private val appSettings: AppSettingsDataStore get() = KoinPlatform.getKoin().get()
     private val cookieCache = ConcurrentHashMap<String, CopyOnWriteArrayList<Cookie>>()
+    private var appContext: Context? = null
 
     @Volatile
     private var lastCookieCleanupTime = 0L
@@ -29,6 +30,8 @@ class CookieManager : CookieJar {
     companion object {
         private const val TAG = "CookieManager"
         private const val KEY_COOKIES = "cookies"
+        private const val SESSION_PREFS_NAME = "network_session_store"
+        private const val KEY_PROTECTED_COOKIE_BACKUP = "protected_cookie_backup"
         private const val COOKIE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000L
         private val PROTECTED_COOKIE_NAMES = setOf(
             "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5"
@@ -36,20 +39,25 @@ class CookieManager : CookieJar {
     }
     
     fun init(context: Context, syncWebViewCookies: Boolean = true) {
-        loadCookiesFromPrefs()
+        appContext = context.applicationContext
+        loadCookiesFromPrefs(requireNotNull(appContext))
         if (syncWebViewCookies) {
             syncFromWebView()
         }
     }
 
-    private fun loadCookiesFromPrefs() {
+    private fun loadCookiesFromPrefs(context: Context) {
         val startMs = SystemClock.elapsedRealtime()
         cookieCache.clear()
         val cookieStrings = appSettings.getCachedStringSet(KEY_COOKIES)
         cookieStrings.forEach { cookieString ->
             parseCookie(cookieString)?.let(::upsertCookie)
         }
+        val restoredBackupCount = restoreProtectedCookiesFromBackupIfNeeded(context)
         AppLog.i(TAG, "loadCookiesFromPrefs elapsed=${SystemClock.elapsedRealtime() - startMs}ms raw=${cookieStrings.size} domains=${cookieCache.size}")
+        if (restoredBackupCount > 0) {
+            AppLog.i(TAG, "restored protected cookies from backup count=$restoredBackupCount")
+        }
     }
 
     fun saveCookies(cookieStrings: List<String>) {
@@ -111,6 +119,7 @@ class CookieManager : CookieJar {
     fun clearCookies() {
         cookieCache.clear()
         appSettings.putStringSetBlocking(KEY_COOKIES, emptySet())
+        clearProtectedCookieBackup()
         runCatching {
             webCookieManager.removeAllCookies(null)
             webCookieManager.flush()
@@ -294,6 +303,53 @@ class CookieManager : CookieJar {
         } else {
             appSettings.putStringSetAsync(KEY_COOKIES, cookieStrings)
         }
+        persistProtectedCookieBackup(cookieStrings, blocking)
+    }
+
+    private fun restoreProtectedCookiesFromBackupIfNeeded(context: Context): Int {
+        if (hasSessionCookie()) return 0
+        val backup = context.getSharedPreferences(SESSION_PREFS_NAME, Context.MODE_PRIVATE)
+            .getStringSet(KEY_PROTECTED_COOKIE_BACKUP, emptySet())
+            .orEmpty()
+        if (backup.isEmpty()) return 0
+        var restored = 0
+        backup.forEach { cookieString ->
+            val cookie = parseCookie(cookieString) ?: return@forEach
+            if (cookie.name !in PROTECTED_COOKIE_NAMES) return@forEach
+            upsertCookie(cookie)
+            if (isCookieActive(cookie)) restored++
+        }
+        if (restored > 0) {
+            persistCookieCache(blocking = true)
+        }
+        return restored
+    }
+
+    private fun persistProtectedCookieBackup(cookieStrings: Set<String>, blocking: Boolean) {
+        val protectedCookies = cookieStrings.filterTo(mutableSetOf()) { cookieString ->
+            val name = cookieString.substringBefore('=', missingDelimiterValue = "").trim()
+            name in PROTECTED_COOKIE_NAMES
+        }
+        val prefs = appContext?.getSharedPreferences(SESSION_PREFS_NAME, Context.MODE_PRIVATE)
+            ?: return
+        val editor = prefs.edit()
+        if (protectedCookies.isEmpty()) {
+            editor.remove(KEY_PROTECTED_COOKIE_BACKUP)
+        } else {
+            editor.putStringSet(KEY_PROTECTED_COOKIE_BACKUP, protectedCookies)
+        }
+        if (blocking) {
+            editor.commit()
+        } else {
+            editor.apply()
+        }
+    }
+
+    private fun clearProtectedCookieBackup() {
+        appContext?.getSharedPreferences(SESSION_PREFS_NAME, Context.MODE_PRIVATE)
+            ?.edit()
+            ?.remove(KEY_PROTECTED_COOKIE_BACKUP)
+            ?.commit()
     }
 
     private fun shouldPersistBlocking(cookieStrings: List<String>): Boolean {
