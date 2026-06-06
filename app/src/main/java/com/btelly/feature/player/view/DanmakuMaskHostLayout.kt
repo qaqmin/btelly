@@ -2,24 +2,31 @@ package com.btelly.feature.player.view
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
-import android.graphics.Region
-import android.os.Build
 import android.util.AttributeSet
 import android.widget.FrameLayout
 import com.btelly.model.dm.DmMaskTimeline
 import com.btelly.model.dm.MaskFrame
 
 /**
- * 弹幕防挡蒙版宿主容器（clipPath 方案）。
+ * 弹幕防挡蒙版宿主容器。
  *
- * 按 Bilibili 参考链路重构：
+ * 按 Bilibili 参考链路重构。参考 Chronos shader 是
+ * `CRONDefaultShading() * mask_sample`：先完成弹幕绘制，再乘当前 mask alpha。
+ *
+ * BTelly 用 Android 2D 的等价近似：
  *  - 只负责渲染裁剪，不做业务逻辑
- *  - 多个 Path UNION 合并为单个 mergedPath，一次 clipPath 裁剪弹幕绘制区
- *  - EVEN_ODD fill rule：人物区域是 path 的"洞"，clipPath 不允许绘制 → 弹幕被挡
+ *  - 多个 Path UNION 合并为单个 mergedPath
+ *  - saveLayer 先绘制弹幕子 View，再用 DST_IN 乘当前 mask alpha
+ *  - EVEN_ODD fill rule：人物区域是 path 的"洞"，DST_IN 后该区域 alpha 为 0
  *  - 防闪烁：queryAt 返回 null 时，回退到上一个有效 mergedPath
+ *  - 空 paths 是明确的"无遮挡帧"，不能复用旧遮罩
  *  - 明确的缓存清除入口 `clearCachedMask()`，由 DmMaskController 在 seek/release 时调用
  */
 class DanmakuMaskHostLayout @JvmOverloads constructor(
@@ -52,6 +59,11 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
     private val transformMatrix = Matrix()
     private val transformPath = Path()
     private val mergedPath = Path().apply { fillType = Path.FillType.EVEN_ODD }
+    private val maskPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.FILL
+        xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
+    }
 
     /** 同帧去重 + 防闪烁缓存：记录上一个有效帧及其 bounds。 */
     private var cachedFrame: MaskFrame? = null
@@ -93,16 +105,8 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
                 super.dispatchDraw(canvas)
                 return
             }
-            // 直接用缓存的 mergedPath，不更新
-            val saveCount = canvas.save()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                canvas.clipPath(mergedPath)
-            } else {
-                @Suppress("DEPRECATION")
-                canvas.clipPath(mergedPath, Region.Op.INTERSECT)
-            }
-            super.dispatchDraw(canvas)
-            canvas.restoreToCount(saveCount)
+            // 直接用缓存的 mergedPath，不更新。
+            drawDanmakuWithMask(canvas)
             return
         }
 
@@ -124,8 +128,17 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
             return
         }
 
-        // 6. 确定本次渲染用的帧：优先用当前帧，null 时回退到缓存（防闪烁）
-        val currentFrame = frame?.takeIf { it.paths.isNotEmpty() }
+        // 6. 空 paths 是明确的"当前无人物/无遮挡"，不能回退旧遮罩。
+        if (frame != null && frame.paths.isEmpty()) {
+            cachedFrame = null
+            mergedPath.reset()
+            mergedPath.fillType = Path.FillType.EVEN_ODD
+            super.dispatchDraw(canvas)
+            return
+        }
+
+        // 7. 确定本次渲染用的帧：只有 queryAt 返回 null 时才回退缓存（段未加载/短暂缺帧）。
+        val currentFrame = frame
         val effectiveFrame = currentFrame ?: cachedFrame
 
         if (effectiveFrame == null || effectiveFrame.paths.isEmpty()) {
@@ -133,7 +146,7 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
             return
         }
 
-        // 6. 同帧 + 同 bounds → 复用缓存的 mergedPath（CPU 节省 30~50%）
+        // 8. 同帧 + 同 bounds → 复用缓存的 mergedPath（CPU 节省 30~50%）
         val sameAsCache = currentFrame != null &&
             currentFrame === cachedFrame &&
             bounds.left == cachedBoundsLeft && bounds.top == cachedBoundsTop &&
@@ -152,15 +165,18 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
             buildMergedPath(effectiveFrame, bounds)
         }
 
-        // 7. 裁剪绘制
-        val saveCount = canvas.save()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            canvas.clipPath(mergedPath)
-        } else {
-            @Suppress("DEPRECATION")
-            canvas.clipPath(mergedPath, Region.Op.INTERSECT)
+        // 9. 参考 shader 近似：弹幕先绘制到 layer，再用当前 mask alpha 合成。
+        drawDanmakuWithMask(canvas)
+    }
+
+    private fun drawDanmakuWithMask(canvas: Canvas) {
+        if (width <= 0 || height <= 0) {
+            super.dispatchDraw(canvas)
+            return
         }
+        val saveCount = canvas.saveLayer(0f, 0f, width.toFloat(), height.toFloat(), null)
         super.dispatchDraw(canvas)
+        canvas.drawPath(mergedPath, maskPaint)
         canvas.restoreToCount(saveCount)
     }
 

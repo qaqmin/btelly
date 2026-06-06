@@ -245,18 +245,14 @@ class VideoPlayerFragment : Fragment() {
             when (playbackState) {
                 Player.STATE_BUFFERING -> {
                     viewModel.setLoading(true)
-                    playerView.pauseDanmaku()
                 }
                 Player.STATE_READY -> {
                     startupTrace
                         ?.takeIf { !it.readyLogged }
                         ?.also {
                             it.readyLogged = true
-                        }
-                    viewModel.setLoading(false)
-                    if (player?.playWhenReady == true && !isSeeking) {
-                        playerView.resumeDanmaku()
                     }
+                    viewModel.setLoading(false)
                     hideNextPreview()
                 }
                 Player.STATE_ENDED -> {
@@ -266,7 +262,6 @@ class VideoPlayerFragment : Fragment() {
                 }
                 Player.STATE_IDLE -> {
                     viewModel.setLoading(false)
-                    playerView.pauseDanmaku()
                 }
             }
             syncPlaybackEnvironment()
@@ -287,7 +282,9 @@ class VideoPlayerFragment : Fragment() {
                 playerView.resumeDanmaku()
                 progressCoordinator.restart()
             } else if (!isPlaying) {
-                playerView.pauseDanmaku()
+                if (player?.playbackState != Player.STATE_BUFFERING) {
+                    playerView.pauseDanmaku()
+                }
                 progressCoordinator.stop()
                 progressCoordinator.syncNow(publishProgressState = true)
             }

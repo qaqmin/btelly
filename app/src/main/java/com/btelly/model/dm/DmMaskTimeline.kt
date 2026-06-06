@@ -71,19 +71,15 @@ class DmMaskTimeline(
         val frames = segment.cachedFrames ?: return null
         if (frames.isEmpty()) return null
 
-        // 计算段时长：用下一段的起始时间，或用帧数 × 帧间隔兜底
-        val segDurationMs = if (segIdx + 1 < segments.size) {
-            (segments[segIdx + 1].timeMs - segment.timeMs).coerceAtLeast(1)
-        } else {
-            val effectiveFps = fps.coerceAtLeast(1)
-            (frames.size.toLong() * 1000L / effectiveFps).coerceAtLeast(1)
+        // 优先使用 webmask 帧头携带的真实 PTS。
+        // 真实段格式每帧都有 uint64 presentationTimeMs；用它 floor 选帧，
+        // 比按 segmentDuration / frameCount 推算更贴近参考。
+        val byFramePts = frames.binarySearchBy(ptsMs) { it.presentationTimeMs }
+            .let { if (it < 0) -(it + 1) - 1 else it }
+        if (byFramePts >= 0) {
+            return frames[byFramePts.coerceIn(0, frames.size - 1)]
         }
 
-        // floor 定位帧：offsetMs / frameDuration，向下取整
-        val offsetMs = (ptsMs - segment.timeMs).coerceAtLeast(0L)
-        val frameIndex = (offsetMs * frames.size / segDurationMs).toInt()
-            .coerceIn(0, frames.size - 1)
-
-        return frames[frameIndex]
+        return frames.first()
     }
 }

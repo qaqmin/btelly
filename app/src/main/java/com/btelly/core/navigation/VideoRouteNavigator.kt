@@ -9,6 +9,7 @@ import com.btelly.ui.activity.MainActivity
 import com.btelly.ui.activity.PlayerActivity
 import com.btelly.feature.detail.VideoDetailFragment
 import com.btelly.feature.player.PlaybackStartupTrace
+import com.btelly.feature.player.settings.PlayerSettingsStore
 import com.btelly.core.common.ext.isOpenDetailFirstEnabled
 import com.btelly.core.common.ext.toast
 import com.btelly.core.common.log.AppLog
@@ -48,11 +49,13 @@ object VideoRouteNavigator {
             }
         }
         AppLog.d(TAG, "openVideo: starting PlayerActivity")
+        val shouldUseHistoryProgress = seekPositionMs <= 0L &&
+            PlayerSettingsStore.load(context).resumePlayback
         PlayerActivity.start(
             context = context,
             video = video,
             seekPositionMs = seekPositionMs.takeIf { it > 0L }
-                ?: video.historyProgress * 1000L,
+                ?: if (shouldUseHistoryProgress) video.historyProgress * 1000L else 0L,
             playQueue = playQueue,
             startEpisodeIndex = startEpisodeIndex,
             startupTraceId = traceId,

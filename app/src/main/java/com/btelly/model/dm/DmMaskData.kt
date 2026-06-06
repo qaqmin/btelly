@@ -36,7 +36,7 @@ class LazyMaskSegment(
 }
 
 data class MaskFrame(
-    /** 该帧对应的视频 PTS（毫秒），由段起始时间 + 帧索引推算。 */
+    /** 该帧对应的视频 PTS（毫秒），优先来自 webmask 帧头。 */
     val presentationTimeMs: Long,
     val paths: List<Path>,
     /** SVG 标定宽度（width 属性值），0 表示未知。 */

@@ -506,25 +506,16 @@ class MyPlayerDanmakuController(
     fun notifyPlaybackStateChanged(playbackState: Int, isPlaying: Boolean) {
         when (playbackState) {
             Player.STATE_BUFFERING -> {
-                if (isPlaying) {
+                val player = danmakuPlayer
+                if (isDanmakuStarted && !isDanmakuPaused && player != null) {
                     wasBufferingWhilePlaying = true
+                    player.pause()
                 }
             }
             Player.STATE_READY -> {
                 if (wasBufferingWhilePlaying && isPlaying) {
-                    wasBufferingWhilePlaying = false
-                    val provider = playerPositionProvider ?: return
-                    val player = danmakuPlayer ?: return
-                    if (!isDanmakuStarted || isDanmakuPaused) return
-                    val videoPos = provider().coerceAtLeast(0L)
-                    seekPlayerTo(
-                        player = player,
-                        targetPositionMs = videoPos,
-                        currentTimeMs = player.getCurrentTimeMs(),
-                        forceSeek = true,
-                        reason = "buffering_recovery"
-                    )
-                } else {
+                    resumeAfterBuffering()
+                } else if (!wasBufferingWhilePlaying) {
                     wasBufferingWhilePlaying = false
                 }
             }
@@ -532,6 +523,20 @@ class MyPlayerDanmakuController(
                 wasBufferingWhilePlaying = false
             }
         }
+    }
+
+    fun notifyIsPlayingChanged(isPlaying: Boolean) {
+        if (isPlaying && wasBufferingWhilePlaying) {
+            resumeAfterBuffering()
+        }
+    }
+
+    private fun resumeAfterBuffering() {
+        wasBufferingWhilePlaying = false
+        val player = danmakuPlayer ?: return
+        if (!isDanmakuStarted || isDanmakuPaused) return
+        ensureTimerFactor(player, currentPlaybackSpeed)
+        player.start(danmakuConfig)
     }
 
     fun setEnabled(enabled: Boolean) {

@@ -325,9 +325,11 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     val newFrame = if (canReuseFrame) null else layoutAndBuildFrame(now, config)
     val layoutMs = SystemClock.elapsedRealtime() - checkpoint
     checkpoint = SystemClock.elapsedRealtime()
+    var replacedFrame = false
     if (newFrame != null) {
-      if (newFrame.commands.size > 0 || transitionFrame == null) {
+      if (shouldReplaceWithFrame(newFrame)) {
         replaceFrame(newFrame)
+        replacedFrame = true
       } else {
         framePool.release(newFrame)
       }
@@ -344,7 +346,8 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
           "expire=${expireMs}ms enqueue=${enqueueMs}ms enqActive=$enqueuedActiveItems " +
           "promote=${promoteMs}ms promoted=$promotedItems " +
           "measure=${measureMs}ms scheduled=$scheduledMeasures layout=${layoutMs}ms frame=${frameMs}ms " +
-          "active=${activeStates.size} waiting=${waitingStates.size} draw=${newFrame?.commands?.size ?: frame?.commands?.size ?: 0} " +
+          "active=${activeStates.size} waiting=${waitingStates.size} draw=${frame?.commands?.size ?: 0} " +
+          "built=${newFrame?.commands?.size ?: -1} replaced=${if (replacedFrame) 1 else 0} " +
           "reuse=${if (canReuseFrame) 1 else 0} reuseMiss=${reuseMissReason ?: "none"} " +
           "incr=${if (incrementalProfile.applied) 1 else 0} incrReason=${incrementalProfile.reason} " +
           "incrItems=${incrementalProfile.items} incrCommands=${incrementalProfile.commands} " +
@@ -373,6 +376,8 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
 
     var hit = 0
     var fallbackDraws = 0
+    var rollingFallbackDraws = 0
+    var fixedFallbackDraws = 0
     var fallbackSkipped = 0
     var fallbackCacheMiss = 0
     var fallbackUnmeasured = 0
@@ -384,6 +389,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     for (index in 0 until commandCount) {
       val item = currentFrame.commands.itemAt(index)
       if (item.isRuntimeOutside(now)) continue
+      val fixedCommand = index >= currentFrame.fixedCommandStartIndex
       visibleCommandCount++
       val drawResult = drawCommand(
         canvas = canvas,
@@ -391,13 +397,22 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         commands = currentFrame.commands,
         index = index,
         config = config,
-        allowFallback = fallbackDraws < MAX_FALLBACK_DRAWS_PER_FRAME,
+        allowFallback = if (fixedCommand) {
+          fixedFallbackDraws < MAX_FIXED_FALLBACK_DRAWS_PER_FRAME
+        } else {
+          rollingFallbackDraws < MAX_FALLBACK_DRAWS_PER_FRAME
+        },
         transitionElapsedMs = transitionElapsedMs
       )
       if (drawResult.cacheHit) {
         hit++
       } else if (drawResult.fallbackDrawn) {
         fallbackDraws++
+        if (fixedCommand) {
+          fixedFallbackDraws++
+        } else {
+          rollingFallbackDraws++
+        }
       } else {
         fallbackSkipped++
         when (drawResult.skipReason) {
@@ -418,6 +433,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       Log.w(
         DanmakuEngine.TAG,
         "[Runtime] draw fallback limited drawn=$fallbackDraws skipped=$fallbackSkipped " +
+          "rollingDrawn=$rollingFallbackDraws fixedDrawn=$fixedFallbackDraws " +
           "cacheMiss=$fallbackCacheMiss unmeasured=$fallbackUnmeasured " +
           "rendererFailed=$fallbackRendererFailed boosts=$fallbackCacheBoosts commands=$commandCount"
       )
@@ -1252,6 +1268,21 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     frame = newFrame
   }
 
+  private fun shouldReplaceWithFrame(newFrame: RuntimeFrame): Boolean {
+    if (newFrame.commands.size > 0) return true
+    val liveFrame = frame
+    if (liveFrame != null && liveFrame.commands.size > 0 &&
+      (activeStates.isNotEmpty() || waitingStates.isNotEmpty())) {
+      return false
+    }
+    val transition = transitionFrame
+    if (transition != null && transition.isTransitionAlive() &&
+      transition.commands.size > 0 && (activeStates.isNotEmpty() || waitingStates.isNotEmpty())) {
+      return false
+    }
+    return transitionFrame == null
+  }
+
   private fun promoteCurrentFrameToTransition() {
     val current = frame ?: return
     current.markTransition(SystemClock.elapsedRealtime())
@@ -1405,14 +1436,8 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     }
 
     private fun isMergeCandidate(item: DanmakuItem): Boolean {
-      val mode = item.data.mode
-      if (mode != DanmakuItemData.DANMAKU_MODE_ROLLING &&
-        mode != DanmakuItemData.DANMAKU_MODE_CENTER_TOP &&
-        mode != DanmakuItemData.DANMAKU_MODE_CENTER_BOTTOM
-      ) {
-        return false
-      }
-      return item.data.content.isNotBlank()
+      return item.data.mode == DanmakuItemData.DANMAKU_MODE_ROLLING &&
+        item.data.content.isNotBlank()
     }
 
     private fun DanmakuItem.mergeKey(): MergeKey {
@@ -1698,6 +1723,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     private const val MAX_PRIME_CACHE_BUILDS = 24
     private const val MAX_INCREMENTAL_PROMOTED_PER_FRAME = 16
     private const val MAX_FALLBACK_DRAWS_PER_FRAME = 12
+    private const val MAX_FIXED_FALLBACK_DRAWS_PER_FRAME = 8
     private const val MAX_FALLBACK_CACHE_BOOSTS_PER_FRAME = 4
     private const val FALLBACK_LIMIT_LOG_INTERVAL = 30
     private const val MEASURE_SCHEDULE_BUDGET_MS = 2L

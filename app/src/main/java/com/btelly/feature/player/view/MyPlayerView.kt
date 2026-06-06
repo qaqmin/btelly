@@ -51,6 +51,11 @@ import com.btelly.core.common.ext.isAdvancedDanmakuEnabled
 import com.btelly.feature.player.LiveQualityInfo
 import com.btelly.feature.player.PlaybackStartupTrace
 import com.btelly.feature.player.sponsor.SponsorSegment
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 @OptIn(UnstableApi::class)
 class MyPlayerView @JvmOverloads constructor(
@@ -136,6 +141,7 @@ class MyPlayerView @JvmOverloads constructor(
     private var pendingSeekPreviewSnapshot: VideoSnapshotData? = null
     private var pendingSponsorSegments: List<SponsorSegment> = emptyList()
     private var pendingSponsorDurationMs: Long = 0L
+    private var pendingDmMaskRequest: DmMaskRequest? = null
 
     private var touchInterceptListener: ((MotionEvent) -> Boolean)? = null
 
@@ -150,6 +156,7 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     private val handler = Handler(Looper.getMainLooper())
+    private val maskRetryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val bufferingIndicatorRunnable = Runnable {
         val buffering = bufferingView ?: return@Runnable
         val currentPlayer = player ?: run {
@@ -323,6 +330,7 @@ class MyPlayerView @JvmOverloads constructor(
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            danmakuController.notifyIsPlayingChanged(isPlaying)
             // 进入/退出播放态时立即推一次播放器 clock，和官方 onPlayerClockChanged 时机对齐。
             player?.let {
                 dmMaskController.onPlayerClockChanged(
@@ -569,6 +577,9 @@ class MyPlayerView @JvmOverloads constructor(
 
             override fun onDmSmartShield(enabled: Boolean) {
                 dmMaskController.setEnabled(enabled)
+                if (enabled) {
+                    retryPendingDmMaskLoad()
+                }
             }
         })
         syncDanmakuSettings()
@@ -1844,6 +1855,7 @@ class MyPlayerView @JvmOverloads constructor(
         danmakuController.release()
         specialDanmakuController.release()
         dmMaskController.dispose()
+        maskRetryScope.cancel()
     }
 
     override fun onAttachedToWindow() {
@@ -1994,20 +2006,21 @@ class MyPlayerView @JvmOverloads constructor(
         dmMaskController.setRepository(repository)
     }
 
-    /**
-     * 注册「mask 因掉帧自动关闭」的回调，PlayerActivity 用它弹 toast。
-     * Controller 已经把回调切到主线程。
-     */
-    fun setOnMaskAutoDisabledListener(listener: ((reason: String) -> Unit)?) {
-        dmMaskController.onMaskAutoDisabled = listener
-    }
-
     suspend fun loadDmMask(maskUrl: String, cid: Long, fps: Int): Boolean {
+        pendingDmMaskRequest = DmMaskRequest(maskUrl, cid, fps)
         val shieldEnabled = settingView?.getDmSmartShield() ?: true
         if (!shieldEnabled) {
             AppLog.d("DmMask", "loadDmMask skipped: smart shield disabled, cid=$cid")
             return false
         }
+        val success = loadDmMaskInternal(maskUrl, cid, fps)
+        if (success) {
+            pendingDmMaskRequest = null
+        }
+        return success
+    }
+
+    private suspend fun loadDmMaskInternal(maskUrl: String, cid: Long, fps: Int): Boolean {
         val success = dmMaskController.loadMask(maskUrl, cid, fps)
         if (success) {
             dmkMaskHost?.let { host ->
@@ -2028,13 +2041,36 @@ class MyPlayerView @JvmOverloads constructor(
         return success
     }
 
+    private fun retryPendingDmMaskLoad() {
+        val request = pendingDmMaskRequest ?: return
+        handler.post {
+            maskRetryScope.launch {
+                val success = loadDmMaskInternal(request.maskUrl, request.cid, request.fps)
+                AppLog.d("DmMask", "retry pending mask: cid=${request.cid} success=$success")
+                if (success) {
+                    pendingDmMaskRequest = null
+                }
+            }
+        }
+    }
+
     fun releaseDmMask() {
+        pendingDmMaskRequest = null
         dmMaskController.release()
     }
 
     fun setDmSmartShieldEnabled(enabled: Boolean) {
         dmMaskController.setEnabled(enabled)
+        if (enabled) {
+            retryPendingDmMaskLoad()
+        }
     }
+
+    private data class DmMaskRequest(
+        val maskUrl: String,
+        val cid: Long,
+        val fps: Int
+    )
 
     fun setUseController(use: Boolean) {
         if (useController == use) return

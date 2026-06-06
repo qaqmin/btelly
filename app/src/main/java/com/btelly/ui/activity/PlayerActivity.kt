@@ -1147,11 +1147,6 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         viewModel.onDmMaskReset = {
             playerView.releaseDmMask()
         }
-        // mask 因渲染掉帧被自动关闭时弹 toast 提示用户（controller 已切回主线程）
-        playerView.setOnMaskAutoDisabledListener { reason ->
-            Toast.makeText(applicationContext, reason, Toast.LENGTH_LONG).show()
-        }
-
         lifecycleScope.launch {
             viewModel.specialDanmaku.collect { data ->
                 PlaybackStartupTrace.log(

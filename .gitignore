@@ -45,7 +45,8 @@ key.properties
 google-services.json
 
 # ========== 文档 ==========
-/docs/
+/docs/*
+!docs/dm-mask-reference-analysis.html
 
 # ========== 调试文件 ==========
 debug.txt

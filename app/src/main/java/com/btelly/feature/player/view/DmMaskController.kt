@@ -19,8 +19,7 @@ import kotlinx.coroutines.launch
  *  - 播放器 clock（onPlayerClockChanged / player.currentPosition）是唯一时间源
  *  - 清晰的状态机：IDLE → READY → ACTIVE → SEEKING → ACTIVE
  *  - 预加载跟随 player clock，不跟 video frame PTS
- *  - Choreographer JankMonitor 检测主线程卡顿，自动关 mask
- *  - 后台回前台重置 jank EMA，防止误触自动关
+ *  - Choreographer 只驱动 ACTIVE 状态下的 mask 重绘，不因 UI 卡顿自动关闭 mask
  */
 class DmMaskController(
     private val maskHostProvider: () -> DanmakuMaskHostLayout?,
@@ -35,21 +34,6 @@ class DmMaskController(
         /** 诊断日志节流间隔。 */
         private const val DIAG_LOG_INTERVAL_MS = 5000L
 
-        /** vsync 间隔合法采样范围（ns）。 */
-        private const val VSYNC_MIN_NS = 8_000_000L
-        private const val VSYNC_MAX_NS = 200_000_000L
-
-        /** 卡顿阈值（vsync 间隔 EMA，ms）——超过 50ms ≈ <20fps。 */
-        private const val JANK_INTERVAL_THRESHOLD_MS = 50L
-
-        /** 触发自动关需要持续卡顿的时长。 */
-        private const val JANK_TRIGGER_WINDOW_MS = 5000L
-
-        /** 退出卡顿态的滞回阈值。 */
-        private const val JANK_RECOVERY_INTERVAL_MS = 30L
-
-        /** 自动关后冷却期。 */
-        private const val AUTO_DISABLED_COOLDOWN_MS = 30_000L
     }
 
     // ---- 状态 ----
@@ -74,6 +58,17 @@ class DmMaskController(
     @Volatile
     private var playbackSpeed: Float = 1.0f
 
+    /**
+     * 参考 Chronos 的 playback clock：onPlayerClockChanged(rate, position) 只校准基准点，
+     * 后续查询用 elapsedRealtime 按 rate 连续推进，避免 Media3 currentPosition 刷新粒度造成
+     * mask 卡顿或追不上视频帧。
+     */
+    @Volatile
+    private var clockBasePositionMs: Long = 0L
+
+    @Volatile
+    private var clockBaseRealtimeMs: Long = 0L
+
     // ---- Seek 状态 ----
 
     private var seekHardDeadlineMs: Long = 0L
@@ -85,18 +80,7 @@ class DmMaskController(
     @Volatile
     private var preloadingSegIndex: Int = -1
 
-    // ---- 卡顿检测 ----
-
-    @Volatile
-    private var vsyncIntervalEmaNs: Long = 16_666_667L
-
-    @Volatile
-    private var jankStartMs: Long = 0L
-
-    @Volatile
-    private var autoDisabledUntilMs: Long = 0L
-
-    private val jankMonitor = JankMonitor()
+    private val frameInvalidator = FrameInvalidator()
 
     // ---- 诊断 ----
 
@@ -105,11 +89,6 @@ class DmMaskController(
 
     @Volatile
     private var lastDiagLogMs: Long = 0L
-
-    // ---- 回调 ----
-
-    @Volatile
-    var onMaskAutoDisabled: ((reason: String) -> Unit)? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val preloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -123,15 +102,11 @@ class DmMaskController(
             !enabled -> {
                 state = State.IDLE
                 maskHostProvider()?.clearCachedMask()
-                jankMonitor.stop()
+                frameInvalidator.stop()
             }
             currentTimeline != null -> {
-                // 用户重新打开 → 重置卡顿状态
-                autoDisabledUntilMs = 0L
-                jankStartMs = 0L
-                vsyncIntervalEmaNs = 16_666_667L
                 state = if (isPlaying) State.ACTIVE else State.READY
-                jankMonitor.start()
+                frameInvalidator.start()
                 invalidateMaskHost()
             }
         }
@@ -155,7 +130,7 @@ class DmMaskController(
         state = if (enabled && isPlaying) State.ACTIVE else State.READY
 
         if (enabled) {
-            jankMonitor.start()
+            frameInvalidator.start()
             invalidateMaskHost()
         }
 
@@ -172,8 +147,10 @@ class DmMaskController(
         if (rate.isFinite() && rate > 0f) {
             playbackSpeed = rate
         }
+        clockBasePositionMs = positionMs.coerceAtLeast(0L)
+        clockBaseRealtimeMs = SystemClock.elapsedRealtime()
         if (state == State.ACTIVE) {
-            maybePreload(positionMs)
+            maybePreload(currentVideoPtsMs())
             invalidateMaskHost()
         }
     }
@@ -195,10 +172,16 @@ class DmMaskController(
     }
 
     fun setPlaying(playing: Boolean) {
+        if (!playing && isPlaying) {
+            clockBasePositionMs = currentVideoPtsMs()
+            clockBaseRealtimeMs = SystemClock.elapsedRealtime()
+        }
         isPlaying = playing
         if (playing && state == State.READY && enabled) {
             state = State.ACTIVE
-            jankMonitor.start()
+            frameInvalidator.start()
+            maybePreload(currentVideoPtsMs())
+            invalidateMaskHost()
         }
     }
 
@@ -227,10 +210,19 @@ class DmMaskController(
 
     /**
      * 返回 mask 当前应该查询 timeline 的 PTS（ms）。
-     * 唯一时间源：playerPositionProvider（= player.currentPosition）。
+     * 唯一时间源：参考 Chronos 的校准点 + elapsedRealtime 外推。
      */
     fun currentVideoPtsMs(): Long {
-        return (playerPositionProvider?.invoke() ?: 0L).coerceAtLeast(0L)
+        val base = if (clockBaseRealtimeMs > 0L) {
+            clockBasePositionMs
+        } else {
+            (playerPositionProvider?.invoke() ?: 0L).coerceAtLeast(0L)
+        }
+        if (!isPlaying || clockBaseRealtimeMs <= 0L) {
+            return base.coerceAtLeast(0L)
+        }
+        val elapsedMs = (SystemClock.elapsedRealtime() - clockBaseRealtimeMs).coerceAtLeast(0L)
+        return (base + (elapsedMs * playbackSpeed).toLong()).coerceAtLeast(0L)
     }
 
     /**
@@ -250,11 +242,10 @@ class DmMaskController(
         this.repository = repository
     }
 
-    /** 后台回前台时调用：重置 jank EMA，防止脏数据触发自动关。 */
+    /** 后台回前台时调用：ACTIVE 状态下恢复 mask 重绘。 */
     fun onResume() {
-        vsyncIntervalEmaNs = 16_666_667L
-        jankStartMs = 0L
         if (state == State.ACTIVE) {
+            frameInvalidator.start()
             invalidateMaskHost()
         }
     }
@@ -264,7 +255,7 @@ class DmMaskController(
         currentCid = 0L
         currentTimeline = null
         lastPreloadedSegIndex = -1
-        jankMonitor.stop()
+        frameInvalidator.stop()
         maskHostProvider()?.clearCachedMask()
     }
 
@@ -356,36 +347,21 @@ class DmMaskController(
         maskHostProvider()?.postInvalidateOnAnimation()
     }
 
-    private fun triggerAutoDisable(fpsAtTrigger: Float) {
-        autoDisabledUntilMs = SystemClock.elapsedRealtime() + AUTO_DISABLED_COOLDOWN_MS
-        jankStartMs = 0L
-        val reason = "渲染掉帧严重（${fpsAtTrigger.toInt()}fps），已自动关闭弹幕防遮挡"
-        AppLog.d(TAG, "auto-disable mask: vsync-fps=$fpsAtTrigger")
-        mainHandler.post {
-            setEnabled(false)
-            onMaskAutoDisabled?.invoke(reason)
-        }
-    }
-
-    // ========== JankMonitor ==========
+    // ========== FrameInvalidator ==========
 
     /**
-     * 基于 Choreographer 的主线程 vsync 间隔监控器。
-     *
-     * 信号源选择：主线程 vsync 间隔 = UI 整体卡顿率的直接量度。
-     * 视频 surface 是独立 SurfaceView，不通过 view 系统重绘。
+     * 基于 Choreographer 驱动弹幕 mask 每个 vsync 重绘。
+     * 参考不会因为 UI 卡顿自动关闭 mask；卡顿只会推迟下一帧提交。
      */
-    private inner class JankMonitor : Choreographer.FrameCallback {
+    private inner class FrameInvalidator : Choreographer.FrameCallback {
         @Volatile
         private var running: Boolean = false
         private var choreographer: Choreographer? = null
-        private var lastFrameNs: Long = 0L
 
         fun start() {
             mainHandler.post {
                 if (running) return@post
                 running = true
-                lastFrameNs = 0L
                 val ch = choreographer ?: Choreographer.getInstance().also { choreographer = it }
                 ch.postFrameCallback(this)
             }
@@ -396,47 +372,16 @@ class DmMaskController(
                 if (!running) return@post
                 running = false
                 choreographer?.removeFrameCallback(this)
-                lastFrameNs = 0L
             }
         }
 
         override fun doFrame(frameTimeNs: Long) {
             if (!running) return
-            sampleAndMaybeTrigger(frameTimeNs)
             // ACTIVE 状态下每 vsync invalidate mask host，保证遮罩实时更新
             if (state == State.ACTIVE) {
                 invalidateMaskHost()
             }
             choreographer?.postFrameCallback(this)
-        }
-
-        private fun sampleAndMaybeTrigger(frameTimeNs: Long) {
-            val last = lastFrameNs
-            lastFrameNs = frameTimeNs
-            if (last <= 0L) return
-            val intervalNs = frameTimeNs - last
-            if (intervalNs !in VSYNC_MIN_NS..VSYNC_MAX_NS) return
-
-            // 7/8 旧权重 + 1/8 新值
-            vsyncIntervalEmaNs = (vsyncIntervalEmaNs * 7 + intervalNs) / 8
-
-            if (state != State.ACTIVE) {
-                jankStartMs = 0L
-                return
-            }
-            val now = SystemClock.elapsedRealtime()
-            if (now < autoDisabledUntilMs) return
-            val intervalMs = vsyncIntervalEmaNs / 1_000_000L
-
-            if (intervalMs > JANK_INTERVAL_THRESHOLD_MS) {
-                if (jankStartMs == 0L) {
-                    jankStartMs = now
-                } else if (now - jankStartMs >= JANK_TRIGGER_WINDOW_MS) {
-                    triggerAutoDisable(1000f / intervalMs)
-                }
-            } else if (intervalMs <= JANK_RECOVERY_INTERVAL_MS) {
-                jankStartMs = 0L
-            }
         }
     }
 }

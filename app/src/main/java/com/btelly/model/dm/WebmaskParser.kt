@@ -33,8 +33,14 @@ object WebmaskParser {
     /** 段索引表每条目大小（timeMs 8 + byteOffset 8 = 16B）。 */
     const val META_ENTRY_SIZE = 16
 
-    /** 诊断用：是否已 dump 过 SVG 原文 */
-    private var diagDumpedSvg = false
+    /**
+     * gzip 段解压后的帧头大小。
+     *
+     * 真实 webmask 段不是纯 base64 字符串拼接，而是：
+     *   uint32 payloadLength + uint64 presentationTimeMs + payload
+     * payload 才是 `data:image/svg+xml;base64,...`。
+     */
+    private const val FRAME_HEADER_SIZE = 12
 
     // ---- 文件级解析 ----
 
@@ -128,7 +134,10 @@ object WebmaskParser {
             return null
         }
 
-        val separator = "data:image/svg+xml;base64,".toByteArray()
+        parseBinaryFrameRecords(decompressed)?.let { return it.takeIf { frames -> frames.isNotEmpty() } }
+
+        // 兼容兜底：如果未来遇到没有二进制帧头的旧格式，再按分隔符解析。
+        val separator = SVG_BASE64_PREFIX.toByteArray()
         val parts = splitBy(decompressed, separator)
         if (parts.size <= 1) return null
 
@@ -141,20 +150,14 @@ object WebmaskParser {
 
             val b64Data = parts[frameIdx]
             val svgBytes = try {
-                Base64.decode(b64Data, Base64.DEFAULT)
+                Base64.decode(trimBase64Payload(b64Data), Base64.DEFAULT)
             } catch (e: Exception) {
-                // base64 解码失败 → 空帧（保留 pts 信息）
-                frames.add(MaskFrame(presentationTimeMs = ptsMs, paths = emptyList()))
+                AppLog.w(TAG, "SVG base64 decode failed at pts=$ptsMs: ${e.message}")
                 continue
             }
 
             val svgText = stripBom(svgBytes.toString(Charsets.UTF_8))
-            // 诊断：dump 每帧 SVG 的 <svg 标签属性（前 300 字符足够看到 width/height/viewBox）
             val parsed = parseSvgPaths(svgText)
-            if (!diagDumpedSvg) {
-                diagDumpedSvg = true
-                AppLog.d(TAG, "SVG raw header: ${svgText.take(300)}")
-            }
             frames.add(
                 MaskFrame(
                     presentationTimeMs = ptsMs,
@@ -170,6 +173,113 @@ object WebmaskParser {
         }
 
         return frames.takeIf { it.isNotEmpty() }
+    }
+
+    private const val SVG_BASE64_PREFIX = "data:image/svg+xml;base64,"
+
+    /**
+     * 参考 webmask 的真实帧流格式：
+     *   4B payloadLength(BE) + 8B presentationTimeMs(BE) + payload
+     *
+     * 之前按字符串分隔会把下一帧的 12B header 混到上一帧 base64 尾部。
+     * 在 Android Base64 上这会间歇解码失败，并被错误伪造成空 paths，
+     * 视觉结果就是人物区域“遮住-露出-遮住”。
+     */
+    private fun parseBinaryFrameRecords(decompressed: ByteArray): List<MaskFrame>? {
+        if (decompressed.size <= FRAME_HEADER_SIZE) return null
+
+        val frames = mutableListOf<MaskFrame>()
+        var offset = 0
+        var recordIndex = 0
+
+        while (offset + FRAME_HEADER_SIZE <= decompressed.size) {
+            val payloadLength = readIntBe(decompressed, offset)
+            val ptsMs = readLongBe(decompressed, offset + 4)
+            val payloadStart = offset + FRAME_HEADER_SIZE
+            val payloadEnd = payloadStart + payloadLength
+
+            if (payloadLength <= 0 || payloadEnd > decompressed.size) {
+                return if (recordIndex == 0) null else {
+                    AppLog.w(TAG, "Truncated webmask record index=$recordIndex len=$payloadLength offset=$offset total=${decompressed.size}")
+                    frames
+                }
+            }
+
+            val payload = decompressed.copyOfRange(payloadStart, payloadEnd)
+            val prefixBytes = SVG_BASE64_PREFIX.toByteArray()
+            if (!payload.startsWith(prefixBytes)) {
+                return if (recordIndex == 0) null else {
+                    AppLog.w(TAG, "Invalid webmask record prefix index=$recordIndex offset=$offset")
+                    frames
+                }
+            }
+
+            val b64Data = payload.copyOfRange(prefixBytes.size, payload.size)
+            val svgBytes = try {
+                Base64.decode(trimBase64Payload(b64Data), Base64.DEFAULT)
+            } catch (e: Exception) {
+                AppLog.w(TAG, "SVG base64 decode failed index=$recordIndex pts=$ptsMs: ${e.message}")
+                offset = payloadEnd
+                recordIndex++
+                continue
+            }
+
+            val svgText = stripBom(svgBytes.toString(Charsets.UTF_8))
+            val parsed = parseSvgPaths(svgText)
+            frames.add(
+                MaskFrame(
+                    presentationTimeMs = ptsMs,
+                    paths = parsed.paths,
+                    svgWidth = parsed.width,
+                    svgHeight = parsed.height,
+                    viewBoxX = parsed.viewBoxX,
+                    viewBoxY = parsed.viewBoxY,
+                    viewBoxWidth = parsed.viewBoxWidth,
+                    viewBoxHeight = parsed.viewBoxHeight,
+                )
+            )
+
+            offset = payloadEnd
+            recordIndex++
+        }
+
+        return frames.takeIf { it.isNotEmpty() }
+    }
+
+    private fun ByteArray.startsWith(prefix: ByteArray): Boolean {
+        if (size < prefix.size) return false
+        for (i in prefix.indices) {
+            if (this[i] != prefix[i]) return false
+        }
+        return true
+    }
+
+    private fun readIntBe(data: ByteArray, offset: Int): Int {
+        return ((data[offset].toInt() and 0xff) shl 24) or
+            ((data[offset + 1].toInt() and 0xff) shl 16) or
+            ((data[offset + 2].toInt() and 0xff) shl 8) or
+            (data[offset + 3].toInt() and 0xff)
+    }
+
+    private fun readLongBe(data: ByteArray, offset: Int): Long {
+        var value = 0L
+        for (i in 0 until 8) {
+            value = (value shl 8) or (data[offset + i].toLong() and 0xffL)
+        }
+        return value
+    }
+
+    private fun trimBase64Payload(data: ByteArray): ByteArray {
+        var end = data.size
+        while (end > 0) {
+            val b = data[end - 1]
+            if (b == '\n'.code.toByte() || b == '\r'.code.toByte() || b == ' '.code.toByte() || b == '\t'.code.toByte()) {
+                end--
+            } else {
+                break
+            }
+        }
+        return if (end == data.size) data else data.copyOf(end)
     }
 
     // ---- 帧内 PTS 计算 ----
@@ -265,17 +375,6 @@ object WebmaskParser {
                 }
                 results.add(path)
             }
-        }
-        // 诊断日志：记录所有 path 的 bounds 及坐标空间信息
-        if (results.isNotEmpty()) {
-            val sb = StringBuilder()
-            sb.append("SVG diag: svgW=$viewWidth svgH=$viewHeight vbX=$vbX vbY=$vbY vbW=$vbW vbH=$vbH pathCount=${results.size}")
-            for ((idx, p) in results.withIndex()) {
-                val b = android.graphics.RectF()
-                p.computeBounds(b, true)
-                sb.append(" p$idx=[$b]")
-            }
-            AppLog.d(TAG, sb.toString())
         }
         return ParsedSvg(results, viewWidth.toInt(), viewHeight.toInt(), vbX, vbY, vbW, vbH)
     }

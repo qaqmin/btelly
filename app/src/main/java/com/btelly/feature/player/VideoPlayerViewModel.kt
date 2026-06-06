@@ -2659,6 +2659,14 @@ class VideoPlayerViewModel(
 
     fun handlePlaybackStall(positionMs: Long, stalledMs: Long): Boolean {
         lastPlaybackPositionMs = positionMs.coerceAtLeast(0L)
+        if (shouldKeepCurrentSourceOnPlaybackStall()) {
+            AppLog.w(
+                TAG,
+                "playback stall keep current source: position=$lastPlaybackPositionMs stalledMs=$stalledMs " +
+                    "quality=$selectedQualityId codec=$selectedCodec safeQuality=${readSoftwareDecoderSafeQualityId()}"
+            )
+            return false
+        }
         val handled =
             trySwitchToCodec(VideoCodecEnum.AVC, lastPlaybackPositionMs, reason = "stall_${stalledMs}ms_prefer_avc") ||
                 tryNextCdnInCurrentCodec(lastPlaybackPositionMs, reason = "stall_${stalledMs}ms") ||
@@ -2667,6 +2675,16 @@ class VideoPlayerViewModel(
         if (handled) {
         }
         return handled
+    }
+
+    private fun shouldKeepCurrentSourceOnPlaybackStall(): Boolean {
+        val safeQualityId = readSoftwareDecoderSafeQualityId()
+        val currentQualityId = selectedQualityId ?: requestedQualityId ?: currentPlayInfo?.quality
+        val currentCodec = selectedCodec ?: requestedCodec
+        return preferSoftwareDecoderSafePlayback &&
+            currentQualityId != null &&
+            currentQualityId <= safeQualityId &&
+            currentCodec == VideoCodecEnum.AVC
     }
 
     private enum class PlaybackErrorType {
