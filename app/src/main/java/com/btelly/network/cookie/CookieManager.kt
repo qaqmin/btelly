@@ -49,7 +49,6 @@ class CookieManager : CookieJar {
         cookieStrings.forEach { cookieString ->
             parseCookie(cookieString)?.let(::upsertCookie)
         }
-        persistCookieCache()
         AppLog.i(TAG, "loadCookiesFromPrefs elapsed=${SystemClock.elapsedRealtime() - startMs}ms raw=${cookieStrings.size} domains=${cookieCache.size}")
     }
 
@@ -57,12 +56,12 @@ class CookieManager : CookieJar {
         cookieStrings.forEach { cookieString ->
             parseCookie(cookieString)?.let(::upsertCookie)
         }
-        persistCookieCache()
+        persistCookieCache(blocking = shouldPersistBlocking(cookieStrings))
     }
 
     fun saveCookieObjects(cookies: List<Cookie>) {
         cookies.forEach(::upsertCookie)
-        persistCookieCache()
+        persistCookieCache(blocking = shouldPersistCookiesBlocking(cookies))
     }
 
     override fun loadForRequest(url: HttpUrl): List<Cookie> {
@@ -111,7 +110,7 @@ class CookieManager : CookieJar {
 
     fun clearCookies() {
         cookieCache.clear()
-        appSettings.putStringSetAsync(KEY_COOKIES, emptySet())
+        appSettings.putStringSetBlocking(KEY_COOKIES, emptySet())
         runCatching {
             webCookieManager.removeAllCookies(null)
             webCookieManager.flush()
@@ -144,7 +143,7 @@ class CookieManager : CookieJar {
                     upsertCookie(parsed)
                 }
         }
-        persistCookieCache()
+        persistCookieCache(blocking = true)
     }
     
     private fun parseCookie(cookieString: String): Cookie? {
@@ -282,7 +281,7 @@ class CookieManager : CookieJar {
         return existing != null && isCookieActive(existing)
     }
 
-    private fun persistCookieCache() {
+    private fun persistCookieCache(blocking: Boolean = false) {
         removeExpiredCookies()
         val cookieStrings = cookieCache.values
             .asSequence()
@@ -290,7 +289,22 @@ class CookieManager : CookieJar {
             .filter(::isCookieActive)
             .map(::encodeCookie)
             .toSet()
-        appSettings.putStringSetAsync(KEY_COOKIES, cookieStrings)
+        if (blocking) {
+            appSettings.putStringSetBlocking(KEY_COOKIES, cookieStrings)
+        } else {
+            appSettings.putStringSetAsync(KEY_COOKIES, cookieStrings)
+        }
+    }
+
+    private fun shouldPersistBlocking(cookieStrings: List<String>): Boolean {
+        return cookieStrings.any { cookieString ->
+            val name = cookieString.substringBefore('=', missingDelimiterValue = "").trim()
+            name in PROTECTED_COOKIE_NAMES
+        }
+    }
+
+    private fun shouldPersistCookiesBlocking(cookies: List<Cookie>): Boolean {
+        return cookies.any { it.name in PROTECTED_COOKIE_NAMES }
     }
 
     private fun removeExpiredCookies() {

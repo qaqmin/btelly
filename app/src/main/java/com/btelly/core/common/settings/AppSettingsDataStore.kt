@@ -176,6 +176,15 @@ class AppSettingsDataStore(private val context: Context) {
         }
     }
 
+    fun putStringSetBlocking(key: String, value: Set<String>) {
+        cache[key] = value
+        runBlocking(Dispatchers.IO) {
+            dataStore.edit { prefs ->
+                prefs[stringSetPreferencesKey(key)] = value
+            }
+        }
+    }
+
     fun putStringAsync(key: String, value: String?) {
         if (value != null) cache[key] = value else cache.remove(key)
         scope.launch {
