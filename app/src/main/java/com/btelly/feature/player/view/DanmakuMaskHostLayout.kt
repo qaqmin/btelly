@@ -9,8 +9,10 @@ import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.widget.FrameLayout
+import com.btelly.core.common.log.AppLog
 import com.btelly.model.dm.DmMaskTimeline
 import com.btelly.model.dm.MaskFrame
 
@@ -71,6 +73,8 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
     private var cachedBoundsTop = 0
     private var cachedBoundsRight = 0
     private var cachedBoundsBottom = 0
+    private var lastMaskStateLogMs = 0L
+    private var lastMaskStateKey = ""
 
     /**
      * 由 DmMaskController 在 seek / release 时调用：清除缓存的遮罩，
@@ -94,6 +98,7 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
     override fun dispatchDraw(canvas: Canvas) {
         // 1. controller 说不要渲染 → 不裁剪（仅 IDLE 状态）
         if (shouldRenderMask?.invoke() == false) {
+            maybeLogMaskState("disabled", null, null, null, false)
             super.dispatchDraw(canvas)
             return
         }
@@ -102,10 +107,12 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
         if (isSeeking?.invoke() == true) {
             val bounds = videoBoundsProvider?.invoke()
             if (bounds == null || bounds.isEmpty || cachedFrame == null || cachedFrame!!.paths.isEmpty()) {
+                maybeLogMaskState("seeking_no_cached_frame", null, cachedFrame, bounds, false)
                 super.dispatchDraw(canvas)
                 return
             }
             // 直接用缓存的 mergedPath，不更新。
+            maybeLogMaskState("seeking_cached_frame", null, cachedFrame, bounds, true)
             drawDanmakuWithMask(canvas)
             return
         }
@@ -124,6 +131,7 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
 
         // 5. bounds 无效 → 不裁剪
         if (bounds == null || bounds.isEmpty) {
+            maybeLogMaskState("invalid_bounds", pts, frame, bounds, false)
             super.dispatchDraw(canvas)
             return
         }
@@ -133,6 +141,7 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
             cachedFrame = null
             mergedPath.reset()
             mergedPath.fillType = Path.FillType.EVEN_ODD
+            maybeLogMaskState("empty_paths", pts, frame, bounds, false)
             super.dispatchDraw(canvas)
             return
         }
@@ -142,6 +151,7 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
         val effectiveFrame = currentFrame ?: cachedFrame
 
         if (effectiveFrame == null || effectiveFrame.paths.isEmpty()) {
+            maybeLogMaskState("no_frame", pts, effectiveFrame, bounds, false)
             super.dispatchDraw(canvas)
             return
         }
@@ -166,6 +176,7 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
         }
 
         // 9. 参考 shader 近似：弹幕先绘制到 layer，再用当前 mask alpha 合成。
+        maybeLogMaskState("masked", pts, effectiveFrame, bounds, true)
         drawDanmakuWithMask(canvas)
     }
 
@@ -214,5 +225,25 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
             transformPath.transform(transformMatrix)
             mergedPath.addPath(transformPath)
         }
+    }
+
+    private fun maybeLogMaskState(
+        reason: String,
+        ptsMs: Long?,
+        frame: MaskFrame?,
+        bounds: Rect?,
+        masked: Boolean
+    ) {
+        val now = SystemClock.elapsedRealtime()
+        val key = "$reason/${frame?.presentationTimeMs}/${frame?.paths?.size}/$bounds/$masked"
+        if (key == lastMaskStateKey && now - lastMaskStateLogMs < 2000L) return
+        if (now - lastMaskStateLogMs < 800L && reason == "masked") return
+        lastMaskStateKey = key
+        lastMaskStateLogMs = now
+        AppLog.d(
+            "DmMaskHost",
+            "mask state=$reason masked=$masked pts=$ptsMs framePts=${frame?.presentationTimeMs} " +
+                "paths=${frame?.paths?.size} bounds=$bounds cachedPts=${cachedFrame?.presentationTimeMs}"
+        )
     }
 }

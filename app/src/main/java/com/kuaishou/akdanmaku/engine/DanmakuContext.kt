@@ -82,13 +82,8 @@ internal class DanmakuContext(val renderer: DanmakuRenderer) {
     displayer: DanmakuDisplayer,
     config: DanmakuConfig
   ): Boolean {
-    if (!rendererLock.tryLock()) return false
-    return try {
-      renderer.draw(item, canvas, displayer, config)
-      true
-    } finally {
-      rendererLock.unlock()
-    }
+    drawRenderer(item, canvas, displayer, config)
+    return true
   }
 
   private fun markGenerationsForChangedValues(current: DanmakuConfig, next: DanmakuConfig) {

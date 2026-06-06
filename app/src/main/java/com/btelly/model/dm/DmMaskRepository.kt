@@ -124,8 +124,12 @@ class DmMaskRepository {
         try {
             synchronized(lock) {
                 if (segment.cachedFrames != null) return
+                val startedNs = System.nanoTime()
                 // 1. 确保字节数据
-                if (!ensureSegmentDataLoaded(cid, segment, segIndex)) return
+                if (!ensureSegmentDataLoaded(cid, segment, segIndex)) {
+                    AppLog.w(TAG, "Webmask segment preload failed: cid=$cid seg=$segIndex noData")
+                    return
+                }
                 // 2. 解析帧
                 val segDurationMs = if (segIndex + 1 < segments.size) {
                     (segments[segIndex + 1].timeMs - segment.timeMs).coerceAtLeast(1)
@@ -134,6 +138,14 @@ class DmMaskRepository {
                 }
                 val frames = WebmaskParser.parseSegmentFrames(segment, maskData.fps, segDurationMs) ?: emptyList()
                 segment.cachedFrames = frames
+                val elapsedMs = (System.nanoTime() - startedNs) / 1_000_000L
+                val firstPts = frames.firstOrNull()?.presentationTimeMs
+                val lastPts = frames.lastOrNull()?.presentationTimeMs
+                AppLog.d(
+                    TAG,
+                    "Webmask segment cached: cid=$cid seg=$segIndex frames=${frames.size} " +
+                        "segTime=${segment.timeMs} firstPts=$firstPts lastPts=$lastPts cost=${elapsedMs}ms"
+                )
                 // 3. 释放字节数据（节省内存：每段 ~100KB × 124 段 = ~12MB）
                 segment.segData = null
             }

@@ -1440,7 +1440,91 @@ frame 2: len=518  pts=67  payload startsWith data:image/svg+xml;base64
     <h3>28.4 仍需和“弹幕清屏重来”分开看</h3>
     <p>本节修的是人物区域内遮罩开关式闪烁。日志里的“顶部弹幕闪烁”“播放卡顿后弹幕清屏重来”还涉及弹幕 runtime 的 pause/resume/seek/window 重建，这部分和 mask path 解析不是同一个根因。遮罩解析修正后，如果人物区域仍然偶发露出，下一步要看 <code>frame=null</code>（段未缓存）和 <code>shouldRenderMask=false</code>（状态切 IDLE）的实时日志；如果关闭智能防挡仍然闪，则继续查弹幕 runtime。</p>
 
-    <p class="muted">更新时间：2026-06-06（追加真实 webmask 二进制帧结构、37,090 帧统计、解码失败伪空帧导致人物区域整块露出的根因，并修正 JankMonitor 自动关闭与参考不一致的问题）。本文基于本地反编译目录、真实 webmask 文件和当前工作区代码。</p>
+    <h2>29. 2026-06-06 18:21 日志：关闭遮罩也闪、遮罩未生效的分层根因</h2>
+    <div class="warning">
+      <p><strong>本节结论：</strong>最新日志说明当前还没进入“遮罩追不上”的阶段。弹幕无论有没有人物都会闪，是弹幕自身 fallback 绘制在 renderer 锁竞争时跳过当前帧；遮罩没起作用，则需要先证明当前 webmask segment 是否成功解析进入缓存。两者在代码路径上是分开的。</p>
+    </div>
+
+    <h3>29.1 弹幕闪烁的直接证据</h3>
+    <table>
+      <thead><tr><th>日志证据</th><th>代码路径</th><th>结论</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>18:21:04.870 [Runtime] draw fallback limited drawn=0 skipped=4 rendererFailed=4 commands=4</code></td>
+          <td><code>DanmakuRuntime.drawCommand()</code> → <code>DanmakuContext.tryDrawRenderer()</code></td>
+          <td>4 条当前可见弹幕没有被画出来，不是被遮罩裁掉，而是 renderer fallback 返回失败。</td>
+        </tr>
+        <tr>
+          <td><code>18:21:04.751 danmaku_draw interval=11680ms</code></td>
+          <td><code>DanmakuView.onDraw()</code></td>
+          <td>首帧弹幕绘制前等待过久，缓存尚未稳定时更容易走 fallback。</td>
+        </tr>
+        <tr>
+          <td><code>18:21:10.532 Webmask header ready</code></td>
+          <td><code>DmMaskRepository.downloadAndParse()</code></td>
+          <td>rendererFailed 发生在 mask header ready 之前，因此“无人物也闪”不可能由人物 mask path 造成。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>具体根因在 <code class="path">app/src/main/java/com/kuaishou/akdanmaku/engine/DanmakuContext.kt</code>：旧的 <code>tryDrawRenderer()</code> 使用 <code>rendererLock.tryLock()</code>。缓存线程正在 <code>measureRenderer()</code> 或 <code>drawRenderer()</code> 构建文字位图时，主线程 fallback 拿不到锁就直接返回 <code>false</code>；<code>DanmakuRuntime</code> 随后把这条弹幕计为 <code>rendererFailed</code> 并跳过绘制。视觉上就是某一帧弹幕消失，下一帧缓存好了又出现，也就是闪烁。这个路径和智能防遮挡开关无关，所以符合“关了遮罩也闪”。</p>
+
+    <h3>29.2 本次对弹幕闪烁的修正</h3>
+    <table>
+      <thead><tr><th>文件</th><th>旧行为</th><th>新行为</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code class="path">app/src/main/java/com/kuaishou/akdanmaku/engine/DanmakuContext.kt</code></td>
+          <td><code>tryDrawRenderer()</code> 拿不到 renderer 锁就返回 false，主线程跳过当前弹幕。</td>
+          <td>fallback 绘制改为调用 <code>drawRenderer()</code>，短暂等待同一把锁并完成绘制，不再把锁竞争变成可见闪烁。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>29.3 遮罩没起作用的当前证据缺口</h3>
+    <p>最新日志只有：</p>
+<pre><code>18:21:10.532 Webmask header ready: cid=37551801208 segs=124 fps=29 fileSize=9550KB hdr=5324ms
+18:21:12.106 Long monitor contention ... DmMaskRepository.preloadSegmentFrames(...)
+18:21:12.607 Long monitor contention ... DmMaskRepository.preloadSegmentFrames(...)
+</code></pre>
+    <p>这里能证明 header 和 segment 预加载流程启动了，但不能证明当前段已经得到有效 <code>MaskFrame</code>。日志里缺少三类关键事实：当前段是否缓存成功、缓存了多少帧、Host 查询时拿到的是 <code>masked</code> 还是 <code>no_frame</code>。</p>
+
+    <h3>29.4 本次对遮罩预加载的参考对齐</h3>
+    <table>
+      <thead><tr><th>文件</th><th>旧行为</th><th>新行为</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code class="path">app/src/main/java/com/btelly/feature/player/view/DmMaskController.kt</code></td>
+          <td>预加载顺序是 <code>seg-1..seg+2</code>，当前段可能排在上一段后面。</td>
+          <td>改为 <code>current, current+1, current-1, current+2</code>，先保证当前播放段可用，再加载邻段。</td>
+        </tr>
+        <tr>
+          <td><code class="path">app/src/main/java/com/btelly/feature/player/view/DmMaskController.kt</code></td>
+          <td>开启智能防挡或播放态切换时，部分 READY/ACTIVE 时序不会立刻重新触发当前段预加载。</td>
+          <td><code>setEnabled(true)</code> 和 <code>setPlaying(true)</code> 都主动按当前 PTS 触发 <code>maybePreload()</code>。</td>
+        </tr>
+        <tr>
+          <td><code class="path">app/src/main/java/com/btelly/model/dm/DmMaskRepository.kt</code></td>
+          <td>segment 预加载成功没有可见日志，无法判断 Host 没遮罩是没帧还是状态没进。</td>
+          <td>新增 <code>Webmask segment cached</code> 日志，记录 <code>seg</code>、<code>frames</code>、首尾 PTS 和耗时。</td>
+        </tr>
+        <tr>
+          <td><code class="path">app/src/main/java/com/btelly/feature/player/view/DanmakuMaskHostLayout.kt</code></td>
+          <td>Host 不裁剪时静默回退 <code>super.dispatchDraw()</code>。</td>
+          <td>新增节流日志 <code>DmMaskHost mask state=...</code>，区分 <code>no_frame</code>、<code>empty_paths</code>、<code>invalid_bounds</code>、<code>masked</code>。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>29.5 下一次日志判定方式</h3>
+    <ol>
+      <li>如果还闪，但不再有 <code>rendererFailed</code>，说明 renderer 锁竞争已解决，要继续看 <code>danmaku_draw interval</code> 和播放源重建。</li>
+      <li>如果遮罩仍无效，先看是否出现 <code>Webmask segment cached: ... frames&gt;0</code>；没有则问题在 Range 下载/段解析。</li>
+      <li>如果 segment 已缓存但 Host 是 <code>mask state=no_frame</code>，问题在 timeline 查询或 PTS/segment 选择。</li>
+      <li>如果 Host 是 <code>mask state=masked</code> 但画面仍无遮挡，再查 <code>DST_IN</code> 合成层、path fillType 和 video bounds 映射。</li>
+    </ol>
+
+    <p class="muted">更新时间：2026-06-06（追加 18:21 日志分析：renderer fallback 锁竞争导致关闭遮罩也闪；遮罩预加载改为当前段优先，并补充 segment cached 与 Host state 诊断）。本文基于本地反编译目录、真实 webmask 文件和当前工作区代码。</p>
   </section>
 </main>
 </body>

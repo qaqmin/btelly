@@ -33,6 +33,7 @@ class DmMaskController(
 
         /** 诊断日志节流间隔。 */
         private const val DIAG_LOG_INTERVAL_MS = 5000L
+        private const val PRELOAD_DIAG_INTERVAL_MS = 1000L
 
     }
 
@@ -89,6 +90,7 @@ class DmMaskController(
 
     @Volatile
     private var lastDiagLogMs: Long = 0L
+    private var lastPreloadDiagMs: Long = 0L
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val preloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -107,6 +109,7 @@ class DmMaskController(
             currentTimeline != null -> {
                 state = if (isPlaying) State.ACTIVE else State.READY
                 frameInvalidator.start()
+                maybePreload(currentVideoPtsMs())
                 invalidateMaskHost()
             }
         }
@@ -182,6 +185,8 @@ class DmMaskController(
             frameInvalidator.start()
             maybePreload(currentVideoPtsMs())
             invalidateMaskHost()
+        } else if (playing && state == State.ACTIVE && enabled) {
+            maybePreload(currentVideoPtsMs())
         }
     }
 
@@ -331,16 +336,33 @@ class DmMaskController(
         if (preloadingSegIndex == currentSegIdx) return
         preloadingSegIndex = currentSegIdx
         val totalSegs = timeline.totalSegments()
-        val range = (currentSegIdx - 1).coerceAtLeast(0)..(currentSegIdx + 2).coerceAtMost(totalSegs - 1)
+        val orderedSegments = listOf(
+            currentSegIdx,
+            currentSegIdx + 1,
+            currentSegIdx - 1,
+            currentSegIdx + 2
+        ).filter { it in 0 until totalSegs }.distinct()
+        maybeLogPreload(currentSegIdx, orderedSegments)
         preloadScope.launch {
             try {
-                for (idx in range) {
+                for (idx in orderedSegments) {
                     repository.preloadSegmentFrames(cid, idx)
                 }
             } finally {
                 if (preloadingSegIndex == currentSegIdx) preloadingSegIndex = -1
             }
         }
+    }
+
+    private fun maybeLogPreload(currentSegIdx: Int, orderedSegments: List<Int>) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastPreloadDiagMs < PRELOAD_DIAG_INTERVAL_MS) return
+        lastPreloadDiagMs = now
+        AppLog.d(
+            TAG,
+            "preload mask segments: state=$state cid=$currentCid current=$currentSegIdx " +
+                "order=$orderedSegments pts=${currentVideoPtsMs()} enabled=$enabled playing=$isPlaying"
+        )
     }
 
     private fun invalidateMaskHost() {
