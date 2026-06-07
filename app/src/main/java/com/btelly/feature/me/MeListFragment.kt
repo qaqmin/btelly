@@ -549,12 +549,6 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                 }
             )
         } else {
-            // 保存当前滚动位置，防止 DiffUtil 单条移除后视觉偏移
-            val layoutManager = binding.recyclerView.layoutManager as? LinearLayoutManager
-            val savedFirstPos = layoutManager?.findFirstVisibleItemPosition() ?: RecyclerView.NO_POSITION
-            val savedFirstView = if (savedFirstPos != RecyclerView.NO_POSITION) layoutManager?.findViewByPosition(savedFirstPos) else null
-            val savedOffset = savedFirstView?.top?.minus(binding.recyclerView.paddingTop) ?: 0
-
             adapter.setData(filtered) {
                 PagePerfLogger.mark(
                     pageTag(),
@@ -562,15 +556,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                     applyStartMs,
                     "items=${adapter.contentCount()}"
                 )
-                tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
-                // layout 完成后恢复滚动位置
-                if (savedFirstPos != RecyclerView.NO_POSITION) {
-                    binding.recyclerView.post {
-                        if (!isAdded) return@post
-                        val targetPos = savedFirstPos.coerceIn(0, adapter.contentCount() - 1)
-                        layoutManager?.scrollToPositionWithOffset(targetPos, savedOffset)
-                    }
-                }
+                tvFocusController?.onDataChanged(TvDataChangeReason.REMOVE_ITEM)
             }
         }
         updateContentState(filtered.isEmpty())
