@@ -384,23 +384,36 @@ class TvListFocusController(
         if (anchor == null || !isAnchorNearViewport(anchor)) {
             return
         }
+        // 立即抑制非目标项焦点，防止 layout pass 期间焦点跳到错误位置
+        val resolved = resolveAnchorPosition(anchor)
+        if (resolved != RecyclerView.NO_POSITION) {
+            refreshFocusTarget = resolved
+            suppressOtherFocus(resolved)
+        }
         recyclerView.postDelayed({
             if (navigationToken != userNavigationToken) {
+                refreshFocusTarget = null
+                restoreAllFocus()
                 return@postDelayed
             }
             val focused = recyclerView.rootView?.findFocus()
             val focusedPosition = focused?.let(::resolveAdapterPosition) ?: RecyclerView.NO_POSITION
-            val resolved = resolveAnchorPosition(anchor)
-            if (resolved == RecyclerView.NO_POSITION || focusedPosition == resolved) {
+            val target = resolveAnchorPosition(anchor)
+            if (target == RecyclerView.NO_POSITION) {
+                refreshFocusTarget = null
+                restoreAllFocus()
+                return@postDelayed
+            }
+            if (focusedPosition == target) {
                 return@postDelayed
             }
             val focusInsideList = focused != null && isDescendantOf(focused, recyclerView)
             if (focused != null && !focusInsideList && !restoreAppendFocusFromOutside) {
                 return@postDelayed
             }
-            logD("appendFocusRestore: focused=$focusedPosition focus=${describeView(focused)} -> anchor=$resolved")
+            logD("appendFocusRestore: focused=$focusedPosition focus=${describeView(focused)} -> anchor=$target")
             focusPosition(
-                resolved,
+                target,
                 anchor.offsetTop,
                 "appendAnchorRestore",
                 allowOutsideFocus = restoreAppendFocusFromOutside
