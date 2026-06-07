@@ -202,6 +202,34 @@ class TvListFocusController(
         }
 
         if (hasValidFocusedItem()) {
+            // Focus looks valid now, but the upcoming layout pass might detach the focused view
+            // and move focus to an unexpected position. Park focus on the RecyclerView itself
+            // so children can't steal focus during layout, then restore to the correct position.
+            val anchor = currentAnchor ?: capturedAnchor
+            if (anchor != null) {
+                val resolved = resolveAnchorPosition(anchor)
+                if (resolved != RecyclerView.NO_POSITION && adapter.isFocusablePosition(resolved)) {
+                    val capturedResolved = resolved
+                    // Park: make RV itself focusable and take focus away from children
+                    if (parkedDescendantFocusability == null) {
+                        parkedDescendantFocusability = recyclerView.descendantFocusability
+                        recyclerView.descendantFocusability = ViewGroup.FOCUS_BEFORE_DESCENDANTS
+                    }
+                    if (parkedRecyclerFocusable == null) {
+                        parkedRecyclerFocusable = recyclerView.isFocusable
+                        recyclerView.isFocusable = true
+                    }
+                    suppressRecyclerDefaultFocusHighlight()
+                    recyclerView.requestFocus()
+                    logD("parkFocus: anchor=$resolved reason=$reason")
+                    // After layout completes, restore focus to the correct child
+                    recyclerView.post {
+                        unparkFocusInRecyclerViewIfNeeded()
+                        if (!adapter.isFocusablePosition(capturedResolved)) return@post
+                        requestRefreshFocus(capturedResolved)
+                    }
+                }
+            }
             return
         }
 
@@ -384,36 +412,23 @@ class TvListFocusController(
         if (anchor == null || !isAnchorNearViewport(anchor)) {
             return
         }
-        // 立即抑制非目标项焦点，防止 layout pass 期间焦点跳到错误位置
-        val resolved = resolveAnchorPosition(anchor)
-        if (resolved != RecyclerView.NO_POSITION) {
-            refreshFocusTarget = resolved
-            suppressOtherFocus(resolved)
-        }
         recyclerView.postDelayed({
             if (navigationToken != userNavigationToken) {
-                refreshFocusTarget = null
-                restoreAllFocus()
                 return@postDelayed
             }
             val focused = recyclerView.rootView?.findFocus()
             val focusedPosition = focused?.let(::resolveAdapterPosition) ?: RecyclerView.NO_POSITION
-            val target = resolveAnchorPosition(anchor)
-            if (target == RecyclerView.NO_POSITION) {
-                refreshFocusTarget = null
-                restoreAllFocus()
-                return@postDelayed
-            }
-            if (focusedPosition == target) {
+            val resolved = resolveAnchorPosition(anchor)
+            if (resolved == RecyclerView.NO_POSITION || focusedPosition == resolved) {
                 return@postDelayed
             }
             val focusInsideList = focused != null && isDescendantOf(focused, recyclerView)
             if (focused != null && !focusInsideList && !restoreAppendFocusFromOutside) {
                 return@postDelayed
             }
-            logD("appendFocusRestore: focused=$focusedPosition focus=${describeView(focused)} -> anchor=$target")
+            logD("appendFocusRestore: focused=$focusedPosition focus=${describeView(focused)} -> anchor=$resolved")
             focusPosition(
-                target,
+                resolved,
                 anchor.offsetTop,
                 "appendAnchorRestore",
                 allowOutsideFocus = restoreAppendFocusFromOutside
