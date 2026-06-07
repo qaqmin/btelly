@@ -254,20 +254,10 @@ class MyPlayerDanmakuController(
             }
             val rawSignature = mergedRawData.fastRawSignature()
             val timeline = DanmakuTimeline(mergedRawData, rawSignature)
-            val allowVipColorful = isVipColorfulDanmakuAllowed()
             val positionSnapshotMs = withContext(Dispatchers.Main.immediate) {
                 syncSnapshotPosition()
                 danmakuPositionMs
             }
-            val preparedWindow = timeline.data.buildPreparedWindow(
-                positionMs = positionSnapshotMs,
-                behindMs = ACTIVE_WINDOW_BEHIND_MS,
-                aheadMs = ACTIVE_WINDOW_AHEAD_MS,
-                maxItems = ACTIVE_WINDOW_APPEND_BATCH_SIZE,
-                allowVipColorful = allowVipColorful,
-                stage = "append_window"
-            )
-            val signature = preparedWindow.data.fastPreparedSignature()
             withContext(Dispatchers.Main.immediate) {
                 if (prepareGeneration != generation) {
                     return@withContext
@@ -276,16 +266,12 @@ class MyPlayerDanmakuController(
                 rawDanmakuData = timeline.data
                 rawDanmakuSignature = rawSignature
                 rawDanmakuCount = timeline.count
-                applyPreparedWindowState(preparedWindow, signature)
-                val player = danmakuPlayer
-                if (player != null) {
-                    replacePlayerWindowData(
-                        player = player,
-                        data = preparedWindow.data,
-                        reason = "append",
-                        generation = generation
-                    )
-                }
+                scheduleActiveWindowRefresh(
+                    positionMs = positionSnapshotMs,
+                    force = false,
+                    reason = "append",
+                    ignoreFreshWindow = true
+                )
             }
         }
     }
@@ -950,12 +936,17 @@ class MyPlayerDanmakuController(
         )
     }
 
-    private fun scheduleActiveWindowRefresh(positionMs: Long, force: Boolean, reason: String) {
+    private fun scheduleActiveWindowRefresh(
+        positionMs: Long,
+        force: Boolean,
+        reason: String,
+        ignoreFreshWindow: Boolean = false
+    ) {
         val timeline = danmakuTimeline
         if (timeline.data.isEmpty() || liveEngineStarted) return
-        if (!force && isActiveWindowFreshFor(positionMs)) return
+        if (!force && !ignoreFreshWindow && isActiveWindowFreshFor(positionMs)) return
         val now = SystemClock.elapsedRealtime()
-        if (!force && now - lastWindowApplyRealtimeMs < WINDOW_REFRESH_MIN_INTERVAL_MS) return
+        if (!force && !ignoreFreshWindow && now - lastWindowApplyRealtimeMs < WINDOW_REFRESH_MIN_INTERVAL_MS) return
         val generation = prepareGeneration
         windowRefreshJob?.cancel()
         windowRefreshJob = controllerScope.launch {

@@ -359,87 +359,90 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   }
 
   fun draw(canvas: Canvas, onRenderReady: () -> Unit) {
-    val liveFrame = frame
-    val fallbackTransitionFrame = transitionFrame?.takeIf { it.isTransitionAlive() }
-    val currentFrame = liveFrame ?: fallbackTransitionFrame
-    val transitionElapsedMs = if (liveFrame == null && currentFrame === fallbackTransitionFrame) {
-      currentFrame?.transitionElapsedMs() ?: 0L
-    } else {
-      0L
-    }
-    onRenderReady()
-    val config = context.config
-    if (!config.visibility || currentFrame == null ||
-      currentFrame.visibilityGeneration != config.visibilityGeneration) {
-      return
-    }
-
-    var hit = 0
-    var fallbackDraws = 0
-    var rollingFallbackDraws = 0
-    var fixedFallbackDraws = 0
-    var fallbackSkipped = 0
-    var fallbackCacheMiss = 0
-    var fallbackUnmeasured = 0
-    var fallbackRendererFailed = 0
-    var fallbackCacheBoosts = 0
-    var visibleCommandCount = 0
-    val now = context.timer.currentTimeMs
-    val commandCount = currentFrame.commands.size
-    for (index in 0 until commandCount) {
-      val item = currentFrame.commands.itemAt(index)
-      if (item.isRuntimeOutside(now)) continue
-      val fixedCommand = index >= currentFrame.fixedCommandStartIndex
-      visibleCommandCount++
-      val drawResult = drawCommand(
-        canvas = canvas,
-        frame = currentFrame,
-        commands = currentFrame.commands,
-        index = index,
-        config = config,
-        allowFallback = if (fixedCommand) {
-          fixedFallbackDraws < MAX_FIXED_FALLBACK_DRAWS_PER_FRAME
-        } else {
-          rollingFallbackDraws < MAX_FALLBACK_DRAWS_PER_FRAME
-        },
-        transitionElapsedMs = transitionElapsedMs
-      )
-      if (drawResult.cacheHit) {
-        hit++
-      } else if (drawResult.fallbackDrawn) {
-        fallbackDraws++
-        if (fixedCommand) {
-          fixedFallbackDraws++
-        } else {
-          rollingFallbackDraws++
-        }
+    try {
+      val liveFrame = frame
+      val fallbackTransitionFrame = transitionFrame?.takeIf { it.isTransitionAlive() }
+      val currentFrame = liveFrame ?: fallbackTransitionFrame
+      val transitionElapsedMs = if (liveFrame == null && currentFrame === fallbackTransitionFrame) {
+        currentFrame?.transitionElapsedMs() ?: 0L
       } else {
-        fallbackSkipped++
-        when (drawResult.skipReason) {
-          DrawCommandResult.SKIP_CACHE_MISS -> {
-            fallbackCacheMiss++
-            if (fallbackCacheBoosts < MAX_FALLBACK_CACHE_BOOSTS_PER_FRAME &&
-              boostVisibleCacheIfNeeded(item, config)) {
-              fallbackCacheBoosts++
-            }
-          }
-          DrawCommandResult.SKIP_UNMEASURED -> fallbackUnmeasured++
-          DrawCommandResult.SKIP_RENDERER_FAILED -> fallbackRendererFailed++
-        }
+        0L
       }
-      dispatchShown(item, config)
+      val config = context.config
+      if (!config.visibility || currentFrame == null ||
+        currentFrame.visibilityGeneration != config.visibilityGeneration) {
+        return
+      }
+
+      var hit = 0
+      var fallbackDraws = 0
+      var rollingFallbackDraws = 0
+      var fixedFallbackDraws = 0
+      var fallbackSkipped = 0
+      var fallbackCacheMiss = 0
+      var fallbackUnmeasured = 0
+      var fallbackRendererFailed = 0
+      var fallbackCacheBoosts = 0
+      var visibleCommandCount = 0
+      val now = context.timer.currentTimeMs
+      val commandCount = currentFrame.commands.size
+      for (index in 0 until commandCount) {
+        val item = currentFrame.commands.itemAt(index)
+        if (item.isRuntimeOutside(now)) continue
+        val fixedCommand = index >= currentFrame.fixedCommandStartIndex
+        visibleCommandCount++
+        val drawResult = drawCommand(
+          canvas = canvas,
+          frame = currentFrame,
+          commands = currentFrame.commands,
+          index = index,
+          config = config,
+          allowFallback = if (fixedCommand) {
+            fixedFallbackDraws < MAX_FIXED_FALLBACK_DRAWS_PER_FRAME
+          } else {
+            rollingFallbackDraws < MAX_FALLBACK_DRAWS_PER_FRAME
+          },
+          transitionElapsedMs = transitionElapsedMs
+        )
+        if (drawResult.cacheHit) {
+          hit++
+        } else if (drawResult.fallbackDrawn) {
+          fallbackDraws++
+          if (fixedCommand) {
+            fixedFallbackDraws++
+          } else {
+            rollingFallbackDraws++
+          }
+        } else {
+          fallbackSkipped++
+          when (drawResult.skipReason) {
+            DrawCommandResult.SKIP_CACHE_MISS -> {
+              fallbackCacheMiss++
+              if (fallbackCacheBoosts < MAX_FALLBACK_CACHE_BOOSTS_PER_FRAME &&
+                boostVisibleCacheIfNeeded(item, config)) {
+                fallbackCacheBoosts++
+              }
+            }
+            DrawCommandResult.SKIP_UNMEASURED -> fallbackUnmeasured++
+            DrawCommandResult.SKIP_RENDERER_FAILED -> fallbackRendererFailed++
+          }
+        }
+        dispatchShown(item, config)
+      }
+      if (fallbackSkipped > 0 && shouldLogFallbackLimit()) {
+        Log.w(
+          DanmakuEngine.TAG,
+          "[Runtime] draw fallback limited drawn=$fallbackDraws skipped=$fallbackSkipped " +
+            "rollingDrawn=$rollingFallbackDraws fixedDrawn=$fixedFallbackDraws " +
+            "cacheMiss=$fallbackCacheMiss unmeasured=$fallbackUnmeasured " +
+            "rendererFailed=$fallbackRendererFailed boosts=$fallbackCacheBoosts commands=$commandCount"
+        )
+      }
+      cacheHit.num = hit
+      cacheHit.den = visibleCommandCount
+    } finally {
+      onRenderReady()
     }
-    if (fallbackSkipped > 0 && shouldLogFallbackLimit()) {
-      Log.w(
-        DanmakuEngine.TAG,
-        "[Runtime] draw fallback limited drawn=$fallbackDraws skipped=$fallbackSkipped " +
-          "rollingDrawn=$rollingFallbackDraws fixedDrawn=$fixedFallbackDraws " +
-          "cacheMiss=$fallbackCacheMiss unmeasured=$fallbackUnmeasured " +
-          "rendererFailed=$fallbackRendererFailed boosts=$fallbackCacheBoosts commands=$commandCount"
-      )
-    }
-    cacheHit.num = hit
-    cacheHit.den = visibleCommandCount
   }
 
   private fun shouldLogFallbackLimit(): Boolean {

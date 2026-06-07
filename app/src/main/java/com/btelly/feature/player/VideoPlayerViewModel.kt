@@ -595,6 +595,8 @@ class VideoPlayerViewModel(
     private val danmakuSegmentPayloads = LinkedHashMap<Int, SpecialDanmakuPayload>()
     private val danmakuLoadedSegments = linkedSetOf<Int>()
     private val danmakuLoadingSegments = linkedSetOf<Int>()
+    private val danmakuPublishedSegments = linkedSetOf<Int>()
+    private val danmakuPublishPendingSegments = linkedSetOf<Int>()
     private var currentDanmakuSegmentIndex: Int = -1
     private var danmakuTotalSegments: Int = 0
 
@@ -3491,6 +3493,8 @@ class VideoPlayerViewModel(
             danmakuSegmentPayloads.clear()
             danmakuLoadedSegments.clear()
             danmakuLoadingSegments.clear()
+            danmakuPublishedSegments.clear()
+            danmakuPublishPendingSegments.clear()
             danmakuTotalSegments = segmentCount
 
             // 2. 计算初始段（根据 seekPosition，使用协程启动前的快照）
@@ -3550,6 +3554,8 @@ class VideoPlayerViewModel(
             // 缓存当前段
             danmakuSegmentPayloads[initialSegment] = currentPayload
             danmakuLoadedSegments.add(initialSegment)
+            danmakuPublishedSegments.clear()
+            danmakuPublishedSegments.add(initialSegment)
             publishDanmaku(currentPayload.regularItems, replace = true)
             _specialDanmaku.value = currentPayload.specialItems
             logDanmakuDiagnostics(
@@ -3869,6 +3875,8 @@ class VideoPlayerViewModel(
         danmakuSegmentPayloads.clear()
         danmakuLoadedSegments.clear()
         danmakuLoadingSegments.clear()
+        danmakuPublishedSegments.clear()
+        danmakuPublishPendingSegments.clear()
         currentDanmakuSegmentIndex = -1
         danmakuTotalSegments = 0
     }
@@ -4005,6 +4013,8 @@ class VideoPlayerViewModel(
         keysToRemove.forEach { key ->
             danmakuSegmentPayloads.remove(key)
             danmakuLoadedSegments.remove(key)
+            danmakuPublishedSegments.remove(key)
+            danmakuPublishPendingSegments.remove(key)
         }
     }
 
@@ -4015,16 +4025,16 @@ class VideoPlayerViewModel(
         val newIndex = resolveDanmakuSegmentIndex(positionMs)
         if (newIndex <= 0) return
         if (newIndex == currentDanmakuSegmentIndex) {
-            // 重试当前段：如果之前的加载失败或返回了空数据，定期重试
-            if (!danmakuLoadedSegments.contains(newIndex) && !danmakuLoadingSegments.contains(newIndex)) {
-                loadDanmakuSegmentIfNeeded(newIndex)
+            // 重试/补发当前段：如果之前的加载失败、返回空数据，或只预加载未发布，定期重试
+            if (!danmakuPublishedSegments.contains(newIndex) && !danmakuLoadingSegments.contains(newIndex)) {
+                loadDanmakuSegmentIfNeeded(newIndex, publishWhenReady = true)
             }
             // 邻近预加载：距离下个 segment 边界不足 2 分钟时提前加载
             if (newIndex < danmakuTotalSegments) {
                 val segmentEndMs = newIndex.toLong() * 360_000L
                 val remainingMs = segmentEndMs - positionMs
                 if (remainingMs in 0..120_000L) {
-                    loadDanmakuSegmentIfNeeded(newIndex + 1)
+                    loadDanmakuSegmentIfNeeded(newIndex + 1, publishWhenReady = false)
                 }
             }
             return
@@ -4048,21 +4058,35 @@ class VideoPlayerViewModel(
         )
         trimDistantDanmakuSegments()
         // 动态加载新段
-        loadDanmakuSegmentIfNeeded(newIndex)
+        loadDanmakuSegmentIfNeeded(newIndex, publishWhenReady = true)
         // 预加载下一段
         if (newIndex < danmakuTotalSegments) {
-            loadDanmakuSegmentIfNeeded(newIndex + 1)
+            loadDanmakuSegmentIfNeeded(newIndex + 1, publishWhenReady = false)
         }
     }
 
     /**
      * 按需加载指定弹幕片段（如果尚未加载）
      */
-    private fun loadDanmakuSegmentIfNeeded(segmentIndex: Int) {
+    private fun loadDanmakuSegmentIfNeeded(segmentIndex: Int, publishWhenReady: Boolean) {
         if (danmakuLoadedSegments.contains(segmentIndex)) {
+            if (publishWhenReady && !danmakuPublishedSegments.contains(segmentIndex)) {
+                danmakuSegmentPayloads[segmentIndex]?.let { cachedPayload ->
+                    PlaybackStartupTrace.log(
+                        traceId = currentStartupTraceId,
+                        startElapsedMs = currentStartupTraceStartElapsedMs,
+                        step = "danmaku_segment_republish",
+                        message = "cid=$currentCid segment=$segmentIndex regular=${cachedPayload.regularItems.size} special=${cachedPayload.specialItems.size}"
+                    )
+                    publishDanmakuSegmentPayload(segmentIndex, cachedPayload)
+                }
+            }
             return
         }
         if (danmakuLoadingSegments.contains(segmentIndex)) {
+            if (publishWhenReady) {
+                danmakuPublishPendingSegments.add(segmentIndex)
+            }
             return
         }
         val cid = currentCid
@@ -4074,9 +4098,11 @@ class VideoPlayerViewModel(
                 traceId = currentStartupTraceId,
                 startElapsedMs = currentStartupTraceStartElapsedMs,
                 step = "danmaku_segment_cache_hit",
-                message = "cid=$cid segment=$segmentIndex regular=${cachedPayload.regularItems.size} special=${cachedPayload.specialItems.size}"
+                message = "cid=$cid segment=$segmentIndex publish=$publishWhenReady regular=${cachedPayload.regularItems.size} special=${cachedPayload.specialItems.size}"
             )
-            publishDanmakuSegmentPayload(cachedPayload)
+            if (publishWhenReady) {
+                publishDanmakuSegmentPayload(segmentIndex, cachedPayload)
+            }
             return
         }
         danmakuLoadingSegments.add(segmentIndex)
@@ -4085,7 +4111,7 @@ class VideoPlayerViewModel(
             traceId = currentStartupTraceId,
             startElapsedMs = currentStartupTraceStartElapsedMs,
             step = "danmaku_segment_load_started",
-            message = "cid=$cid segment=$segmentIndex"
+            message = "cid=$cid segment=$segmentIndex publish=$publishWhenReady"
         )
         viewModelScope.launch(Dispatchers.IO) {
             val expectedSegmentCount = resolveExpectedDanmakuSegmentCount(
@@ -4122,6 +4148,7 @@ class VideoPlayerViewModel(
                     )
                     return@withContext
                 }
+                val shouldPublish = publishWhenReady || danmakuPublishPendingSegments.remove(segmentIndex)
                 if (payload == null) {
                     PlaybackStartupTrace.log(
                         traceId = currentStartupTraceId,
@@ -4146,20 +4173,26 @@ class VideoPlayerViewModel(
                     traceId = currentStartupTraceId,
                     startElapsedMs = currentStartupTraceStartElapsedMs,
                     step = "danmaku_segment_load_ready",
-                    message = "cid=$cid segment=$segmentIndex regular=${payload.regularItems.size} special=${payload.specialItems.size}"
+                    message = "cid=$cid segment=$segmentIndex publish=$shouldPublish regular=${payload.regularItems.size} special=${payload.specialItems.size}"
                 )
-                publishDanmakuSegmentPayload(payload)
+                if (shouldPublish) {
+                    publishDanmakuSegmentPayload(segmentIndex, payload)
+                }
             }
         }
     }
 
-    private fun publishDanmakuSegmentPayload(payload: SpecialDanmakuPayload) {
+    private fun publishDanmakuSegmentPayload(segmentIndex: Int, payload: SpecialDanmakuPayload) {
+        if (danmakuPublishedSegments.contains(segmentIndex)) {
+            return
+        }
         PlaybackStartupTrace.log(
             traceId = currentStartupTraceId,
             startElapsedMs = currentStartupTraceStartElapsedMs,
             step = "danmaku_segment_published",
-            message = "regular=${payload.regularItems.size} special=${payload.specialItems.size}"
+            message = "segment=$segmentIndex regular=${payload.regularItems.size} special=${payload.specialItems.size}"
         )
+        danmakuPublishedSegments.add(segmentIndex)
         if (payload.regularItems.isNotEmpty()) {
             publishDanmaku(payload.regularItems, replace = false)
         }

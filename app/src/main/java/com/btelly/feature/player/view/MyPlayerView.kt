@@ -2008,7 +2008,7 @@ class MyPlayerView @JvmOverloads constructor(
 
     suspend fun loadDmMask(maskUrl: String, cid: Long, fps: Int): Boolean {
         pendingDmMaskRequest = DmMaskRequest(maskUrl, cid, fps)
-        val shieldEnabled = settingView?.getDmSmartShield() ?: true
+        val shieldEnabled = settingView?.getDmSmartShield() ?: false
         if (!shieldEnabled) {
             AppLog.d("DmMask", "loadDmMask skipped: smart shield disabled, cid=$cid")
             return false

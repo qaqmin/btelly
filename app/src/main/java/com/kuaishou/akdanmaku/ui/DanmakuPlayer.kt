@@ -96,7 +96,8 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
   }
   private val actionThread by lazy  { HandlerThread("ActionThread").apply { start() } }
   private val actionHandler by lazy { ActionHandler(actionThread.looper) }
-  private val frameCallback by lazy { FrameCallback(actionHandler) }
+  private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
+  private val frameCallback by lazy { FrameCallback() }
 
   private var currentDisplayerWidth = 0
   private var currentDisplayerHeight = 0
@@ -104,6 +105,8 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
   private var config: DanmakuConfig? = null
   private var skippedDrawWaitFrames = 0
   private var lastDrawWaitSkipLogAtMs = 0L
+  @Volatile
+  private var frameCallbackScheduled = false
 
   private val drawSemaphore = Semaphore(0)
 
@@ -135,7 +138,33 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     if (!started || isReleased || !actionThread.isAlive) {
       return
     }
-    Choreographer.getInstance().postFrameCallback(frameCallback)
+    runOnMainThread {
+      if (!started || isReleased || !actionThread.isAlive) {
+        return@runOnMainThread
+      }
+      if (frameCallbackScheduled) {
+        return@runOnMainThread
+      }
+      frameCallbackScheduled = true
+      Choreographer.getInstance().postFrameCallback(frameCallback)
+    }
+  }
+
+  private fun removeFrameCallback() {
+    runOnMainThread {
+      runCatching {
+        Choreographer.getInstance().removeFrameCallback(frameCallback)
+      }
+      frameCallbackScheduled = false
+    }
+  }
+
+  private fun runOnMainThread(action: () -> Unit) {
+    if (Looper.myLooper() == Looper.getMainLooper()) {
+      action()
+    } else {
+      mainHandler.post(action)
+    }
   }
 
   private fun updateFrame(deltaTimeSeconds: Float? = null) {
@@ -149,15 +178,14 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
       // Time goes one step for manual debug.
       engine.step(deltaTimeSeconds)
     } else {
-      // Prepare next frameCallback.
-      postFrameCallback()
       if (!drawSemaphore.tryAcquire()) {
         skippedDrawWaitFrames++
         danmakuView?.postInvalidateOnAnimation()
         logDrawWaitSkipIfNeeded(frameStartedAtMs)
         return
+      } else {
+        skippedDrawWaitFrames = 0
       }
-      skippedDrawWaitFrames = 0
     }
     if (!started) {
       return
@@ -201,6 +229,9 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     drawSemaphore.tryAcquire()
     engine.draw(canvas) {
       releaseSemaphore()
+      if (!isManualStep) {
+        postFrameCallback()
+      }
     }
   }
 
@@ -217,7 +248,7 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     lastDrawWaitSkipLogAtMs = nowMs
     AppLog.w(
       "PlaybackPerf",
-      "danmaku_action skip_wait_draw frames=$skippedDrawWaitFrames"
+      "danmaku_action missed_draw_signal frames=$skippedDrawWaitFrames"
     )
   }
 
@@ -277,11 +308,9 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     }
     started = false
     releaseSemaphore()
+    removeFrameCallback()
     if (actionThread.isAlive) {
       actionHandler.postAtFrontOfQueue {
-        runCatching {
-          Choreographer.getInstance().removeFrameCallback(frameCallback)
-        }
         actionHandler.removeMessages(MSG_FRAME_UPDATE)
       }
     } else {
@@ -297,10 +326,7 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     if (actionThread.isAlive) {
       actionHandler.post {
         actionHandler.removeMessages(MSG_FRAME_UPDATE)
-        runCatching {
-          Choreographer.getInstance().removeFrameCallback(frameCallback)
-        }
-        postFrameCallback()
+        removeFrameCallback()
         actionHandler.sendEmptyMessage(MSG_FRAME_UPDATE)
       }
     }
@@ -318,10 +344,8 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     releaseSemaphore()
     val releaseLatch = CountDownLatch(1)
     if (actionThread.isAlive) {
+      removeFrameCallback()
       actionHandler.postAtFrontOfQueue {
-        runCatching {
-          Choreographer.getInstance().removeFrameCallback(frameCallback)
-        }
         actionHandler.removeMessages(MSG_FRAME_UPDATE)
         actionHandler.removeCallbacksAndMessages(null)
         releaseLatch.countDown()
@@ -332,7 +356,7 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     }
     runCatching {
       // Best-effort cleanup when release() is called on main thread.
-      Choreographer.getInstance().removeFrameCallback(frameCallback)
+      removeFrameCallback()
     }
     actionThread.quitSafely()
     actionThread.join(50L)
@@ -495,11 +519,12 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     }
   }
 
-  private class FrameCallback(private val handler: Handler) : Choreographer.FrameCallback {
+  private inner class FrameCallback : Choreographer.FrameCallback {
 
     override fun doFrame(frameTimeNanos: Long) {
-      handler.removeMessages(MSG_FRAME_UPDATE)
-      handler.sendEmptyMessage(MSG_FRAME_UPDATE)
+      frameCallbackScheduled = false
+      actionHandler.removeMessages(MSG_FRAME_UPDATE)
+      actionHandler.sendEmptyMessage(MSG_FRAME_UPDATE)
     }
   }
 }
