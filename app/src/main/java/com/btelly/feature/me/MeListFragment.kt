@@ -492,60 +492,72 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         )
         lastRenderedLaterSignature = rawSignature
         val applyStartMs = PagePerfLogger.now()
-        FirstScreenRenderer.render(
-            recyclerView = binding.recyclerView,
-            page = pageTag(),
-            items = filtered,
-            startMs = currentOpenStartMs.takeIf { it > 0L } ?: latestRequestStartMs,
-            source = "network",
-            spanCount = 4,
-            setItems = { firstBatch, onCommitted ->
-                adapter.setData(firstBatch, onCommitted)
-            },
-            appendItems = { remaining ->
-                adapter.addData(remaining)
-            },
-            onFirstBatchCommitted = {
+        if (adapter.contentCount() == 0) {
+            FirstScreenRenderer.render(
+                recyclerView = binding.recyclerView,
+                page = pageTag(),
+                items = filtered,
+                startMs = currentOpenStartMs.takeIf { it > 0L } ?: latestRequestStartMs,
+                source = "network",
+                spanCount = 4,
+                setItems = { firstBatch, onCommitted ->
+                    adapter.setData(firstBatch, onCommitted)
+                },
+                appendItems = { remaining ->
+                    adapter.addData(remaining)
+                },
+                onFirstBatchCommitted = {
+                    PagePerfLogger.mark(
+                        pageTag(),
+                        "adapter_commit",
+                        applyStartMs,
+                        "items=${adapter.contentCount()}"
+                    )
+                    AppLog.d("MeDebug", "[later] onFirstBatchCommitted: pendingLaterScroll=$pendingLaterScrollToTop, filtered=${filtered.size}, adapterCount=${adapter.contentCount()}")
+                    tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
+                    if (pendingLaterScrollToTop && filtered.isNotEmpty()) {
+                        AppLog.d("MeDebug", "[later] SCROLLING TO TOP")
+                        pendingLaterScrollToTop = false
+                        val shouldFocusFirst = focusToFirstAfterScrollToTop
+                        focusToFirstAfterScrollToTop = false
+                        scrollListToTop(immediate = true)
+                        if (shouldFocusFirst) {
+                            val rv = binding.recyclerView
+                            val focused = activity?.currentFocus
+                            if (focused != null && rv.findContainingItemView(focused) != null) {
+                                rv.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+                                    override fun onPreDraw(): Boolean {
+                                        rv.viewTreeObserver.removeOnPreDrawListener(this)
+                                        if (isAdded && view != null) {
+                                            tvFocusController?.requestRefreshFocus(0)
+                                        }
+                                        return true
+                                    }
+                                })
+                            }
+                        } else {
+                            binding.recyclerView.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+                        }
+                    } else {
+                        AppLog.d("MeDebug", "[later] NOT scrolling to top: pendingLaterScroll=$pendingLaterScrollToTop, filteredEmpty=${filtered.isEmpty()}")
+                    }
+                    currentOpenStartMs = 0L
+                },
+                onAppendRest = {
+                    tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
+                }
+            )
+        } else {
+            adapter.setData(filtered) {
                 PagePerfLogger.mark(
                     pageTag(),
                     "adapter_commit",
                     applyStartMs,
                     "items=${adapter.contentCount()}"
                 )
-                AppLog.d("MeDebug", "[later] onFirstBatchCommitted: pendingLaterScroll=$pendingLaterScrollToTop, filtered=${filtered.size}, adapterCount=${adapter.contentCount()}")
-                tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
-                if (pendingLaterScrollToTop && filtered.isNotEmpty()) {
-                    AppLog.d("MeDebug", "[later] SCROLLING TO TOP")
-                    pendingLaterScrollToTop = false
-                    val shouldFocusFirst = focusToFirstAfterScrollToTop
-                    focusToFirstAfterScrollToTop = false
-                    scrollListToTop(immediate = true)
-                    if (shouldFocusFirst) {
-                        val rv = binding.recyclerView
-                        val focused = activity?.currentFocus
-                        if (focused != null && rv.findContainingItemView(focused) != null) {
-                            rv.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
-                                override fun onPreDraw(): Boolean {
-                                    rv.viewTreeObserver.removeOnPreDrawListener(this)
-                                    if (isAdded && view != null) {
-                                        tvFocusController?.requestRefreshFocus(0)
-                                    }
-                                    return true
-                                }
-                            })
-                        }
-                    } else {
-                        binding.recyclerView.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
-                    }
-                } else {
-                    AppLog.d("MeDebug", "[later] NOT scrolling to top: pendingLaterScroll=$pendingLaterScrollToTop, filteredEmpty=${filtered.isEmpty()}")
-                }
-                currentOpenStartMs = 0L
-            },
-            onAppendRest = {
                 tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
             }
-        )
+        }
         updateContentState(filtered.isEmpty())
     }
 
