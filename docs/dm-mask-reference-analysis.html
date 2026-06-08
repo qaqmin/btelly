@@ -58,7 +58,7 @@
 
     .summary {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 14px;
       margin-top: 22px;
     }
@@ -114,44 +114,17 @@
     }
 
     pre code { background: transparent; color: inherit; padding: 0; }
-    .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 650; }
+    ul, ol { padding-left: 24px; }
+    li { margin: 6px 0; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 650; white-space: nowrap; }
     .tag-ok { background: #dcfce7; color: var(--good); }
     .tag-risk { background: #fee2e2; color: var(--bad); }
     .tag-infer { background: #fef3c7; color: var(--accent-2); }
     .muted { color: var(--muted); }
     .path { word-break: break-all; }
 
-    .flow {
-      counter-reset: step;
-      margin: 18px 0 22px;
-      padding: 0;
-      list-style: none;
-    }
-
-    .flow li {
-      counter-increment: step;
-      position: relative;
-      margin: 0 0 12px 0;
-      padding: 14px 16px 14px 52px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #fff;
-    }
-
-    .flow li::before {
-      content: counter(step);
-      position: absolute;
-      left: 16px;
-      top: 15px;
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      display: grid;
-      place-items: center;
-      background: var(--accent);
-      color: #fff;
-      font-weight: 700;
-      font-size: 13px;
+    @media (max-width: 900px) {
+      .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     @media (max-width: 760px) {
@@ -166,1365 +139,386 @@
 <main>
   <header>
     <h1>Bilibili 智能防遮挡参考链路分析</h1>
-    <p class="subtitle">目标：把参考 APK 中普通视频“主体防挡 / 人像不被弹幕遮挡”的数据、开关、时钟、选帧和渲染语义从头到尾梳理，并和 BTelly 当前实现逐项对照。</p>
+    <p class="subtitle">整理版：把 Web 实测、B 站 APP 端 smali、Chronos native 反汇编、BTelly 当前实现状态合到一条主线里。旧文档中的历史判断已收束，避免继续把已废弃结论当成当前事实。</p>
     <div class="summary">
-      <div><strong>结论 1</strong>参考的权威时间源是播放器 clock：<code>onPlayerClockChanged(rate, position)</code> 校准 Chronos 内部 clock，随后按 <code>rate</code> 连续推进。</div>
-      <div><strong>结论 2</strong><code>VideoMask</code> 只提供 <code>cid / plat / fps / time / maskUrl</code>，没有发现“半帧补偿”字段。</div>
-      <div><strong>结论 3</strong>最新深挖确认：参考在 Chronos shader 内执行 <code>CRONDefaultShading() * mask_sample</code>，不是父 View <code>clipPath</code>。</div>
-      <div><strong>结论 4</strong>真实 webmask 段是二进制帧流：<code>uint32 payloadLength + uint64 pts + payload</code>，不是纯字符串分隔的 SVG 列表。</div>
+      <div><strong>数据参考</strong>Web 端最适合验证 <code>dm_mask</code> 字段和 <code>.webmask</code> 文件格式。</div>
+      <div><strong>行为参考</strong>Android APP 端更适合参考播放器 clock、seek、buffering 和弹幕生命周期。</div>
+      <div><strong>渲染语义</strong>Chronos native 证实是 <code>CRONDefaultShading() * mask_sample</code>，不是父 View <code>clipPath</code>。</div>
+      <div><strong>当前重点</strong>BTelly 已实现核心解析和合成；剩余要盯缺帧/seek 旧 mask 兜底和弹幕 runtime 闪烁。</div>
     </div>
   </header>
 
   <section class="content">
-    <h2>0. 2026-06-06 最新结论</h2>
+    <h2>1. 最终结论</h2>
     <div class="warning">
-      <strong>本次修正根因：</strong>闪烁和“遮罩追不上”的主要原因不再指向 <code>DmMaskTimeline.queryAt()</code> 的 floor 算法，而是当前 BTelly 曾在父级 <code>DanmakuMaskHostLayout.dispatchDraw()</code> 使用 <code>clipPath</code> 裁剪两个弹幕子 View，并在 <code>queryAt=null</code> / <code>SEEKING</code> 时复用旧 <code>mergedPath</code>。参考的 native 证据是 <code>libchronos.so</code> 中的 shader：<code>cron_output = CRONDefaultShading() * mask_sample</code>。也就是说参考是“弹幕内容先完成绘制，再逐像素乘当前 mask alpha”，不是“父 View 先裁剪 canvas，再让子 View 绘制”。
-    </div>
-    <div class="warning">
-      <strong>2026-06-06 继续深挖后的关键修正：</strong>参考并不是每帧原样读取一个静态 <code>player.currentPosition</code>。<code>RemoteServiceHandler.onPlayerClockChanged(rate, position)</code> 会发送 <code>current_time</code>、<code>playback_rate</code>、<code>timestamp</code>；<code>assets/cron_package/index.js</code> 的 <code>onPlaybackStatusChanged</code> 明确执行 <code>current_time + max(0, systemTimeMs() - timestamp) * playback_rate</code>，再写入内部 <code>Ar</code> clock。<code>Ar.time</code> getter 后续继续按 <code>elapsedTime * rate</code> 推进。BTelly 如果每帧只读 <code>player.currentPosition</code>，会被播放器 position 刷新粒度拖慢，表现就是“遮罩有点追不上”。
-    </div>
-    <div class="warning">
-      <strong>2026-06-06 最新根因补充：</strong>这次“整个人物区域遮住又露出来”不是参考资源的“真实空帧”。对 <code>cid=37551801208</code> 下载的 <code>37551801208_29_0.webmask</code> 实测：文件 <code>9,779,322B</code>、<code>124</code> 段、<code>37,090</code> 帧，所有帧都能解出 SVG，所有帧都有 <code>&lt;path d="..."&gt;</code>。问题在 BTelly 旧解析器把段内容当作 <code>data:image/svg+xml;base64,</code> 字符串切分，导致下一帧的 <code>12B</code> 帧头被混进上一帧 base64 尾部；解码失败后又被伪造成 <code>paths=emptyList()</code>。HostLayout 遇到 empty paths 会原样绘制弹幕，于是人物区域整块“遮住 → 露出 → 遮住”。
-    </div>
-    <table>
-      <thead><tr><th>证据点</th><th>参考 APK</th><th>BTelly 当前对齐方式</th></tr></thead>
-      <tbody>
-        <tr>
-          <td>开关协议</td>
-          <td><code>GetDanmakuFilter$Response.block_mask</code> / <code>DanmakuFilterChange$Request.block_mask</code>；<code>getDanmakuAvoidFigure()</code> 取反后写入 <code>blockMask</code>。</td>
-          <td>用户开关仍由 <code>DmMaskController.setEnabled()</code> 控制；语义上打开主体防挡等价于 <code>block_mask=false</code>。</td>
-        </tr>
-        <tr>
-          <td>时间源</td>
-          <td><code>RemoteServiceHandler.onPlayerClockChanged(rate, position)</code> 发送 <code>current_time</code>、<code>playback_rate</code>、<code>timestamp</code> 给 Chronos。</td>
-          <td><code>DmMaskController.onPlayerClockChanged()</code> 用播放器 position 校准内部 clock；<code>currentVideoPtsMs()</code> 按 <code>elapsedRealtime * rate</code> 连续推进；<code>onVideoFrameAnchor()</code> 为空，不再作为第二时间源。</td>
-        </tr>
-        <tr>
-          <td>渲染语义</td>
-          <td><code>libchronos.so</code> 字符串显示：<code>mask_sample = texture(cron_mask_texture, cron_mask_tex_coord).a</code>，然后 <code>cron_output = CRONDefaultShading() * mask_sample</code>。</td>
-          <td><code>DanmakuMaskHostLayout.dispatchDraw()</code> 现在先 <code>saveLayer</code> 绘制弹幕子 View，再用当前帧 path 的白色 alpha 做 <code>PorterDuff.Mode.DST_IN</code> 合成，更接近“输出乘 mask alpha”。</td>
-        </tr>
-        <tr>
-          <td>缺帧/seek</td>
-          <td>未在主 APK 发现“用旧 mask 冒充当前帧”的业务代码；mask 帧消费在 Chronos native 端。</td>
-          <td><code>queryAt=null</code> 时才进入缺帧兜底；解码失败不再伪造成空 paths；帧 PTS 直接来自 webmask 帧头。</td>
-        </tr>
-        <tr>
-          <td>段内帧格式</td>
-          <td>实测 webmask gzip 段内每帧为 <code>4B payloadLength + 8B presentationTimeMs + payload</code>。</td>
-          <td><code>WebmaskParser.parseBinaryFrameRecords()</code> 按真实二进制帧头读取 payload 和 PTS，不再字符串硬切。</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <h2>1. 参考资料范围</h2>
-    <p>参考 APK 说明文件位于 <code class="path">E:\MyTool\BTelly\.trae\bili\UNPACK_README.md</code>。该说明明确指出：</p>
-    <table>
-      <thead><tr><th>目录</th><th>用途</th><th>可信度</th></tr></thead>
-      <tbody>
-        <tr><td><code class="path">E:\MyTool\bili\out\apktool</code></td><td>完整 smali、资源 XML、Manifest。</td><td><span class="tag tag-ok">主依据</span></td></tr>
-        <tr><td><code class="path">E:\MyTool\bili\out\jadx\sources</code></td><td>部分 Java 反编译，便于阅读。</td><td><span class="tag tag-infer">辅助</span> 不是完整输出</td></tr>
-      </tbody>
-    </table>
-    <p>所以本文优先引用 smali 和资源 XML；Java 只用于可读性辅助。凡是 jadx 没有输出的类，以 smali 为准。</p>
-
-    <h2>2. 参考开关入口</h2>
-    <p>资源层能确认普通视频设置项是“主体防挡”。布局文件：</p>
-    <p><code class="path">E:\MyTool\bili\out\apktool\res\layout\bili_player_new_danmaku_mask_view_holder.xml</code></p>
-    <pre><code>&lt;com.bilibili.playerbizcommon.features.danmaku.view.PlayerDanmakuOperationSwitchView
-    android:id="@id/player_options_danmaku_mask"
-    android:visibility="gone"
-    app:tips="@string/playerbaseres_global_string_779" /&gt;</code></pre>
-    <p>对应文案：</p>
-    <table>
-      <thead><tr><th>资源名</th><th>内容</th><th>说明</th></tr></thead>
-      <tbody>
-        <tr><td><code>playerbaseres_global_string_779</code></td><td>主体防挡 - 开启后，重要画面不会被弹幕遮挡</td><td>设置项提示</td></tr>
-        <tr><td><code>playerbaseres_global_string_1139</code></td><td>人像不被弹幕遮挡，部分视频生效</td><td>能力说明</td></tr>
-        <tr><td><code>playerbaseres_global_string_151</code></td><td>开启后，重要画面不会被弹幕遮挡</td><td>通用说明</td></tr>
-      </tbody>
-    </table>
-    <p>业务层开关读取点位于 <code class="path">E:\MyTool\bili\out\apktool\smali_classes21\Bi1\a.smali</code>。它读取 <code>DanmakuMask</code> 设置，并结合 <code>DmViewReply.hasMask()</code> 得出上报值 <code>dm_mask</code>。</p>
-    <pre><code>const-string v3, "DanmakuMask"
-invoke-interface {v1, v3, v4}, IPlayerSettingService-&gt;getBoolean(...)
-
-invoke-virtual {v8}, DmViewReply-&gt;hasMask()Z
-
-const-string p0, "dm_mask"
-invoke-virtual {v6, p0, v3}, JSONObject-&gt;put(...)</code></pre>
-
-    <div class="note">
-      <strong>确认点（本次深挖后修正）：</strong>参考并不是“只要用户打开就强行遮罩”。它先要求 <code>DmViewReply.hasMask()</code> 成立，再看用户开关。<code>dm_mask</code> 上报是<strong>三态</strong>（<code>Bi1/a.smali</code> smali 反编译结果）：<code>(hasMask=true, user=true) → 1</code>；<code>(hasMask=true, user=false) → -1</code>；<code>(hasMask=false) → 0</code>。负值是 B 站数据组的 A/B 分组依据，区分“有资源被用户主动关”vs“视频根本没资源”——原文档简化为“该状态为 0”是错的。
+      <p><strong>推荐基准：</strong>数据按 Web，行为按 Android APP，渲染语义按 Chronos native。不要只照 Web，也不要硬抄 APP 主进程。</p>
+      <p>Web 端暴露了最容易验证的 <code>x/player/v2.dm_mask</code> 和真实 <code>.webmask</code> 文件；Android APP 端更接近 BTelly 的运行环境，播放器状态、弹幕生命周期、时钟同步都应该以它为主。Chronos native 则给出最关键的渲染语义：弹幕内容先完成绘制，再乘 mask alpha。</p>
     </div>
 
-    <h2>3. 参考数据来源：DmViewReply.mask</h2>
-    <p>普通视频弹幕 view 请求入口在：</p>
-    <p><code class="path">E:\MyTool\bili\out\apktool\smali_classes21\tv\danmaku\biliplayerv2\service\resolve\danmaku\DanmakuRpcWrapper$requestDmView$2.smali</code></p>
-    <p>辅助 Java 类显示请求类型来自 <code>com.bapis.bilibili.community.service.dm.v1.DmViewReq</code>。返回模型 <code>DmViewReply</code> 里，智能防遮挡字段是 <code>VideoMask mask_</code>：</p>
     <table>
-      <thead><tr><th>文件</th><th>证据</th></tr></thead>
+      <thead><tr><th>模块</th><th>优先参考</th><th>理由</th></tr></thead>
       <tbody>
-        <tr><td><code class="path">DmViewReply.java</code></td><td><code>MASK_FIELD_NUMBER = 2</code></td></tr>
-        <tr><td><code class="path">DmViewReply.java</code></td><td><code>private VideoMask mask_;</code></td></tr>
-        <tr><td><code class="path">DmViewReply.java</code></td><td><code>hasMask()</code> 判断 <code>mask_ != null</code></td></tr>
-        <tr><td><code class="path">DmViewReply.java</code></td><td><code>getMask()</code> 返回 <code>mask_</code> 或默认实例</td></tr>
+        <tr><td>mask 元信息</td><td>Web / Android 都可</td><td>字段本质一致：<code>cid / plat / fps / time / maskUrl</code>。BTelly 当前走 Web API 更实际。</td></tr>
+        <tr><td><code>.webmask</code> 文件格式</td><td>Web 实测</td><td>能直接下载验证，已确认真实段结构和帧 PTS。</td></tr>
+        <tr><td>播放器 clock</td><td>Android APP / Chronos</td><td>参考通过 <code>onPlayerClockChanged(rate, position, timestamp)</code> 校准内部时钟，再按 rate 连续推进。</td></tr>
+        <tr><td>seek / buffering / ready</td><td>Android APP</td><td>这些是 Android 播放器状态语义，Web 环境差异太大。</td></tr>
+        <tr><td>渲染合成</td><td>Chronos native</td><td>反汇编证实 shader 读取 <code>cron_mask_texture</code> alpha，再乘弹幕输出。</td></tr>
+        <tr><td>最终实现</td><td>BTelly 工程折中</td><td>我们没有 Chronos native surface，只能用 View tree 中的 <code>saveLayer + DST_IN</code> 近似。</td></tr>
       </tbody>
     </table>
 
-    <h2>4. VideoMask 字段结构</h2>
-    <p><code class="path">E:\MyTool\bili\out\apktool\smali_classes26\com\bapis\bilibili\community\service\dm\v1\VideoMask.smali</code> 给出的字段很明确：</p>
-    <table>
-      <thead><tr><th>字段号</th><th>字段名</th><th>类型</th><th>用途</th></tr></thead>
-      <tbody>
-        <tr><td>1</td><td><code>cid_</code></td><td><code>long</code></td><td>视频分 P 的 cid，作为 mask 数据归属。</td></tr>
-        <tr><td>2</td><td><code>plat_</code></td><td><code>int</code></td><td>CDN 选路标识（web/android/ios 走不同 CDN）。BTelly 不读这个字段，但<strong>必须保留字段解析</strong>——否则后端可能不下发 <code>maskUrl_</code>。原文档“平台标记”是模糊描述。</td></tr>
-        <tr><td>3</td><td><code>fps_</code></td><td><code>int</code></td><td>mask 帧率。</td></tr>
-        <tr><td>4</td><td><code>time_</code></td><td><code>long</code></td><td>webmask 文件 mtime 或服务端生成时间，用于 HTTP 缓存协商（<code>maskUrl_</code> 字符串里通常带 <code>?time=xxx</code> 参数）。BTelly 当前不单独读 time_——因为 URL 字符串本身已带参数；<strong>如果未来 <code>maskUrl_</code> 变成相对路径，需要回退到 time_ 拼绝对 URL</strong>。原文档“未在已定位的渲染链路中看到用于补偿”表述含糊，实际是“未用于渲染补偿但用于 HTTP 缓存”。</td></tr>
-        <tr><td>5</td><td><code>maskUrl_</code></td><td><code>String</code></td><td>webmask 文件 URL。<strong>注意</strong>：proto3 字段未设置会得到空串 <code>""</code>，与 <code>null</code> 等价，但 <code>WebmaskParser.parseSegmentCount</code> 收到 0 byte body 时行为不明确（<code>size &lt; HEADER_SIZE → -1</code>），需要把“0 byte body 200 OK”显式当失败处理。</td></tr>
-      </tbody>
-    </table>
-    <p>smali 中存在 <code>getCid()</code>、<code>getFps()</code>、<code>getMaskUrl()</code>、<code>getPlat()</code>、<code>getTime()</code> 方法。没有发现类似 <code>delay</code>、<code>offset</code>、<code>lookahead</code>、<code>halfFrameCompensation</code> 的字段。</p>
+    <h2>2. Web 端实测样本</h2>
+    <p>样本视频：</p>
+    <p><code class="path">https://www.bilibili.com/video/BV1DgdhBGEq2/</code></p>
 
-    <h2>5. 参考播放器时钟链路</h2>
-    <p>普通视频 player core 的 clock 分发点在 <code class="path">E:\MyTool\bili\out\jadx\sources\Dh1\L.java</code>：</p>
-    <pre><code>public final void onPlayerClockChanged(IMediaPlayer player, float rate, long position) {
-    int pos = (int) position;
-    InterfaceC37058h interceptor = o12.f13866E;
-    if (interceptor != null) {
-        pos = interceptor.a(pos);
-    }
-    observer.a(rate, (long) pos);
-}</code></pre>
-    <p>含义：</p>
-    <ul>
-      <li>参考有一个统一的播放器 clock 事件：<code>rate + position</code>。</li>
-      <li>分发前允许通过 <code>currentPositionInterceptor</code> 修正 position。</li>
-      <li>下游观察者拿到的是已经统一处理过的播放器时间。</li>
-    </ul>
-    <div class="note">
-      <strong>关键判断：</strong>参考的防遮挡跟弹幕/互动层共用 Chronos 内部 clock。这个 clock 由播放器 <code>rate + position + timestamp</code> 校准，然后在 Chronos 场景时间里连续推进；它不是用每帧 video metadata 的 <code>presentationTimeUs</code> 另建一套时间源。
-    </div>
-
-    <h3>5.1 DmViewReply 进入 Chronos 的链路</h3>
-    <p>继续追 <code>DmViewReply</code> 后，能确认 mask 数据不是由普通 View 独立消费，而是进入互动/Chronos 层：</p>
     <table>
-      <thead><tr><th>文件</th><th>证据</th><th>含义</th></tr></thead>
+      <thead><tr><th>项目</th><th>实测值</th></tr></thead>
       <tbody>
-        <tr>
-          <td><code class="path">E:\MyTool\bili\out\apktool\smali_classes21\tv\danmaku\biliplayerv2\service\interact\biz\InteractLayerService.smali</code></td>
-          <td><code>setDmViewReply(DmViewReply)</code> 内调用 <code>DanmakuParams.setDmViewReply(...)</code></td>
-          <td>DmViewReply 被保存到互动层参数，而不是只给普通 UI 控件。</td>
-        </tr>
-        <tr>
-          <td><code class="path">E:\MyTool\bili\out\apktool\smali_classes21\tv\danmaku\biliplayerv2\service\interact\biz\chronos\chronosrpc\a.smali</code></td>
-          <td><code>GetDmView</code> 响应创建后，把 <code>DmViewReply.toByteArray()</code> 放入附件 map。</td>
-          <td>Chronos 拿到的是完整 protobuf，<code>mask</code> 字段随附件一起传入。</td>
-        </tr>
-        <tr>
-          <td><code class="path">E:\MyTool\bili\out\apktool\smali_classes21\tv\danmaku\biliplayerv2\service\interact\biz\chronos\chronosrpc\remote\RemoteServiceHandler.smali</code></td>
-          <td><code>updateDanmakuParam(DanmakuParams, ...)</code> 读取 <code>getDmViewReply()</code></td>
-          <td>远端处理器持有同一份 DmViewReply 参数。</td>
-        </tr>
+        <tr><td>标题</td><td>终于来了！大疆Pocket 4上手</td></tr>
+        <tr><td><code>bvid</code></td><td><code>BV1DgdhBGEq2</code></td></tr>
+        <tr><td><code>aid</code></td><td><code>116413612234146</code></td></tr>
+        <tr><td><code>cid</code></td><td><code>37551801208</code></td></tr>
+        <tr><td>视频尺寸</td><td><code>3840 × 2160</code></td></tr>
+        <tr><td>时长</td><td><code>1238s</code></td></tr>
       </tbody>
     </table>
 
-    <h3>5.2 Chronos 播放状态同步</h3>
-    <p><code>RemoteServiceHandler</code> 同时注册播放器 clock observer，并向 Chronos 发送播放状态：</p>
-    <pre><code>invoke-interface {v0, p0}, IPlayerCoreService-&gt;addPlayerClockChangedObserver(...)</code></pre>
-    <pre><code>PlaybackStatusChange$Request.setCurrentTime(position)
-PlaybackStatusChange$Request.setPlaybackRate(rate)
-PlaybackStatusChange$Request.setTimestamp(System.currentTimeMillis())
-method = "OnPlaybackStatusChanged"</code></pre>
-    <p>对应位置：</p>
-    <table>
-      <thead><tr><th>证据</th><th>路径</th></tr></thead>
-      <tbody>
-        <tr><td><code>setCurrentTime</code></td><td><code class="path">RemoteServiceHandler.smali:6022</code></td></tr>
-        <tr><td><code>setTimestamp</code></td><td><code class="path">RemoteServiceHandler.smali:6043</code></td></tr>
-        <tr><td><code>OnPlaybackStatusChanged</code> 日志</td><td><code class="path">RemoteServiceHandler.smali:6065</code></td></tr>
-        <tr><td><code>addPlayerClockChangedObserver</code></td><td><code class="path">RemoteServiceHandler.smali:6890</code></td></tr>
-        <tr><td><code>removePlayerClockChangedObserver</code></td><td><code class="path">RemoteServiceHandler.smali:7398</code></td></tr>
-      </tbody>
-    </table>
-    <h3>5.3 Chronos JS 内部 clock 证据</h3>
-    <p><code class="path">E:\MyTool\bili\out\apktool\assets\cron_package</code> 是 zip 包，解出后包含 <code>index.js</code>。其中播放器状态处理逻辑可还原为：</p>
-    <pre><code>onPlaybackStatusChanged(e) {
-  if (current_time && playback_rate) {
-    const timeMs = timestamp
-      ? current_time + Math.max(0, systemTimeMs() - timestamp) * playback_rate
-      : current_time
-    this._clock.set(timeMs / 1000, playback_rate)
+    <p><code>x/player/v2</code> 返回的智能防挡字段：</p>
+<pre><code>{
+  "dm_mask": {
+    "cid": 37551801208,
+    "plat": 0,
+    "fps": 29,
+    "time": 0,
+    "mask_url": "//upos-sz-staticcos-cmask.bilivideo.com/cmaskboss/37551801208_29_0.webmask?..."
   }
 }</code></pre>
-    <p>同文件的 <code>Ar</code> clock 逻辑可还原为：</p>
-    <pre><code>get time() {
-  return outsideProgress + (elapsedTime() - lastElapsedTime) * rate
-}
-set(time, rate) {
-  lastElapsedTime = elapsedTime()
-  outsideProgress = time
-  this.rate = rate
-}</code></pre>
-    <p><strong>结论：</strong>参考会先用 <code>timestamp</code> 把 native 传来的 position 补偿到当前系统时刻，再用内部 scene elapsed time 继续推进。BTelly 的等价实现不能只在 <code>dispatchDraw</code> 里读取 <code>player.currentPosition</code>，而应该由 <code>onPlayerClockChanged(rate, position)</code> 校准内部 clock。</p>
-    <div class="warning">
-      <strong>新增结论（本次深挖后的重大修正）：</strong>
-      <ol style="margin: 8px 0 0 0; padding-left: 22px;">
-        <li>参考的 <strong>mask 真正渲染消费者是 Chronos 跨进程</strong>，主 APK 自身并不下载/解析/渲染 webmask。<code>RemoteServiceHandler</code> 只是把 <code>DmViewReply</code> 通过 <code>GetDmView</code> RPC 转发给 Chronos 端（独立 native 进程 <code>libchronos.so</code>），并在 Chronos 协议响应里写入 <code>setMaskEnabled()</code> / <code>setBlockMask()</code>。</li>
-        <li>关键证据：<code>lib/arm64-v8a/libchronos.so</code> 是独立 native 库；<code>lib/androidx.graphics.path.so</code> 提供 path 几何加速；全 smali 中 <code>DmViewReply.hasMask()</code> 仅 <strong>1</strong> 次调用（<code>Bi1/a.smali</code>，仅用于 <code>dm_mask</code> 上报），<code>VideoMask.getMaskUrl()</code> <strong>0</strong> 次调用。</li>
-        <li>因此第 5 节所谓“主 APK 与 Chronos 共用 clock”实际是<strong>主 APK 把 clock 转发给 Chronos</strong>——主 APK 是个 RPC 客户端，不持有渲染上下文。</li>
-        <li>“渲染查询用 player clock，但预加载用 video frame PTS”的双时间源问题仍是真实风险：<strong>BTelly 已在 <code>DmMaskController.onVideoFrameAnchor()</code> 留空实现，<code>VideoFrameMetadataListener</code> 已不再注册</strong>，但该入口未彻底删除，建议在下一轮重构中直接删掉避免未来误用（原文档“保留为空兼容入口”是带风险的妥协）。</li>
-      </ol>
-    </div>
 
-    <h2>6. webmask 文件语义</h2>
-    <p>我们当前解析的 webmask 结构和参考数据字段是吻合的：</p>
-    <ol class="flow">
-      <li><strong>头部：</strong><code>MASK</code> 魔数，version，reserved，segmentCount。我们在 <code>WebmaskParser.parseSegmentCount()</code> 解析。</li>
-      <li><strong>索引表：</strong>每段 <code>timeMs + byteOffset</code>，每条 16 字节。我们在 <code>parseSegmentMeta()</code> 解析为 <code>LazyMaskSegment</code>。</li>
-      <li><strong>段数据：</strong>每段 gzip，解压后是二进制帧流：<code>uint32 payloadLength + uint64 presentationTimeMs + payload</code>；payload 才以 <code>data:image/svg+xml;base64,</code> 开头。</li>
-      <li><strong>帧内容：</strong>每帧 SVG path 表示允许弹幕绘制的区域，人物/主体区域是洞，需要 <code>EVEN_ODD</code> 填充规则。<strong>注意边界（本次深挖后补充）</strong>：webmask 中可能存在 <code>&lt;path transform="scale(2) translate(10,20)"&gt;</code> 等 transform 属性，也可能 <code>viewBox</code> 不是 <code>(0,0,width,height)</code>（如 PUGV 课程视频主体在右下角），目前 <code>WebmaskParser</code> 只读 <code>width/height</code> 和 <code>d=</code>，<strong>未解析 <code>transform</code> 和 <code>viewBox</code> 偏移</strong>——遇到 PUGV / 非等比显示场景会出现主体错位。</li>
-    </ol>
-
-    <h2>7. 参考逻辑从头到尾</h2>
-    <ol class="flow">
-      <li><strong>请求弹幕 view：</strong>播放器 resolve 阶段请求 <code>DmView</code>。</li>
-      <li><strong>返回 mask 元信息：</strong><code>DmViewReply.mask</code> 中携带 <code>VideoMask</code>。</li>
-      <li><strong>写入互动参数：</strong><code>InteractLayerService.setDmViewReply()</code> 把完整 <code>DmViewReply</code> 保存到 <code>DanmakuParams</code>。</li>
-      <li><strong>交给 Chronos：</strong><code>GetDmView</code> 响应只放 <code>work_id/video_id</code>，完整 protobuf 作为附件传入 Chronos。</li>
-      <li><strong>判断能力可用：</strong><code>DmViewReply.hasMask()</code> 表示当前视频有防遮挡资源。</li>
-      <li><strong>读取用户开关：</strong>设置 key 为 <code>DanmakuMask</code>，默认 true。</li>
-      <li><strong>加载 mask 文件：</strong>用 <code>maskUrl</code> 下载 webmask，按 <code>fps</code> 建立时间线。</li>
-      <li><strong>跟随播放器 clock：</strong><code>RemoteServiceHandler</code> 注册 <code>addPlayerClockChangedObserver</code>，把 <code>current_time</code> 和 <code>playback_rate</code> 发给 Chronos。</li>
-      <li><strong>按 PTS 查帧：</strong>用当前播放器 position 定位 segment 和帧。</li>
-      <li><strong>渲染裁剪：</strong>把 mask path 映射到视频实际显示 bounds，对弹幕层进行裁剪，人物洞内不绘制弹幕。</li>
-      <li><strong>无遮罩语义：</strong>真实普通 video mask 中“无遮罩”表现为全矩形 <code>&lt;path&gt;</code>，不是空 SVG；解码失败不能伪造成空 paths。</li>
-      <li><strong>缺帧语义：</strong>当前段未加载时不应拿旧 PTS 的遮罩硬顶，否则视觉上就是遮罩追不上。</li>
-    </ol>
-
-    <h2>8. 和我们当前实现的差异矩阵</h2>
-    <table>
-      <thead>
-        <tr><th>环节</th><th>参考逻辑</th><th>我们之前的问题</th><th>当前状态</th><th>影响</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>时间源</td>
-          <td>播放器 clock：<code>rate + position</code>。</td>
-          <td>曾用 video frame anchor / UI pipeline delay 估算，容易和弹幕层 clock 分叉。</td>
-          <td><span class="tag tag-ok">已改</span> <code>DmMaskController.currentVideoPtsMs()</code> 使用 <code>player.currentPosition</code>。</td>
-          <td>减少提前/延后漂移。</td>
-        </tr>
-        <tr>
-          <td>预加载时间源</td>
-          <td>和播放状态同步同源：<code>OnPlaybackStatusChanged.current_time</code>。</td>
-          <td><code>onVideoFrameAnchor()</code> 曾用 <code>presentationTimeUs</code> 触发预加载，和绘制查询的 <code>player.currentPosition</code> 分叉。</td>
-          <td><span class="tag tag-ok">已改</span> <code>MyPlayerView</code> 不再注册 <code>VideoFrameMetadataListener</code>；<code>onVideoFrameAnchor()</code> 保留为空兼容入口。</td>
-          <td>修正“段边界处遮罩追不上、闪一下、偶发丢失”。</td>
-        </tr>
-        <tr>
-          <td>半帧补偿</td>
-          <td>未发现参考有半帧补偿字段或逻辑。</td>
-          <td>我们加过 <code>frameDuration / 2</code>，会让 mask 提前约 16ms 或 20ms。</td>
-          <td><span class="tag tag-ok">已删</span></td>
-          <td>避免“提前遮挡”。</td>
-        </tr>
-        <tr>
-          <td>选帧策略</td>
-          <td>按当前 PTS 取当前帧；没有证据表明取未来帧。</td>
-          <td>round-to-nearest 会在两帧中点后提前切下一帧。</td>
-          <td><span class="tag tag-ok">已改</span> <code>DmMaskTimeline.queryAt()</code> 用 floor。</td>
-          <td>避免 mask 先于视频运动。</td>
-        </tr>
-        <tr>
-          <td>空帧处理</td>
-          <td>空帧应保持空，表示当前没有主体遮罩。</td>
-          <td>我们把空帧前向填充成上一帧。</td>
-          <td><span class="tag tag-ok">已删</span></td>
-          <td>修正“遮罩追不上”“旧遮罩拖尾”。</td>
-        </tr>
-        <tr>
-          <td>缺段/缺帧处理</td>
-          <td>缺当前帧时不应用旧 PTS 遮罩冒充。</td>
-          <td>我们曾在 <code>frame == null</code> 时复用 <code>cachedFrame</code>。</td>
-          <td><span class="tag tag-ok">已删</span></td>
-          <td>避免旧遮罩位置错，代价是当前段没加载时会短暂无遮罩。</td>
-        </tr>
-        <tr>
-          <td>预加载策略</td>
-          <td>由播放器 clock/Chronos 播放状态推进，不引入 video frame PTS。</td>
-          <td>之前预加载和绘制查询分属两套时间源。</td>
-          <td><span class="tag tag-ok">已收敛</span> 预加载入口跟随 <code>onPlayerClockChanged()</code>、<code>syncDanmakuPosition()</code>、<code>pushMaskUpdate()</code>。</td>
-          <td>减少跨段空窗；剩余风险变成纯下载/解析速度问题。</td>
-        </tr>
-        <tr>
-          <td>渲染层架构</td>
-          <td>参考 mask 在 Chronos 跨进程 native 端渲染；shader 证据为 <code>CRONDefaultShading() * mask_sample</code>。</td>
-          <td>我们曾在 <code>DanmakuMaskHostLayout.dispatchDraw()</code> 用父级 <code>clipPath</code> 裁剪两个弹幕 View。</td>
-          <td><span class="tag tag-ok">已改</span> 改为 <code>saveLayer + DST_IN</code>，先画弹幕内容，再用当前 mask alpha 合成。</td>
-          <td>仍是单进程 View 方案，但合成语义更接近参考 shader；同时删除缺帧/seek 的旧遮罩复用，避免错 PTS。</td>
-        </tr>
-        <tr>
-          <td>多套 mask 系统</td>
-          <td>普通视频 VideoMask / 用户主动 DmMaskWall / PUGV PlayerMask / 直播 LiveAreaMaskInfo 各自独立。</td>
-          <td>我们只解析 VideoMask 一套；其他三套未做。</td>
-          <td><span class="tag tag-infer">未覆盖</span></td>
-          <td>用户主动“弹幕蒙版”+ 视频自带 mask 可能同时存在；目前混用是弹幕引擎自带功能，与本模块解耦。</td>
-        </tr>
-        <tr>
-          <td>播放器 position interceptor</td>
-          <td>参考在分发前经过 <code>currentPositionInterceptor</code>。</td>
-          <td>我们直接读 Media3 <code>currentPosition</code>，没有等价 interceptor。</td>
-          <td><span class="tag tag-infer">潜在差异</span></td>
-          <td>如果播放器内部有片头跳过、剪辑映射或广告时间轴，可能产生偏差。</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <h2>9. 除了空帧填充，还有哪些差异</h2>
-    <h3>9.1 半帧补偿</h3>
-    <p>这是明确差异。它会让 mask 查询 PTS 比播放器 position 大半个 mask frame。24fps 时约 20ms，30fps 时约 16ms。你看到“要么提前”的一部分来自这里。</p>
-
-    <h3>9.2 round-to-nearest 选帧</h3>
-    <p>round-to-nearest 的本质是在当前帧播放到一半时提前切到下一帧。mask 路径是主体轮廓，主体移动时提前切下一帧会非常明显。参考没有证据支持这种提前切帧。</p>
-
-    <h3>9.3 缺帧复用旧遮罩</h3>
-    <p>这看起来能“防闪”，但时间语义是错的。当前 PTS 查不到帧时复用旧帧，会让遮罩停在旧位置。主体继续移动，视觉上就是遮罩追不上。</p>
-
-    <h3>9.4 当前段预解析不够及时</h3>
-    <p>如果当前段还没下载/解析完成，严格不复用旧帧后会短暂无 mask。这个比旧遮罩错位更接近参考语义，但如果频繁出现，就说明预加载窗口或触发时机还需要加强。最新深挖后已确认：<code>onVideoFrameAnchor()</code> 不应作为预加载时间源；预加载必须跟绘制查询一样使用播放器 clock。否则段加载和画面查询会在段边界处分叉，表现为遮罩闪烁或短暂丢失。</p>
-
-    <h3>9.5 第二时间源：video frame PTS</h3>
-    <p>这是本次继续深挖后新增确认的关键差异。参考的 <code>RemoteServiceHandler</code> 注册 <code>addPlayerClockChangedObserver</code>，再发送 <code>OnPlaybackStatusChanged(current_time, playback_rate)</code>。我们之前虽然绘制查询已改成 <code>player.currentPosition</code>，但预加载仍由 <code>VideoFrameMetadataListener.presentationTimeUs</code> 触发。两套 PTS 在 seek、缓冲、解码排队、段边界附近不保证一致，正好解释“遮罩追不上、被挡住的弹幕闪烁、遮罩偶尔丢失”。</p>
-
-    <h3>9.6 position interceptor 缺失</h3>
-    <p>参考 clock 分发前可经过 <code>InterfaceC37058h</code> 修正 position。我们没有发现 Media3 侧的等价层。如果普通直播视频没有复杂时间轴，这通常不影响；但遇到片头跳过、广告、互动视频、剪辑时间轴，可能造成差异。</p>
-
-    <h3>9.7 渲染架构不同（2026-06-06 修正）</h3>
-    <p>参考的<strong>主 APK 根本不在自己进程内渲染 mask</strong>。mask 真正渲染在 Chronos 跨进程 native 端，主 APK 只发 RPC 把 <code>DmViewReply</code> 和播放状态送过去。最新 native 证据不是简单 <code>clipPath</code>，而是 <code>libchronos.so</code> 里的 fragment shader：读取 <code>cron_mask_texture</code> 的 alpha 得到 <code>mask_sample</code>，再执行 <code>cron_output = CRONDefaultShading() * mask_sample</code>。因此 BTelly 不能继续用父级 <code>clipPath</code> 当作完全等价方案；当前改为 <code>saveLayer + DST_IN</code>，让弹幕内容先绘制完成，再乘当前 mask alpha。</p>
-
-    <h2>10. 当前 BTelly 链路</h2>
-    <ol class="flow">
-      <li><strong>ViewModel 状态：</strong><code>VideoPlayerViewModel.DmMaskState.Ready(maskUrl, cid, fps)</code> 表示拿到 mask 元信息。</li>
-      <li><strong>播放器视图接入：</strong><code>MyPlayerView</code> 给 <code>DmMaskController</code> 注入 <code>player.currentPosition</code>。</li>
-      <li><strong>加载：</strong><code>DmMaskController.loadMask()</code> 调用 <code>DmMaskRepository.downloadAndParse()</code>。</li>
-      <li><strong>Range 解析：</strong><code>DmMaskRepository</code> 先拉 header 和 meta，再按段拉数据。</li>
-      <li><strong>SVG 解析：</strong><code>WebmaskParser.parseSegmentFrames()</code> 解 gzip、base64、SVG path。</li>
-      <li><strong>时间查询：</strong><code>DmMaskController.currentVideoPtsMs()</code> 返回播放器 position。</li>
-      <li><strong>预加载推进：</strong><code>onPlayerClockChanged()</code> 和 <code>pushMaskUpdate()</code> 按播放器 clock 预解析当前段附近；<code>VideoFrameMetadataListener</code> 不再参与 mask。</li>
-      <li><strong>选帧：</strong><code>DmMaskTimeline.queryAt()</code> 根据 PTS 定位 segment 和 frame。</li>
-      <li><strong>渲染：</strong><code>DanmakuMaskHostLayout.dispatchDraw()</code> 把当前帧 path 映射到视频 bounds；弹幕子 View 先绘制到 layer，再用 <code>DST_IN</code> 按当前 mask alpha 合成。</li>
-    </ol>
-
-    <h2>11. 剩余风险和建议</h2>
-    <table>
-      <thead><tr><th>风险</th><th>原因</th><th>建议</th></tr></thead>
-      <tbody>
-        <tr>
-          <td>偶发无遮罩</td>
-          <td>当前 segment 未缓存时，严格复刻语义会不画旧遮罩；现在已去掉第二时间源，剩余主要是下载/解析速度。</td>
-          <td>继续观察 missing segment 日志；如果仍频繁出现，扩大播放器 clock 驱动的预加载窗口，而不是恢复 video frame PTS。</td>
-        </tr>
-        <tr>
-          <td>特殊视频时间轴偏差</td>
-          <td>参考有 currentPositionInterceptor，我们没有。</td>
-          <td>确认 Media3 侧是否存在 position 映射；如果有，mask 和弹幕必须共用映射后的时间。</td>
-        </tr>
-        <tr>
-          <td>边缘锯齿或性能问题</td>
-          <td>View <code>clipPath</code> 与参考内部引擎实现不同。</td>
-          <td>先解决时间对齐；若时间正确但边缘差，再考虑 bitmap alpha mask 或引擎层裁剪。</td>
-        </tr>
-        <tr>
-          <td>参考渲染消费者未完全反混淆</td>
-          <td>本次深挖后已确认：mask 真正渲染在 <code>libchronos.so</code> 跨进程 native 端，<strong>主 APK 自身不消费</strong>。原“可能在混淆底层或 native/engine 里”的猜测方向对，但描述太模糊。</td>
-          <td>继续追 <code>VideoMask.getMaskUrl()</code> 的 smali 引用点没有意义——全 smali 中 <strong>0 次调用</strong>；smali 看不到 native 内部。如果要 native 联调，需要从 Chronos 仓库或逆向 <code>libchronos.so</code> 入手。</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <h2>12. 最终判断</h2>
-    <div class="warning">
-      <p><strong>这次不该只修一个点。</strong>空帧前向填充是造成“遮罩拖尾/追不上”的强原因，但还有半帧补偿、round-to-nearest、缺帧复用旧遮罩三个时间语义差异。它们叠加后，就会表现为你看到的“有时提前、有时延后、有时闪一下”。</p>
-      <p>本次继续深挖后，另一个必须修掉的根因是 <strong>video frame PTS 作为预加载第二时间源</strong>。更接近参考的策略是：<strong>播放器 clock 原样查询并驱动预加载，floor 取当前帧，空帧为空，缺帧不复用旧遮罩，通过同一 clock 的预加载减少缺帧。</strong></p>
-      <p><strong>本次深挖修正记录（追加）：</strong>前文第 2 节“确认点”、第 4 节字段用途、第 5.2 节“新增结论”、第 6 节“webmask 文件语义”、第 8 节“渲染层架构”与新增“多套 mask 系统”、第 9.7 节、第 11 节“参考渲染消费者”均已就地修正。核心修正是：<strong>mask 真正渲染在 Chronos 跨进程（<code>libchronos.so</code>），主 APK 是 RPC stub</strong>；原“主 APK 与 Chronos 共用 clock”的描述是过度简化。后续追加章节 14~24 是补充视角（原 1~13 章不再回头大改，只在错误处就地修）。</p>
-    </div>
-
-    <h2>13. 关键文件索引</h2>
-    <table>
-      <thead><tr><th>类型</th><th>路径</th><th>作用</th></tr></thead>
-      <tbody>
-        <tr><td>参考资源</td><td><code class="path">E:\MyTool\bili\out\apktool\res\layout\bili_player_new_danmaku_mask_view_holder.xml</code></td><td>主体防挡设置项。</td></tr>
-        <tr><td>参考模型</td><td><code class="path">E:\MyTool\bili\out\jadx\sources\com\bapis\bilibili\community\service\dm\v1\DmViewReply.java</code></td><td><code>mask_</code> 字段和 <code>hasMask()</code>。</td></tr>
-        <tr><td>参考模型</td><td><code class="path">E:\MyTool\bili\out\apktool\smali_classes26\com\bapis\bilibili\community\service\dm\v1\VideoMask.smali</code></td><td><code>cid/fps/time/maskUrl</code>。</td></tr>
-        <tr><td>参考开关</td><td><code class="path">E:\MyTool\bili\out\apktool\smali_classes21\Bi1\a.smali</code></td><td><code>DanmakuMask</code> 与 <code>dm_mask</code>。</td></tr>
-        <tr><td>参考 clock</td><td><code class="path">E:\MyTool\bili\out\jadx\sources\Dh1\L.java</code></td><td><code>onPlayerClockChanged(rate, position)</code>。</td></tr>
-        <tr><td>参考 Chronos</td><td><code class="path">E:\MyTool\bili\out\apktool\smali_classes21\tv\danmaku\biliplayerv2\service\interact\biz\chronos\chronosrpc\remote\RemoteServiceHandler.smali</code></td><td><code>addPlayerClockChangedObserver</code>、<code>OnPlaybackStatusChanged.current_time</code>。</td></tr>
-        <tr><td>参考互动层</td><td><code class="path">E:\MyTool\bili\out\apktool\smali_classes21\tv\danmaku\biliplayerv2\service\interact\biz\InteractLayerService.smali</code></td><td><code>setDmViewReply()</code> 写入 <code>DanmakuParams</code>。</td></tr>
-        <tr><td>当前实现</td><td><code class="path">app/src/main/java/com/btelly/feature/player/view/DmMaskController.kt</code></td><td>mask 控制、clock、预加载。</td></tr>
-        <tr><td>当前实现</td><td><code class="path">app/src/main/java/com/btelly/model/dm/DmMaskTimeline.kt</code></td><td>按 PTS 查帧。</td></tr>
-        <tr><td>当前实现</td><td><code class="path">app/src/main/java/com/btelly/model/dm/WebmaskParser.kt</code></td><td>webmask/SVG 解析。</td></tr>
-        <tr><td>当前实现</td><td><code class="path">app/src/main/java/com/btelly/feature/player/view/DanmakuMaskHostLayout.kt</code></td><td><code>saveLayer + DST_IN</code> alpha 合成。</td></tr>
-      </tbody>
-    </table>
-
-    <h2>14. 补充分析的边界声明</h2>
-    <p>本章及之后是本次深挖的补充视角。原 1~13 章保持原貌，仅在错误判断处就地修正（前文已用“（本次深挖后修正）”“（本次深挖后补充）”标注）。补充章节内容来自对参考 smali 的全包引用扫描、对 BTelly 当前实现的状态机审计，以及对 <code>libchronos.so</code> 独立 native 进程的识别。</p>
-    <p>补充章节包含三条主线：</p>
-    <ul>
-      <li><strong>架构盲区</strong>：mask 真正消费者是 Chronos 跨进程，主 APK 是 RPC stub（第 15 节）。</li>
-      <li><strong>时序妥协</strong>：floor 选帧的物理含义是“延后 1 帧 ≈ 16ms”，不是真正对齐（第 16 节）。</li>
-      <li><strong>边界 bug</strong>：webmask 解析、状态机、SVG transform、三套 mask 系统等 HTML 没分析的角落（第 17~22 节）。</li>
-    </ul>
-
-    <h2>15. 架构层盲区：mask 真正消费者是 Chronos 跨进程</h2>
-    <p>第 5.2 节已就地修正。这里集中列出所有证据，便于一次看清楚为什么“主 APK 与 Chronos 共用 clock”是<strong>过度简化</strong>。</p>
-
-    <h3>15.1 关键证据</h3>
-    <table>
-      <thead><tr><th>证据</th><th>位置</th><th>含义</th></tr></thead>
-      <tbody>
-        <tr>
-          <td><code>libchronos.so</code> 独立 native 库</td>
-          <td><code class="path">E:\MyTool\bili\out\apktool\lib\arm64-v8a\libchronos.so</code></td>
-          <td>Chronos 是独立 native 进程，不在主 APK 进程内。</td>
-        </tr>
-        <tr>
-          <td><code>libandroidx.graphics.path.so</code></td>
-          <td><code class="path">E:\MyTool\bili\out\apktool\lib\arm64-v8a\libandroidx.graphics.path.so</code></td>
-          <td>path 几何加速 native 库，Chronos 端 mask 渲染依赖。</td>
-        </tr>
-        <tr>
-          <td><code>setMaskEnabled(Boolean)</code></td>
-          <td><code class="path">chronos/chronosrpc/a.smali:2706</code></td>
-          <td>把 mask 用户开关作为 Chronos 协议响应的一部分写回——这是 mask 状态被广播的入口。</td>
-        </tr>
-        <tr>
-          <td><code>setBlockMask(Boolean)</code></td>
-          <td><code class="path">chronos/chronosrpc/a.smali:3388</code></td>
-          <td>远端互动层使用“块级 mask”概念，是 Chronos 端另一套 mask 状态。</td>
-        </tr>
-        <tr>
-          <td><code>DmViewReply.hasMask()</code> 全包扫描</td>
-          <td>全 smali 中 <strong>1</strong> 次调用</td>
-          <td>唯一调用点是 <code>Bi1/a.smali:167</code>，且只用于 <code>dm_mask</code> 三态数据上报——主 APK 自身不消费 mask 数据做渲染。</td>
-        </tr>
-        <tr>
-          <td><code>VideoMask.getMaskUrl()</code> 全包扫描</td>
-          <td>全 smali 中 <strong>0</strong> 次调用</td>
-          <td>主 APK 没有任何地方读 <code>maskUrl_</code>——证明 webmask 下载/解析/渲染全在 Chronos 端。</td>
-        </tr>
-        <tr>
-          <td><code>DanmakuMask</code> 字符串出现位置</td>
-          <td>全 smali 中 <strong>5</strong> 次</td>
-          <td>5 处都是 SharedPreferences 读 <code>getBoolean("DanmakuMask", true)</code>：<code>Bi1/a.smali:86</code>（dm_mask 上报）、<code>chronos/chronosrpc/a.smali:2228</code>（chronos 协议响应）、<code>RemoteServiceHandler.smali:3893/6729/9854</code> + <code>RemoteServiceHandler$e.smali:286</code>（远端处理器配置）——全是开关读取，没有任何 mask 数据消费。</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <h3>15.2 推论：主 APK 的真实工作流</h3>
-    <ol class="flow">
-      <li>主 APK 调 <code>DanmakuView</code> 接口拿 <code>DmViewReply</code>（含 <code>VideoMask</code>）。</li>
-      <li>主 APK 写埋点 <code>dm_mask = (hasMask + user)?1:-1:0</code>，<strong>仅用于数据上报</strong>。</li>
-      <li>主 APK 调 <code>getBoolean("DanmakuMask", true)</code> 读用户开关，写到 <code>GetDanmakuConfig$Response.setMaskEnabled()</code>。</li>
-      <li>主 APK 调 <code>addPlayerClockChangedObserver</code>，把 <code>(rate, position)</code> 通过 <code>OnPlaybackStatusChanged</code> 发给 Chronos。</li>
-      <li>Chronos 进程下载 webmask → 解析为 mask 纹理/路径 → shader 中读取 <code>cron_mask_texture</code> alpha → 输出到独立 native surface。</li>
-    </ol>
-    <p>主 APK 在这条链路上<strong>完全是 RPC 客户端</strong>。原文档把 Chronos 描述为“持有同一份 DmViewReply 的远端处理器”是模糊的——实际上“同一份”指的是“<code>DmViewReply.toByteArray()</code> 序列化后通过 <code>GetDmView</code> 附件 map 跨进程传过去”，不是“主 APK 共享渲染上下文”。</p>
-
-    <h3>15.3 对 BTelly 实现的真实意义</h3>
-    <p>原文档第 8 节“渲染层架构”行写“<span class="tag tag-infer">实现不同</span> 但语义可接近”，本次修正为 <span class="tag tag-risk">架构不同</span>，理由：</p>
-    <ul>
-      <li>参考是<strong>IPC + native Skia</strong>，主 APK 渲染层不知道 mask 存在；我们是<strong>View tree + HWUI</strong>，mask 直接耦合到 host view。</li>
-      <li>参考的 mask 输出是独立 surface，跟视频 surface 合成顺序由 SurfaceFlinger 决定；我们是 FrameLayout 叠加，合成顺序由 View tree 决定。</li>
-      <li>抗锯齿/性能/合成时机都是不同维度问题，<strong>没有“语义可接近”的工程化证据</strong>。</li>
-    </ul>
-    <p>实际可行的折中：接受单进程 View 方案在普通视频场景下时间语义是对的（这是 HTML 已确认的），但要明确“这不是 native 方案的近似，是不同架构”。</p>
-
-    <h2>16. 时序层盲区：floor + 不预取未来帧 = 延后 1 帧</h2>
-    <p>原文档第 9 节“除了空帧填充，还有哪些差异”分析了半帧补偿、round-to-nearest 等选帧策略，<strong>没分析 floor 选帧的物理含义</strong>。这是更深的一层。</p>
-
-    <h3>16.1 视频路径的物理时序</h3>
-    <p>视频帧走独立 surface，不依赖 view 系统：</p>
-    <ol class="flow">
-      <li><code>t = 0 ms</code>：decoder 解码视频帧 N，<code>releaseNs</code> 写入 surface。</li>
-      <li><code>t = 0~16.67 ms</code>：SurfaceFlinger 在 <code>t = 16.67 ms</code> vsync 合成帧 N 上屏。</li>
-      <li><code>t = 16.67 ms</code>：视频帧 N+1 释放，<code>t = 33.33 ms</code> 上屏。</li>
-    </ol>
-    <p>结论：视频帧 N 从 <code>releaseNs</code> 到上屏延迟 1 vsync ≈ 16.67ms（60Hz）。</p>
-
-    <h3>16.2 mask 路径的物理时序</h3>
-    <p>mask 走 View 系统，<code>DanmakuMaskHostLayout.dispatchDraw()</code> 拿当前 <code>player.currentPosition</code> 查帧并 clipPath：</p>
-    <ol class="flow">
-      <li><code>t = 0 ms</code>：父容器 <code>invalidate</code>，主线程在 <code>t = 0~16.67 ms</code> 之间某时刻执行 <code>dispatchDraw</code>。</li>
-      <li>读 <code>player.currentPosition</code>，floor 查 mask frame。</li>
-      <li><code>saveLayer + super.dispatchDraw + DST_IN</code> 提交给 RenderNode。</li>
-      <li><code>t = 16.67 ms</code> vsync：mask + 弹幕上屏。</li>
-    </ol>
-
-    <h3>16.3 时序对照表</h3>
-    <table>
-      <thead><tr><th>时刻 (vsync)</th><th>视频上屏</th><th>mask 上屏（floor + 不预取未来帧）</th><th>视觉一致性</th></tr></thead>
-      <tbody>
-        <tr><td>0</td><td>（准备 release）</td><td>（尚未合成）</td><td>—</td></tr>
-        <tr><td>1 (16.67ms)</td><td>视频帧 N</td><td>mask(frame_for_position_N)</td><td>✅ 对齐</td></tr>
-        <tr><td>2 (33.33ms)</td><td>视频帧 N+1</td><td>mask(frame_for_position_N)（因为 floor 还在取 frame N）</td><td>❌ mask 落后 1 帧 ≈ 16.67ms</td></tr>
-        <tr><td>3 (50ms)</td><td>视频帧 N+2</td><td>mask(frame_for_position_N+1)</td><td>✅ 重新对齐</td></tr>
-      </tbody>
-    </table>
-    <p>“<strong>1 vsync 物理对称性自动消解</strong>”这一说法（<code>mask.md</code> 原文）<strong>只在 vsync=1 成立</strong>，之后每一帧 mask 都延后 1 帧。</p>
-
-    <h3>16.4 三种选帧策略对比</h3>
-    <table>
-      <thead><tr><th>策略</th><th>vsync=1</th><th>vsync=2</th><th>vsync=3</th><th>用户感知</th></tr></thead>
-      <tbody>
-        <tr>
-          <td><strong>floor</strong>（当前实现）</td>
-          <td>✅ 对齐</td>
-          <td>❌ 延后 1 帧</td>
-          <td>✅ 对齐</td>
-          <td>50% 时间延后 1 帧；mask 永远不“抢跑”。</td>
-        </tr>
-        <tr>
-          <td><strong>ceiling</strong></td>
-          <td>❌ 提前 1 帧</td>
-          <td>✅ 对齐</td>
-          <td>❌ 提前 1 帧</td>
-          <td>50% 时间提前 1 帧；mask 在主体运动时会“抢跑”遮挡。</td>
-        </tr>
-        <tr>
-          <td><strong>round-to-nearest</strong></td>
-          <td>—</td>
-          <td>—</td>
-          <td>—</td>
-          <td>50/50 随机提前/延后；主体轮廓高频移动时最刺眼。</td>
-        </tr>
-      </tbody>
-    </table>
-    <p>原文档第 9.2 节说“round-to-nearest 会在两帧中点后提前切下一帧”，分析对；<strong>但没分析 floor 也有 50% 时间延后的问题</strong>。floor 是“参考行为”，但不是“完美对齐”。</p>
-
-    <h3>16.5 真正消除 1 帧延后需要做的</h3>
-    <p>如果想 mask 跟视频像素级对齐，必须让 mask 查询的 PTS = “即将上屏的”视频帧 PTS，而不是“当前已上屏的”视频帧 PTS：</p>
-    <ul>
-      <li>主线程在 <code>t = 0</code> 时刻 <code>dispatchDraw</code>，提交后上屏是 <code>t = 16.67 ms</code>——mask 应该查 <code>player.currentPosition + 16.67 ms</code> 处的 frame。</li>
-      <li>但 16.67ms 是屏的 vsync 周期，要从 <code>Display.refreshRate</code> 算出来，不能写死 60Hz 假设。</li>
-      <li>120Hz 屏 = 8.33ms，144Hz 屏 = 6.94ms。这个数会改变 mask 查询的 PTS 偏移。</li>
-    </ul>
-    <p>原文档“通过同一 clock 的预加载减少缺帧”是更现实的解法——不去解决 1 帧延后（因为没有 100% 解），而是减少跨段空窗（人眼对“突然没遮罩”比“延后 1 帧”敏感）。</p>
-
-    <h2>17. 字段层细节：HTML 没分析的 VideoMask 字段边界</h2>
-
-    <h3>17.1 <code>dm_mask</code> 三态上报的工程影响</h3>
-    <p>原文档第 2 节“确认点”已修正为三态：</p>
-    <table>
-      <thead><tr><th>hasMask</th><th>用户开关</th><th>上报值</th><th>A/B 分组语义</th></tr></thead>
-      <tbody>
-        <tr><td>true</td><td>true</td><td>1</td><td>“体验正常”组。</td></tr>
-        <tr><td>true</td><td>false</td><td>-1</td><td>“有资源但用户主动关”——典型不喜欢 mask 遮挡的人群。</td></tr>
-        <tr><td>false</td><td>—</td><td>0</td><td>“视频没资源”——服务端没下发 mask。</td></tr>
-      </tbody>
-    </table>
-    <p><strong>我们 BTelly 没上报 dm_mask</strong>。如果以后要加埋点，注意 -1 是合法的 int 值，JSON 序列化正常，但下游聚合时如果按 boolean 处理会丢 -1 那一组。</p>
-
-    <h3>17.2 <code>plat_</code> 字段的工程影响</h3>
-    <p>原文档第 4 节已修正：<code>plat_</code> 是 CDN 选路标识。BTelly 当前不读这个字段——但<strong>必须保留字段解析</strong>。原因是后端下发 <code>VideoMask</code> 时可能根据 <code>plat_</code> 决定是否填 <code>maskUrl_</code>：如果客户端不解析 <code>plat_</code>，后端可能不下发 android 平台的 URL。</p>
-
-    <h3>17.3 <code>time_</code> 字段的工程影响</h3>
-    <p>原文档第 4 节已修正：<code>time_</code> 用于 HTTP 缓存协商。当前 <code>maskUrl_</code> 字符串已带 <code>?time=xxx</code> 参数，BTelly 不需要单独读 time_。但如果哪天 mask URL 改成相对路径（如 <code>/mask/{cid}.mask</code>），需要回退方案：</p>
-    <pre><code>// 伪代码：未来可能需要
-val url = if (mask.maskUrl_.startsWith("http") || mask.maskUrl_.startsWith("//")) {
-    mask.maskUrl_
-} else {
-    "${CDN_BASE}/${mask.cid_}.mask?time=${mask.time_}"
-}</code></pre>
-
-    <h3>17.4 <code>maskUrl_</code> 空串 vs 未设值的边界</h3>
-    <p>proto3 里 <code>string</code> 字段未设置会得到 <code>""</code>，与 <code>null</code> 等价。但 <code>WebmaskParser.parseSegmentCount</code> 收到“0 byte body 200 OK”会返回 <code>-1</code>，导致 <code>downloadAndParse</code> 返回 <code>null</code>。<strong>建议</strong>：在 <code>rangeFetchWithTotal</code> 里把 <code>bytes.isEmpty() &amp;&amp; code == 200</code> 显式当失败处理，<code>AppLog.e</code> 标注 <code>empty body</code>。</p>
-
-    <h2>18. 三套 mask 系统并存问题</h2>
-    <p>原文档只看了普通视频 <code>VideoMask</code> 一套，<strong>没看其他三套</strong>。B 站至少存在 4 套互不相同的 mask 概念：</p>
-    <table>
-      <thead><tr><th>字段/类</th><th>路径</th><th>用途</th><th>消费场景</th></tr></thead>
-      <tbody>
-        <tr>
-          <td><code>VideoMask</code></td>
-          <td><code class="path">com/bapis/bilibili/community/service/dm/v1/VideoMask</code></td>
-          <td>视频自带主体防挡（HTML 主体）。</td>
-          <td>普通视频。</td>
-        </tr>
-        <tr>
-          <td><code>DmMaskWall</code> + <code>DmMaskWallContent</code> + <code>DmMaskWallBizType</code> + <code>DmMaskWallContentType</code></td>
-          <td><code class="path">com/bapis/bilibili/community/service/dm/v1/DmMaskWall*.smali</code></td>
-          <td>用户主动开启的“弹幕蒙版”——按关键词/类型屏蔽某些弹幕。</td>
-          <td>普通视频 + 用户配置。</td>
-        </tr>
-        <tr>
-          <td><code>PlayerMask</code></td>
-          <td><code class="path">com/bapis/bilibili/app/playerunite/pugvanymodel/PlayerMask</code></td>
-          <td>PUGV / 课程视频的 mask 字段，协议独立于 <code>DmViewReply</code>。</td>
-          <td>PUGV / 课程。</td>
-        </tr>
-        <tr>
-          <td><code>LiveAreaMaskInfo</code> + <code>AreaMasks</code> + <code>AreaMaskItem</code> + <code>FullMaskData</code></td>
-          <td><code class="path">m/bilibili/bililive/videoliveplayer/net/beans/mask/</code></td>
-          <td>直播的“区域蒙版”——按主播预设区域屏蔽某些弹幕。</td>
-          <td>直播间。</td>
-        </tr>
-      </tbody>
-    </table>
-    <p><strong>BTelly 实际只覆盖第一套</strong>。其他三套的实际情况：</p>
-    <ul>
-      <li><strong>DmMaskWall</strong>：用户自己配置的关键词过滤，<strong>跟本模块解耦</strong>，是弹幕引擎自带功能。我们不需要管。</li>
-      <li><strong>PlayerMask</strong>：PUGV 业务独立协议，<strong>目前 BTelly 不支持 PUGV</strong>，暂无需处理。</li>
-      <li><strong>LiveAreaMaskInfo</strong>：直播场景，<strong>BTelly 还不支持直播</strong>，暂无需处理。</li>
-    </ul>
-    <p>所以第 8 节新增的“多套 mask 系统”行标注 <span class="tag tag-infer">未覆盖</span>——<strong>实际是“业务不重叠，无需覆盖”</strong>，<strong>不是“实现漏了”</strong>。等以后做 PUGV / 直播时再单独设计。</p>
-
-    <h2>19. webmask 解析边界 bug</h2>
-    <p>原文档第 6 节描述了 webmask 文件结构，<strong>没分析解析时的边界 bug</strong>。下面是 <code>WebmaskParser</code> 当前实现里的潜在问题。</p>
-
-    <h3>19.1 段内帧 PTS 的整数除法漂移</h3>
-    <pre><code>val ptsMs = if (totalFrames &gt; 1 &amp;&amp; segDurationMs &gt; 0L) {
-    segment.timeMs + (localIdx.toLong() * segDurationMs) / totalFrames
-} else if (fps &gt; 0) {
-    segment.timeMs + localIdx.toLong() * 1000L / fps
-} else {
-    segment.timeMs
-}</code></pre>
-    <p>实际例子：30fps 段长度 6500ms，<code>totalFrames=195</code>，<code>localIdx * 6500 / 195</code>：</p>
-    <ul>
-      <li><code>localIdx=0</code> → 0ms</li>
-      <li><code>localIdx=1</code> → 33ms（理想 33.33）</li>
-      <li><code>localIdx=2</code> → 66ms（理想 66.67）</li>
-      <li>…</li>
-      <li><code>localIdx=194</code> → 6466ms（理想 6466.67）</li>
-    </ul>
-    <p>单帧差 0.33ms，195 帧累积差 ≈ 0ms（数学上会抵消）——<strong>实际影响不大</strong>，但<strong>当段内 fps 跟 mask fps 不一致时</strong>（罕见但发生过），会系统性偏移。</p>
-    <p><strong>建议</strong>：改为浮点除法 + 取整，或读 webmask 段的 <code>frameDuration</code> 字段（如果存在）。</p>
-
-    <h3>19.2 <code>H</code> / <code>V</code> 命令的状态机风险</h3>
-    <p><code>svgPathToAndroidPath</code> 的 <code>H</code> 分支：</p>
-    <pre><code>'H' -> {
-    currentX = absoluteX(tokens[i])
-    path.lineTo(currentX, currentY)
-    resetSmoothControls()
-    i += 1
-}</code></pre>
-    <p>SVG path d 字符串里 <code>H 100 200 300</code> 是<strong>三个值</strong>共用一个 <code>H</code> 命令。当前实现读完一个值后 <code>i += 1</code>，下一个数字 token 进入 <code>default</code> 分支，触发 <code>i++</code>，回到 <code>while</code> 头部，<code>currentCommand</code> 还是 <code>H</code>——能 work，但<strong>完全靠"default 分支 return false 后回到外层 while 重新 dispatch"</strong>，可读性极差且容易出 bug。</p>
-    <p><strong>建议</strong>：把 H/V/L/M 改成“内层 while 消费所有数字 token”。这是 30 行代码的改动，但能避免未来在 <code>c</code>/<code>q</code>/<code>t</code> 改命令时漏改。</p>
-
-    <h3>19.3 SVG <code>transform</code> 属性未解析</h3>
-    <p>webmask 里可能存在 <code>&lt;path transform="scale(2) translate(10,20)"&gt;</code>。当前 <code>WebmaskParser</code> 只读 <code>d=</code>，<strong>不解析 <code>transform</code></strong>。这意味着：</p>
-    <ul>
-      <li>横竖屏切换：人物 path 在 SVG 坐标系里可能被整体缩放/平移，我们没意识到这点。</li>
-      <li>非等比显示：surface bounds 跟 SVG viewBox 不一致时，<code>transform</code> 差异会被放大。</li>
-    </ul>
-    <p><strong>建议</strong>：用 Android <code>androidx.core.graphics.PathParser</code> 解析 <code>transform</code> 字符串，或自己写一个 <code>Matrix</code> 应用层。</p>
-
-    <h3>19.4 <code>MaskFrame</code> 缺 viewBox 偏移</h3>
-    <p>当前 <code>MaskFrame(presentationTimeMs, paths, svgWidth, svgHeight)</code> 假定 SVG viewBox 起点在 (0,0)。但 PUGV 课程视频可能用 <code>viewBox="100 50 320 180"</code>——人物区域在 (100,50) 起点，<strong>当前实现会按 (0,0) 起点映射到视频 bounds</strong>，主体错位 100 像素左右。</p>
-    <p><strong>建议</strong>：扩展 <code>MaskFrame</code> 增加 <code>viewBoxX</code>、<code>viewBoxY</code> 字段，<code>DanmakuMaskHostLayout</code> 渲染时把 <code>dx = bounds.left - viewBoxX * sx</code> 算回去。</p>
-
-    <h3>19.5 BOM 头与 0 byte body</h3>
-    <p>当前解析流程不防 BOM：</p>
-    <ul>
-      <li>HTTP 响应如果带 UTF-8 BOM（极罕见但发生过），<code>Base64.decode</code> 会把 BOM 当 base64 数据，SVG 解析失败。</li>
-      <li>CDN 200 OK + 0 byte body 时 <code>parseSegmentCount</code> 返回 <code>-1</code>，但 <code>parseSegmentMeta</code> 之前已经走通头部解析，行为不一致。</li>
-    </ul>
-    <p><strong>建议</strong>：</p>
-    <pre><code>if (bytes.isEmpty()) {
-    AppLog.e(TAG, "Empty body for range $start-$end")
-    return null
-}
-// SVG 解析前剥 BOM
-val svgText = if (svgText.startsWith("\uFEFF")) svgText.substring(1) else svgText</code></pre>
-
-    <h3>19.6 gzip 流式解压 OOM 风险</h3>
-    <p><code>parseSegmentFrames</code> 用 <code>ByteArrayOutputStream</code> 一次性读完 gzip 输出。普通段 ≈ 100KB 没问题，<strong>但极端长视频的某段可能 5MB+</strong>，一次性内存分配会触发 OOM。</p>
-    <p><strong>建议</strong>：改用 <code>GZIPInputStream</code> 直接喂给 <code>Base64.decode</code> 包装的 <code>InputStream</code>，边读边解析，避免一次性 byte[] 分配。</p>
-
-    <h2>20. 状态机边界</h2>
-    <p>原文档第 10 节描述了 BTelly 链路，<strong>没分析状态转换时的边界问题</strong>。下面 6 个状态机边界在用户场景里高频触发，但当前实现都没特殊处理。</p>
-
-    <h3>20.1 ExoPlayer <code>STATE_BUFFERING</code></h3>
-    <p>播放器进入 BUFFERING 时：</p>
-    <ul>
-      <li><code>player.currentPosition</code> <strong>不变</strong>（停在最后一个能播到的位置）。</li>
-      <li>主线程 <code>dispatchDraw</code> 还在跑（如果 host 还可见）。</li>
-      <li>视频 surface 不再 release 新帧（停在旧帧）。</li>
-    </ul>
-    <p>当前 <code>DmMaskController.currentVideoPtsMs()</code> 总是返回 <code>player.currentPosition</code> → mask 钉在旧 PTS。但<strong>视频也钉在旧帧</strong>，所以对得上。</p>
-    <p><strong>风险</strong>：BUFFERING 期间 host 还在重绘（虽然内容不变），会浪费 CPU。<strong>建议</strong>：在 <code>setPlaying(false)</code> 或 <code>STATE_BUFFERING</code> 回调里停止 <code>Choreographer</code> 循环。</p>
-
-    <h3>20.2 <code>playbackSpeed</code> 切换</h3>
-    <pre><code>fun setPlaybackSpeed(speed: Float) {
-    if (speed.isFinite() &amp;&amp; speed &gt; 0f) {
-        onPlayerClockChanged(speed, currentVideoPtsMs())
-    }
-}</code></pre>
-    <p>速度切换时：</p>
-    <ul>
-      <li><code>clockPositionMs = currentVideoPtsMs()</code>，重置 <code>clockRealtimeMs</code>——外推窗口清零，<strong>对的</strong>。</li>
-      <li>但 <code>lastPreloadedSegIndex = -1</code> <strong>没 reset</strong>——2.0x 播放跨段速度变快时，<code>maybePreloadAroundCurrentPts</code> 不会重新触发预解析。</li>
-    </ul>
-    <p><strong>建议</strong>：在 <code>setPlaybackSpeed</code> 里 <code>lastPreloadedSegIndex = -1</code>。</p>
-
-    <h3>20.3 Seek 后的 0~200ms 窗口</h3>
-    <p><code>onSeek()</code> 流程：</p>
-    <ol class="flow">
-      <li><code>awaitingSeekReady = true</code>，<code>lastPreloadedSegIndex = -1</code>。</li>
-      <li><code>clearMask()</code> → invalidate。</li>
-      <li>等 <code>playbackReady</code> + <code>seekReadyAt</code> → 重新开始。</li>
-    </ol>
-    <p><strong>2026-06-06 修正：</strong>这段早期建议已废弃。旧建议“seek 后冻结旧帧 100ms”会把旧 PTS 遮罩套到新画面上，正是“遮罩追不上”的来源之一。当前实现改为 <code>onSeek()</code> 立即 <code>clearCachedMask()</code>，<code>SEEKING</code> 期间 <code>shouldRenderMask=false</code>，等播放器 ready 后再按当前 <code>player.currentPosition</code> 查当前帧。</p>
-
-    <h3>20.4 横竖屏切换</h3>
-    <p>转屏动画期间 <code>dispatchDraw</code> 拿旧 <code>videoBounds</code>：</p>
-    <ul>
-      <li><code>videoBoundsProvider</code> 返回 host view 的实时 bounds，转屏动画期间这个 bounds 跟视频 surface bounds 不一致。</li>
-      <li>mask path 按旧 bounds 缩放，绘制到 host view 上 → 视觉上“mask 不跟视频走”。</li>
-    </ul>
-    <p>当前 <code>DanmakuMaskHostLayout</code> 在转屏期间不主动 invalidate，<strong>所以“mask 钉在旧位置”直到下次 invalidate</strong>。</p>
-    <p><strong>建议</strong>：在 <code>onConfigurationChanged</code> 里强制 invalidate 一次。</p>
-
-    <h3>20.5 后台回前台 / UI 卡顿</h3>
-    <p>旧实现曾用 <code>JankMonitor</code> 统计 <code>Choreographer</code> 间隔，并在持续卡顿时自动关闭 mask：</p>
-    <ol class="flow">
-      <li>后台期间 <code>vsyncIntervalEmaNs</code> EMA 被脏数据污染（间隔 1 秒+）。</li>
-      <li>回到前台后 <code>vsyncIntervalEmaNs</code> 还是大值。</li>
-      <li>5 秒后 <code>triggerAutoDisable()</code> 把 mask 关掉。</li>
-    </ol>
-    <p>这是<strong>参考没有的行为</strong>，会制造整块人物区域突然露出的假象。最新实现已移除自动关闭逻辑；<code>Choreographer</code> 只负责 ACTIVE 状态下持续 invalidate mask host。</p>
-
-    <h3>20.6 弹幕全过滤导致 host 不重绘</h3>
-    <p>如果用户开启了关键词屏蔽（<code>DmMaskWall</code>），所有弹幕都被过滤掉 → 弹幕 view 不再 invalidate → <code>DanmakuMaskHostLayout</code> 不重绘。</p>
-    <p>场景：用户切到“弹幕蒙版全开”，<strong>mask 永远停在第一帧</strong>。如果第一帧是人物全开 mask，后续视频切到“人物关闭 mask”——但 host 不重绘，<strong>用户看到的还是“人物全开”</strong>。</p>
-    <p><strong>建议</strong>：在 <code>DanmakuFilter</code> 变化监听里强制 invalidate 一次 host。</p>
-
-    <h2>21. 原文档两个错误判断</h2>
-
-    <h3>21.1 “<code>onVideoFrameAnchor()</code> 保留为空兼容入口” 是带风险的妥协</h3>
-    <p>原文档第 8 节写“<code>MyPlayerView</code> 不再注册 <code>VideoFrameMetadataListener</code>；<code>onVideoFrameAnchor()</code> 保留为空兼容入口”。本次深挖认为这个保留是<strong>带风险的</strong>：</p>
-    <ul>
-      <li>保留 stub 等于告诉未来读代码的人“这个入口是合法的，可能在某条路径上要恢复”——容易在性能调优时被错误启用。</li>
-      <li>代码里 <code>@Suppress("UNUSED_PARAMETER")</code> + 空 body 是典型的“dead code but allowed”反模式。</li>
-    </ul>
-    <p><strong>建议</strong>：<strong>彻底删除</strong> <code>DmMaskController.onVideoFrameAnchor()</code>、<code>MyPlayerView</code> 里的 <code>installVideoFrameMetadataListener</code> 调用、<code>DanmakuMaskHostLayout</code> 里的 <code>onVideoFrameAnchor</code> 接线。如果担心未来要用，<strong>改用 build flag 编译期禁用</strong>，而不是留 stub。</p>
-
-    <h3>21.2 “性能 -60%” 是估算无基线</h3>
-    <p>原 <code>mask.md</code> 提“1080p × 60fps 下 GPU 时间约 -60%（saveLayer 全部消失）”——这个数字是估算，<strong>没有基线数据</strong>，且已被最新参考证据推翻。参考 shader 本质就是输出乘 mask alpha；BTelly 当前为了贴近该语义重新使用 <code>saveLayer + DST_IN</code>。后续如果出现卡顿，应以实测 GPU/CPU 数据判断，而不是继续按“删 saveLayer”作为目标。</p>
-
-    <h2>22. 补充风险清单</h2>
-    <table>
-      <thead><tr><th>风险</th><th>触发条件</th><th>实际概率</th><th>建议</th></tr></thead>
-      <tbody>
-        <tr>
-          <td>横竖屏切换后 videoBounds 错位 1~2 帧</td>
-          <td>转屏动画期间 <code>dispatchDraw</code> 拿旧 bounds</td>
-          <td><span class="tag tag-risk">高</span></td>
-          <td>在 <code>onConfigurationChanged</code> 里强制 invalidate 一次。</td>
-        </tr>
-        <tr>
-          <td>UI 卡顿后整块 mask 被自动关掉</td>
-          <td>旧 <code>JankMonitor</code> 触发 <code>setEnabled(false)</code></td>
-          <td><span class="tag tag-ok">已移除</span></td>
-          <td><code>Choreographer</code> 现在只驱动重绘，不再自动关闭 mask。</td>
-        </tr>
-        <tr>
-          <td>弹幕全过滤导致 host 不重绘</td>
-          <td>关键词屏蔽所有弹幕</td>
-          <td>中</td>
-          <td><code>DanmakuFilter</code> 变化时强制 invalidate。</td>
-        </tr>
-        <tr>
-          <td>切速 2x 时跨段预解析漏掉</td>
-          <td><code>lastPreloadedSegIndex</code> 不重置</td>
-          <td>中</td>
-          <td><code>setPlaybackSpeed</code> 里 <code>lastPreloadedSegIndex = -1</code>。</td>
-        </tr>
-        <tr>
-          <td>Seek 后 0~200ms mask 不显示</td>
-          <td><code>SEEKING</code> 期间主动清旧 mask，等待当前帧重新可用</td>
-          <td>中</td>
-          <td>接受短暂无 mask；不再冻结旧帧，避免旧 PTS 遮罩追新画面。</td>
-        </tr>
-        <tr>
-          <td>多音轨切换触发 setSurface 重建</td>
-          <td>切音轨时 <code>videoBoundsProvider</code> 短暂为空</td>
-          <td>低</td>
-          <td>已经走 <code>bounds == null</code> 短路。</td>
-        </tr>
-        <tr>
-          <td><code>maskUrl_</code> 是 ip 直连而非 https 域名</td>
-          <td>校园网/特殊网络环境</td>
-          <td>中</td>
-          <td>已支持 <code>//</code> 协议相对路径。</td>
-        </tr>
-        <tr>
-          <td>webmask 文件带 BOM 头</td>
-          <td>上游 CDN 偶尔出</td>
-          <td>低</td>
-          <td>SVG 解析前剥 BOM。</td>
-        </tr>
-        <tr>
-          <td>gzip 流式解压 OOM</td>
-          <td>大段 (5MB+) 极罕见视频</td>
-          <td>极低</td>
-          <td>改 <code>GZIPInputStream</code> 流式解析。</td>
-        </tr>
-        <tr>
-          <td>PUGV 课程视频 viewBox 偏移</td>
-          <td>viewBox 不是 (0,0,width,height)</td>
-          <td>低（BTelly 不支持 PUGV）</td>
-          <td>扩展 <code>MaskFrame</code> 增加 <code>viewBoxX/Y</code>。</td>
-        </tr>
-        <tr>
-          <td>SVG <code>transform</code> 属性</td>
-          <td>横竖屏/非等比显示</td>
-          <td>中</td>
-          <td>用 <code>PathParser</code> 解析 transform。</td>
-        </tr>
-        <tr>
-          <td><code>0 byte body 200 OK</code> 没显式当失败</td>
-          <td>CDN 异常</td>
-          <td>低</td>
-          <td><code>rangeFetchWithTotal</code> 加 <code>bytes.isEmpty()</code> 判断。</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <h2>23. 补充结论</h2>
-    <div class="warning">
-      <p><strong>本次深挖发现的三个真正盲区：</strong></p>
-      <ol style="margin: 8px 0 0 0; padding-left: 22px;">
-        <li><strong>架构盲区</strong>：mask 真正渲染在 Chronos 跨进程 native 端（<code>libchronos.so</code>），主 APK 自身是 RPC stub，<strong>不是“主 APK + Chronos 共用 clock”</strong>。原文档主线的修复（floor / 不预取未来帧 / 删 saveLayer）方向对，<strong>但对架构差异的描述是过低估计</strong>。</li>
-        <li><strong>时序盲区</strong>：floor + 不预取未来帧实际是“延后 1 帧 ≈ 16ms”，不是真正对齐。<strong>这条无法完全消除</strong>，原文档“通过同一 clock 预加载减少缺帧”是更现实的解法。</li>
-        <li><strong>边界盲区</strong>：webmask 解析（H/V 状态机、SVG transform、viewBox 偏移）、状态机（BUFFERING / 切速 / seek / 转屏 / 后台回前台 / 弹幕全过滤）、三套 mask 系统（普通视频 / DmMaskWall / PUGV / 直播）的并存关系，原文档全都没分析。</li>
-      </ol>
-      <p style="margin-top: 10px;"><strong>原文档主线 1~13 章结论依然有效</strong>——空帧前向填充、半帧补偿、round-to-nearest、缺帧复用旧遮罩、第二时间源五个修复点没问题。本次深挖是在这五个点之上的“外围问题”，不替代主线修复。</p>
-    </div>
-
-    <h2>24. 补充文件索引</h2>
-    <table>
-      <thead><tr><th>类型</th><th>路径</th><th>作用</th></tr></thead>
-      <tbody>
-        <tr><td>参考 Chronos 注入点</td><td><code class="path">E:\MyTool\bili\out\apktool\smali_classes21\tv\danmaku\biliplayerv2\service\interact\biz\chronos\chronosrpc\a.smali:2706</code></td><td><code>GetDanmakuConfig$Response.setMaskEnabled()</code>，mask 状态被广播给 Chronos 端。</td></tr>
-        <tr><td>参考 Chronos 注入点</td><td><code class="path">E:\MyTool\bili\out\apktool\smali_classes21\tv\danmaku\biliplayerv2\service\interact\biz\chronos\chronosrpc\a.smali:3388</code></td><td><code>GetDanmakuFilter$Response.setBlockMask()</code>，远端互动层使用。</td></tr>
-        <tr><td>参考 Chronos 协议</td><td><code class="path">E:\MyTool\bili\out\apktool\smali_classes21\tv\danmaku\biliplayerv2\service\interact\biz\chronos\chronosrpc\methods\receive\GetDanmakuConfig$Response.smali</code></td><td>含 <code>setMaskEnabled</code> 字段。</td></tr>
-        <tr><td>参考 Chronos 协议</td><td><code class="path">E:\MyTool\bili\out\apktool\smali_classes21\tv\danmaku\biliplayerv2\service\interact\biz\chronos\chronosrpc\methods\receive\GetDanmakuFilter$Response.smali</code></td><td>含 <code>setBlockMask</code> 字段。</td></tr>
-        <tr><td>参考独立 native 库</td><td><code class="path">E:\MyTool\bili\out\apktool\lib\arm64-v8a\libchronos.so</code></td><td>Chronos 跨进程 native 端。</td></tr>
-        <tr><td>参考 path 几何加速</td><td><code class="path">E:\MyTool\bili\out\apktool\lib\arm64-v8a\libandroidx.graphics.path.so</code></td><td>Chronos 端 mask 渲染依赖。</td></tr>
-        <tr><td>参考其他 mask 系统</td><td><code class="path">E:\MyTool\bili\out\apktool\smali_classes21\m\bilibili\bililive\videoliveplayer\net\beans\mask\*.smali</code></td><td>直播区域蒙版（<code>AreaMasks</code> / <code>LiveAreaMaskInfo</code>）。</td></tr>
-        <tr><td>参考 PUGV mask</td><td><code class="path">E:\MyTool\bili\out\apktool\smali_classes21\m\bapis\bilibili\app\playerunite\pugvanymodel\PlayerMask.smali</code></td><td>PUGV 课程 mask 字段。</td></tr>
-        <tr><td>参考 DmMaskWall</td><td><code class="path">E:\MyTool\bili\out\apktool\smali_classes21\m\bapis\bilibili\community\service\dm\v1\DmMaskWall*.smali</code></td><td>用户主动弹幕蒙版。</td></tr>
-        <tr><td>参考设置服务</td><td><code class="path">E:\MyTool\bili\out\apktool\smali_classes21\tv\danmaku\biliplayerv2\service\setting\a.smali</code></td><td>SharedPreferences 读 <code>DanmakuMask</code> 开关。</td></tr>
-        <tr><td>当前实现（已重构）</td><td><code class="path">app/src/main/java/com/btelly/feature/player/view/DmMaskController.kt</code></td><td>mask 控制：状态机（IDLE/READY/ACTIVE/SEEKING）、唯一 player clock 时间源、预加载、Choreographer 重绘驱动。</td></tr>
-        <tr><td>已删除</td><td><code class="path">app/src/main/java/com/btelly/feature/player/view/DmMaskPtsEstimator.kt</code></td><td>已内联到 Controller。</td></tr>
-        <tr><td>当前实现（已重构）</td><td><code class="path">app/src/main/java/com/btelly/feature/player/view/DanmakuMaskHostLayout.kt</code></td><td><code>saveLayer + DST_IN</code> alpha 合成；空帧/缺帧不复用旧遮罩；<code>clearCachedMask()</code>。</td></tr>
-        <tr><td>当前实现（已重构）</td><td><code class="path">app/src/main/java/com/btelly/model/dm/DmMaskTimeline.kt</code></td><td>按帧头 PTS 查帧，floor 选帧，缺帧不复用。</td></tr>
-        <tr><td>当前实现（已重构）</td><td><code class="path">app/src/main/java/com/btelly/model/dm/WebmaskParser.kt</code></td><td>webmask/SVG 解析：二进制帧头、真实 PTS、BOM 剥离、0 body 防护。</td></tr>
-        <tr><td>当前实现（小改）</td><td><code class="path">app/src/main/java/com/btelly/model/dm/DmMaskRepository.kt</code></td><td>Range 下载、空 body 显式当失败。</td></tr>
-      </tbody>
-    </table>
-
-    <h2>25. 重构后的差异矩阵（2026-06-05 深入对比）</h2>
-    <p>本节记录按参考文档完全重构后，BTelly 当前实现与 Bilibili 参考 APK 之间<strong>仍然存在</strong>的差异。已对齐的部分不再列出。</p>
-
-    <h3>25.1 已对齐项（不再有差异）</h3>
-    <table>
-      <thead><tr><th>参考语义</th><th>BTelly 当前实现</th></tr></thead>
-      <tbody>
-        <tr><td>播放器 clock 是唯一时间源</td><td><code>onPlayerClockChanged(rate, position)</code> 校准内部 clock；<code>currentVideoPtsMs()</code> 返回内部 clock 的连续推进值。</td></tr>
-        <tr><td>floor 选帧，不预取未来帧</td><td><code>DmMaskTimeline.queryAt</code> 用帧头 <code>presentationTimeMs</code> 二分 floor。</td></tr>
-        <tr><td>全矩形 path = 无主体遮罩</td><td>真实 SVG 的全矩形 path 会通过 <code>DST_IN</code> 让弹幕全区域可见；解码失败不再伪造成空 paths。</td></tr>
-        <tr><td>缺帧不复用旧遮罩</td><td>Timeline 层返回 null，HostLayout 清掉旧缓存并原样绘制弹幕，不用旧 mask 冒充当前帧。</td></tr>
-        <tr><td>预加载跟 player clock</td><td><code>onPlayerClockChanged</code> → <code>maybePreload</code>。</td></tr>
-        <tr><td>半帧补偿不存在</td><td>已删除。</td></tr>
-        <tr><td>删掉 video frame PTS 第二时间源</td><td><code>onVideoFrameAnchor</code> 保留为空 stub。</td></tr>
-        <tr><td>用户开关 DanmakuMask</td><td><code>setEnabled</code> 控制开关。</td></tr>
-        <tr><td>不因 UI 卡顿自动关闭 mask</td><td>已移除 <code>JankMonitor</code> 自动关；<code>FrameInvalidator</code> 只负责重绘。</td></tr>
-        <tr><td>切速重置预加载索引</td><td><code>setPlaybackSpeed</code> 重置 <code>lastPreloadedSegIndex = -1</code>。</td></tr>
-        <tr><td>Y 轴不翻转（标准 SVG Y-down）</td><td><code>absoluteY = value * 0.1f</code>，不再做 <code>viewHeight - …</code>。</td></tr>
-        <tr><td>清晰状态机管理生命周期</td><td>IDLE → READY → ACTIVE → SEEKING → ACTIVE。</td></tr>
-        <tr><td>BOM 头剥离</td><td><code>stripBom()</code> 处理 UTF-8 BOM。</td></tr>
-        <tr><td>0 byte body 显式当失败</td><td><code>rangeFetchWithTotal</code> 中 <code>bytes.isEmpty()</code> 返回 null。</td></tr>
-        <tr><td>防闪烁：不把坏帧当空遮罩</td><td><code>WebmaskParser</code> 解码失败跳过该帧；<code>DanmakuMaskHostLayout</code> 不再接收伪空帧。</td></tr>
-        <tr><td>删掉 FrameMetrics / VsyncPeriod 接线</td><td>HostLayout 不再注册 <code>OnFrameMetricsAvailableListener</code>，不再上报 vsync 周期。</td></tr>
-        <tr><td>删掉 DmMaskPtsEstimator</td><td>旧 estimator 已删除；Controller 内部实现参考 <code>Ar.time</code> 的基准 position + elapsed * rate 模型。</td></tr>
-      </tbody>
-    </table>
-
-    <h3>25.2 仍存在的差异（按影响排序）</h3>
-    <table>
-      <thead><tr><th>#</th><th>差异</th><th>参考行为</th><th>当前行为</th><th>影响</th></tr></thead>
-      <tbody>
-        <tr>
-          <td>1</td>
-          <td>SVG 'A'（椭圆弧）命令被简化为直线</td>
-          <td>native <code>libandroidx.graphics.path.so</code> 完整支持弧线。</td>
-          <td><code>path.lineTo(endX, endY)</code>，跳过弧线参数（rx/ry/rotation/large-arc/sweep）。</td>
-          <td><span class="tag tag-infer">低</span> webmask path 由密集贝塞尔构成，弧命令极少出现。即使出现，直线近似在 10× 缩放下误差很小。</td>
-        </tr>
-        <tr>
-          <td>2</td>
-          <td>SVG <code>transform</code> 属性未解析</td>
-          <td>native 端完整处理 SVG transform（scale/translate/rotate）。</td>
-          <td><code>parseSvgPaths</code> 只提取 <code>d=</code> 属性，忽略 <code>transform="scale(2) translate(10,20)"</code>。</td>
-          <td><span class="tag tag-infer">中</span> 普通视频不受影响。PUGV 课程视频 / 非等比显示 / 横竖屏切换中如果带 transform，人物轮廓会整体偏移或缩放错误。</td>
-        </tr>
-        <tr>
-          <td>3</td>
-          <td><code>MaskFrame</code> 缺 viewBox 偏移</td>
-          <td>native 端能处理 <code>viewBox="100 50 320 180"</code>（起点不在 (0,0)）。</td>
-          <td>假设 SVG viewBox 起点在 (0,0)，按 (0,0) 映射到视频 bounds。</td>
-          <td><span class="tag tag-infer">低</span> 普通 video mask 的 viewBox 都是 (0,0,width,height)。PUGV 课程视频可能用非零起点 → 主体错位。</td>
-        </tr>
-        <tr>
-          <td>4</td>
-          <td>GZIP 全量解压 OOM 风险</td>
-          <td>native 端流式处理。</td>
-          <td><code>ByteArrayOutputStream</code> 一次性读完 gzip 输出，极端长视频某段 5MB+ 可能 OOM。</td>
-          <td><span class="tag tag-infer">低</span> 普通段 ~100KB，极端场景罕见。</td>
-        </tr>
-        <tr>
-          <td>5</td>
-          <td>H/V 多值解析靠 default 隐式回退</td>
-          <td>native 端完整 SVG path tokenizer。</td>
-          <td><code>H 100 200 300</code> 三个值，第一个显式处理，后续落入 <code>default</code> 分支靠 <code>currentCommand</code> 回退。功能正确但可读性差。</td>
-          <td><span class="tag tag-infer">低</span> 功能无错，仅维护风险。</td>
-        </tr>
-        <tr>
-          <td>6</td>
-          <td>Seek 恢复时短暂无遮罩</td>
-          <td>参考主线语义是不拿旧 PTS 遮罩冒充当前 PTS。</td>
-          <td><code>onSeek()</code> 调用 <code>clearCachedMask()</code>，在新 segment 加载完成前短暂不裁剪。</td>
-          <td><span class="tag tag-infer">中</span> 这是比旧遮罩错位/闪烁更可控的代价；若仍明显，应加强同一 player clock 下的预加载。</td>
-        </tr>
-        <tr>
-          <td>7</td>
-          <td>帧 PTS 整数除法漂移</td>
-          <td>native 端可能用浮点。</td>
-          <td><code>(localIdx * segDurationMs) / totalFrames</code> 整数除法，每帧差 ~0.33ms。</td>
-          <td><span class="tag tag-infer">低</span> 195 帧累积差 ≈ 0ms（数学抵消），几乎不可感知。</td>
-        </tr>
-        <tr>
-          <td>8</td>
-          <td>无 position interceptor</td>
-          <td>参考 clock 分发前经过 <code>currentPositionInterceptor</code>（片头跳过、广告、互动视频剪辑时间轴）。</td>
-          <td>内部 clock 的校准点来自 Media3 <code>player.currentPosition</code>，没有等价 interceptor。</td>
-          <td><span class="tag tag-infer">低</span> 普通视频无影响。遇到复杂时间轴视频会偏差。</td>
-        </tr>
-        <tr>
-          <td>9</td>
-          <td><code>isSegmentCached</code> 越界返回 true</td>
-          <td>N/A</td>
-          <td><code>segIdx &lt; 0 || segIdx &gt;= size → true</code>，越界当作"已缓存"。</td>
-          <td><span class="tag tag-infer">低</span> 预加载判断跳过越界索引，不会出错，但语义不够清晰。</td>
-        </tr>
-        <tr>
-          <td>10</td>
-          <td><code>dm_mask</code> 三态上报未实现</td>
-          <td>参考上报 <code>(hasMask, user) → 1 / -1 / 0</code>，用于 A/B 分组。</td>
-          <td>没有上报 <code>dm_mask</code> 埋点。</td>
-          <td><span class="tag tag-infer">低</span> 不影响功能，只影响数据统计。</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <h3>25.3 架构级差异（无可行 native 化路径）</h3>
-    <table>
-      <thead><tr><th>维度</th><th>参考实现</th><th>BTelly 当前实现</th></tr></thead>
-      <tbody>
-        <tr>
-          <td>渲染进程</td>
-          <td>Chronos 独立 native 进程（<code>libchronos.so</code> + <code>libandroidx.graphics.path.so</code>），主 APK 是 RPC stub。</td>
-          <td>主进程 View tree <code>saveLayer + DST_IN</code>，单进程近似参考 shader 的 alpha 乘法。</td>
-        </tr>
-        <tr>
-          <td>mask 数据消费</td>
-          <td>主 APK 不消费 <code>maskUrl</code>（全 smali 中 <code>VideoMask.getMaskUrl()</code> 0 次调用），全部在 Chronos 端下载/解析/渲染。</td>
-          <td>主 APK 直接下载 webmask → 解析 SVG path → 在弹幕 layer 上做 <code>DST_IN</code> 合成。</td>
-        </tr>
-        <tr>
-          <td>mask 状态广播</td>
-          <td>Chronos RPC 协议：<code>GetDanmakuConfig.Response.maskEnabled</code>（已弃用）→ <code>DanmakuFilterChange.Request.blockMask</code>（新）。</td>
-          <td>直接 <code>setEnabled</code> 回调。</td>
-        </tr>
-        <tr>
-          <td>抗锯齿</td>
-          <td>native Skia 精确裁剪，边缘平滑。</td>
-          <td>HWUI layer + path alpha 合成，边缘比父级 <code>clipPath</code> 更接近 alpha mask，但仍不是 Chronos native。</td>
-        </tr>
-        <tr>
-          <td>合成顺序</td>
-          <td>独立 native surface，SurfaceFlinger 决定合成。</td>
-          <td>FrameLayout 叠加，View tree 决定合成。</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <h3>25.4 重构后的文件索引</h3>
-    <table>
-      <thead><tr><th>类型</th><th>路径</th><th>作用</th></tr></thead>
-      <tbody>
-        <tr><td>重构后</td><td><code class="path">app/src/main/java/com/btelly/feature/player/view/DmMaskController.kt</code></td><td>mask 控制器：状态机（IDLE/READY/ACTIVE/SEEKING）、参考 <code>Ar.time</code> 的内部 playback clock、预加载、Choreographer 重绘驱动。</td></tr>
-        <tr><td>重构后</td><td><code class="path">app/src/main/java/com/btelly/feature/player/view/DanmakuMaskHostLayout.kt</code></td><td>参考 shader 近似：弹幕 layer 先绘制，再用当前 mask path 做 <code>DST_IN</code> 合成；空帧/缺帧不复用旧 mergedPath。</td></tr>
-        <tr><td>重构后</td><td><code class="path">app/src/main/java/com/btelly/model/dm/DmMaskTimeline.kt</code></td><td>按帧头 PTS 查帧：二分定位 segment + frame，floor 选帧，缺帧不复用。</td></tr>
-        <tr><td>重构后</td><td><code class="path">app/src/main/java/com/btelly/model/dm/WebmaskParser.kt</code></td><td>webmask/SVG 解析：二进制帧头、真实 PTS、BOM 剥离、0 body 防护、EVEN_ODD fill rule。</td></tr>
-        <tr><td>修改</td><td><code class="path">app/src/main/java/com/btelly/model/dm/DmMaskRepository.kt</code></td><td>Range 下载：空 body 显式当失败。</td></tr>
-        <tr><td>未改</td><td><code class="path">app/src/main/java/com/btelly/model/dm/DmMaskData.kt</code></td><td>数据类结构（DmMaskData / LazyMaskSegment / MaskFrame）。</td></tr>
-        <tr><td>删除</td><td><code class="path">app/src/main/java/com/btelly/feature/player/view/DmMaskPtsEstimator.kt</code></td><td>旧估算器已删除；参考 clock 外推逻辑在 Controller 内部实现。</td></tr>
-        <tr><td>删除</td><td><code class="path">app/src/test/java/com/btelly/feature/player/view/DmMaskPtsEstimatorTest.kt</code></td><td>对应测试。</td></tr>
-        <tr><td>小改</td><td><code class="path">app/src/main/java/com/btelly/feature/player/view/MyPlayerView.kt</code></td><td>删 pipelineDelay/vsyncPeriod 接线；<code>reattachVideoSurface</code> 加 <code>dmMaskController.onResume()</code>。</td></tr>
-      </tbody>
-    </table>
-
-    <h2>26. 补充：卡顿清屏、顶部闪烁与参考播放器状态语义（2026-06-06）</h2>
-    <div class="warning">
-      <p><strong>本节结论：</strong>当前日志里的“弹幕闪烁、清屏重来”不应再优先归因到智能防遮挡算法。因为用户已确认关闭遮罩也会闪烁，且日志显示在播放器卡顿后，弹幕 runtime 从上一帧 <code>draw=148</code> 直接落到 <code>draw=0 reuseMiss=noFrame</code>。这说明问题链路至少有一段在弹幕播放器状态同步层，而不是 mask path 本身。</p>
-      <p>换句话说：智能防遮挡需要继续对齐参考，但“顶部弹幕一直闪”和“播放卡顿时弹幕清屏重新出来”必须单独看弹幕 runtime 的 pause/resume/seek/clear 行为。否则会把 mask 修成越来越复杂，仍然治不到闪烁根因。</p>
-    </div>
-
-    <h3>26.1 参考里 <code>clearDanmaku()</code> 不是清 render queue</h3>
-    <p>继续查参考后，关键点是：<code>IInteractLayerService.clearDanmaku()</code> 的名字容易误导。它没有直接清掉 Chronos 的弹幕绘制队列，也没有等价于 BTelly 里的 <code>DanmakuPlayer.clearData()</code> / <code>clearDataKeepingLastFrame()</code>。</p>
-    <p>smali 证据位于 <code class="path">E:\MyTool\bili\out\apktool\smali_classes21\tv\danmaku\biliplayerv2\service\interact\biz\InteractLayerService.smali:3276</code>：</p>
-    <pre><code>.method public final clearDanmaku()V
-    iget-object v0, p0, InteractLayerService-&gt;g:Lji1/d;
-    iget-object v0, v0, Lji1/d;-&gt;P:Ltv/danmaku/.../RemoteServiceHandler;
-    const-string v1, "0"
-    invoke-virtual {v0, v1, v1}, RemoteServiceHandler-&gt;updateCurrentWorkChanged(Ljava/lang/String;Ljava/lang/String;)V
-    return-void
-.end method</code></pre>
-    <p>这里真正做的是把当前互动 work 更新成 <code>("0", "0")</code>，属于 Chronos 远端 work 状态切换。它不是“播放器 BUFFERING/READY 时清弹幕数据再重建”。因此 BTelly 遇到 <code>STATE_BUFFERING</code> 时，不应该用清数据、强制 seek、刷新 active window 这类动作来模拟参考。</p>
-
-    <h3>26.2 参考的智能防遮挡开关只改参数并派发配置变更</h3>
-    <p>参考的人像防挡开关路径也很明确：<code>setDanmakuAvoidFigure(ZZ)</code> 更新 <code>DanmakuParams</code>，必要时持久化设置，然后派发 <code>AVOID_FIGURE</code> 配置变更。</p>
-    <p>smali 证据位于 <code class="path">E:\MyTool\bili\out\apktool\smali_classes21\tv\danmaku\biliplayerv2\service\interact\biz\InteractLayerService.smali:15191</code>：</p>
-    <pre><code>sget-object v0, DanmakuConfig$DanmakuOptionName-&gt;AVOID_FIGURE
-invoke-virtual {p0}, InteractLayerService-&gt;getDanmakuParams()
-invoke-virtual {v1, p1}, DanmakuParams-&gt;setDanmakuAvoidFigure(Z)V
-const-string v1, "danmaku_people_proof"
-invoke-interface {settingService, v1, p1}, IPlayerSettingService-&gt;putBoolean(Ljava/lang/String;Z)V
-invoke-virtual {p0, v0}, InteractLayerService-&gt;n(DanmakuOptionName;)V</code></pre>
-    <p>字幕防挡同理：<code>setDanmakuAvoidScript(ZZ)</code> 更新 <code>DanmakuParams.setDanmakuAvoidScript(Z)</code>，持久化 key 为 <code>danmaku_subtitle_proof</code>，最后派发 <code>AVOID_SCRIPT</code> 配置变更。证据位于 <code class="path">E:\MyTool\bili\out\apktool\smali_classes21\tv\danmaku\biliplayerv2\service\interact\biz\InteractLayerService.smali:15292</code>。</p>
-    <div class="note">
-      <strong>对齐判断：</strong>参考的“开/关智能防遮挡”是配置变更，不是一次 render queue 重置。BTelly 如果在开关变化、播放器卡顿、READY 回调里触发弹幕清空，就会产生“弹幕突然消失，再重新从头布局出来”的视觉结果；这和参考的开关语义不一致。
-    </div>
-
-    <h3>26.3 日志里的实际触发链路</h3>
-    <p><code class="path">E:\MyTool\BTelly\debug.txt</code> 中 122.794 秒附近有一段完整复现链。卡顿前，runtime 仍在复用上一帧，正常绘制 148 条弹幕；播放器进入 <code>BUFFERING</code> 后很快 <code>READY</code>，下一次 runtime 更新直接变成没有可复用帧，绘制数为 0。</p>
-    <pre><code>17:02:25.827 [Runtime] active=148 waiting=32 draw=148 built=-1 reuse=1 reuseMiss=none
-17:02:25.893 state=BUFFERING pos=122794ms buffered=172906ms playWhenReady=true
-17:02:25.941 state=READY pos=122794ms buffered=172906ms playWhenReady=true
-17:02:25.986 [Runtime] active=32 waiting=0 draw=0 built=0 reuse=0 reuseMiss=noFrame incrReason=tooMany:32</code></pre>
-    <p>这段日志说明三个事实：</p>
-    <ol>
-      <li><code>playWhenReady=true</code> 不等于“正在播放”。<code>STATE_BUFFERING</code> 时视频帧停住，但 <code>playWhenReady</code> 仍然可能是 true。</li>
-      <li>弹幕 runtime 在卡顿后丢了上一帧构建结果，表现为 <code>reuseMiss=noFrame</code>、<code>draw=0</code>。这就是用户看到的“清屏一下”。</li>
-      <li>顶部弹幕更明显，是因为顶部/底部弹幕本来停留在固定区域，任何一帧 <code>draw=0</code> 都会像闪一下；滚动弹幕反而可能被运动感掩盖。</li>
-    </ol>
-
-    <h3>26.4 BTelly 之前不对齐的状态语义</h3>
-    <table>
-      <thead><tr><th>点位</th><th>不对齐行为</th><th>后果</th><th>参考语义</th></tr></thead>
-      <tbody>
-        <tr>
-          <td><code>playWhenReady</code></td>
-          <td>曾把 <code>playWhenReady</code> 当作弹幕是否正在播放。</td>
-          <td>BUFFERING 时视频停住，但弹幕时钟可能继续走；恢复时位置/队列需要重算，造成清屏或闪烁。</td>
-          <td>参考使用播放器 clock/status 校准 Chronos；卡顿状态下不应该把“用户意图播放”当作“画面正在推进”。</td>
-        </tr>
-        <tr>
-          <td><code>STATE_BUFFERING</code></td>
-          <td>如果触发 active window refresh、forced seek 或 clear data，会把已有弹幕帧拆掉。</td>
-          <td>READY 后 runtime 没有上一帧可复用，出现 <code>reuseMiss=noFrame</code>。</td>
-          <td>参考没有证据表明 BUFFERING/READY 会清 Chronos render queue。</td>
-        </tr>
-        <tr>
-          <td><code>STATE_READY</code></td>
-          <td>READY 时如果按当前位置强刷弹幕窗口，相当于一次轻量 seek。</td>
-          <td>固定顶部弹幕最容易出现“消失一帧再回来”。</td>
-          <td>READY 只应恢复时钟推进；弹幕数据和上一帧缓存应尽量保留。</td>
-        </tr>
-        <tr>
-          <td>智能防遮挡开关</td>
-          <td>如果和弹幕数据清理绑定，会让“开关遮罩”表现成“重启弹幕”。</td>
-          <td>关闭遮罩仍闪，说明闪烁链路不在 mask 本身。</td>
-          <td>参考只是更新 <code>DanmakuParams</code>、持久化 key、派发 option change。</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <h3>26.5 当前应保持的修复方向</h3>
-    <p>这轮对齐后，BTelly 的状态处理目标应收敛为：</p>
-    <ol>
-      <li><code>MyPlayerView</code> 向弹幕层传 <code>player.isPlaying</code>，而不是 <code>playWhenReady</code>。</li>
-      <li><code>onIsPlayingChanged(isPlaying)</code> 也要通知弹幕控制器，让播放器真正恢复推进时再恢复弹幕 clock。</li>
-      <li><code>STATE_BUFFERING</code> 只暂停 <code>DanmakuPlayer</code> 内部 clock，不清 <code>DanmakuRuntime</code> 数据，不刷新 active window，不强制 seek。</li>
-      <li><code>STATE_READY</code> / <code>isPlaying=true</code> 只恢复 clock，保留上一帧 render cache。</li>
-      <li><code>DanmakuRuntime</code> 保留 empty-frame protection：当新帧构建为空、旧帧还有效时，不能把画面直接替换成空帧。</li>
-    </ol>
-    <p>对应当前代码索引：</p>
-    <table>
-      <thead><tr><th>文件</th><th>对齐点</th></tr></thead>
-      <tbody>
-        <tr><td><code class="path">app/src/main/java/com/btelly/feature/player/view/MyPlayerView.kt</code></td><td><code>notifyPlaybackStateChanged(playbackState, player?.isPlaying == true)</code>；<code>onIsPlayingChanged</code> 转发给弹幕控制器。</td></tr>
-        <tr><td><code class="path">app/src/main/java/com/btelly/feature/player/view/MyPlayerDanmakuController.kt</code></td><td><code>STATE_BUFFERING</code> 暂停 clock；<code>resumeAfterBuffering()</code> 恢复 clock，不做数据清空和强制 seek。</td></tr>
-        <tr><td><code class="path">app/src/main/java/com/kuaishou/akdanmaku/runtime/DanmakuRuntime.kt</code></td><td>保留空帧保护，避免卡顿恢复时用 <code>draw=0</code> 替换上一帧。</td></tr>
-      </tbody>
-    </table>
-
-    <h3>26.6 后续继续严格对齐时的验证标准</h3>
-    <p>后面再看日志，不应该只看“有没有 BUFFERING”。真正要盯的是 BUFFERING/READY 前后弹幕 runtime 是否还出现这些信号：</p>
-    <table>
-      <thead><tr><th>日志信号</th><th>含义</th><th>期望</th></tr></thead>
-      <tbody>
-        <tr><td><code>reuseMiss=noFrame draw=0</code></td><td>上一帧 render cache 没保住，屏幕可能清空一帧。</td><td>卡顿恢复后不应连续出现；顶部弹幕尤其不能出现。</td></tr>
-        <tr><td><code>clearData</code> / <code>clearDataKeepingLastFrame</code></td><td>弹幕数据被主动清理。</td><td>普通 BUFFERING/READY 不应触发。</td></tr>
-        <tr><td><code>jump</code> / <code>resetActive</code> / <code>resetWaiting</code></td><td>runtime 认为发生跳转或大范围重排。</td><td>非 seek 场景应保持 0。</td></tr>
-        <tr><td><code>playWhenReady=true isPlaying=false</code></td><td>用户意图播放，但播放器没有实际推进。</td><td>弹幕 clock 应暂停，等待 <code>isPlaying=true</code>。</td></tr>
-      </tbody>
-    </table>
-    <p>如果这些指标稳定后仍然“遮罩追不上”，再回到 mask 专项继续查 <code>block_mask</code> 配置派发、Chronos clock 外推、webmask 段预加载和 SVG path 映射。现在这份日志首先证明的是：弹幕播放状态层还有清屏/空帧问题，必须先把这条链路压住。</p>
-
-    <h2>27. 2026-06-06 17:33 最新日志根因复盘</h2>
-    <div class="warning">
-      <p><strong>本节结论：</strong>这次 <code class="path">E:\MyTool\BTelly\debug.txt</code> 同时暴露了三类问题，必须分开处理：人物区域遮罩闪烁、非人物区域弹幕闪烁、播放卡顿后的弹幕清屏重来。后两类在关闭智能防遮挡后仍会出现，因此不是 mask path 本身能单独解决的。</p>
-    </div>
-
-    <h3>27.1 当前日志的强证据</h3>
-    <table>
-      <thead><tr><th>日志证据</th><th>说明</th><th>对应根因</th></tr></thead>
-      <tbody>
-        <tr>
-          <td><code>17:33:02.073 Webmask header ready ... segs=124 fps=29</code></td>
-          <td>mask 元数据已加载，智能防遮挡不是完全没启动。</td>
-          <td>不能把“遮挡没有”简单归因到 mask 未加载。</td>
-        </tr>
-        <tr>
-          <td><code>danmaku_draw interval=903ms</code>、<code>interval=1749ms</code></td>
-          <td>弹幕 View 近 1 秒或 1.7 秒没有被绘制；这种时间尺度肉眼就是闪烁。</td>
-          <td>非人物区域闪烁来自弹幕绘制帧中断，不需要遮罩参与。</td>
-        </tr>
-        <tr>
-          <td><code>danmaku_action skip_wait_draw frames=4</code></td>
-          <td>弹幕后台 action 线程在等主线程绘制信号，但绘制没及时回来。</td>
-          <td>主线程卡顿 / pause-resume 重入 / 播放源重建会放大闪烁。</td>
-        </tr>
-        <tr>
-          <td><code>17:33:36.827 state=IDLE</code> → <code>17:33:36.857 media_source_set</code> → <code>replace=true</code></td>
-          <td>卡顿时重建了 MediaSource，而不是保持当前播放源。</td>
-          <td>弹幕清屏重来、runtime 窗口重排。</td>
-        </tr>
-        <tr>
-          <td><code>draw=1 built=1 replaced=1 reuseMiss=reuseGen...</code></td>
-          <td>播放源重建后弹幕帧从大量命令变成 1 条重建帧。</td>
-          <td>用户看到“卡顿后清屏，再重新出来”。</td>
-        </tr>
-        <tr>
-          <td><code>software_decoder decoder=OMX.google.h264.decoder quality=32 codec=AVC</code></td>
-          <td>已经处于软解安全档 AVC/32，后续 stall 不应再无意义重建同一档播放源。</td>
-          <td>当前修复增加“安全档下保持当前源”的保护。</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <h3>27.2 和参考的差异</h3>
-    <p>参考的播放状态同步是 <code>RemoteServiceHandler.onPlayerClockChanged(rate, position)</code>：构造 <code>PlaybackStatusChange.Request</code>，写入 <code>playback_rate</code>、<code>current_time</code> 和 <code>timestamp=System.currentTimeMillis()</code>，再通过 <code>MutableSharedFlow.emit()</code> 发给 Chronos。它的核心语义是“校准时钟”，不是“播放器一 BUFFERING 就清弹幕队列”。</p>
-    <p>参考的 <code>clearDanmaku()</code> 也不是 render queue 清空；它只是调用 <code>updateCurrentWorkChanged("0", "0")</code>。因此 BTelly 在普通 <code>BUFFERING/READY/IDLE</code> 回调里反复 <code>pauseDanmaku()/resumeDanmaku()</code>，以及 stall 时触发 <code>replace=true</code> 的 MediaSource 重建，都和参考状态语义不一致。</p>
-
-    <h3>27.3 本次对应修复</h3>
-    <table>
-      <thead><tr><th>文件</th><th>修复</th><th>期望日志变化</th></tr></thead>
-      <tbody>
-        <tr>
-          <td><code class="path">app/src/main/java/com/btelly/feature/player/VideoPlayerFragment.kt</code></td>
-          <td><code>STATE_BUFFERING/READY/IDLE</code> 不再直接停启弹幕；真正播放/暂停只跟 <code>onIsPlayingChanged</code> 走。</td>
-          <td>缓冲期间不再因为 Fragment 和弹幕控制器双重 pause/resume 造成顶部弹幕闪一下。</td>
-        </tr>
-        <tr>
-          <td><code class="path">app/src/main/java/com/btelly/feature/player/VideoPlayerViewModel.kt</code></td>
-          <td>stall 恢复时，如果已经是软解安全档 <code>AVC</code> 且清晰度不高于 safe quality，就返回 false，让 Fragment 原地 seek，而不是重新 <code>loadPlayUrl(... replaceInPlace=true)</code>。</td>
-          <td>类似 17:33:36 的卡顿后，不应再出现同档 <code>media_source_set</code> / <code>replace=true</code>。</td>
-        </tr>
-        <tr>
-          <td><code class="path">app/src/main/java/com/btelly/feature/player/view/DanmakuMaskHostLayout.kt</code></td>
-          <td>遮罩合成改为 <code>saveLayer + DST_IN</code>，贴近参考 shader 的 <code>CRONDefaultShading() * mask_sample</code>。</td>
-          <td>人物区域不再因为父级 <code>clipPath</code> 与子 View 绘制顺序差异产生露出闪烁。</td>
-        </tr>
-        <tr>
-          <td><code class="path">app/src/main/java/com/btelly/feature/player/view/DmMaskController.kt</code></td>
-          <td>mask PTS 改为参考式 clock：<code>position + elapsedRealtime * playback_rate</code>，不再每帧只读播放器离散 <code>currentPosition</code>。</td>
-          <td>遮罩追不上、边缘晚半拍的概率降低。</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <h3>27.4 下一次日志检查标准</h3>
-    <p>下一次复测时，重点看这些信号是否消失或明显减少：</p>
-    <ol>
-      <li>卡顿后不再出现同一 <code>quality=32 codec=AVC</code> 的 <code>replace=true</code>。</li>
-      <li><code>danmaku_draw interval</code> 不再出现 900ms/1700ms 级别的大断帧。</li>
-      <li>BUFFERING/READY 前后不再出现 <code>draw=0</code> 或 <code>draw=1 built=1 replaced=1</code> 的清屏式重建。</li>
-      <li>如果仍然只有人物边缘闪，再回到 SVG path 语义、webmask 段预加载和 Chronos shader alpha 对齐继续查。</li>
-    </ol>
-
-    <h2>28. 整个人物区域“遮住又露出来”的根因（2026-06-06 最新深挖）</h2>
-    <p><strong>本节结论：</strong>这次不是“mask 追不上”，也不是参考 webmask 本身有大量空帧。根因是 BTelly 旧版 <code>WebmaskParser.parseSegmentFrames()</code> 没有按真实二进制帧结构解析，导致有效 SVG 帧被误判成空 paths；再由 <code>DanmakuMaskHostLayout.dispatchDraw()</code> 把空 paths 当作“当前无遮罩”直接原样绘制弹幕，视觉上就是整个人物区域一会被遮住、一会露出来。</p>
-
-    <h3>28.1 真实 webmask 数据结构</h3>
-    <p>对当前日志里的视频 <code>cid=37551801208</code> 下载真实资源 <code>37551801208_29_0.webmask</code> 后，得到以下事实：</p>
+    <h3>2.1 webmask 文件结构</h3>
+    <p>对 <code>37551801208_29_0.webmask</code> 的实测结果：</p>
     <table>
       <thead><tr><th>项目</th><th>实测值</th><th>说明</th></tr></thead>
       <tbody>
-        <tr><td>文件大小</td><td><code>9,779,322B</code></td><td>和日志 <code>fileSize=9550KB</code> 对齐。</td></tr>
-        <tr><td>文件头</td><td><code>MASK</code> / version <code>1</code> / segments <code>124</code></td><td>说明头部和段索引表解析方向正确。</td></tr>
+        <tr><td>文件大小</td><td><code>9,779,322B</code></td><td>约 9.8MB。</td></tr>
+        <tr><td>文件头</td><td><code>MASK</code> / version <code>1</code></td><td>文件头和段索引表解析方向正确。</td></tr>
+        <tr><td>段数</td><td><code>124</code></td><td>约每 10 秒一段。</td></tr>
         <tr><td>总帧数</td><td><code>37,090</code></td><td>所有段累计。</td></tr>
-        <tr><td>SVG 解码</td><td><code>37,090 / 37,090</code> 成功</td><td>真实资源没有 base64 解码失败。</td></tr>
-        <tr><td>path 数量</td><td><code>37,090 / 37,090</code> 有 <code>&lt;path d="..."&gt;</code></td><td>真实资源没有“空 SVG 帧”。</td></tr>
+        <tr><td>SVG 解码</td><td><code>37,090 / 37,090</code> 成功</td><td>样本资源没有真实空 SVG 帧。</td></tr>
+        <tr><td>path 数量</td><td><code>37,090 / 37,090</code> 有 <code>&lt;path d="..."&gt;</code></td><td>人物区域整块露出不是资源空帧造成的。</td></tr>
       </tbody>
     </table>
-    <p>段内帧不是简单拼接的 <code>data:image/svg+xml;base64,...</code>。每帧结构是：</p>
+
+    <p>段内帧不是纯字符串拼接，而是二进制帧流：</p>
 <pre><code>uint32 payloadLength   // big-endian，payload 字节数
 uint64 presentationMs  // big-endian，视频 PTS，单位 ms
-byte[payloadLength] payload
-</code></pre>
-    <p>payload 才以 <code>data:image/svg+xml;base64,</code> 开头。第 0 段开头实测如下：</p>
+byte[payloadLength] payload</code></pre>
+
+    <p>payload 才以 <code>data:image/svg+xml;base64,</code> 开头。第 0 段开头实测：</p>
 <pre><code>frame 0: len=1318 pts=0   payload startsWith data:image/svg+xml;base64
 frame 1: len=1562 pts=33  payload startsWith data:image/svg+xml;base64
-frame 2: len=518  pts=67  payload startsWith data:image/svg+xml;base64
-</code></pre>
+frame 2: len=518  pts=67  payload startsWith data:image/svg+xml;base64</code></pre>
 
-    <h3>28.2 BTelly 旧解析为什么会造成整块闪烁</h3>
-    <p>旧实现用 <code>splitBy(decompressed, "data:image/svg+xml;base64,")</code>。这样切出来的第 N 帧尾部会包含第 N+1 帧的 <code>12B</code> 二进制帧头。例如第 0 帧 base64 末尾之后紧跟：</p>
-<pre><code>00 00 06 1a 00 00 00 00 00 00 00 21
-</code></pre>
-    <p>这 12 字节不是 base64 内容；它是下一帧的 <code>payloadLength=1562</code> 和 <code>pts=33</code>。旧实现把它一起交给 <code>Base64.decode()</code>，再在失败时执行：</p>
-<pre><code>frames.add(MaskFrame(presentationTimeMs = ptsMs, paths = emptyList()))
-</code></pre>
-    <p>这一步语义是错的：<strong>解码失败不是“当前没有人物”，而是“这帧解析失败”</strong>。一旦被伪造成空 paths，HostLayout 的逻辑就会走：</p>
-<pre><code>if (frame != null &amp;&amp; frame.paths.isEmpty()) {
-    cachedFrame = null
-    super.dispatchDraw(canvas)
-    return
-}
-</code></pre>
-    <p>于是同一段人物轮廓在有效帧时被 <code>DST_IN</code> 遮住，在误解析空帧时完全不遮罩，下一帧解析成功又遮住。这就是用户看到的“整个人物区域，弹幕被遮住了又露出来，又遮住”。</p>
-
-    <h3>28.3 参考对齐后的实现</h3>
-    <table>
-      <thead><tr><th>文件</th><th>修正</th><th>目的</th></tr></thead>
-      <tbody>
-        <tr>
-          <td><code class="path">app/src/main/java/com/btelly/model/dm/WebmaskParser.kt</code></td>
-          <td>新增 <code>parseBinaryFrameRecords()</code>，按 <code>uint32 len + uint64 pts + payload</code> 读取每帧。</td>
-          <td>不再把下一帧帧头混入上一帧 base64。</td>
-        </tr>
-        <tr>
-          <td><code class="path">app/src/main/java/com/btelly/model/dm/WebmaskParser.kt</code></td>
-          <td>base64 解码失败只记录并跳过，不再生成 <code>paths=emptyList()</code> 的假空帧。</td>
-          <td>避免把坏帧伪装成“无遮罩”。</td>
-        </tr>
-        <tr>
-          <td><code class="path">app/src/main/java/com/btelly/model/dm/DmMaskTimeline.kt</code></td>
-          <td>优先用帧头 <code>presentationTimeMs</code> 二分 floor 选帧。</td>
-          <td>不再靠 <code>segmentDuration / frameCount</code> 估算段内 PTS。</td>
-        </tr>
-        <tr>
-          <td><code class="path">app/src/main/java/com/btelly/feature/player/view/DmMaskController.kt</code></td>
-          <td>移除参考没有的卡顿自动关闭遮罩逻辑，<code>Choreographer</code> 只负责 ACTIVE 状态下重绘。</td>
-          <td>避免 UI 卡顿把主体防挡状态直接切到 IDLE，造成整块遮罩消失。</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <h3>28.4 仍需和“弹幕清屏重来”分开看</h3>
-    <p>本节修的是人物区域内遮罩开关式闪烁。日志里的“顶部弹幕闪烁”“播放卡顿后弹幕清屏重来”还涉及弹幕 runtime 的 pause/resume/seek/window 重建，这部分和 mask path 解析不是同一个根因。遮罩解析修正后，如果人物区域仍然偶发露出，下一步要看 <code>frame=null</code>（段未缓存）和 <code>shouldRenderMask=false</code>（状态切 IDLE）的实时日志；如果关闭智能防挡仍然闪，则继续查弹幕 runtime。</p>
-
-    <h2>29. 2026-06-06 18:21 日志：关闭遮罩也闪、遮罩未生效的分层根因</h2>
-    <div class="warning">
-      <p><strong>本节结论：</strong>最新日志说明当前还没进入“遮罩追不上”的阶段。弹幕无论有没有人物都会闪，是弹幕自身 fallback 绘制在 renderer 锁竞争时跳过当前帧；遮罩没起作用，则需要先证明当前 webmask segment 是否成功解析进入缓存。两者在代码路径上是分开的。</p>
+    <div class="note">
+      <strong>工程结论：</strong><code>fps=29</code> 只能作为元信息，不能作为段内帧时间的唯一依据。选帧必须优先使用每帧头里的 <code>presentationMs</code>。旧的字符串切分会把下一帧 12B 帧头混入上一帧 base64 尾部，造成解码失败和伪空帧。
     </div>
 
-    <h3>29.1 弹幕闪烁的直接证据</h3>
+    <h2>3. Android APP 端参考链路</h2>
+    <p>APP 端普通视频的主体防挡入口不是 Web JSON，而是 <code>DmViewReply.mask</code> 中的 <code>VideoMask</code>。字段结构和 Web 端 <code>dm_mask</code> 对齐：</p>
+
     <table>
-      <thead><tr><th>日志证据</th><th>代码路径</th><th>结论</th></tr></thead>
+      <thead><tr><th>字段</th><th>类型</th><th>含义</th><th>工程影响</th></tr></thead>
+      <tbody>
+        <tr><td><code>cid_</code></td><td><code>long</code></td><td>视频 CID。</td><td>用于绑定当前视频，避免跨视频复用。</td></tr>
+        <tr><td><code>plat_</code></td><td><code>int</code></td><td>平台/CDN 选路标识。</td><td>BTelly 当前不主动使用，但字段要保留。</td></tr>
+        <tr><td><code>fps_</code></td><td><code>int</code></td><td>mask 帧率元信息。</td><td>不能替代帧头 PTS。</td></tr>
+        <tr><td><code>time_</code></td><td><code>long</code></td><td>mtime 或服务端生成时间。</td><td>多用于 HTTP 缓存协商，不是渲染补偿。</td></tr>
+        <tr><td><code>maskUrl_</code></td><td><code>String</code></td><td>webmask URL。</td><td>空串要按不可用处理。</td></tr>
+      </tbody>
+    </table>
+
+    <h3>3.1 主 APK 是 RPC 客户端</h3>
+    <p>smali 扫描后的关键判断：</p>
+    <ul>
+      <li>主 APK 会拿到完整 <code>DmViewReply</code>，并通过 Chronos RPC 附件传给远端。</li>
+      <li><code>DmViewReply.hasMask()</code> 在主 APK 中主要用于 <code>dm_mask</code> 三态上报。</li>
+      <li>全 smali 中没有发现主 APK 自己调用 <code>VideoMask.getMaskUrl()</code> 下载和渲染 webmask 的路径。</li>
+      <li>播放器 clock 通过 <code>RemoteServiceHandler.onPlayerClockChanged(rate, position)</code> 发送给 Chronos。</li>
+    </ul>
+
+    <p>因此，APP 主进程不是防挡渲染的真正消费者。它更像 RPC stub：收集 <code>DmViewReply</code>、开关和播放器状态，然后交给 Chronos native 进程。</p>
+
+    <h3>3.2 播放器 clock 语义</h3>
+    <p>参考链路不是每帧直接读取静态 <code>player.currentPosition</code>。它会把 <code>current_time</code>、<code>playback_rate</code>、<code>timestamp</code> 发给 Chronos，Chronos 内部再按系统时间和 rate 连续推进。</p>
+
+<pre><code>current_time + max(0, systemTimeMs() - timestamp) * playback_rate</code></pre>
+
+    <p>BTelly 的等价策略应该是：用播放器 position 校准基准点，再用 <code>elapsedRealtime * playbackSpeed</code> 外推当前 PTS。不要把 video frame metadata PTS 作为第二套时间源。</p>
+
+    <h2>4. Chronos native 反汇编报告</h2>
+    <p>分析目标：</p>
+    <p><code class="path">E:\MyTool\bili\out\apktool\lib\arm64-v8a\libchronos.so</code></p>
+
+    <table>
+      <thead><tr><th>项目</th><th>结果</th></tr></thead>
+      <tbody>
+        <tr><td>架构</td><td><code>AArch64</code></td></tr>
+        <tr><td>大小</td><td><code>4,850,384B</code></td></tr>
+        <tr><td>SHA256</td><td><code>d1c07f6eb9ee82b01e7fea5c0ab6bd679fd4deaa63ad72299c9d8b66ecdf0bb7</code></td></tr>
+        <tr><td>导出符号</td><td>只有 <code>JNI_OnLoad</code>，库已 strip。</td></tr>
+        <tr><td>动态依赖</td><td><code>libGLESv2.so</code>、<code>libEGL.so</code>、<code>libandroid.so</code>、<code>libjnigraphics.so</code>、<code>liblog.so</code>、<code>libm.so</code>、<code>libc.so</code></td></tr>
+        <tr><td>分析产物</td><td><code class="path">E:\MyTool\BTelly\.analysis\chronos</code></td></tr>
+      </tbody>
+    </table>
+
+    <h3>4.1 轻量静态探测</h3>
+    <p>关键字符串命中：</p>
+    <ul>
+      <li><code>cron_mask_texture</code></li>
+      <li><code>cron_mask_tex_coord</code></li>
+      <li><code>mask_sample</code></li>
+      <li><code>cron_output = CRONDefaultShading() * mask_sample;</code></li>
+      <li><code>setClipPath</code>、<code>clipPath</code>、<code>android/graphics/Path</code>、<code>createFromPath</code></li>
+      <li><code>bad zlib header</code>、<code>zlib corrupt</code></li>
+      <li><code>EGL_ANDROID_presentation_time</code></li>
+      <li><code>clock_gettime(CLOCK_MONOTONIC) failed</code></li>
+    </ul>
+
+    <h3>4.2 定点反汇编结论</h3>
+    <p>通过 <code>.eh_frame</code> 恢复到 24,124 个函数边界，再从关键字符串反查 xref，得到下面几个强结论。</p>
+
+    <table>
+      <thead><tr><th>证据</th><th>反汇编结论</th><th>对 BTelly 的意义</th></tr></thead>
       <tbody>
         <tr>
-          <td><code>18:21:04.870 [Runtime] draw fallback limited drawn=0 skipped=4 rendererFailed=4 commands=4</code></td>
-          <td><code>DanmakuRuntime.drawCommand()</code> → <code>DanmakuContext.tryDrawRenderer()</code></td>
-          <td>4 条当前可见弹幕没有被画出来，不是被遮罩裁掉，而是 renderer fallback 返回失败。</td>
+          <td><code>cron_mask_texture</code> / <code>cron_mask_tex_coord</code></td>
+          <td>被 GPU/shader 相关函数引用，并和 texture/uniform 管线相邻。</td>
+          <td>mask 是纹理输入，不是简单 Canvas 裁剪。</td>
         </tr>
         <tr>
-          <td><code>18:21:04.751 danmaku_draw interval=11680ms</code></td>
-          <td><code>DanmakuView.onDraw()</code></td>
-          <td>首帧弹幕绘制前等待过久，缓存尚未稳定时更容易走 fallback。</td>
+          <td><code>mask_sample = texture(...).a</code></td>
+          <td>shader 读取 mask texture 的 alpha。</td>
+          <td>防挡核心是 alpha mask。</td>
         </tr>
         <tr>
-          <td><code>18:21:10.532 Webmask header ready</code></td>
-          <td><code>DmMaskRepository.downloadAndParse()</code></td>
-          <td>rendererFailed 发生在 mask header ready 之前，因此“无人物也闪”不可能由人物 mask path 造成。</td>
+          <td><code>CRONDefaultShading() * mask_sample</code></td>
+          <td>弹幕默认输出乘 mask alpha。</td>
+          <td><code>saveLayer + DST_IN</code> 是 View 体系下最接近的近似。</td>
+        </tr>
+        <tr>
+          <td><code>android/graphics/Path</code> / <code>setClipPath</code></td>
+          <td>Chronos 有 Android Path 和 clip/path 节点能力。</td>
+          <td>这只能证明 Chronos 支持 Path，不能推翻 shader 证据。</td>
+        </tr>
+        <tr>
+          <td><code>bad zlib header</code> / <code>zlib corrupt</code></td>
+          <td>附近函数是内置 deflate/zlib 解压逻辑。</td>
+          <td>Chronos 具备自己解压资源的能力，但还不能直接还原完整 webmask 消费状态机。</td>
+        </tr>
+        <tr>
+          <td><code>MASK</code></td>
+          <td>被一个大型解析函数引用，旁边有大量字符串比较。</td>
+          <td>不能单独证明这里就是 B 站 <code>.webmask</code> 解析器，只能作为弱证据。</td>
         </tr>
       </tbody>
     </table>
 
-    <p>具体根因在 <code class="path">app/src/main/java/com/kuaishou/akdanmaku/engine/DanmakuContext.kt</code>：旧的 <code>tryDrawRenderer()</code> 使用 <code>rendererLock.tryLock()</code>。缓存线程正在 <code>measureRenderer()</code> 或 <code>drawRenderer()</code> 构建文字位图时，主线程 fallback 拿不到锁就直接返回 <code>false</code>；<code>DanmakuRuntime</code> 随后把这条弹幕计为 <code>rendererFailed</code> 并跳过绘制。视觉上就是某一帧弹幕消失，下一帧缓存好了又出现，也就是闪烁。这个路径和智能防遮挡开关无关，所以符合“关了遮罩也闪”。</p>
+    <div class="note">
+      <strong>native 逆向边界：</strong>目前足够证明 Chronos 的防挡渲染语义是 alpha mask shader 合成；但还不足以完整还原下载、segment 缓存、缺帧兜底等状态机。继续做全库级 Ghidra/IDA 类型恢复成本很高，当前性价比不如先对齐 BTelly 已知差异。
+    </div>
 
-    <h3>29.2 本次对弹幕闪烁的修正</h3>
+    <h2>5. BTelly 当前实现状态</h2>
+    <p>以下是按当前工作区代码检查后的状态，不按旧文档中的“已重构”字样想当然。</p>
+
     <table>
-      <thead><tr><th>文件</th><th>旧行为</th><th>新行为</th></tr></thead>
+      <thead><tr><th>能力</th><th>状态</th><th>代码位置</th><th>说明</th></tr></thead>
       <tbody>
         <tr>
-          <td><code class="path">app/src/main/java/com/kuaishou/akdanmaku/engine/DanmakuContext.kt</code></td>
-          <td><code>tryDrawRenderer()</code> 拿不到 renderer 锁就返回 false，主线程跳过当前弹幕。</td>
-          <td>fallback 绘制改为调用 <code>drawRenderer()</code>，短暂等待同一把锁并完成绘制，不再把锁竞争变成可见闪烁。</td>
+          <td>Web API 读取 <code>dm_mask</code></td>
+          <td><span class="tag tag-ok">已实现</span></td>
+          <td><code class="path">network/response/PlayerInfoDataWrapper.kt</code>、<code class="path">model/dm/DmMaskInfo.kt</code></td>
+          <td>能拿到 <code>maskUrl / cid / fps / plat / time</code>。</td>
+        </tr>
+        <tr>
+          <td>Range 下载 webmask</td>
+          <td><span class="tag tag-ok">已实现</span></td>
+          <td><code class="path">model/dm/DmMaskRepository.kt</code></td>
+          <td>先拉 header + 段索引，再按需拉 segment。</td>
+        </tr>
+        <tr>
+          <td>二进制帧结构解析</td>
+          <td><span class="tag tag-ok">已实现</span></td>
+          <td><code class="path">model/dm/WebmaskParser.kt</code></td>
+          <td><code>parseBinaryFrameRecords()</code> 按 <code>4B len + 8B pts + payload</code> 读取。</td>
+        </tr>
+        <tr>
+          <td>解码失败处理</td>
+          <td><span class="tag tag-ok">已实现</span></td>
+          <td><code class="path">model/dm/WebmaskParser.kt</code></td>
+          <td>失败后记录并跳过，不再生成 <code>paths=emptyList()</code> 的假空帧。</td>
+        </tr>
+        <tr>
+          <td>真实 PTS 选帧</td>
+          <td><span class="tag tag-ok">已实现</span></td>
+          <td><code class="path">model/dm/DmMaskTimeline.kt</code></td>
+          <td>按 <code>presentationTimeMs</code> 二分 floor。</td>
+        </tr>
+        <tr>
+          <td>播放器 clock 外推</td>
+          <td><span class="tag tag-ok">已实现</span></td>
+          <td><code class="path">feature/player/view/DmMaskController.kt</code></td>
+          <td><code>basePosition + elapsedRealtime * playbackSpeed</code>。</td>
+        </tr>
+        <tr>
+          <td>预加载跟 player clock</td>
+          <td><span class="tag tag-ok">已实现</span></td>
+          <td><code class="path">feature/player/view/DmMaskController.kt</code></td>
+          <td><code>onVideoFrameAnchor()</code> 是空 stub，预加载走 <code>currentVideoPtsMs()</code>。</td>
+        </tr>
+        <tr>
+          <td>Chronos shader 近似合成</td>
+          <td><span class="tag tag-ok">已实现</span></td>
+          <td><code class="path">feature/player/view/DanmakuMaskHostLayout.kt</code></td>
+          <td><code>saveLayer + DST_IN</code>，不是父级 <code>clipPath</code>。</td>
+        </tr>
+        <tr>
+          <td>SVG viewBox / transform / Y 翻转</td>
+          <td><span class="tag tag-ok">已实现</span></td>
+          <td><code class="path">model/dm/WebmaskParser.kt</code></td>
+          <td>已处理 <code>viewBox</code>、path 自身 transform 和常见 Y 翻转。</td>
+        </tr>
+        <tr>
+          <td>缺帧不复用旧遮罩</td>
+          <td><span class="tag tag-risk">未完全对齐</span></td>
+          <td><code class="path">feature/player/view/DanmakuMaskHostLayout.kt</code></td>
+          <td>当前 <code>frame == null</code> 时仍会用 <code>cachedFrame</code>，这和“缺当前帧不拿旧 PTS mask 冒充”的参考主线冲突。</td>
+        </tr>
+        <tr>
+          <td>Seek 期间不冻结旧遮罩</td>
+          <td><span class="tag tag-risk">未完全对齐</span></td>
+          <td><code class="path">feature/player/view/DmMaskController.kt</code>、<code class="path">feature/player/view/DanmakuMaskHostLayout.kt</code></td>
+          <td>当前 <code>onSeek()</code> 注释和实现仍是不清 cache，<code>SEEKING</code> 分支会画旧 mask。</td>
         </tr>
       </tbody>
     </table>
 
-    <h3>29.3 遮罩没起作用的当前证据缺口</h3>
-    <p>最新日志只有：</p>
-<pre><code>18:21:10.532 Webmask header ready: cid=37551801208 segs=124 fps=29 fileSize=9550KB hdr=5324ms
-18:21:12.106 Long monitor contention ... DmMaskRepository.preloadSegmentFrames(...)
-18:21:12.607 Long monitor contention ... DmMaskRepository.preloadSegmentFrames(...)
-</code></pre>
-    <p>这里能证明 header 和 segment 预加载流程启动了，但不能证明当前段已经得到有效 <code>MaskFrame</code>。日志里缺少三类关键事实：当前段是否缓存成功、缓存了多少帧、Host 查询时拿到的是 <code>masked</code> 还是 <code>no_frame</code>。</p>
+    <h2>6. 已知问题分层</h2>
+    <p>后续排查不要把所有闪烁都归到智能防挡。当前至少有三类问题，要分开看。</p>
 
-    <h3>29.4 本次对遮罩预加载的参考对齐</h3>
     <table>
-      <thead><tr><th>文件</th><th>旧行为</th><th>新行为</th></tr></thead>
+      <thead><tr><th>现象</th><th>优先归因</th><th>判断方式</th><th>下一步</th></tr></thead>
       <tbody>
         <tr>
-          <td><code class="path">app/src/main/java/com/btelly/feature/player/view/DmMaskController.kt</code></td>
-          <td>预加载顺序是 <code>seg-1..seg+2</code>，当前段可能排在上一段后面。</td>
-          <td>改为 <code>current, current+1, current-1, current+2</code>，先保证当前播放段可用，再加载邻段。</td>
+          <td>人物区域整块“遮住又露出来”</td>
+          <td>webmask 解析失败伪空帧，或 Host 状态切到无遮罩。</td>
+          <td>看 segment 是否已缓存、frame 是否为 null、是否出现 decode failed。</td>
+          <td>二进制帧解析已修正后，继续看缺段和 <code>shouldRenderMask=false</code> 日志。</td>
         </tr>
         <tr>
-          <td><code class="path">app/src/main/java/com/btelly/feature/player/view/DmMaskController.kt</code></td>
-          <td>开启智能防挡或播放态切换时，部分 READY/ACTIVE 时序不会立刻重新触发当前段预加载。</td>
-          <td><code>setEnabled(true)</code> 和 <code>setPlaying(true)</code> 都主动按当前 PTS 触发 <code>maybePreload()</code>。</td>
+          <td>人物边缘轻微追不上</td>
+          <td>clock 外推、段预加载、floor 选帧的一帧物理延迟。</td>
+          <td>看 <code>queryPts - framePts</code>、播放速度、段边界。</td>
+          <td>先确保同一 player clock；不要重新引入 video frame PTS。</td>
         </tr>
         <tr>
-          <td><code class="path">app/src/main/java/com/btelly/model/dm/DmMaskRepository.kt</code></td>
-          <td>segment 预加载成功没有可见日志，无法判断 Host 没遮罩是没帧还是状态没进。</td>
-          <td>新增 <code>Webmask segment cached</code> 日志，记录 <code>seg</code>、<code>frames</code>、首尾 PTS 和耗时。</td>
+          <td>顶部弹幕闪、关闭遮罩也闪</td>
+          <td>弹幕 runtime pause/resume、renderer fallback、锁竞争或清屏重建。</td>
+          <td>看 <code>draw=0</code>、<code>reuseMiss=noFrame</code>、<code>danmaku_draw interval</code>。</td>
+          <td>查弹幕 runtime，不要继续把 mask 修复杂。</td>
         </tr>
         <tr>
-          <td><code class="path">app/src/main/java/com/btelly/feature/player/view/DanmakuMaskHostLayout.kt</code></td>
-          <td>Host 不裁剪时静默回退 <code>super.dispatchDraw()</code>。</td>
-          <td>新增节流日志 <code>DmMaskHost mask state=...</code>，区分 <code>no_frame</code>、<code>empty_paths</code>、<code>invalid_bounds</code>、<code>masked</code>。</td>
+          <td>卡顿后弹幕清屏重来</td>
+          <td>播放源重建、BUFFERING/READY 状态处理、active window 重排。</td>
+          <td>看 <code>media_source_set replace=true</code>、<code>clearData</code>、<code>resetActive</code>。</td>
+          <td>普通 BUFFERING/READY 不应清 Chronos 式 render queue。</td>
         </tr>
       </tbody>
     </table>
 
-    <h3>29.5 下一次日志判定方式</h3>
+    <h2>7. 参考逻辑整理</h2>
     <ol>
-      <li>如果还闪，但不再有 <code>rendererFailed</code>，说明 renderer 锁竞争已解决，要继续看 <code>danmaku_draw interval</code> 和播放源重建。</li>
-      <li>如果遮罩仍无效，先看是否出现 <code>Webmask segment cached: ... frames&gt;0</code>；没有则问题在 Range 下载/段解析。</li>
-      <li>如果 segment 已缓存但 Host 是 <code>mask state=no_frame</code>，问题在 timeline 查询或 PTS/segment 选择。</li>
-      <li>如果 Host 是 <code>mask state=masked</code> 但画面仍无遮挡，再查 <code>DST_IN</code> 合成层、path fillType 和 video bounds 映射。</li>
+      <li>视频详情或播放器接口返回 mask 元信息。Web 是 <code>x/player/v2.dm_mask</code>，APP 是 <code>DmViewReply.mask / VideoMask</code>。</li>
+      <li>客户端拿到 <code>maskUrl</code> 和 <code>fps</code>。<code>fps</code> 是元信息，段内帧时间以帧头 <code>presentationMs</code> 为准。</li>
+      <li>真实 <code>.webmask</code> 文件由 <code>MASK</code> 文件头、段索引表、gzip 段组成。段内每帧是 <code>uint32 len + uint64 pts + payload</code>。</li>
+      <li>播放器通过 <code>rate + position + timestamp</code> 校准内部 clock。后续按 elapsed time 和 playback rate 连续推进。</li>
+      <li>按当前 clock PTS 定位 segment 和 frame，使用 floor 语义，不取未来帧。</li>
+      <li>把 SVG path 转成允许弹幕绘制的 alpha mask。人物/主体区域是洞。</li>
+      <li>弹幕内容先正常绘制，再乘 mask alpha。Chronos native 是 shader；BTelly 用 <code>saveLayer + DST_IN</code> 近似。</li>
+      <li>BUFFERING/READY 是 clock/status 校准，不等价于清空弹幕 render queue。</li>
     </ol>
 
-    <p class="muted">更新时间：2026-06-06（追加 18:21 日志分析：renderer fallback 锁竞争导致关闭遮罩也闪；遮罩预加载改为当前段优先，并补充 segment cached 与 Host state 诊断）。本文基于本地反编译目录、真实 webmask 文件和当前工作区代码。</p>
+    <h2>8. 剩余差异和建议</h2>
+    <table>
+      <thead><tr><th>优先级</th><th>差异</th><th>影响</th><th>建议</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="tag tag-risk">高</span></td>
+          <td>缺当前帧时复用旧 <code>cachedFrame</code></td>
+          <td>旧 PTS 遮罩套到新画面，视觉上像遮罩追不上。</td>
+          <td>更接近参考的语义是缺帧短暂无 mask，并通过预加载减少缺帧。</td>
+        </tr>
+        <tr>
+          <td><span class="tag tag-risk">高</span></td>
+          <td>Seek 期间冻结旧 mask</td>
+          <td>seek 后旧人物轮廓可能短暂贴到新画面。</td>
+          <td>seek 应清旧 mask，等当前 PTS 对应帧可用后再恢复。</td>
+        </tr>
+        <tr>
+          <td><span class="tag tag-risk">中</span></td>
+          <td>弹幕 runtime 闪烁和 mask 混在一起排查</td>
+          <td>关闭智能防挡仍闪时，继续修 mask 治不到根因。</td>
+          <td>用日志先区分 <code>draw=0/reuseMiss</code> 和 mask frame null。</td>
+        </tr>
+        <tr>
+          <td><span class="tag tag-infer">中</span></td>
+          <td>没有 Chronos native surface</td>
+          <td>边缘抗锯齿、合成时序和官方仍有差异。</td>
+          <td>接受 <code>saveLayer + DST_IN</code> 作为 Android View 体系下的可行近似。</td>
+        </tr>
+        <tr>
+          <td><span class="tag tag-infer">低</span></td>
+          <td><code>dm_mask</code> 三态上报未实现</td>
+          <td>不影响播放功能，只影响数据统计和 A/B 分组。</td>
+          <td>未来如果做埋点，保留 <code>1 / -1 / 0</code> 三态。</td>
+        </tr>
+        <tr>
+          <td><span class="tag tag-infer">低</span></td>
+          <td>无 position interceptor</td>
+          <td>普通视频影响小；复杂时间轴、广告、互动视频可能偏差。</td>
+          <td>等遇到真实样本再处理。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>9. 文件索引</h2>
+    <table>
+      <thead><tr><th>类型</th><th>路径</th><th>作用</th></tr></thead>
+      <tbody>
+        <tr><td>参考模型</td><td><code class="path">E:\MyTool\bili\out\apktool\smali_classes26\com\bapis\bilibili\community\service\dm\v1\VideoMask.smali</code></td><td><code>cid / plat / fps / time / maskUrl</code> 字段。</td></tr>
+        <tr><td>参考模型</td><td><code class="path">E:\MyTool\bili\out\jadx\sources\com\bapis\bilibili\community\service\dm\v1\DmViewReply.java</code></td><td><code>mask_</code> 字段和 <code>hasMask()</code>。</td></tr>
+        <tr><td>参考 clock</td><td><code class="path">E:\MyTool\bili\out\apktool\smali_classes21\tv\danmaku\biliplayerv2\service\interact\biz\chronos\chronosrpc\remote\RemoteServiceHandler.smali</code></td><td><code>onPlayerClockChanged</code>、<code>current_time</code>、<code>playback_rate</code>。</td></tr>
+        <tr><td>参考 native</td><td><code class="path">E:\MyTool\bili\out\apktool\lib\arm64-v8a\libchronos.so</code></td><td>Chronos native 渲染和资源处理。</td></tr>
+        <tr><td>逆向产物</td><td><code class="path">E:\MyTool\BTelly\.analysis\chronos</code></td><td>ELF 摘要、字符串、xref、关键函数反汇编。</td></tr>
+        <tr><td>当前实现</td><td><code class="path">app/src/main/java/com/btelly/model/dm/DmMaskInfo.kt</code></td><td>Web <code>dm_mask</code> 字段模型。</td></tr>
+        <tr><td>当前实现</td><td><code class="path">app/src/main/java/com/btelly/model/dm/DmMaskRepository.kt</code></td><td>webmask Range 下载、段缓存。</td></tr>
+        <tr><td>当前实现</td><td><code class="path">app/src/main/java/com/btelly/model/dm/WebmaskParser.kt</code></td><td>webmask 文件和 SVG path 解析。</td></tr>
+        <tr><td>当前实现</td><td><code class="path">app/src/main/java/com/btelly/model/dm/DmMaskTimeline.kt</code></td><td>按 PTS 查询当前 mask 帧。</td></tr>
+        <tr><td>当前实现</td><td><code class="path">app/src/main/java/com/btelly/feature/player/view/DmMaskController.kt</code></td><td>mask 状态机、clock 外推、预加载。</td></tr>
+        <tr><td>当前实现</td><td><code class="path">app/src/main/java/com/btelly/feature/player/view/DanmakuMaskHostLayout.kt</code></td><td><code>saveLayer + DST_IN</code> 合成。</td></tr>
+      </tbody>
+    </table>
+
+    <h2>10. 结论回收</h2>
+    <p>旧文档里一些历史判断已经不再作为当前结论使用：</p>
+    <ul>
+      <li>“webmask 是纯 base64 字符串列表”已废弃。真实结构是二进制帧流。</li>
+      <li>“人物区域整块露出是资源空帧”已废弃。样本 <code>37,090</code> 帧都有 path。</li>
+      <li>“主 APK 与 Chronos 共用 clock”表述过度简化。准确说法是主 APK 把 clock 转发给 Chronos。</li>
+      <li>“父 View clipPath 等价官方”已废弃。Chronos 证据指向 shader alpha 乘法。</li>
+      <li>“seek 后冻结旧 mask 防闪”不是参考主线。它能掩盖空窗，但会制造旧 PTS 遮罩拖尾。</li>
+      <li>“关闭智能防挡仍闪”不应继续归因到 mask path，要查弹幕 runtime。</li>
+    </ul>
+
+    <p class="muted">更新时间：2026-06-06。本文基于本地反编译目录、真实 webmask 文件、Chronos native 反汇编结果和当前工作区代码整理；只作为分析报告，不包含代码修改。</p>
   </section>
 </main>
 </body>
