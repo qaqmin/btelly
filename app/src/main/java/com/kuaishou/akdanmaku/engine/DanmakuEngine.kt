@@ -93,6 +93,11 @@ class DanmakuEngine private constructor(renderer: DanmakuRenderer) {
     context.config.updateLayout()
   }
 
+  internal fun syncTimerTo(positionMs: Long) {
+    runtime.syncTimerTo(positionMs)
+    lastActTime = positionMs
+  }
+
   internal fun updateConfig(danmakuConfig: DanmakuConfig) {
     pendingConfig = danmakuConfig
   }

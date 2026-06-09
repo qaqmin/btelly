@@ -78,7 +78,8 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   private var fallbackLimitLogTick = 0
   private var lastFrameStallLogAtMs = 0L
   private var lastDrawStallLogAtMs = 0L
-  private var lastUpdateTimeMs = DanmakuTimelineJumpPolicy.TIME_UNSET
+  private var lastZeroFrameLogAtMs = 0L
+  private val timelineAnchor = DanmakuTimelineAnchor()
   private var frameReuseGeneration = 0
   private val frameReuseInvalidationCounts = IntArray(REUSE_INVALIDATE_REASON_COUNT)
 
@@ -212,7 +213,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     measureCandidates.clear()
     measureQueue.clear()
     stateById.clear()
-    lastUpdateTimeMs = DanmakuTimelineJumpPolicy.TIME_UNSET
+    timelineAnchor.clear()
     holdingItem = null
     loadShedLevel = 0
     clearTracks()
@@ -227,7 +228,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   fun seekTo(positionMs: Long) {
     val config = context.config
     resetRuntimeWindow(positionMs, config, keepCurrentFrame = true)
-    lastUpdateTimeMs = positionMs
+    timelineAnchor.syncTo(positionMs)
   }
 
   @Synchronized
@@ -372,21 +373,33 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     }
   }
 
+  @Synchronized
   fun draw(canvas: Canvas, onRenderReady: () -> Unit) {
     try {
       val liveFrame = frame
       val fallbackTransitionFrame = transitionFrame
-      val currentFrame = liveFrame ?: fallbackTransitionFrame
-      val drawingTransitionFrame = liveFrame == null && currentFrame === fallbackTransitionFrame
-      val transitionElapsedMs = 0L
+      val liveFrameDrawable = liveFrame != null && liveFrame.commands.size > 0
+      val transitionFrameDrawable =
+        fallbackTransitionFrame != null && fallbackTransitionFrame.commands.size > 0 &&
+          fallbackTransitionFrame.isTransitionAlive()
+      val currentFrame = when {
+        liveFrameDrawable -> liveFrame
+        transitionFrameDrawable -> fallbackTransitionFrame
+        else -> liveFrame ?: fallbackTransitionFrame
+      }
+      val drawingTransitionFrame = currentFrame === fallbackTransitionFrame
+      val transitionElapsedMs = if (drawingTransitionFrame) {
+        currentFrame?.transitionElapsedMs() ?: 0L
+      } else {
+        0L
+      }
       val config = context.config
-      if (!config.visibility || currentFrame == null ||
-        currentFrame.visibilityGeneration != config.visibilityGeneration) {
+      if (!config.visibility || currentFrame == null) {
         logDrawStallIfNeeded(
           reason = when {
             !config.visibility -> "hidden"
             currentFrame == null -> "noFrame"
-            else -> "visibility:${currentFrame.visibilityGeneration}->${config.visibilityGeneration}"
+            else -> "unavailable"
           },
           liveFrame = liveFrame,
           transitionFrame = fallbackTransitionFrame,
@@ -394,6 +407,22 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
           drawn = 0,
           skippedOutside = 0,
           commandCount = currentFrame?.commands?.size ?: 0
+        )
+        return
+      }
+      val generationMismatch =
+        currentFrame.visibilityGeneration != config.visibilityGeneration
+      val canDrawStaleFrame =
+        drawingTransitionFrame && currentFrame.isTransitionAlive()
+      if (generationMismatch && !canDrawStaleFrame) {
+        logDrawStallIfNeeded(
+          reason = "visibility:${currentFrame.visibilityGeneration}->${config.visibilityGeneration}",
+          liveFrame = liveFrame,
+          transitionFrame = fallbackTransitionFrame,
+          currentFrame = currentFrame,
+          drawn = 0,
+          skippedOutside = 0,
+          commandCount = currentFrame.commands.size
         )
         return
       }
@@ -554,21 +583,30 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     context.cacheManager.release()
   }
 
+  @Synchronized
+  fun syncTimerTo(positionMs: Long) {
+    context.timer.start(positionMs)
+    timelineAnchor.syncTo(positionMs)
+  }
+
   private fun syncPendingData(): Int {
     val added = timelineWindow.syncPending(pendingAddItems, liveMode)
     return added
   }
 
   private fun resetForTimelineJumpIfNeeded(now: Long, config: DanmakuConfig): TimelineResetProfile? {
-    val previous = lastUpdateTimeMs
-    lastUpdateTimeMs = now
-    if (!DanmakuTimelineJumpPolicy.isJump(previous, now, config.durationMs, config.rollingDurationMs)) {
+    val jump = timelineAnchor.updateAndCheckJump(
+      currentMs = now,
+      durationMs = config.durationMs,
+      rollingDurationMs = config.rollingDurationMs
+    )
+    if (!jump.isJump) {
       return null
     }
     val profile = resetRuntimeWindow(now, config, keepCurrentFrame = true)
     Log.i(
       DanmakuEngine.TAG,
-      "[Runtime] timeline jump reset previous=${previous}ms now=${now}ms " +
+      "[Runtime] timeline jump reset previous=${jump.previousMs}ms now=${now}ms " +
         "active=${profile.activeCount} waiting=${profile.waitingCount} frame=${profile.hadFrame}"
     )
     return profile
@@ -577,10 +615,10 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   fun clearRuntimeData(keepCurrentFrame: Boolean) {
     val config = context.config
     resetRuntimeWindow(context.timer.currentTimeMs, config, keepCurrentFrame)
-    lastUpdateTimeMs = if (keepCurrentFrame) {
-      context.timer.currentTimeMs
+    if (keepCurrentFrame) {
+      timelineAnchor.syncTo(context.timer.currentTimeMs)
     } else {
-      DanmakuTimelineJumpPolicy.TIME_UNSET
+      timelineAnchor.clear()
     }
   }
 
@@ -1163,7 +1201,57 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
           "trackFast=$trackFastCount trackLayout=$trackLayoutCount cacheReq=$cacheRequestedCount cacheDef=$cacheDeferredCount"
       )
     }
+    logZeroFrameIfNeeded(
+      now = now,
+      config = config,
+      commandCount = newFrame.commands.size,
+      outsideCount = outsideCount,
+      unmeasuredCount = unmeasuredCount,
+      filteredCount = filteredCount,
+      trackRejectedCount = trackRejectedCount,
+      cacheRequestedCount = cacheRequestedCount,
+      cacheDeferredCount = cacheDeferredCount
+    )
     return newFrame
+  }
+
+  private fun logZeroFrameIfNeeded(
+    now: Long,
+    config: DanmakuConfig,
+    commandCount: Int,
+    outsideCount: Int,
+    unmeasuredCount: Int,
+    filteredCount: Int,
+    trackRejectedCount: Int,
+    cacheRequestedCount: Int,
+    cacheDeferredCount: Int
+  ) {
+    if (commandCount > 0 || activeStates.isEmpty()) return
+    val elapsed = SystemClock.elapsedRealtime()
+    if (elapsed - lastZeroFrameLogAtMs < ZERO_FRAME_LOG_INTERVAL_MS) return
+    lastZeroFrameLogAtMs = elapsed
+    var measuredVisibleCandidates = 0
+    var sample = ""
+    activeStates.take(ZERO_FRAME_SAMPLE_LIMIT).forEachIndexed { index, state ->
+      val item = state.item
+      val drawState = item.drawState
+      val measured = item.state >= ItemState.Measured && drawState.isMeasured(config.measureGeneration)
+      if (measured && !item.isRuntimeOutside(now) && !isDataFiltered(item, config)) {
+        measuredVisibleCandidates++
+      }
+      if (sample.isNotEmpty()) sample += ";"
+      sample += "#$index{id=${item.data.danmakuId},pos=${item.timePosition},dur=${item.duration}," +
+        "mode=${item.data.mode},state=${item.state},measured=$measured," +
+        "outside=${item.isRuntimeOutside(now)},layoutGen=${drawState.layoutGeneration}}"
+    }
+    Log.w(
+      DanmakuEngine.TAG,
+      "[Runtime] zero frame now=${now}ms active=${activeStates.size} waiting=${waitingStates.size} " +
+        "outside=$outsideCount unmeasured=$unmeasuredCount filtered=$filteredCount " +
+        "rejected=$trackRejectedCount measuredVisible=$measuredVisibleCandidates " +
+        "cacheReq=$cacheRequestedCount cacheDef=$cacheDeferredCount loadShed=$loadShedLevel " +
+        "size=${context.displayer.width}x${context.displayer.height} sample=$sample"
+    )
   }
 
   private fun rollingLeft(
@@ -1841,6 +1929,8 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     private const val MAX_FIXED_FALLBACK_DRAWS_PER_FRAME = 8
     private const val MAX_FALLBACK_CACHE_BOOSTS_PER_FRAME = 4
     private const val FALLBACK_LIMIT_LOG_INTERVAL = 30
+    private const val ZERO_FRAME_LOG_INTERVAL_MS = 1_000L
+    private const val ZERO_FRAME_SAMPLE_LIMIT = 3
     private const val MEASURE_SCHEDULE_BUDGET_MS = 2L
     private const val LIVE_HISTORY_MAX = 2000
     private const val RUNTIME_OVERLOAD_MS = 12L

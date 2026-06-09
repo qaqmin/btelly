@@ -315,7 +315,7 @@ class MyPlayerView @JvmOverloads constructor(
             updateErrorMessage()
             updateControllerVisibility()
             updatePauseIndicator()
-            danmakuController.notifyPlaybackStateChanged(playbackState, player?.isPlaying == true)
+            danmakuController.notifyPlaybackStateChanged(playbackState, player?.playWhenReady == true)
             // mask 控制器需要知道 player 是否真的在解码、可以输出新帧。
             // STATE_READY 后立即同步当前播放器 clock，贴齐参考 onPlayerClockChanged。
             dmMaskController.setPlaybackReady(playbackState == Player.STATE_READY)

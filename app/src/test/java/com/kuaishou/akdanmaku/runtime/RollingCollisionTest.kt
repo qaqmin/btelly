@@ -12,8 +12,10 @@ class RollingCollisionTest {
       RollingCollision.willCollide(
         previousStartTime = 0L,
         previousWidth = 3_200f,
+        previousMotionWidth = 3_200f,
         nextStartTime = 4_100L,
         nextWidth = 3_200f,
+        nextMotionWidth = 3_200f,
         screenWidth = 1_920,
         nowMs = 4_100L,
         durationMs = 3_800L,
@@ -28,8 +30,10 @@ class RollingCollisionTest {
       RollingCollision.willCollide(
         previousStartTime = 0L,
         previousWidth = 400f,
+        previousMotionWidth = 400f,
         nextStartTime = 100L,
         nextWidth = 400f,
+        nextMotionWidth = 400f,
         screenWidth = 1_000,
         nowMs = 100L,
         durationMs = 1_000L,
@@ -44,8 +48,10 @@ class RollingCollisionTest {
       RollingCollision.willCollide(
         previousStartTime = 0L,
         previousWidth = 200f,
+        previousMotionWidth = 200f,
         nextStartTime = 650L,
         nextWidth = 200f,
+        nextMotionWidth = 200f,
         screenWidth = 1_000,
         nowMs = 650L,
         durationMs = 1_000L,

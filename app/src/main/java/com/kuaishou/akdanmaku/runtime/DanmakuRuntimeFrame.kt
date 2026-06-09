@@ -142,7 +142,7 @@ internal class RuntimeFrame {
   }
 
   private companion object {
-    const val TRANSITION_FRAME_MAX_AGE_MS = 450L
+    const val TRANSITION_FRAME_MAX_AGE_MS = 5_000L
   }
 }
 

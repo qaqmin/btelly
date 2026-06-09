@@ -489,17 +489,17 @@ class MyPlayerDanmakuController(
         danmakuPlayer?.updatePlaySpeed(resolved)
     }
 
-    fun notifyPlaybackStateChanged(playbackState: Int, isPlaying: Boolean) {
+    fun notifyPlaybackStateChanged(playbackState: Int, playWhenReady: Boolean) {
         when (playbackState) {
             Player.STATE_BUFFERING -> {
                 val player = danmakuPlayer
-                if (isDanmakuStarted && !isDanmakuPaused && player != null) {
+                if (playWhenReady && isDanmakuStarted && !isDanmakuPaused && player != null) {
                     wasBufferingWhilePlaying = true
                     player.pause()
                 }
             }
             Player.STATE_READY -> {
-                if (wasBufferingWhilePlaying && isPlaying) {
+                if (wasBufferingWhilePlaying && playWhenReady) {
                     resumeAfterBuffering()
                 } else if (!wasBufferingWhilePlaying) {
                     wasBufferingWhilePlaying = false
@@ -521,8 +521,19 @@ class MyPlayerDanmakuController(
         wasBufferingWhilePlaying = false
         val player = danmakuPlayer ?: return
         if (!isDanmakuStarted || isDanmakuPaused) return
+        val videoPos = playerPositionProvider?.invoke()?.coerceAtLeast(0L)
+        if (videoPos != null) {
+            danmakuPositionMs = videoPos
+            val enginePos = player.getCurrentTimeMs()
+            AppLog.d(
+                TAG,
+                "danmaku buffering resume: videoPos=$videoPos enginePos=$enginePos " +
+                    "drift=${enginePos - videoPos} hardSeek=false"
+            )
+        }
         ensureTimerFactor(player, currentPlaybackSpeed)
         player.start(danmakuConfig)
+        startDriftSync()
     }
 
     fun setEnabled(enabled: Boolean) {
@@ -641,12 +652,12 @@ class MyPlayerDanmakuController(
         if (!forceSeek && safePosition < currentTime) {
             return
         }
-        if (forceSeek || abs(currentTime - safePosition) > MAX_SYNC_DRIFT_MS) {
+        if (forceSeek) {
             seekPlayerTo(
                 player = player,
                 targetPositionMs = safePosition,
                 currentTimeMs = currentTime,
-                forceSeek = forceSeek,
+                forceSeek = true,
                 reason = "sync"
             )
         }
@@ -1182,7 +1193,7 @@ class MyPlayerDanmakuController(
      * 三段 drift 处理策略，避免每隔几秒就 hard seek 引发 retainer 重建：
      *  1. drift <= NEUTRAL：完全恢复正常 timer factor。
      *  2. drift <= SOFT_SYNC：通过 timer factor 软纠正（基础速度 ± 5%）。
-     *  3. drift  > HARD：先恢复 factor，再调用 player.seekTo（仍会触发重布局，但频次大幅下降）。
+     *  3. drift  > HARD：校准 timer 到播放器位置，但不重置 runtime/window，避免播放中清屏。
      */
     private fun applyDriftSyncTick(provider: () -> Long) {
         if (!isDanmakuStarted || isDanmakuPaused) return
@@ -1196,13 +1207,7 @@ class MyPlayerDanmakuController(
         when {
             absDrift > hardThreshold -> {
                 ensureTimerFactor(player, baseFactor)
-                seekPlayerTo(
-                    player = player,
-                    targetPositionMs = videoPos,
-                    currentTimeMs = enginePos,
-                    forceSeek = true,
-                    reason = "drift_sync"
-                )
+                player.syncTimerTo(videoPos)
             }
             absDrift > DRIFT_SOFT_SYNC_LIMIT_MS -> {
                 // 软同步处理不了的中等偏差，继续观察一拍即可（下次 tick 会重新评估）。

@@ -47,7 +47,6 @@ import com.kuaishou.akdanmaku.utils.Fraction
 import com.kuaishou.akdanmaku.utils.ObjectPool
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.Semaphore
 import kotlin.math.max
 
 /**
@@ -56,7 +55,7 @@ import kotlin.math.max
  * 此类应当在共享同一个弹幕播放的场景间进行共享，它持有着
  * - 播放上下文（计时器，渲染器，缓存管理等）
  * - 渲染引擎
- * 在与一个 [DanmakuView] 绑定后会通过 [Choreographer] 进行帧同步，通过信号量在绘制和后台计算之间进行同步
+ * 在与一个 [DanmakuView] 绑定后会通过 [Choreographer] 进行帧同步。
  *
  * 内部具有一个用于执行计算的线程，几乎所有对外 API 均为同步返回，具体操作在此线程中进行
  *
@@ -73,8 +72,6 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     private const val RELEASE_LATCH_TIMEOUT_MS = 220L
     private const val MAX_PRIME_MEASURE_ON_UPDATE = 160
     private const val MAX_PRIME_MEASURE_ON_APPEND = 12
-    private const val DRAW_WAIT_SKIP_LOG_THRESHOLD = 4
-    private const val DRAW_WAIT_SKIP_LOG_INTERVAL_MS = 1000L
     const val MIN_DANMAKU_DURATION: Long = 4000
     const val MAX_DANMAKU_DURATION_HIGH_DENSITY: Long = 9000
     /**
@@ -103,12 +100,8 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
   private var currentDisplayerHeight = 0
   private var currentDisplayerSizeFactor = 1f
   private var config: DanmakuConfig? = null
-  private var skippedDrawWaitFrames = 0
-  private var lastDrawWaitSkipLogAtMs = 0L
   @Volatile
   private var frameCallbackScheduled = false
-
-  private val drawSemaphore = Semaphore(0)
 
   @Volatile
   private var started = false
@@ -173,20 +166,10 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     }
 
     val frameStartedAtMs = SystemClock.elapsedRealtime()
-    var waitDrawMs = 0L
-    if (isManualStep) {
-      // Time goes one step for manual debug.
-      engine.step(deltaTimeSeconds)
-    } else {
-      if (!drawSemaphore.tryAcquire()) {
-        skippedDrawWaitFrames++
-        danmakuView?.postInvalidateOnAnimation()
-        logDrawWaitSkipIfNeeded(frameStartedAtMs)
-        return
-      } else {
-        skippedDrawWaitFrames = 0
-      }
-    }
+    // Advance the danmaku clock from the frame loop, not from View.onDraw().
+    // Parent mask invalidation can reuse the child display list and skip DanmakuView.onDraw for
+    // seconds; advancing in draw would then jump all rolling commands in one large step.
+    engine.step(deltaTimeSeconds)
     if (!started) {
       return
     }
@@ -203,10 +186,13 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     endTrace()
     endTrace()
     val totalMs = SystemClock.elapsedRealtime() - frameStartedAtMs
-    if (waitDrawMs >= 80L || actMs >= 12L || totalMs >= 96L) {
+    if (!isManualStep) {
+      postFrameCallback()
+    }
+    if (actMs >= 12L || totalMs >= 96L) {
       AppLog.w(
         "PlaybackPerf",
-        "danmaku_action waitDraw=${waitDrawMs}ms act=${actMs}ms total=${totalMs}ms manual=$isManualStep"
+        "danmaku_action act=${actMs}ms total=${totalMs}ms manual=$isManualStep"
       )
     }
   }
@@ -222,34 +208,8 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
       }
       return
     }
-    if (!isManualStep) {
-      // Time goes one step.
-      engine.step()
-    }
-    drawSemaphore.tryAcquire()
     engine.draw(canvas) {
-      releaseSemaphore()
-      if (!isManualStep) {
-        postFrameCallback()
-      }
     }
-  }
-
-  private fun releaseSemaphore() {
-    // Acquired or on the first draw(with init permit: 0).
-    if (drawSemaphore.availablePermits() == 0) {
-      drawSemaphore.release()
-    }
-  }
-
-  private fun logDrawWaitSkipIfNeeded(nowMs: Long) {
-    if (skippedDrawWaitFrames < DRAW_WAIT_SKIP_LOG_THRESHOLD) return
-    if (nowMs - lastDrawWaitSkipLogAtMs < DRAW_WAIT_SKIP_LOG_INTERVAL_MS) return
-    lastDrawWaitSkipLogAtMs = nowMs
-    AppLog.w(
-      "PlaybackPerf",
-      "danmaku_action missed_draw_signal frames=$skippedDrawWaitFrames"
-    )
   }
 
   /**
@@ -283,11 +243,12 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
       updateConfig(it)
     }
     engine.start()
+    val wasStarted = started
     if (!started) {
       started = true
-      if (!isManualStep) {
-        startFrameLoop()
-      }
+    }
+    if (!isManualStep) {
+      startFrameLoop(force = wasStarted)
     }
   }
 
@@ -307,7 +268,6 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
       return
     }
     started = false
-    releaseSemaphore()
     removeFrameCallback()
     if (actionThread.isAlive) {
       actionHandler.postAtFrontOfQueue {
@@ -318,16 +278,24 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     }
   }
 
-  private fun startFrameLoop() {
-    // 恢复播放时主动踢一帧。只挂 Choreographer 在部分暂停/恢复时序下可能没有立即触发 View 绘制，
-    // action 线程就会停在等待绘制信号的位置，表现为弹幕停在暂停画面不再滚动。
-    releaseSemaphore()
+  private fun startFrameLoop(force: Boolean = false) {
+    if (!started || isReleased) {
+      return
+    }
+    // 恢复播放时主动踢一帧，并在下一次 action 后继续挂 Choreographer 帧循环。
     danmakuView?.postInvalidateOnAnimation()
     if (actionThread.isAlive) {
       actionHandler.post {
-        actionHandler.removeMessages(MSG_FRAME_UPDATE)
-        removeFrameCallback()
-        actionHandler.sendEmptyMessage(MSG_FRAME_UPDATE)
+        if (!started || isReleased) {
+          return@post
+        }
+        if (force) {
+          actionHandler.removeMessages(MSG_FRAME_UPDATE)
+          removeFrameCallback()
+        }
+        if (!actionHandler.hasMessages(MSG_FRAME_UPDATE)) {
+          actionHandler.sendEmptyMessage(MSG_FRAME_UPDATE)
+        }
       }
     }
   }
@@ -341,7 +309,6 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     }
     isReleased = true
     started = false
-    releaseSemaphore()
     val releaseLatch = CountDownLatch(1)
     if (actionThread.isAlive) {
       removeFrameCallback()
@@ -367,6 +334,10 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     Log.d(DanmakuEngine.TAG, "[Player] SeekTo($positionMs)")
     getConfig()?.updateFirstShown()
     engine.seekTo(max(positionMs, 0L))
+  }
+
+  fun syncTimerTo(positionMs: Long) {
+    engine.syncTimerTo(max(positionMs, 0L))
   }
 
   fun getCurrentTimeMs(): Long {
@@ -485,7 +456,6 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
         config.durationMs = duration
         config.updateRetainer()
         config.updateLayout()
-        config.updateVisibility()
       }
       currentDisplayerWidth = width
       currentDisplayerHeight = height
