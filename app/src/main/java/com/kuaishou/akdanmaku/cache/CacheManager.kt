@@ -172,6 +172,23 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
 
   fun getDanmakuSize(danmaku: DanmakuItemData): Size? = measureSizeCache[danmaku.danmakuId]
 
+  fun measureNow(
+    item: DanmakuItem,
+    displayer: DanmakuDisplayer,
+    config: DanmakuConfig
+  ): Size? {
+    if (isReleased) return null
+    measureSizeCache[item.data.danmakuId]?.let { return it }
+    return try {
+      val size = context.measureRenderer(item, displayer, config)
+      measureSizeCache[item.data.danmakuId] = size
+      size
+    } catch (e: Exception) {
+      Log.e(DanmakuEngine.TAG, "CacheManager.measureNow failed", e)
+      null
+    }
+  }
+
   fun release() {
     if (isReleased) return
     if (available) {

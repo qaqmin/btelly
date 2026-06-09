@@ -56,6 +56,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(UnstableApi::class)
@@ -78,6 +79,7 @@ class MyPlayerView @JvmOverloads constructor(
         private const val KEYCODE_SYSTEM_NAVIGATION_RIGHT_COMPAT = 283
         private const val STARTUP_BUFFERING_INDICATOR_DELAY_MS = 700L
         private const val REBUFFER_BUFFERING_INDICATOR_DELAY_MS = 150L
+        private const val DM_MASK_STARTUP_LOAD_DELAY_MS = 1500L
         private const val SHUTTER_FADE_DURATION_MS = 180L
         private const val SHUTTER_TIMEOUT_MS = 8_000L
         private const val MASK_GEOMETRY_LOG_INTERVAL_MS = 2_000L
@@ -2022,14 +2024,32 @@ class MyPlayerView @JvmOverloads constructor(
             AppLog.d("DmMask", "loadDmMask skipped: smart shield disabled, cid=$cid")
             return false
         }
-        val success = loadDmMaskInternal(maskUrl, cid, fps)
+        val success = loadDmMaskInternal(maskUrl, cid, fps, delayForDanmakuStartup = true)
         if (success) {
             pendingDmMaskRequest = null
         }
         return success
     }
 
-    private suspend fun loadDmMaskInternal(maskUrl: String, cid: Long, fps: Int): Boolean {
+    private suspend fun loadDmMaskInternal(
+        maskUrl: String,
+        cid: Long,
+        fps: Int,
+        delayForDanmakuStartup: Boolean = false
+    ): Boolean {
+        val shouldDelay = delayForDanmakuStartup && !dmMaskController.hasCachedMask(cid)
+        if (shouldDelay) {
+            delay(DM_MASK_STARTUP_LOAD_DELAY_MS)
+            val pending = pendingDmMaskRequest
+            if (pending == null ||
+                pending.maskUrl != maskUrl ||
+                pending.cid != cid ||
+                pending.fps != fps
+            ) {
+                AppLog.d("DmMask", "loadDmMask abandoned: stale request, cid=$cid")
+                return false
+            }
+        }
         val success = dmMaskController.loadMask(maskUrl, cid, fps)
         if (success) {
             dmkMaskHost?.let { host ->
@@ -2054,7 +2074,12 @@ class MyPlayerView @JvmOverloads constructor(
         val request = pendingDmMaskRequest ?: return
         handler.post {
             maskRetryScope.launch {
-                val success = loadDmMaskInternal(request.maskUrl, request.cid, request.fps)
+                val success = loadDmMaskInternal(
+                    request.maskUrl,
+                    request.cid,
+                    request.fps,
+                    delayForDanmakuStartup = true
+                )
                 AppLog.d("DmMask", "retry pending mask: cid=${request.cid} success=$success")
                 if (success) {
                     pendingDmMaskRequest = null

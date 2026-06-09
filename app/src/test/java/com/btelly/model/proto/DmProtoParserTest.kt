@@ -181,6 +181,112 @@ class DmProtoParserTest {
         assertEquals(12_500L, result.commandDms.first().stimeMs)
     }
 
+    @Test
+    fun forEachSegmentElemInProgressRange_onlyParsesMatchingItems() {
+        val segmentBytes = protoMessage(
+            bytesField(
+                1,
+                protoMessage(
+                    numberField(1, 1L),
+                    numberField(2, 1_000),
+                    stringField(7, "before")
+                )
+            ),
+            bytesField(
+                1,
+                protoMessage(
+                    numberField(1, 2L),
+                    numberField(2, 30_000),
+                    stringField(7, "inside-start")
+                )
+            ),
+            bytesField(
+                1,
+                protoMessage(
+                    numberField(1, 3L),
+                    numberField(2, 119_999),
+                    stringField(7, "inside-end")
+                )
+            ),
+            bytesField(
+                1,
+                protoMessage(
+                    numberField(1, 4L),
+                    numberField(2, 120_000),
+                    stringField(7, "after")
+                )
+            )
+        )
+        val parsed = mutableListOf<DanmakuElemProto>()
+
+        val scanned = DmProtoParser.forEachSegmentElemInProgressRange(
+            bytes = segmentBytes,
+            startMs = 30_000,
+            endMs = 120_000,
+            onElem = parsed::add
+        )
+
+        assertEquals(4, scanned)
+        assertEquals(listOf(2L, 3L), parsed.map { it.id })
+        assertEquals(listOf("inside-start", "inside-end"), parsed.map { it.content })
+    }
+
+    @Test
+    fun forEachSegmentElemWithMetaInProgressRange_readsMetaAndMatchingItems() {
+        val aiFlagBytes = protoMessage(
+            bytesField(
+                1,
+                protoMessage(
+                    numberField(1, 2L),
+                    uint32Field(2, 8)
+                )
+            )
+        )
+        val segmentBytes = protoMessage(
+            bytesField(
+                1,
+                protoMessage(
+                    numberField(1, 1L),
+                    numberField(2, 5_000),
+                    stringField(7, "before")
+                )
+            ),
+            numberField(2, 3),
+            bytesField(3, aiFlagBytes),
+            bytesField(
+                5,
+                protoMessage(
+                    numberField(1, 4),
+                    stringField(2, "https://example.com/colorful.json")
+                )
+            ),
+            bytesField(
+                1,
+                protoMessage(
+                    numberField(1, 2L),
+                    numberField(2, 35_000),
+                    numberField(24, 4),
+                    stringField(7, "inside")
+                )
+            )
+        )
+        val parsed = mutableListOf<DanmakuElemProto>()
+
+        val result = DmProtoParser.forEachSegmentElemWithMetaInProgressRange(
+            bytes = segmentBytes,
+            startMs = 30_000,
+            endMs = 120_000,
+            onElem = parsed::add
+        )
+
+        assertEquals(2, result.elemCount)
+        assertEquals(3, result.meta.state)
+        assertEquals(8, result.meta.aiFlag.dmFlags.first().flag)
+        assertEquals("https://example.com/colorful.json", result.meta.colorfulSrc.first().src)
+        assertEquals(listOf(2L), parsed.map { it.id })
+        assertEquals(listOf("inside"), parsed.map { it.content })
+    }
+
     private fun protoMessage(vararg fields: ByteArray): ByteArray {
         return ByteArrayOutputStream().use { output ->
             fields.forEach(output::write)

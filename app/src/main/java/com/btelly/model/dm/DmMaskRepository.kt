@@ -27,14 +27,20 @@ class DmMaskRepository {
         private const val MAX_CACHE_SIZE = 3
         private const val UA = "Mozilla/5.0 (Android) BTelly/1.0"
         private const val REFERER = "https://www.bilibili.com"
+        private val sharedCache = LruCache<Long, DmMaskData>(MAX_CACHE_SIZE)
+        private val sharedTimelineCache = LruCache<Long, DmMaskTimeline>(MAX_CACHE_SIZE)
+        private val sharedUrlCache = ConcurrentHashMap<Long, String>()
+        private val sharedSegmentParseLocks = ConcurrentHashMap<String, Any>()
+        private val sharedHeaderLoadLocks = ConcurrentHashMap<Long, Any>()
     }
 
-    private val cache = LruCache<Long, DmMaskData>(MAX_CACHE_SIZE)
-    private val timelineCache = LruCache<Long, DmMaskTimeline>(MAX_CACHE_SIZE)
-    private val segmentParseLocks = ConcurrentHashMap<String, Any>()
+    private val cache = sharedCache
+    private val timelineCache = sharedTimelineCache
+    private val segmentParseLocks = sharedSegmentParseLocks
+    private val headerLoadLocks = sharedHeaderLoadLocks
 
     /** cid → 完整 mask 资源 URL（用于按需 Range 下载段数据）。 */
-    private val urlCache = ConcurrentHashMap<Long, String>()
+    private val urlCache = sharedUrlCache
 
     /**
      * 加载 mask 头部 + 段索引表，立即返回可用的 [DmMaskData]（段数据未下载）。
@@ -43,40 +49,52 @@ class DmMaskRepository {
     suspend fun downloadAndParse(maskUrl: String, cid: Long, fps: Int): DmMaskData? {
         cache.get(cid)?.let { return it }
         return withContext(Dispatchers.IO) {
-            val startNs = System.nanoTime()
-            try {
-                val url = if (maskUrl.startsWith("//")) "https:$maskUrl" else maskUrl
-                urlCache[cid] = url
-
-                // 1. 拉前 16 字节 header → 解析 segmentCount
-                val headerBytes = rangeFetch(url, 0L, (WebmaskParser.HEADER_SIZE - 1).toLong())
-                    ?: return@withContext null
-                val segCount = WebmaskParser.parseSegmentCount(headerBytes)
-                if (segCount <= 0) return@withContext null
-
-                // 2. 拉段索引表 → 解析所有 LazyMaskSegment
-                val metaStart = WebmaskParser.HEADER_SIZE.toLong()
-                val metaEnd = metaStart + segCount.toLong() * WebmaskParser.META_ENTRY_SIZE - 1L
-                val (metaBytes, totalSize) = rangeFetchWithTotal(url, metaStart, metaEnd)
-                    ?: return@withContext null
-
-                val maskData = WebmaskParser.parseSegmentMeta(metaBytes, segCount, totalSize, fps)
-                    ?: return@withContext null
-
-                // 3. 构建 timeline（首段不预解析——交给 Controller 触发 preloadSegmentFrames）
-                DmMaskTimeline.build(maskData)?.let { timelineCache.put(cid, it) }
-                cache.put(cid, maskData)
-
-                val totalMs = (System.nanoTime() - startNs) / 1_000_000L
-                AppLog.d(TAG, "Webmask header ready: cid=$cid segs=$segCount fps=$fps " +
-                    "fileSize=${totalSize / 1024}KB hdr=${totalMs}ms")
-                maskData
-            } catch (e: Exception) {
-                AppLog.e(TAG, "Download webmask error: ${e.message}")
-                null
+            val lock = headerLoadLocks.getOrPut(cid) { Any() }
+            synchronized(lock) {
+                cache.get(cid)?.let { return@withContext it }
+                downloadAndParseLocked(maskUrl, cid, fps)
             }
         }
     }
+
+    private fun downloadAndParseLocked(maskUrl: String, cid: Long, fps: Int): DmMaskData? {
+        val startNs = System.nanoTime()
+        try {
+            val url = if (maskUrl.startsWith("//")) "https:$maskUrl" else maskUrl
+            urlCache[cid] = url
+
+            // 1. 拉前 16 字节 header → 解析 segmentCount
+            val headerBytes = rangeFetch(url, 0L, (WebmaskParser.HEADER_SIZE - 1).toLong())
+                ?: return null
+            val segCount = WebmaskParser.parseSegmentCount(headerBytes)
+            if (segCount <= 0) return null
+
+            // 2. 拉段索引表 → 解析所有 LazyMaskSegment
+            val metaStart = WebmaskParser.HEADER_SIZE.toLong()
+            val metaEnd = metaStart + segCount.toLong() * WebmaskParser.META_ENTRY_SIZE - 1L
+            val (metaBytes, totalSize) = rangeFetchWithTotal(url, metaStart, metaEnd)
+                ?: return null
+
+            val maskData = WebmaskParser.parseSegmentMeta(metaBytes, segCount, totalSize, fps)
+                ?: return null
+
+            // 3. 构建 timeline（首段不预解析——交给 Controller 触发 preloadSegmentFrames）
+            DmMaskTimeline.build(maskData)?.let { timelineCache.put(cid, it) }
+            cache.put(cid, maskData)
+
+            val totalMs = (System.nanoTime() - startNs) / 1_000_000L
+            AppLog.d(TAG, "Webmask header ready: cid=$cid segs=$segCount fps=$fps " +
+                "fileSize=${totalSize / 1024}KB hdr=${totalMs}ms")
+            return maskData
+        } catch (e: Exception) {
+            AppLog.e(TAG, "Download webmask error: ${e.message}")
+            return null
+        } finally {
+            headerLoadLocks.remove(cid)
+        }
+    }
+
+    fun hasMask(cid: Long): Boolean = cache.get(cid) != null && timelineCache.get(cid) != null
 
     fun getTimeline(cid: Long): DmMaskTimeline? = timelineCache.get(cid)
 

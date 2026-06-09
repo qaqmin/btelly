@@ -10,6 +10,11 @@ object DmProtoParser {
         val colorfulSrc: List<DmColorfulProto> = emptyList()
     )
 
+    data class SegmentElemScanResult(
+        val meta: SegmentMeta,
+        val elemCount: Int
+    )
+
     fun parseSegment(bytes: ByteArray): DmSegMobileReplyProto {
         val input = CodedInputStream.newInstance(bytes)
         val elems = mutableListOf<DanmakuElemProto>()
@@ -72,7 +77,7 @@ object DmProtoParser {
                 else -> {
                     when (tag ushr 3) {
                         1 -> {
-                            onElem(parseElem(input.readByteArray()))
+                            onElem(parseElem(input.readRawVarint32(), input))
                             count++
                         }
                         else -> input.skipField(tag)
@@ -81,6 +86,96 @@ object DmProtoParser {
             }
         }
         return count
+    }
+
+    fun forEachSegmentElemInProgressRange(
+        bytes: ByteArray,
+        startMs: Long?,
+        endMs: Long?,
+        onElem: (DanmakuElemProto) -> Unit
+    ): Int {
+        if (startMs == null && endMs == null) {
+            return forEachSegmentElem(bytes, onElem)
+        }
+        val input = CodedInputStream.newInstance(bytes)
+        var count = 0
+        while (!input.isAtEnd) {
+            when (val tag = input.readTag()) {
+                0 -> break
+                else -> {
+                    when (tag ushr 3) {
+                        1 -> {
+                            val length = input.readRawVarint32()
+                            val offset = input.totalBytesRead
+                            val oldLimit = input.pushLimit(length)
+                            val progress = parseElemProgress(input)
+                            skipRemainingMessageBytes(input, offset, length)
+                            input.popLimit(oldLimit)
+                            if ((startMs == null || progress >= startMs) &&
+                                (endMs == null || progress < endMs)
+                            ) {
+                                onElem(parseElem(bytes, offset, length))
+                            }
+                            count++
+                        }
+                        else -> input.skipField(tag)
+                    }
+                }
+            }
+        }
+        return count
+    }
+
+    fun forEachSegmentElemWithMetaInProgressRange(
+        bytes: ByteArray,
+        startMs: Long?,
+        endMs: Long?,
+        onElem: (DanmakuElemProto) -> Unit
+    ): SegmentElemScanResult {
+        val input = CodedInputStream.newInstance(bytes)
+        var count = 0
+        var state = 0
+        var aiFlag = DanmakuAIFlagProto()
+        val colorfulSrc = mutableListOf<DmColorfulProto>()
+        while (!input.isAtEnd) {
+            when (val tag = input.readTag()) {
+                0 -> break
+                else -> {
+                    when (tag ushr 3) {
+                        1 -> {
+                            if (startMs == null && endMs == null) {
+                                onElem(parseElem(input.readRawVarint32(), input))
+                            } else {
+                                val length = input.readRawVarint32()
+                                val offset = input.totalBytesRead
+                                val oldLimit = input.pushLimit(length)
+                                val progress = parseElemProgress(input)
+                                skipRemainingMessageBytes(input, offset, length)
+                                input.popLimit(oldLimit)
+                                if ((startMs == null || progress >= startMs) &&
+                                    (endMs == null || progress < endMs)
+                                ) {
+                                    onElem(parseElem(bytes, offset, length))
+                                }
+                            }
+                            count++
+                        }
+                        2 -> state = input.readInt32()
+                        3 -> aiFlag = parseAiFlag(input.readByteArray())
+                        5 -> colorfulSrc += parseColorful(input.readByteArray())
+                        else -> input.skipField(tag)
+                    }
+                }
+            }
+        }
+        return SegmentElemScanResult(
+            meta = SegmentMeta(
+                state = state,
+                aiFlag = aiFlag,
+                colorfulSrc = colorfulSrc
+            ),
+            elemCount = count
+        )
     }
 
     fun parseView(bytes: ByteArray): DmWebViewReplyProto {
@@ -302,7 +397,21 @@ object DmProtoParser {
     }
 
     private fun parseElem(bytes: ByteArray): DanmakuElemProto {
-        val input = CodedInputStream.newInstance(bytes)
+        return parseElem(CodedInputStream.newInstance(bytes))
+    }
+
+    private fun parseElem(length: Int, input: CodedInputStream): DanmakuElemProto {
+        val oldLimit = input.pushLimit(length)
+        val elem = parseElem(input)
+        input.popLimit(oldLimit)
+        return elem
+    }
+
+    private fun parseElem(bytes: ByteArray, offset: Int, length: Int): DanmakuElemProto {
+        return parseElem(CodedInputStream.newInstance(bytes, offset, length))
+    }
+
+    private fun parseElem(input: CodedInputStream): DanmakuElemProto {
         var id = 0L
         var progress = 0
         var mode = 1
@@ -362,6 +471,32 @@ object DmProtoParser {
             idStr = idStr,
             animation = animation
         )
+    }
+
+    private fun parseElemProgress(bytes: ByteArray): Int {
+        return parseElemProgress(CodedInputStream.newInstance(bytes))
+    }
+
+    private fun parseElemProgress(input: CodedInputStream): Int {
+        while (!input.isAtEnd) {
+            when (val tag = input.readTag()) {
+                0 -> break
+                else -> {
+                    when (tag ushr 3) {
+                        2 -> return input.readInt32()
+                        else -> input.skipField(tag)
+                    }
+                }
+            }
+        }
+        return 0
+    }
+
+    private fun skipRemainingMessageBytes(input: CodedInputStream, offset: Int, length: Int) {
+        val remainingBytes = offset + length - input.totalBytesRead
+        if (remainingBytes > 0) {
+            input.skipRawBytes(remainingBytes)
+        }
     }
 
     private fun parseDmSge(bytes: ByteArray): Pair<Int, Int> {

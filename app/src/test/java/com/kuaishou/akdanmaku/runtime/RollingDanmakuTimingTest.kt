@@ -9,6 +9,33 @@ import org.junit.Test
 class RollingDanmakuTimingTest {
 
   @Test
+  fun predictedStartTime_usesActualEntryTimeWhenOriginalTimeHasPassed() {
+    assertEquals(
+      2_500L,
+      RollingDanmakuTiming.predictedStartTime(
+        startTimeMs = ROLLING_START_TIME_UNSET,
+        nowMs = 2_500L,
+        timePositionMs = 1_000L
+      )
+    )
+  }
+
+  @Test
+  fun positionX_startsAtRightEdgeWhenStartTimeEqualsNow() {
+    assertEquals(
+      1_280f,
+      RollingDanmakuTiming.positionX(
+        screenWidth = 1_280,
+        itemWidth = 320f,
+        nowMs = 2_500L,
+        startTimeMs = 2_500L,
+        durationMs = 8_000L
+      ),
+      0.001f
+    )
+  }
+
+  @Test
   fun positionX_usesActualStartTimeWhenMeasureFinishesLate() {
     val screenWidth = 1920
     val itemWidth = 3200f

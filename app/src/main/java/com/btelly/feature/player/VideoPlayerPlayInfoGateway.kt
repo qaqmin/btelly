@@ -22,6 +22,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import java.util.concurrent.CancellationException
+import android.os.SystemClock
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -484,25 +485,37 @@ class VideoPlayerPlayInfoGateway(
         rangeEndMs: Long? = null
     ): ByteArray? {
         if (rangeStartMs != null || rangeEndMs != null) {
-            securityGateway.prewarmWebSession()
-            ensureWbiKeys()
-            val rangedBytes = requestDanmakuSegmentBytesWbi(
+            val rangedStartedAt = SystemClock.elapsedRealtime()
+            var prewarmMs = 0L
+            val needsSessionWarmup = !hasWbiKeys() || sessionGateway.areWbiKeysStale()
+            if (needsSessionWarmup) {
+                val prewarmStartedAt = SystemClock.elapsedRealtime()
+                securityGateway.prewarmWebSession()
+                prewarmMs = SystemClock.elapsedRealtime() - prewarmStartedAt
+            }
+            val keyStartedAt = SystemClock.elapsedRealtime()
+            val refreshedKeys = ensureWbiKeys()
+            val keyMs = SystemClock.elapsedRealtime() - keyStartedAt
+            val requestStartedAt = SystemClock.elapsedRealtime()
+            val rangedBytes = if (hasWbiKeys()) requestDanmakuSegmentBytesWbi(
                 cid = cid,
                 aid = aid,
                 segmentIndex = segmentIndex,
                 rangeStartMs = rangeStartMs,
                 rangeEndMs = rangeEndMs
+            ) else null
+            val requestMs = SystemClock.elapsedRealtime() - requestStartedAt
+            val bytesSize = rangedBytes?.size ?: 0
+            AppLog.i(
+                logTag,
+                "requestDanmakuSegment range timing: cid=$cid aid=$aid segment=$segmentIndex " +
+                    "range=${formatDanmakuRange(rangeStartMs, rangeEndMs)} prewarm=$prewarmMs ms " +
+                    "key=$keyMs ms refreshedKey=$refreshedKeys request=$requestMs ms " +
+                    "total=${SystemClock.elapsedRealtime() - rangedStartedAt}ms " +
+                    "bytes=$bytesSize"
             )
-            val rangedProbe = probeDanmakuSegment(rangedBytes)
-            logDanmakuSegmentProbe(
-                source = "wbi-range",
-                cid = cid,
-                aid = aid,
-                segmentIndex = segmentIndex,
-                probe = rangedProbe
-            )
-            if (rangedProbe != null && !isSuspiciousDanmakuSegment(rangedProbe, expectation = null)) {
-                return rangedProbe.bytes
+            if (rangedBytes != null && rangedBytes.isNotEmpty()) {
+                return rangedBytes
             }
         }
         val expectation = buildDanmakuSegmentExpectation(expectedSegmentCount)
@@ -816,27 +829,37 @@ class VideoPlayerPlayInfoGateway(
             message.contains("nothing", ignoreCase = true)
     }
 
-    private suspend fun ensureWbiKeys() {
+    private suspend fun ensureWbiKeys(): Boolean {
         if (hasWbiKeys() && !sessionGateway.areWbiKeysStale()) {
-            return
+            return false
         }
         // 使用无 cookie 的客户端，防止 -101 响应清除关键 cookie
         val response = runCatching {
             noCookieApiService.getUserDetailInfo()
         }.onFailure { throwable ->
             AppLog.e(logTag, "ensureWbiKeys exception: ${throwable.message}", throwable)
-        }.getOrNull() ?: return
+        }.getOrNull() ?: return false
         if (response.isSuccess && response.data != null) {
             // 只更新 userInfo 和 WBI keys，不触发 session 清除
             sessionGateway.syncUserSession(response, source = "ensureWbiKeys", context = AuthContext.BACKGROUND)
+            return true
         } else if (response.code != -101) {
             AppLog.e(logTag, "ensureWbiKeys failed: code=${response.code}, message=${response.errorMessage}")
         }
+        return false
     }
 
     private fun buildWbiParams(params: Map<String, String>): Map<String, String> {
         val (imgKey, subKey) = sessionGateway.getWbiKeys()
         return WbiGenerator.generateWbiParams(params, imgKey, subKey)
+    }
+
+    private fun formatDanmakuRange(rangeStartMs: Long?, rangeEndMs: Long?): String {
+        return if (rangeStartMs == null && rangeEndMs == null) {
+            "full"
+        } else {
+            "[${rangeStartMs ?: ""},${rangeEndMs ?: ""}]"
+        }
     }
 
     private fun Base2Response<PgcV2Result>.toPlayInfoResult(): PlayInfoResult {

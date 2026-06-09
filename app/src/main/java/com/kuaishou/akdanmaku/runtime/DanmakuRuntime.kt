@@ -157,6 +157,61 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   }
 
   @Synchronized
+  fun primeMeasureItemsNow(items: List<DanmakuItem>, maxCount: Int) {
+    if (items.isEmpty() || maxCount <= 0) return
+    val config = context.config
+    var measured = 0
+    var cacheHits = 0
+    var cachePrimed = 0
+    var failed = 0
+    var scanned = 0
+    val startedAt = SystemClock.elapsedRealtime()
+    for (item in items) {
+      if (measured >= maxCount) break
+      scanned++
+      if (item.drawState.isMeasured(config.measureGeneration) && item.state >= ItemState.Measured) {
+        if (cachePrimed < MAX_PRIME_CACHE_BUILDS &&
+          requestCacheBuildIfNeeded(item, config, CACHE_PRIORITY_VISIBLE)) {
+          cachePrimed++
+        }
+        continue
+      }
+      val cachedSize = context.cacheManager.getDanmakuSize(item.data)
+      val size = cachedSize ?: context.cacheManager.measureNow(item, context.displayer, config)
+      if (size == null) {
+        item.state = ItemState.Error
+        item.pendingMeasureGeneration = -1
+        failed++
+        continue
+      }
+      item.drawState.width = size.width.toFloat()
+      item.drawState.height = size.height.toFloat()
+      item.drawState.measureGeneration = config.measureGeneration
+      item.state = ItemState.Measured
+      item.pendingMeasureGeneration = -1
+      if (cachedSize != null) {
+        cacheHits++
+      }
+      if (cachePrimed < MAX_PRIME_CACHE_BUILDS &&
+        requestCacheBuildIfNeeded(item, config, CACHE_PRIORITY_VISIBLE)) {
+        cachePrimed++
+      }
+      measured++
+    }
+    val costMs = SystemClock.elapsedRealtime() - startedAt
+    if (measured > 0 || failed > 0 || costMs >= 4L) {
+      Log.i(
+        DanmakuEngine.TAG,
+        "[Runtime] sync prime measure measured=$measured cacheHit=$cacheHits failed=$failed " +
+          "cachePrimed=$cachePrimed total=${items.size} cost=${costMs}ms"
+      )
+    }
+    if (scanned < items.size) {
+      primeMeasureItems(items.drop(scanned), maxCount)
+    }
+  }
+
+  @Synchronized
   fun primeMeasureItem(item: DanmakuItem) {
     val config = context.config
     if (item.state == ItemState.Measuring) return
@@ -1304,7 +1359,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     screenWidth: Int,
     durationMs: Long
   ): Float {
-    val startTime = RollingDanmakuTiming.resolvedStartTime(item.rollingStartTimeMs, item.timePosition)
+    val startTime = RollingDanmakuTiming.resolvedStartTime(item.rollingStartTimeMs, nowMs)
     return RollingDanmakuTiming.positionX(
       screenWidth = screenWidth,
       itemWidth = item.rollingMotionWidth.takeIf { it > 0f } ?: item.drawState.width,
@@ -1929,7 +1984,10 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     if (data.mode != DanmakuItemData.DANMAKU_MODE_ROLLING) {
       return isTimeout(now)
     }
-    val startTime = RollingDanmakuTiming.resolvedStartTime(rollingStartTimeMs, timePosition)
+    if (rollingStartTimeMs == ROLLING_START_TIME_UNSET) {
+      return false
+    }
+    val startTime = RollingDanmakuTiming.resolvedStartTime(rollingStartTimeMs, now)
     return RollingDanmakuTiming.isTimeout(now, startTime, duration)
   }
 

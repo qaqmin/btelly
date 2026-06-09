@@ -72,6 +72,7 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     private const val RELEASE_LATCH_TIMEOUT_MS = 220L
     private const val MAX_PRIME_MEASURE_ON_UPDATE = 160
     private const val MAX_PRIME_MEASURE_ON_APPEND = 12
+    private const val MAX_SYNC_PRIME_MEASURE_ON_REPLACE = 32
     const val MIN_DANMAKU_DURATION: Long = 4000
     const val MAX_DANMAKU_DURATION_HIGH_DENSITY: Long = 9000
     /**
@@ -361,7 +362,20 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     for (data in dataList) {
       items.add(obtainItem(data))
     }
-    engine.runtime.primeMeasureItems(items, MAX_PRIME_MEASURE_ON_UPDATE)
+    engine.runtime.primeMeasureItems(items, MAX_PRIME_MEASURE_ON_APPEND)
+    engine.runtime.addItems(items)
+    return items
+  }
+
+  fun replaceData(dataList: List<DanmakuItemData>): List<DanmakuItem> {
+    val items = ArrayList<DanmakuItem>(dataList.size)
+    for (data in dataList) {
+      items.add(obtainItem(data))
+    }
+    engine.runtime.primeMeasureItemsNow(items, MAX_SYNC_PRIME_MEASURE_ON_REPLACE)
+    if (dataList.size > MAX_SYNC_PRIME_MEASURE_ON_REPLACE) {
+      engine.runtime.primeMeasureItems(items, MAX_PRIME_MEASURE_ON_UPDATE)
+    }
     engine.runtime.addItems(items)
     return items
   }

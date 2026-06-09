@@ -66,9 +66,10 @@ class MyPlayerDanmakuController(
         private const val LIVE_THROTTLE_MAX_ITEMS = 30
         private const val LIVE_MERGE_BUFFER_MS = 800L
         private const val LIVE_DENSITY_TRACK_MS = 5000L
-        private const val INITIAL_WINDOW_BEHIND_MS = 0L
+        private const val INITIAL_WINDOW_BEHIND_MS = 6_000L
         private const val INITIAL_WINDOW_AHEAD_MS = 16_000L
         private const val INITIAL_WINDOW_MAX_ITEMS = 144
+        private const val INITIAL_IMMEDIATE_ITEMS = 8
         private const val ACTIVE_WINDOW_BEHIND_MS = 6_000L
         private const val ACTIVE_WINDOW_AHEAD_MS = 16_000L
         private const val ACTIVE_WINDOW_APPEND_BATCH_SIZE = 96
@@ -78,7 +79,6 @@ class MyPlayerDanmakuController(
         private const val WINDOW_REFRESH_MIN_PROGRESS_MS = 6_000L
         private const val WINDOW_REFRESH_MIN_INTERVAL_MS = 1_000L
         private const val STARTUP_DATA_DEFER_MS = 1_200L
-        private const val FIRST_FRAME_STABLE_DEFER_MS = 2_500L
         private const val SMART_FILTER_PROFILE_LOG_MS = 2L
         private const val DANMAKU_PRE_CACHE_TIME_MS = 900L
     }
@@ -836,12 +836,7 @@ class MyPlayerDanmakuController(
         } else {
             0L
         }
-        val firstFrameDelayMs = if (lastFirstFrameRealtimeMs > 0L) {
-            FIRST_FRAME_STABLE_DEFER_MS - (now - lastFirstFrameRealtimeMs)
-        } else {
-            0L
-        }
-        return max(resumeDelayMs, firstFrameDelayMs).coerceAtLeast(0L)
+        return resumeDelayMs.coerceAtLeast(0L)
     }
 
     private fun ensurePlayer() {
@@ -967,7 +962,7 @@ class MyPlayerDanmakuController(
             player.clearData()
         }
         if (data.isNotEmpty()) {
-            player.updateData(data)
+            player.replaceData(data)
         }
         lastWindowApplyRealtimeMs = SystemClock.elapsedRealtime()
         AppLog.i(
@@ -1516,7 +1511,7 @@ class MyPlayerDanmakuController(
             allowVipColorful = allowVipColorful,
             stage = stage,
             startIndex = range.startIndex.toLong()
-        )
+        ).withInitialImmediateItems(stage, positionMs)
         logWindowIdStats(stage, rawWindowData, preparedData)
         val coveredUntilMs = when {
             preparedData.isEmpty() -> range.windowEndMs
@@ -1530,6 +1525,24 @@ class MyPlayerDanmakuController(
             positionMs = positionMs,
             coveredUntilMs = coveredUntilMs
         )
+    }
+
+    private fun List<DanmakuItemData>.withInitialImmediateItems(
+        stage: String,
+        positionMs: Long
+    ): List<DanmakuItemData> {
+        if (stage != "initial_window" || isEmpty()) return this
+        if (any { it.position <= positionMs }) return this
+        val immediatePosition = positionMs.coerceAtLeast(0L)
+        var adjusted = 0
+        return map { item ->
+            if (adjusted < INITIAL_IMMEDIATE_ITEMS) {
+                adjusted++
+                item.copy(position = immediatePosition)
+            } else {
+                item
+            }
+        }
     }
 
     private fun List<DmModel>.buildPreparedRange(
