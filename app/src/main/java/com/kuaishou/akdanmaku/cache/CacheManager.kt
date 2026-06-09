@@ -642,6 +642,7 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
     acc = mix(acc, data.textSize.toLong())
     acc = mix(acc, data.textColor.toLong())
     acc = mix(acc, if (config.bold) 1L else 0L)
+    acc = mix(acc, config.fontBorder.toLong())
     acc = mix(acc, config.textSizeScale.toBits().toLong())
     acc = mix(acc, displayer.density.toBits().toLong())
     acc = mix(acc, displayer.densityDpi.toLong())

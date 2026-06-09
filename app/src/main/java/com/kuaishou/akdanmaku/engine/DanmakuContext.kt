@@ -87,7 +87,9 @@ internal class DanmakuContext(val renderer: DanmakuRenderer) {
   }
 
   private fun markGenerationsForChangedValues(current: DanmakuConfig, next: DanmakuConfig) {
-    if (current.density != next.density || current.bold != next.bold) {
+    if (current.density != next.density ||
+      current.bold != next.bold ||
+      current.fontBorder != next.fontBorder) {
       next.updateMeasure()
       next.updateRetainer()
       next.updateLayout()

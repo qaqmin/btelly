@@ -479,8 +479,32 @@ class VideoPlayerPlayInfoGateway(
         cid: Long,
         aid: Long,
         segmentIndex: Int,
-        expectedSegmentCount: Int = 0
+        expectedSegmentCount: Int = 0,
+        rangeStartMs: Long? = null,
+        rangeEndMs: Long? = null
     ): ByteArray? {
+        if (rangeStartMs != null || rangeEndMs != null) {
+            securityGateway.prewarmWebSession()
+            ensureWbiKeys()
+            val rangedBytes = requestDanmakuSegmentBytesWbi(
+                cid = cid,
+                aid = aid,
+                segmentIndex = segmentIndex,
+                rangeStartMs = rangeStartMs,
+                rangeEndMs = rangeEndMs
+            )
+            val rangedProbe = probeDanmakuSegment(rangedBytes)
+            logDanmakuSegmentProbe(
+                source = "wbi-range",
+                cid = cid,
+                aid = aid,
+                segmentIndex = segmentIndex,
+                probe = rangedProbe
+            )
+            if (rangedProbe != null && !isSuspiciousDanmakuSegment(rangedProbe, expectation = null)) {
+                return rangedProbe.bytes
+            }
+        }
         val expectation = buildDanmakuSegmentExpectation(expectedSegmentCount)
         val normalBytes = runCatching {
             apiService.getVideoComment(
@@ -520,19 +544,11 @@ class VideoPlayerPlayInfoGateway(
             return normalProbe?.bytes
         }
 
-        val params = buildWbiParams(
-            mapOf(
-                "type" to "1",
-                "oid" to cid.toString(),
-                "pid" to aid.toString(),
-                "segment_index" to segmentIndex.toString()
-            )
+        val wbiBytes = requestDanmakuSegmentBytesWbi(
+            cid = cid,
+            aid = aid,
+            segmentIndex = segmentIndex
         )
-        val wbiBytes = runCatching {
-            apiService.getVideoCommentWbi(params).use { responseBody ->
-                responseBody.bytes()
-            }
-        }.getOrNull()
         val wbiProbe = probeDanmakuSegment(wbiBytes)
         logDanmakuSegmentProbe(
             source = "wbi",
@@ -562,6 +578,31 @@ class VideoPlayerPlayInfoGateway(
             }
         }
         return normalProbe?.bytes
+    }
+
+    private suspend fun requestDanmakuSegmentBytesWbi(
+        cid: Long,
+        aid: Long,
+        segmentIndex: Int,
+        rangeStartMs: Long? = null,
+        rangeEndMs: Long? = null
+    ): ByteArray? {
+        val params = mutableMapOf(
+            "type" to "1",
+            "oid" to cid.toString(),
+            "pid" to aid.toString(),
+            "segment_index" to segmentIndex.toString()
+        )
+        if (rangeStartMs != null || rangeEndMs != null) {
+            params["pull_mode"] = "1"
+            rangeStartMs?.let { params["ps"] = it.coerceAtLeast(0L).toString() }
+            rangeEndMs?.let { params["pe"] = it.coerceAtLeast(0L).toString() }
+        }
+        return runCatching {
+            apiService.getVideoCommentWbi(buildWbiParams(params)).use { responseBody ->
+                responseBody.bytes()
+            }
+        }.getOrNull()
     }
 
     private fun probeDanmakuSegment(bytes: ByteArray?): DanmakuSegmentProbe? {

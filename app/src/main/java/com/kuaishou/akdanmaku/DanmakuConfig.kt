@@ -97,6 +97,11 @@ data class DanmakuConfig(
   var bold: Boolean = true,
 
   /**
+   * B 站 fontborder 映射：0 默认描边，1 重描边，2 投影，3 无描边。
+   */
+  var fontBorder: Int = FONT_BORDER_DEFAULT,
+
+  /**
    * 绘图 Bitmap 的密度
    */
   var density: Int = 160,
@@ -223,6 +228,11 @@ data class DanmakuConfig(
     const val MAX_RELEASE_PER_DRAIN = 48
 
     const val DEFAULT_DURATION = 3800L
+
+    const val FONT_BORDER_DEFAULT = 0
+    const val FONT_BORDER_HEAVY = 1
+    const val FONT_BORDER_SHADOW = 2
+    const val FONT_BORDER_NONE = 3
 
     /**
      * 根据屏幕分辨率和设备可用内存动态计算弹幕缓存池大小。

@@ -375,6 +375,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
 
   @Synchronized
   fun draw(canvas: Canvas, onRenderReady: () -> Unit) {
+    val drawStartedAt = SystemClock.elapsedRealtime()
     try {
       val liveFrame = frame
       val fallbackTransitionFrame = transitionFrame
@@ -508,6 +509,14 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       }
       cacheHit.num = hit
       cacheHit.den = visibleCommandCount
+      val drawCostMs = SystemClock.elapsedRealtime() - drawStartedAt
+      updateLoadShedLevelFromDraw(
+        drawCostMs = drawCostMs,
+        fallbackSkippedCount = fallbackSkipped,
+        fallbackCacheMissCount = fallbackCacheMiss,
+        visibleCommandCount = visibleCommandCount,
+        cacheHitCount = hit
+      )
     } finally {
       onRenderReady()
     }
@@ -904,6 +913,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     var cacheRequested = 0
     var cacheBudget = MAX_INCREMENTAL_CACHE_REQUESTS_PER_FRAME
     var dropped = 0
+    val fixedCommandBudget = fixedCommandBudgetForCurrentLoad()
     rejectedIncrementalStates.clear()
     for (state in incrementalActiveStates) {
       val item = state.item
@@ -969,6 +979,18 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       }
       val top = drawState.positionY
       val targetBuffer = if (fixedMode) incrementalFixedCommandBuffer else incrementalCommandBuffer
+      if (fixedMode && fixedAppended >= fixedCommandBudget) {
+        if (DanmakuRejectionPolicy.shouldDropRejectedItem(item)) {
+          rejectedIncrementalStates.add(state)
+        } else {
+          incrementalCommandBuffer.clear()
+          incrementalFixedCommandBuffer.clear()
+          rejectedIncrementalStates.clear()
+          return IncrementalFrameProfile.notApplied("fixedBudgetHolding")
+        }
+        dropped++
+        continue
+      }
       targetBuffer.add(
           item = item,
           cache = cache,
@@ -1067,6 +1089,8 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     var cacheRequestedCount = 0
     var cacheDeferredCount = 0
     var cacheRequestBudget = MAX_CACHE_REQUESTS_PER_FRAME
+    val fixedCommandBudget = fixedCommandBudgetForCurrentLoad()
+    var fixedCommandCount = 0
     val width = displayer.width
     val height = displayer.height
     val margin = displayer.margin
@@ -1169,8 +1193,19 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       val right = left + drawState.width
       val bottom = top + drawState.height
       if (mode == topMode || mode == bottomMode) {
+        if (fixedCommandCount >= fixedCommandBudget) {
+          trackRejectedCount++
+          if (DanmakuRejectionPolicy.shouldDropRejectedItem(item)) {
+            stateById.remove(item.data.danmakuId)
+            iterator.remove()
+            dropActiveState(state)
+            invalidateFrameReuse(REUSE_INVALIDATE_DROP_REJECTED)
+          }
+          continue
+        }
         // 悬停弹幕始终最后绘制，保证层级压在滚动弹幕上方。
         newFrame.fixedCommands.add(item, cache, drawState.cacheGeneration, left, top, right, bottom)
+        fixedCommandCount++
       } else {
         newFrame.commands.add(item, cache, drawState.cacheGeneration, left, top, right, bottom)
       }
@@ -1213,6 +1248,15 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       cacheDeferredCount = cacheDeferredCount
     )
     return newFrame
+  }
+
+  private fun fixedCommandBudgetForCurrentLoad(): Int {
+    return when (loadShedLevel.coerceIn(0, DanmakuLoadShedder.MAX_LEVEL)) {
+      0 -> Int.MAX_VALUE
+      1 -> MAX_FIXED_COMMANDS_LOAD_SHED_LEVEL_1
+      2 -> MAX_FIXED_COMMANDS_LOAD_SHED_LEVEL_2
+      else -> MAX_FIXED_COMMANDS_LOAD_SHED_LEVEL_3
+    }
   }
 
   private fun logZeroFrameIfNeeded(
@@ -1852,6 +1896,35 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     }
   }
 
+  private fun updateLoadShedLevelFromDraw(
+    drawCostMs: Long,
+    fallbackSkippedCount: Int,
+    fallbackCacheMissCount: Int,
+    visibleCommandCount: Int,
+    cacheHitCount: Int
+  ) {
+    val oldLevel = loadShedLevel
+    val nextLevel = DanmakuLoadShedder.nextLevel(
+      currentLevel = loadShedLevel,
+      layoutCostMs = 0L,
+      rejectedCount = 0,
+      unmeasuredCount = 0,
+      drawCostMs = drawCostMs,
+      fallbackSkippedCount = fallbackSkippedCount
+    )
+    if (nextLevel > loadShedLevel) {
+      loadShedLevel = nextLevel
+    }
+    if (loadShedLevel != oldLevel || drawCostMs >= DRAW_OVERLOAD_MS) {
+      Log.i(
+        DanmakuEngine.TAG,
+        "[Runtime] draw load shed level=$loadShedLevel cost=${drawCostMs}ms " +
+          "fallbackSkipped=$fallbackSkippedCount cacheMiss=$fallbackCacheMissCount " +
+          "cacheHit=$cacheHitCount visible=$visibleCommandCount"
+      )
+    }
+  }
+
   private fun DanmakuItem.isRuntimeTimeout(now: Long): Boolean {
     if (data.mode != DanmakuItemData.DANMAKU_MODE_ROLLING) {
       return isTimeout(now)
@@ -1927,6 +2000,9 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     private const val MAX_INCREMENTAL_PROMOTED_PER_FRAME = 16
     private const val MAX_FALLBACK_DRAWS_PER_FRAME = 12
     private const val MAX_FIXED_FALLBACK_DRAWS_PER_FRAME = 8
+    private const val MAX_FIXED_COMMANDS_LOAD_SHED_LEVEL_1 = 8
+    private const val MAX_FIXED_COMMANDS_LOAD_SHED_LEVEL_2 = 4
+    private const val MAX_FIXED_COMMANDS_LOAD_SHED_LEVEL_3 = 2
     private const val MAX_FALLBACK_CACHE_BOOSTS_PER_FRAME = 4
     private const val FALLBACK_LIMIT_LOG_INTERVAL = 30
     private const val ZERO_FRAME_LOG_INTERVAL_MS = 1_000L
@@ -1935,6 +2011,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     private const val LIVE_HISTORY_MAX = 2000
     private const val RUNTIME_OVERLOAD_MS = 12L
     private const val LAYOUT_OVERLOAD_MS = 12L
+    private const val DRAW_OVERLOAD_MS = 12L
     private const val LAYOUT_PROFILE_DETAIL_INTERVAL = 30
     private const val MAX_ACTIVE_STATE_POOL_SIZE = 512
     private const val MAX_MEASURE_ENTRY_POOL_SIZE = 512

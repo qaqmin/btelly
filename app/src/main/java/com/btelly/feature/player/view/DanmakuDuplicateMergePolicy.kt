@@ -1,0 +1,123 @@
+package com.btelly.feature.player.view
+
+import com.btelly.model.dm.DmModel
+
+internal object DanmakuDuplicateMergePolicy {
+    private const val DEFAULT_WINDOW_MS = 2_000
+    private const val MERGE_DISPLAY_THRESHOLD = 3
+    private const val MERGE_TEXT_SIZE_BONUS = 2
+
+    fun merge(
+        items: List<DmModel>,
+        windowMs: Int = DEFAULT_WINDOW_MS
+    ): List<DmModel> {
+        if (items.size < 2 || windowMs <= 0) return items
+        val result = ArrayList<DmModel>(items.size)
+        val buckets = LinkedHashMap<MergeKey, MutableList<DmModel>>()
+        for (item in items.sortedBy { it.progress }) {
+            flushExpired(
+                buckets = buckets,
+                expireBeforeMs = item.progress - windowMs,
+                result = result
+            )
+            if (!item.canMergeDuplicate()) {
+                result += item
+                continue
+            }
+            val key = item.mergeKey()
+            buckets.getOrPut(key) { ArrayList() }.add(item)
+        }
+        flushAll(buckets, result)
+        return result.sortedBy { it.progress }
+    }
+
+    private fun flushExpired(
+        buckets: LinkedHashMap<MergeKey, MutableList<DmModel>>,
+        expireBeforeMs: Int,
+        result: MutableList<DmModel>
+    ) {
+        val iterator = buckets.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            val bucket = entry.value
+            if (bucket.isEmpty() || bucket.first().progress >= expireBeforeMs) {
+                continue
+            }
+            result += bucket.toMergedItem()
+            iterator.remove()
+        }
+    }
+
+    private fun flushAll(
+        buckets: LinkedHashMap<MergeKey, MutableList<DmModel>>,
+        result: MutableList<DmModel>
+    ) {
+        for (bucket in buckets.values) {
+            if (bucket.isNotEmpty()) {
+                result += bucket.toMergedItem()
+            }
+        }
+        buckets.clear()
+    }
+
+    private fun List<DmModel>.toMergedItem(): DmModel {
+        if (size <= 1) return first()
+        val first = first()
+        val mergedCount = size
+        val maxWeightItem = maxByOrNull { it.weight } ?: first
+        val maxAiFlagItem = maxByOrNull { it.aiFlagScore } ?: first
+        val representativeStyle = maxWithOrNull(
+            compareBy<DmModel> { it.weight }
+                .thenBy { it.aiFlagScore }
+                .thenBy { it.fontSize }
+        ) ?: first
+        return first.copy(
+            id = first.id.takeIf { it > 0L } ?: minOfProgressId(),
+            color = representativeStyle.color,
+            colorful = representativeStyle.colorful,
+            colorfulSrc = representativeStyle.colorfulSrc,
+            colorfulStyle = representativeStyle.colorfulStyle,
+            content = if (mergedCount >= MERGE_DISPLAY_THRESHOLD) {
+                "${first.content.trim()} ×$mergedCount"
+            } else {
+                first.content
+            },
+            fontSize = if (mergedCount >= MERGE_DISPLAY_THRESHOLD) {
+                maxOf(first.fontSize, maxOf { it.fontSize }) + MERGE_TEXT_SIZE_BONUS
+            } else {
+                maxOf { it.fontSize }
+            },
+            weight = maxWeightItem.weight,
+            attr = first.attr or fold(0) { acc, item -> acc or item.attr },
+            aiFlagScore = maxAiFlagItem.aiFlagScore
+        )
+    }
+
+    private fun List<DmModel>.minOfProgressId(): Long =
+        minOf { it.progress }.toLong().coerceAtLeast(1L)
+
+    private fun DmModel.canMergeDuplicate(): Boolean {
+        val normalized = content.trim()
+        if (normalized.isBlank()) return false
+        if (mode == 7 || mode == 9) return false
+        if (normalized.contains("def text", ignoreCase = true)) return false
+        return true
+    }
+
+    private fun DmModel.mergeKey(): MergeKey =
+        MergeKey(
+            content = content.trim().lowercase(),
+            mode = mode,
+            color = color,
+            colorful = colorful,
+            colorfulSrc = colorfulSrc.trim()
+        )
+
+    private data class MergeKey(
+        val content: String,
+        val mode: Int,
+        val color: Int,
+        val colorful: Int,
+        val colorfulSrc: String
+    )
+}

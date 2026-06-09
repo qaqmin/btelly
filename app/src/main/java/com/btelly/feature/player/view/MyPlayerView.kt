@@ -50,6 +50,7 @@ import com.btelly.core.common.ext.getDanmakuSmartFilterLevel
 import com.btelly.core.common.ext.isAdvancedDanmakuEnabled
 import com.btelly.feature.player.LiveQualityInfo
 import com.btelly.feature.player.PlaybackStartupTrace
+import com.btelly.feature.player.DanmakuFilterContext
 import com.btelly.feature.player.sponsor.SponsorSegment
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -1939,19 +1940,23 @@ class MyPlayerView @JvmOverloads constructor(
 
     fun setDanmakuData(
         data: List<DmModel>,
+        filterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY,
         startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
         startupTraceStartElapsedMs: Long = 0L
     ) {
         syncDanmakuSettings()
-        danmakuController.setData(data, startupTraceId, startupTraceStartElapsedMs)
+        danmakuController.setData(data, filterContext, startupTraceId, startupTraceStartElapsedMs)
     }
 
     fun setSpecialDanmakuData(data: List<SpecialDanmakuModel>) {
         specialDanmakuController.setData(data)
     }
 
-    fun appendDanmakuData(data: List<DmModel>) {
-        danmakuController.appendData(data)
+    fun appendDanmakuData(
+        data: List<DmModel>,
+        filterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY
+    ) {
+        danmakuController.appendData(data, filterContext)
     }
 
     fun startLiveDanmaku() {

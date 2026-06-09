@@ -86,6 +86,101 @@ class DmProtoParserTest {
         assertTrue(result.specialDanmakuUrls.first().contains("special-1"))
     }
 
+    @Test
+    fun parseView_readsPlayerConfigFiltersCommandsAndRestrictPeriods() {
+        val viewBytes = protoMessage(
+            bytesField(
+                5,
+                protoMessage(
+                    numberField(1, 7),
+                    stringField(2, "ai"),
+                    numberField(3, 1)
+                )
+            ),
+            bytesField(
+                9,
+                protoMessage(
+                    stringField(4, "vote"),
+                    stringField(5, "去投票"),
+                    numberField(6, 12_000L),
+                    numberField(10, 99L)
+                )
+            ),
+            bytesField(
+                10,
+                protoMessage(
+                    boolField(1, true),
+                    boolField(2, true),
+                    numberField(3, 5),
+                    boolField(4, false),
+                    boolField(5, true),
+                    boolField(6, false),
+                    boolField(7, false),
+                    boolField(8, true),
+                    boolField(9, true),
+                    boolField(10, true),
+                    floatField(11, 0.6f),
+                    floatField(13, 1.5f),
+                    floatField(14, 1.2f),
+                    stringField(17, "sans"),
+                    boolField(18, true),
+                    numberField(19, 2),
+                    boolField(21, false),
+                    boolField(24, false),
+                    numberField(25, 3),
+                    numberField(26, 4)
+                )
+            ),
+            stringField(11, "剧透"),
+            bytesField(
+                19,
+                protoMessage(
+                    numberField(1, 1_000L),
+                    numberField(2, 2_000L)
+                )
+            )
+        )
+
+        val result = DmProtoParser.parseView(viewBytes)
+
+        assertEquals(7, result.smartFilterConfig.cloudLevel)
+        assertEquals(true, result.smartFilterConfig.cloudSwitch != 0)
+        assertEquals(5, result.smartFilterConfig.playerLevel)
+        assertEquals(true, result.smartFilterConfig.playerEnabled)
+        assertEquals(true, result.playerConfig.aiSwitch)
+        assertEquals(5, result.playerConfig.aiLevel)
+        assertEquals(false, result.playerConfig.typeTop)
+        assertEquals(false, result.playerConfig.typeBottom)
+        assertEquals(false, result.playerConfig.typeColor)
+        assertEquals(0.6f, result.playerConfig.opacity, 0.001f)
+        assertEquals("sans", result.playerConfig.fontFamily)
+        assertEquals(1, result.reportFilters.size)
+        assertEquals("剧透", result.reportFilters.first())
+        assertEquals(1, result.commandDms.size)
+        assertEquals("vote", result.commandDms.first().command)
+        assertEquals(99L, result.commandDms.first().dmid)
+        assertEquals(1_000L, result.restrictPeriods.first().startMs)
+        assertEquals(2_000L, result.restrictPeriods.first().endMs)
+    }
+
+    @Test
+    fun parseView_acceptsFloatCommandTimeAsSeconds() {
+        val viewBytes = protoMessage(
+            bytesField(
+                9,
+                protoMessage(
+                    stringField(4, "vote"),
+                    floatField(6, 12.5f),
+                    numberField(10, 99L)
+                )
+            )
+        )
+
+        val result = DmProtoParser.parseView(viewBytes)
+
+        assertEquals(12_500L, result.commandDms.first().stimeMs)
+    }
+
     private fun protoMessage(vararg fields: ByteArray): ByteArray {
         return ByteArrayOutputStream().use { output ->
             fields.forEach(output::write)
@@ -108,6 +203,26 @@ class DmProtoParserTest {
             val codedOutput = CodedOutputStream.newInstance(output)
             codedOutput.writeUInt32NoTag(fieldNumber shl 3)
             codedOutput.writeUInt32NoTag(value)
+            codedOutput.flush()
+            output.toByteArray()
+        }
+    }
+
+    private fun boolField(fieldNumber: Int, value: Boolean): ByteArray {
+        return ByteArrayOutputStream().use { output ->
+            val codedOutput = CodedOutputStream.newInstance(output)
+            codedOutput.writeUInt32NoTag(fieldNumber shl 3)
+            codedOutput.writeBoolNoTag(value)
+            codedOutput.flush()
+            output.toByteArray()
+        }
+    }
+
+    private fun floatField(fieldNumber: Int, value: Float): ByteArray {
+        return ByteArrayOutputStream().use { output ->
+            val codedOutput = CodedOutputStream.newInstance(output)
+            codedOutput.writeUInt32NoTag((fieldNumber shl 3) or 5)
+            codedOutput.writeFloatNoTag(value)
             codedOutput.flush()
             output.toByteArray()
         }

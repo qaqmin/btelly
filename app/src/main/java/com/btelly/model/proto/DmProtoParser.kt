@@ -90,6 +90,10 @@ object DmProtoParser {
         var totalCount = 0L
         val specialDanmakuUrls = mutableListOf<String>()
         var smartFilterConfig = DmSmartFilterConfigProto()
+        var playerConfig = DanmuWebPlayerConfigProto()
+        val reportFilters = mutableListOf<String>()
+        val commandDms = mutableListOf<CommandDmProto>()
+        val restrictPeriods = mutableListOf<DmRestrictPeriodProto>()
 
         while (!input.isAtEnd) {
             when (val tag = input.readTag()) {
@@ -103,14 +107,18 @@ object DmProtoParser {
                         }
                         5 -> smartFilterConfig = parseDanmakuFlagConfig(input.readByteArray())
                         6 -> specialDanmakuUrls += input.readString()
+                        9 -> commandDms += parseCommandDm(input.readByteArray())
                         10 -> {
                             val parsed = parseDanmuWebPlayerConfig(input.readByteArray())
+                            playerConfig = parsed
                             smartFilterConfig = smartFilterConfig.copy(
-                                playerLevel = parsed.first,
-                                playerEnabled = parsed.second
+                                playerLevel = parsed.aiLevel,
+                                playerEnabled = parsed.aiSwitch
                             )
                         }
+                        11 -> reportFilters += input.readString()
                         8 -> totalCount = input.readInt64()
+                        19 -> restrictPeriods += parseDmRestrictPeriod(input.readByteArray())
                         else -> input.skipField(tag)
                     }
                 }
@@ -122,7 +130,11 @@ object DmProtoParser {
             totalSegments = totalSegments,
             totalCount = totalCount,
             specialDanmakuUrls = specialDanmakuUrls,
-            smartFilterConfig = smartFilterConfig
+            smartFilterConfig = smartFilterConfig,
+            playerConfig = playerConfig,
+            reportFilters = reportFilters,
+            commandDms = commandDms,
+            restrictPeriods = restrictPeriods
         )
     }
 
@@ -151,23 +163,142 @@ object DmProtoParser {
         )
     }
 
-    private fun parseDanmuWebPlayerConfig(bytes: ByteArray): Pair<Int, Boolean> {
+    private fun parseDanmuWebPlayerConfig(bytes: ByteArray): DanmuWebPlayerConfigProto {
         val input = CodedInputStream.newInstance(bytes)
-        var enabled = false
-        var level = 0
+        var dmSwitch = true
+        var aiSwitch = false
+        var aiLevel = 0
+        var typeTop = true
+        var typeScroll = true
+        var typeBottom = true
+        var typeColor = true
+        var typeSpecial = true
+        var preventShade = false
+        var dmask = false
+        var opacity = 1f
+        var speedPlus = 1f
+        var fontSize = 1f
+        var fontFamily = ""
+        var bold = false
+        var fontBorder = 0
+        var seniorModeSwitch = true
+        var typeTopBottom = true
+        var dmArea = 0
+        var dmDensity = 0
         while (!input.isAtEnd) {
             when (val tag = input.readTag()) {
                 0 -> break
                 else -> {
                     when (tag ushr 3) {
-                        2 -> enabled = input.readBool()
-                        3 -> level = input.readInt32()
+                        1 -> dmSwitch = input.readBool()
+                        2 -> aiSwitch = input.readBool()
+                        3 -> aiLevel = input.readInt32()
+                        4 -> typeTop = input.readBool()
+                        5 -> typeScroll = input.readBool()
+                        6 -> typeBottom = input.readBool()
+                        7 -> typeColor = input.readBool()
+                        8 -> typeSpecial = input.readBool()
+                        9 -> preventShade = input.readBool()
+                        10 -> dmask = input.readBool()
+                        11 -> opacity = input.readFloat()
+                        13 -> speedPlus = input.readFloat()
+                        14 -> fontSize = input.readFloat()
+                        17 -> fontFamily = input.readString()
+                        18 -> bold = input.readBool()
+                        19 -> fontBorder = input.readInt32()
+                        21 -> seniorModeSwitch = input.readBool()
+                        24 -> typeTopBottom = input.readBool()
+                        25 -> dmArea = input.readInt32()
+                        26 -> dmDensity = input.readInt32()
                         else -> input.skipField(tag)
                     }
                 }
             }
         }
-        return level to enabled
+        return DanmuWebPlayerConfigProto(
+            dmSwitch = dmSwitch,
+            aiSwitch = aiSwitch,
+            aiLevel = aiLevel,
+            typeTop = typeTop,
+            typeScroll = typeScroll,
+            typeBottom = typeBottom,
+            typeColor = typeColor,
+            typeSpecial = typeSpecial,
+            preventShade = preventShade,
+            dmask = dmask,
+            opacity = opacity,
+            speedPlus = speedPlus,
+            fontSize = fontSize,
+            fontFamily = fontFamily,
+            bold = bold,
+            fontBorder = fontBorder,
+            seniorModeSwitch = seniorModeSwitch,
+            typeTopBottom = typeTopBottom,
+            dmArea = dmArea,
+            dmDensity = dmDensity
+        )
+    }
+
+    private fun parseCommandDm(bytes: ByteArray): CommandDmProto {
+        val input = CodedInputStream.newInstance(bytes)
+        var command = ""
+        var text = ""
+        var stimeMs = 0L
+        var dmid = 0L
+        while (!input.isAtEnd) {
+            when (val tag = input.readTag()) {
+                0 -> break
+                else -> {
+                    when (tag ushr 3) {
+                        4 -> command = input.readString()
+                        5 -> text = input.readString()
+                        6 -> stimeMs = input.readTimeMsByWireType(tag)
+                        10 -> dmid = input.readInt64()
+                        else -> input.skipField(tag)
+                    }
+                }
+            }
+        }
+        return CommandDmProto(
+            command = command,
+            text = text,
+            stimeMs = stimeMs,
+            dmid = dmid
+        )
+    }
+
+    private fun parseDmRestrictPeriod(bytes: ByteArray): DmRestrictPeriodProto {
+        val input = CodedInputStream.newInstance(bytes)
+        var startMs = 0L
+        var endMs = 0L
+        while (!input.isAtEnd) {
+            when (val tag = input.readTag()) {
+                0 -> break
+                else -> {
+                    when (tag ushr 3) {
+                        1 -> startMs = input.readInt64()
+                        2 -> endMs = input.readInt64()
+                        else -> input.skipField(tag)
+                    }
+                }
+            }
+        }
+        return DmRestrictPeriodProto(
+            startMs = startMs,
+            endMs = endMs
+        )
+    }
+
+    private fun CodedInputStream.readTimeMsByWireType(tag: Int): Long {
+        return when (tag and 0x7) {
+            0 -> readInt64()
+            1 -> (readDouble() * 1000L).toLong()
+            5 -> (readFloat() * 1000L).toLong()
+            else -> {
+                skipField(tag)
+                0L
+            }
+        }
     }
 
     private fun parseElem(bytes: ByteArray): DanmakuElemProto {

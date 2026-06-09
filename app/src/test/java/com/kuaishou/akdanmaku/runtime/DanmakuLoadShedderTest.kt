@@ -30,6 +30,74 @@ class DanmakuLoadShedderTest {
   }
 
   @Test
+  fun nextLevel_raisesWhenDrawCostIsHigh() {
+    assertEquals(
+      DanmakuLoadShedder.MAX_LEVEL,
+      DanmakuLoadShedder.nextLevel(
+        currentLevel = 0,
+        layoutCostMs = 0L,
+        rejectedCount = 0,
+        unmeasuredCount = 0,
+        drawCostMs = 50L
+      )
+    )
+    assertEquals(
+      2,
+      DanmakuLoadShedder.nextLevel(
+        currentLevel = 0,
+        layoutCostMs = 0L,
+        rejectedCount = 0,
+        unmeasuredCount = 0,
+        drawCostMs = 24L
+      )
+    )
+    assertEquals(
+      1,
+      DanmakuLoadShedder.nextLevel(
+        currentLevel = 0,
+        layoutCostMs = 0L,
+        rejectedCount = 0,
+        unmeasuredCount = 0,
+        drawCostMs = 12L
+      )
+    )
+  }
+
+  @Test
+  fun nextLevel_raisesWhenFallbackSkippedAccumulates() {
+    assertEquals(
+      DanmakuLoadShedder.MAX_LEVEL,
+      DanmakuLoadShedder.nextLevel(
+        currentLevel = 0,
+        layoutCostMs = 0L,
+        rejectedCount = 0,
+        unmeasuredCount = 0,
+        fallbackSkippedCount = 32
+      )
+    )
+    assertEquals(
+      2,
+      DanmakuLoadShedder.nextLevel(
+        currentLevel = 0,
+        layoutCostMs = 0L,
+        rejectedCount = 0,
+        unmeasuredCount = 0,
+        fallbackSkippedCount = 16
+      )
+    )
+    assertEquals(
+      1,
+      DanmakuLoadShedder.nextLevel(
+        currentLevel = 0,
+        layoutCostMs = 0L,
+        rejectedCount = 0,
+        unmeasuredCount = 0,
+        fallbackSkippedCount = 8
+      )
+    )
+  }
+
+  @Test
   fun nextLevel_recoversOneStepWhenPressureDrops() {
     assertEquals(2, DanmakuLoadShedder.nextLevel(3, layoutCostMs = 1L, rejectedCount = 0, unmeasuredCount = 0))
     assertEquals(0, DanmakuLoadShedder.nextLevel(0, layoutCostMs = 1L, rejectedCount = 0, unmeasuredCount = 0))

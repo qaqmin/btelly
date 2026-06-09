@@ -102,7 +102,7 @@ open class SimpleRenderer : DanmakuRenderer {
     strokePaint.typeface = textPaint.typeface
     strokePaint.color = resolveStandardStrokeColor(textPaint.color)
     strokePaint.style = Paint.Style.STROKE
-    strokePaint.strokeWidth = (textPaint.textSize * 0.09f).coerceIn(1.5f, 3.0f)
+    strokePaint.strokeWidth = resolveStrokeWidth(config.fontBorder, textPaint.textSize)
     strokePaint.strokeJoin = Paint.Join.ROUND
     strokePaint.strokeCap = Paint.Cap.ROUND
   }
@@ -117,7 +117,8 @@ open class SimpleRenderer : DanmakuRenderer {
     val key = measureCacheKey(
       content = danmakuItemData.content,
       textSize = textPaint.textSize,
-      bold = config.bold
+      bold = config.bold,
+      fontBorder = config.fontBorder
     )
     synchronized(measureCache) {
       measureCache[key]?.let { return it }
@@ -142,10 +143,9 @@ open class SimpleRenderer : DanmakuRenderer {
     val x = CANVAS_PADDING * 0.5f
     val y = CANVAS_PADDING * 0.5f - textPaint.ascent()
     if ((danmakuItemData.renderFlags and DanmakuItemData.RENDER_FLAG_VIP_GRADIENT) != 0) {
-      drawVipGradientText(canvas, danmakuItemData, x, y)
+      drawVipGradientText(canvas, danmakuItemData, x, y, config.fontBorder)
     } else {
-      canvas.drawText(danmakuItemData.content, x, y, strokePaint)
-      canvas.drawText(danmakuItemData.content, x, y, textPaint)
+      drawTextWithBorder(canvas, danmakuItemData.content, x, y, config.fontBorder)
     }
     textPaint.shader = null
     textPaint.clearShadowLayer()
@@ -159,7 +159,8 @@ open class SimpleRenderer : DanmakuRenderer {
     canvas: Canvas,
     danmakuItemData: DanmakuItemData,
     startX: Float,
-    baselineY: Float
+    baselineY: Float,
+    borderMode: Int
   ) {
     val text = danmakuItemData.content
     if (text.isBlank()) {
@@ -198,8 +199,16 @@ open class SimpleRenderer : DanmakuRenderer {
     strokePaint.shader = null
     strokePaint.clearShadowLayer()
 
-    val outerStrokeWidth = (textPaint.textSize * 0.22f).coerceAtLeast(3f)
-    val innerStrokeWidth = (textPaint.textSize * 0.14f).coerceAtLeast(2f)
+    val outerStrokeWidth = if (borderMode == DanmakuConfig.FONT_BORDER_HEAVY) {
+      (textPaint.textSize * 0.26f).coerceAtLeast(4f)
+    } else {
+      (textPaint.textSize * 0.22f).coerceAtLeast(3f)
+    }
+    val innerStrokeWidth = if (borderMode == DanmakuConfig.FONT_BORDER_HEAVY) {
+      (textPaint.textSize * 0.16f).coerceAtLeast(2.5f)
+    } else {
+      (textPaint.textSize * 0.14f).coerceAtLeast(2f)
+    }
 
     val shaderKey = "${leadingColor}_${trailingColor}_${textWidth}_${textHeight}"
     textPaint.shader = vipShaderCache.getOrPut(shaderKey) {
@@ -220,16 +229,25 @@ open class SimpleRenderer : DanmakuRenderer {
     }
     textPaint.clearShadowLayer()
 
-    // 外发光层：宽且半透明，模拟 setShadowLayer 的柔和光晕。
-    strokePaint.color = withAlpha(darkenColor(trailingColor, 0.45f), 96)
-    strokePaint.strokeWidth = outerStrokeWidth
-    canvas.drawText(text, startX, baselineY, strokePaint)
-    // 主描边层：实色不透明，决定边缘清晰度。
-    strokePaint.color = withAlpha(darkenColor(leadingColor, 0.55f), 220)
-    strokePaint.strokeWidth = innerStrokeWidth
-    canvas.drawText(text, startX, baselineY, strokePaint)
+    when (borderMode) {
+      DanmakuConfig.FONT_BORDER_NONE -> Unit
+      DanmakuConfig.FONT_BORDER_SHADOW -> {
+        textPaint.setShadowLayer(SHADOW_RADIUS, SHADOW_DX, SHADOW_DY, Color.BLACK)
+      }
+      else -> {
+        // 外发光层：宽且半透明，模拟 setShadowLayer 的柔和光晕。
+        strokePaint.color = withAlpha(darkenColor(trailingColor, 0.45f), 96)
+        strokePaint.strokeWidth = outerStrokeWidth
+        canvas.drawText(text, startX, baselineY, strokePaint)
+        // 主描边层：实色不透明，决定边缘清晰度。
+        strokePaint.color = withAlpha(darkenColor(leadingColor, 0.55f), 220)
+        strokePaint.strokeWidth = innerStrokeWidth
+        canvas.drawText(text, startX, baselineY, strokePaint)
+      }
+    }
 
     canvas.drawText(text, startX, baselineY, textPaint)
+    textPaint.clearShadowLayer()
     textPaint.shader = null
     strokePaint.clearShadowLayer()
   }
@@ -302,6 +320,14 @@ open class SimpleRenderer : DanmakuRenderer {
       withAlpha(Color.BLACK, 230)
     } else {
       withAlpha(Color.WHITE, 210)
+    }
+  }
+
+  private fun resolveStrokeWidth(borderMode: Int, textSize: Float): Float {
+    return if (borderMode == DanmakuConfig.FONT_BORDER_HEAVY) {
+      (textSize * 0.12f).coerceIn(2f, 4f)
+    } else {
+      (textSize * 0.09f).coerceIn(1.5f, 3f)
     }
   }
 
@@ -381,14 +407,45 @@ open class SimpleRenderer : DanmakuRenderer {
       }
     }
 
-    private fun measureCacheKey(content: String, textSize: Float, bold: Boolean): Long {
+    private fun measureCacheKey(
+      content: String,
+      textSize: Float,
+      bold: Boolean,
+      fontBorder: Int
+    ): Long {
       var acc = 1469598103934665603L
       acc = (acc xor content.hashCode().toLong()) * 1099511628211L
       acc = (acc xor textSize.toBits().toLong()) * 1099511628211L
       acc = (acc xor if (bold) 1L else 0L) * 1099511628211L
+      acc = (acc xor fontBorder.toLong()) * 1099511628211L
       return acc
     }
 
     private const val MEASURE_CACHE_MAX = 2048
+    private const val SHADOW_RADIUS = 2.5f
+    private const val SHADOW_DX = 1f
+    private const val SHADOW_DY = 1f
+  }
+
+  private fun drawTextWithBorder(
+    canvas: Canvas,
+    text: String,
+    startX: Float,
+    baselineY: Float,
+    borderMode: Int
+  ) {
+    when (borderMode) {
+      DanmakuConfig.FONT_BORDER_NONE -> canvas.drawText(text, startX, baselineY, textPaint)
+      DanmakuConfig.FONT_BORDER_SHADOW -> {
+        textPaint.setShadowLayer(SHADOW_RADIUS, SHADOW_DX, SHADOW_DY, Color.BLACK)
+        canvas.drawText(text, startX, baselineY, textPaint)
+        textPaint.clearShadowLayer()
+      }
+      else -> {
+        strokePaint.strokeWidth = resolveStrokeWidth(borderMode, textPaint.textSize)
+        canvas.drawText(text, startX, baselineY, strokePaint)
+        canvas.drawText(text, startX, baselineY, textPaint)
+      }
+    }
   }
 }

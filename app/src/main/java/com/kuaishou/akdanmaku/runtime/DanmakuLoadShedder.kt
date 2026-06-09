@@ -10,12 +10,22 @@ internal object DanmakuLoadShedder {
     }
   }
 
-  fun nextLevel(currentLevel: Int, layoutCostMs: Long, rejectedCount: Int, unmeasuredCount: Int): Int {
+  fun nextLevel(
+    currentLevel: Int,
+    layoutCostMs: Long,
+    rejectedCount: Int,
+    unmeasuredCount: Int,
+    drawCostMs: Long = 0L,
+    fallbackSkippedCount: Int = 0
+  ): Int {
     val level = currentLevel.coerceIn(0, MAX_LEVEL)
     return when {
-      layoutCostMs >= 48L || rejectedCount >= 32 || unmeasuredCount >= 48 -> MAX_LEVEL
-      layoutCostMs >= 24L || rejectedCount >= 16 || unmeasuredCount >= 24 -> maxOf(level, 2)
-      layoutCostMs >= 12L || rejectedCount >= 8 || unmeasuredCount >= 12 -> maxOf(level, 1)
+      layoutCostMs >= 48L || drawCostMs >= 48L ||
+        rejectedCount >= 32 || unmeasuredCount >= 48 || fallbackSkippedCount >= 32 -> MAX_LEVEL
+      layoutCostMs >= 24L || drawCostMs >= 24L ||
+        rejectedCount >= 16 || unmeasuredCount >= 24 || fallbackSkippedCount >= 16 -> maxOf(level, 2)
+      layoutCostMs >= 12L || drawCostMs >= 12L ||
+        rejectedCount >= 8 || unmeasuredCount >= 12 || fallbackSkippedCount >= 8 -> maxOf(level, 1)
       level > 0 -> level - 1
       else -> 0
     }

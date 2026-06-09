@@ -12,6 +12,7 @@ import com.kuaishou.akdanmaku.filter.TypeFilter
 import com.kuaishou.akdanmaku.render.SimpleRenderer
 import com.kuaishou.akdanmaku.ui.DanmakuPlayer
 import com.kuaishou.akdanmaku.ui.DanmakuView
+import com.btelly.feature.player.DanmakuFilterContext
 import com.btelly.feature.player.PlaybackStartupTrace
 import com.btelly.core.common.log.AppLog
 import com.btelly.model.dm.DmModel
@@ -121,6 +122,7 @@ class MyPlayerDanmakuController(
         dataFilter = listOf(TypeFilter())
     )
     private var danmakuTimeline: DanmakuTimeline = DanmakuTimeline.EMPTY
+    private var filterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY
     private var danmakuData: List<DanmakuItemData> = emptyList()
     private var rawDanmakuData: List<DmModel> = emptyList()
     private var activeWindowStartMs: Long = Long.MIN_VALUE
@@ -170,11 +172,13 @@ class MyPlayerDanmakuController(
 
     fun setData(
         data: List<DmModel>,
+        filterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY,
         startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
         startupTraceStartElapsedMs: Long = 0L
     ) {
         prepareJob?.cancel()
         windowRefreshJob?.cancel()
+        this.filterContext = filterContext
         val generation = ++prepareGeneration
         prepareJob = controllerScope.launch {
             val sortedData = data.sortedBy { it.progress }
@@ -241,10 +245,14 @@ class MyPlayerDanmakuController(
         }
     }
 
-    fun appendData(data: List<DmModel>) {
+    fun appendData(
+        data: List<DmModel>,
+        filterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY
+    ) {
         if (data.isEmpty()) {
             return
         }
+        this.filterContext = filterContext
         val previousJob = prepareJob
         val generation = ++prepareGeneration
         prepareJob = controllerScope.launch {
@@ -412,7 +420,7 @@ class MyPlayerDanmakuController(
 
     private fun doSendLiveDanmaku(dm: DmModel, player: DanmakuPlayer) {
         val currentTime = player.getCurrentTimeMs()
-        val color = dm.color.toDanmakuColor(isVipColorfulDanmakuAllowed())
+        val color = dm.color.toDanmakuColor()
         val data = DanmakuItemData(
             danmakuId = ++liveDanmakuIdCounter,
             position = currentTime.coerceAtLeast(0L),
@@ -453,6 +461,7 @@ class MyPlayerDanmakuController(
         lastSettingsSnapshot = snapshot
         val normalizedSmartFilterLevel = snapshot.smartFilterLevel.normalizeSmartFilterLevel()
         val durationMs = snapshot.speed.toDanmakuDurationMs()
+        val fontBorder = filterContext.playerConfig.fontBorder.toDanmakuFontBorder()
         val newConfig = danmakuConfig.copy(
             visibility = snapshot.enabled,
             preCacheTimeMs = DANMAKU_PRE_CACHE_TIME_MS,
@@ -460,7 +469,8 @@ class MyPlayerDanmakuController(
             textSizeScale = snapshot.textSize.toDanmakuTextScale(),
             durationMs = durationMs,
             rollingDurationMs = durationMs,
-            screenPart = snapshot.screenArea.toDanmakuScreenPart()
+            screenPart = snapshot.screenArea.toDanmakuScreenPart(),
+            fontBorder = fontBorder
         )
         val filterChanged = applyTypeFilterState(
             config = newConfig,
@@ -926,7 +936,18 @@ class MyPlayerDanmakuController(
         stage: String,
         startIndex: Long
     ): List<DanmakuItemData> {
-        return applySmartFilter(level = smartFilterLevel, stage = stage)
+        val filtered = BiliDanmakuFilterPolicy.apply(
+            items = this,
+            context = filterContext,
+            settings = lastSettingsSnapshot,
+            stage = stage
+        ).applySmartFilter(level = smartFilterLevel, stage = stage)
+        val preparedSource = if (mergeDuplicate) {
+            DanmakuDuplicateMergePolicy.merge(filtered)
+        } else {
+            filtered
+        }
+        return preparedSource
             .mapIndexedNotNull { index, item ->
             item.toDanmakuItemData(startIndex + index, allowVipColorful)
         }
@@ -1599,7 +1620,7 @@ class MyPlayerDanmakuController(
             content = renderContent,
             mode = mode.toDanmakuMode(),
             textSize = fontSize.coerceAtLeast(12),
-            textColor = color.toDanmakuColor(allowVipColorful),
+            textColor = color.toDanmakuColor(),
             score = weight.coerceAtLeast(0),
             renderFlags = resolveRenderFlags(allowVipColorful),
             vipGradientStyle = resolveVipGradientStyle(allowVipColorful)
@@ -1667,16 +1688,21 @@ class MyPlayerDanmakuController(
         }
     }
 
-    private fun Int.toDanmakuColor(allowVipColorful: Boolean): Int {
-        val resolvedColor = if (this == 0) {
+    private fun Int.toDanmakuFontBorder(): Int {
+        return when (this) {
+            DanmakuConfig.FONT_BORDER_HEAVY,
+            DanmakuConfig.FONT_BORDER_SHADOW,
+            DanmakuConfig.FONT_BORDER_NONE -> this
+            else -> DanmakuConfig.FONT_BORDER_DEFAULT
+        }
+    }
+
+    private fun Int.toDanmakuColor(): Int {
+        return if (this == 0) {
             Color.WHITE
         } else {
             this or 0xFF000000.toInt()
         }
-        if (!allowVipColorful && resolvedColor != Color.WHITE) {
-            return Color.WHITE
-        }
-        return resolvedColor
     }
 
     private fun Int.normalizeSmartFilterLevel(): Int {

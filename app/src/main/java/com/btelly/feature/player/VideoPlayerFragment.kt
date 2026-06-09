@@ -934,6 +934,7 @@ class VideoPlayerFragment : Fragment() {
                             )
                             playerView.setDanmakuData(
                                 data = update.items,
+                                filterContext = update.filterContext,
                                 startupTraceId = activeStartupTraceId,
                                 startupTraceStartElapsedMs = activeStartupTraceStartElapsedMs
                             )
@@ -944,7 +945,7 @@ class VideoPlayerFragment : Fragment() {
                                 step = "danmaku_ui_submitted",
                                 message = "replace=false count=${update.items.size}"
                             )
-                            playerView.appendDanmakuData(update.items)
+                            playerView.appendDanmakuData(update.items, update.filterContext)
                         }
                     }
                 }
