@@ -1325,11 +1325,12 @@ class VideoPlayerViewModel(
             clearPreloadedPlayback(cancelJob = true)
             return
         }
-        if (!hasReachedFirstFrame && target.source != PlaybackPreloadTarget.Source.AUTOPLAY_COUNTDOWN) {
+        if (!hasReachedFirstFrame && target.source != PlaybackPreloadTarget.Source.AUTOPLAY_COUNTDOWN && target.source != PlaybackPreloadTarget.Source.DOUYIN_MODE) {
             return
         }
         if (
             target.source != PlaybackPreloadTarget.Source.AUTOPLAY_COUNTDOWN
+            && target.source != PlaybackPreloadTarget.Source.DOUYIN_MODE
         ) {
             return
         }
@@ -3222,8 +3223,11 @@ class VideoPlayerViewModel(
             return null
         }
         preloadedPlayback = null
-        // 自动连播倒计时触发后必须直接播放，不能继承 ENDED/IDLE 阶段刷出来的暂停态。
-        val effectivePlayWhenReady = if (preloaded.source == PlaybackPreloadTarget.Source.AUTOPLAY_COUNTDOWN) {
+        // 自动连播倒计时/抖音模式触发后必须直接播放，不能继承 ENDED/IDLE 阶段刷出来的暂停态。
+        val effectivePlayWhenReady = if (
+            preloaded.source == PlaybackPreloadTarget.Source.AUTOPLAY_COUNTDOWN
+            || preloaded.source == PlaybackPreloadTarget.Source.DOUYIN_MODE
+        ) {
             true
         } else {
             pendingPlayWhenReady

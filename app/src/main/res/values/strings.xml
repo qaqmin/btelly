@@ -420,6 +420,7 @@
     <string name="user">用户</string>
     <string name="video_codec">视频编码</string>
     <string name="ipv4_only">仅使用IPv4</string>
+    <string name="douyin_mode">抖音模式</string>
     <string name="video_info">视频信息</string>
     <string name="video_order">视频排序</string>
     <string name="video_play_exit">再按一次返回退出播放</string>

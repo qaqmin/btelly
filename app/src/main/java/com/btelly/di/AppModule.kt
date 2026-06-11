@@ -37,6 +37,7 @@ import com.btelly.feature.me.MeViewModel
 import com.btelly.feature.search.SearchViewModel
 import com.btelly.feature.player.LivePlayerViewModel
 import com.btelly.feature.player.danmaku.LiveDanmakuManager
+import com.btelly.feature.player.douyin.DouyinModeManager
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.feature.player.VideoPlayerViewModel
 import com.btelly.feature.series.SeriesDetailViewModel
@@ -106,6 +107,7 @@ val viewModelModule = module {
 val eventModule = module {
     single { AppEventHub() }
     single { AppSettingsDataStore(androidContext()) }
+    single { DouyinModeManager(get(), get()) }
 }
 
 val appModules = listOf(

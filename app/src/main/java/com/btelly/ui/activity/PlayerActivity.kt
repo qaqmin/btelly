@@ -57,9 +57,14 @@ import com.btelly.feature.player.settings.AfterPlayMode
 import com.btelly.feature.player.settings.PlayerSettings
 import com.btelly.feature.player.settings.PlayerSettingsStore
 import com.btelly.feature.player.interaction.InteractionOverlayView
+import com.btelly.feature.player.PlaybackPreloadTarget
+import com.btelly.feature.player.douyin.DouyinModeManager
+import com.btelly.feature.player.view.DouyinModeKeyListener
 import com.btelly.feature.player.view.MyPlayerView
 import com.btelly.feature.player.view.OnPlayerSettingChange
 import com.btelly.feature.player.view.OnVideoSettingChangeListener
+import android.view.animation.AccelerateDecelerateInterpolator
+import android.widget.ImageView
 import com.btelly.model.video.VideoModel
 import com.btelly.model.video.detail.VideoDetailModel
 import com.btelly.model.video.quality.AudioQuality
@@ -212,6 +217,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
 
     private val appEventHub: AppEventHub by inject()
     private val videoRepository: com.btelly.repository.VideoRepository by inject()
+    private val douyinModeManager: DouyinModeManager by inject()
 
     override fun getViewBinding(): FragmentVideoPlayerBinding {
         val startMs = SystemClock.elapsedRealtime()
@@ -263,6 +269,11 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     private var lastKeepScreenOnState: Boolean? = null
     private var exitTime: Long = 0
     private val exitInterval = 2000L
+
+    // 抖音模式
+    private var douyinSourceAid: Long = 0L
+    private var douyinInitializing: Boolean = false
+    private var douyinTransitionRunning: Boolean = false
 
     private val gaiaVgateLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -804,6 +815,15 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         })
         playerView.setControllerAutoShow(false)
         playerView.hideController()
+        playerView.douyinModeKeyListener = object : DouyinModeKeyListener {
+            override fun isDouyinModeActive(): Boolean {
+                val currentVideo = sessionCoordinator.getCurrentVideo()
+                val enabled = douyinModeManager.isEnabled()
+                return douyinModeManager.isApplicable(currentVideo)
+            }
+            override fun onDouyinNavigateNext(): Boolean = handleDouyinNext()
+            override fun onDouyinNavigatePrevious(): Boolean = handleDouyinPrevious()
+        }
         playerView.onResumeProgressCancelled = { cancelResume() }
         playerView.seekPreviewUpdateListener = object : MyPlayerView.SeekPreviewUpdateListener {
             override fun onSeekPreviewUpdated() {
@@ -1037,6 +1057,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             viewModel.videoInfo.collect { info ->
                 latestVideoInfo = info
                 sessionCoordinator.updateVideoInfo(info)
+                resetDouyinModeIfNeeded()
                 schedulePreloadAndHeaderRefresh()
                 updatePrimaryActionVisibility()
                 checkTagsAndExitIfNeeded(info)
@@ -1771,6 +1792,152 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             }
         }
     }
+
+    // region 抖音模式
+
+    private fun handleDouyinNext(): Boolean {
+        val currentVideo = sessionCoordinator.getCurrentVideo() ?: return false
+        if (!douyinModeManager.isApplicable(currentVideo)) return false
+
+        if (!douyinModeManager.hasList() && !douyinInitializing) {
+            douyinInitializing = true
+            lifecycleScope.launch {
+                douyinModeManager.initialize(currentVideo)
+                douyinInitializing = false
+                if (!douyinModeManager.hasList()) {
+                    toast("该视频无推荐")
+                } else {
+                    playDouyinVideo(douyinModeManager.next(), direction = 1)
+                }
+            }
+            return true
+        }
+        if (douyinInitializing) return true
+
+        val next = douyinModeManager.next()
+        if (next == null) {
+            toast("该视频无推荐")
+            return true
+        }
+        playDouyinVideo(next, direction = 1)
+        return true
+    }
+
+    private fun handleDouyinPrevious(): Boolean {
+        val currentVideo = sessionCoordinator.getCurrentVideo() ?: return false
+        if (!douyinModeManager.isApplicable(currentVideo)) return false
+
+        if (!douyinModeManager.hasList()) return true
+        val prev = douyinModeManager.previous()
+        if (prev != null) {
+            playDouyinVideo(prev, direction = -1)
+        }
+        return true
+    }
+
+    private fun playDouyinVideo(video: VideoModel?, direction: Int = 0) {
+        if (video == null) return
+        playerView.hideController()
+
+        if (direction != 0 && !douyinTransitionRunning) {
+            startDouyinTransition(direction) {
+                viewModel.playRelatedVideo(video, preferLastPlayTime = false)
+            }
+        } else {
+            viewModel.playRelatedVideo(video, preferLastPlayTime = false)
+        }
+
+        lifecycleScope.launch {
+            douyinModeManager.appendMore()
+            preloadNextDouyinVideo()
+        }
+    }
+
+    /**
+     * 抖音模式切换动画 —— 黑色遮罩竖向滑动
+     * @param direction 1=向上滑出（下键下一个），-1=向下滑出（上键上一个）
+     * @param onAnimationReady 遮罩覆盖屏幕后的回调（开始加载新视频）
+     *
+     * 原理：黑色遮罩从一侧滑入覆盖全屏 → 切换视频 → 等新视频首帧渲染 → 遮罩滑出。
+     * 不使用 PixelCopy 截帧，避免异步延迟和兼容性问题。
+     */
+    private fun startDouyinTransition(direction: Int, onAnimationReady: () -> Unit) {
+        if (douyinTransitionRunning) return
+        douyinTransitionRunning = true
+
+        val overlay: ImageView = binding.imageDouyinTransition ?: run {
+            douyinTransitionRunning = false
+            onAnimationReady()
+            return
+        }
+
+        val screenHeight = overlay.height.toFloat()
+        // 遮罩起始位置：下键时从屏幕下方开始，上键时从屏幕上方开始
+        val startY = if (direction > 0) screenHeight else -screenHeight
+
+        overlay.setImageResource(0)
+        overlay.setBackgroundColor(0xFF000000.toInt())
+        overlay.translationY = startY
+        overlay.visibility = View.VISIBLE
+
+        // 第一阶段：遮罩滑入覆盖全屏
+        overlay.animate()
+            .translationY(0f)
+            .setDuration(150)
+            .setInterpolator(AccelerateDecelerateInterpolator())
+            .withEndAction {
+                var overlayDismissed = false
+
+                fun dismissOverlay() {
+                    if (overlayDismissed) return
+                    overlayDismissed = true
+                    val exitY = if (direction > 0) -screenHeight else screenHeight
+                    overlay.animate()
+                        .translationY(exitY)
+                        .setDuration(150)
+                        .setInterpolator(AccelerateDecelerateInterpolator())
+                        .withEndAction {
+                            overlay.visibility = View.GONE
+                            douyinTransitionRunning = false
+                        }
+                        .start()
+                }
+
+                // 先注册首帧监听，再切换视频，避免竞态
+                playerView.observeNextFirstFrame { dismissOverlay() }
+                onAnimationReady()
+                // 兜底：3 秒后强制滑出，防止视频加载失败时遮罩卡住
+                overlay.postDelayed({ dismissOverlay() }, 3000)
+            }
+            .start()
+    }
+
+    private fun preloadNextDouyinVideo() {
+        val nextVideo = douyinModeManager.peekNext() ?: return
+        val aid = nextVideo.aid.takeIf { it > 0 }
+        val bvid = nextVideo.bvid.takeIf { it.isNotBlank() }
+        val cid = nextVideo.cid
+        if (cid <= 0L) return
+        viewModel.preloadPlayback(
+            PlaybackPreloadTarget(
+                aid = aid,
+                bvid = bvid,
+                cid = cid,
+                source = PlaybackPreloadTarget.Source.DOUYIN_MODE
+            )
+        )
+    }
+
+    private fun resetDouyinModeIfNeeded() {
+        val currentAid = sessionCoordinator.getCurrentVideo()?.aid ?: 0L
+        if (currentAid != douyinSourceAid && currentAid > 0L) {
+            douyinSourceAid = currentAid
+            douyinModeManager.reset()
+            douyinInitializing = false
+        }
+    }
+
+    // endregion
 }
 
 private fun Int.nameOfPlaybackState(): String = when (this) {

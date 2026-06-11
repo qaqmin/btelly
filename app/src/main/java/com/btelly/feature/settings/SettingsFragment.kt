@@ -105,6 +105,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val KEY_GAIA_VGATE_V_VOUCHER = "gaia_vgate_v_voucher"
         private const val KEY_GAIA_VGATE_V_VOUCHER_SAVED_AT_MS = "gaia_vgate_v_voucher_saved_at_ms"
         private const val KEY_IPV4_ONLY = "ipv4_only"
+        private const val KEY_DOUYIN_MODE = "douyin_mode"
         private const val KEY_RESUME_PLAYBACK = "resume_playback"
         private const val KEY_SPONSOR_BLOCK_ENABLED = "sponsor_block_enabled"
         private const val COMMON_POSITION_RISK_CONTROL = 7
@@ -186,7 +187,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.risk_control_verify), "无"),
             SettingModel(getString(R.string.show_video_detail_page), "关"),
             SettingModel(getString(R.string.give_coin_number), "2"),
-            SettingModel(getString(R.string.ipv4_only), "开")
+            SettingModel(getString(R.string.ipv4_only), "开"),
+            SettingModel(getString(R.string.douyin_mode), "关")
         )
 
         playerSettings = mutableListOf(
@@ -347,6 +349,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             8 -> toggleSetting(commonSettings, 8, KEY_SHOW_VIDEO_DETAIL)
             9 -> showCommonChoiceDialog(position, KEY_GIVE_COIN_NUMBER, arrayOf("1", "2"))
             10 -> toggleSetting(commonSettings, 10, KEY_IPV4_ONLY)
+            11 -> toggleSetting(commonSettings, 11, KEY_DOUYIN_MODE)
             commonSettings.lastIndex - 1 -> {
                 val newValue = if (AppLog.isEnabled) "关" else "开"
                 AppLog.setEnabled(newValue == "开")
@@ -804,6 +807,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         applySavedValue(commonSettings, 8, KEY_SHOW_VIDEO_DETAIL)
         applySavedValue(commonSettings, 9, KEY_GIVE_COIN_NUMBER)
         applySavedValue(commonSettings, 10, KEY_IPV4_ONLY)
+        applySavedValue(commonSettings, 11, KEY_DOUYIN_MODE)
 
         applySavedValue(playerSettings, 0, KEY_DEFAULT_VIDEO_QUALITY)
         applySavedValue(playerSettings, 1, KEY_DEFAULT_AUDIO_TRACK)

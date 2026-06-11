@@ -18,7 +18,8 @@ data class PlaybackPreloadTarget(
         PLAY_QUEUE,
         RELATED_VIDEO,
         AUTOPLAY_COUNTDOWN,
-        LIST_TOUCH
+        LIST_TOUCH,
+        DOUYIN_MODE
     }
 
     val typedAid: Aid? get() = aid?.let(::Aid)

@@ -59,6 +59,13 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+interface DouyinModeKeyListener {
+    /** 抖音模式是否激活（开关开启 + 当前视频适用） */
+    fun isDouyinModeActive(): Boolean
+    fun onDouyinNavigateNext(): Boolean
+    fun onDouyinNavigatePrevious(): Boolean
+}
+
 @OptIn(UnstableApi::class)
 class MyPlayerView @JvmOverloads constructor(
     context: Context,
@@ -113,6 +120,7 @@ class MyPlayerView @JvmOverloads constructor(
     private var customErrorMessage: CharSequence? = null
 
     private var controllerVisibilityListener: ControllerVisibilityListener? = null
+    var douyinModeKeyListener: DouyinModeKeyListener? = null
     private var pendingTitle: String? = null
     private var pendingSubTitle: String? = null
     private var pendingLiveDuration: String? = null
@@ -672,6 +680,21 @@ class MyPlayerView @JvmOverloads constructor(
         updateErrorMessage()
     }
 
+    /**
+     * 监听下一次视频首帧渲染，触发后自动移除监听。
+     * 用于抖音模式切换动画：等新视频首帧就绪后再滑出遮罩。
+     */
+    fun observeNextFirstFrame(onFirstFrame: () -> Unit) {
+        val p = player ?: run { onFirstFrame(); return }
+        val listener = object : Player.Listener {
+            override fun onRenderedFirstFrame() {
+                p.removeListener(this)
+                onFirstFrame()
+            }
+        }
+        p.addListener(listener)
+    }
+
     private fun closeShutter() {
         hasRenderedFirstFrame = false
         suppressControllerShowUntilFirstFrame = true
@@ -1080,6 +1103,14 @@ class MyPlayerView @JvmOverloads constructor(
             }
             if (!controllerVisible) {
                 if (event.action == KeyEvent.ACTION_DOWN) {
+                    // 抖音模式激活时，上下键完全消费，不呼出控制器
+                    if (douyinModeKeyListener?.isDouyinModeActive() == true) {
+                        when (event.keyCode) {
+                            KeyEvent.KEYCODE_DPAD_DOWN -> douyinModeKeyListener?.onDouyinNavigateNext()
+                            KeyEvent.KEYCODE_DPAD_UP -> douyinModeKeyListener?.onDouyinNavigatePrevious()
+                        }
+                        return true
+                    }
                     if (!gestureListener.handleKeyDown(event) && !gestureListener.isDoubleTapping) {
                         maybeShowController(true)
                         controller?.focusButtonByKeyDown(event)

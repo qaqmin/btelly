@@ -10,6 +10,13 @@
         android:descendantFocusability="afterDescendants"
         android:layout_width="match_parent"
         android:layout_height="match_parent"/>
+    <!-- 抖音模式视频切换过渡遮罩 -->
+    <ImageView
+        android:id="@+id/image_douyin_transition"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:visibility="gone"/>
     <androidx.appcompat.widget.AppCompatTextView
         android:textSize="@dimen/px24"
         android:textColor="@color/white"
