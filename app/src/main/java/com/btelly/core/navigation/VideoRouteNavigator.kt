@@ -44,7 +44,7 @@ object VideoRouteNavigator {
             val hostActivity = findMainActivityHost(context)
             AppLog.d(TAG, "openVideo: detailFirst=true, host=$hostActivity")
             if (hostActivity != null) {
-                hostActivity.openInHostContainer(VideoDetailFragment.newInstance(video))
+                hostActivity.openInHostContainer(VideoDetailFragment.newInstance(video, playQueue))
                 return
             }
         }

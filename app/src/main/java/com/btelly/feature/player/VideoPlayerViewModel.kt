@@ -1339,6 +1339,10 @@ class VideoPlayerViewModel(
             clearPreloadedPlayback(cancelJob = true)
             return
         }
+        if (identity.cid <= 0L) {
+            clearPreloadedPlayback(cancelJob = true)
+            return
+        }
         val cachedPreload = preloadedPlayback
         if (cachedPreload?.preparedPlayback?.identity == identity && cachedPreload.source == target.source) {
             return
@@ -3169,7 +3173,6 @@ class VideoPlayerViewModel(
     }
 
     private fun PlaybackPreloadTarget.toPlayRequestIdentity(): PlayRequestIdentity? {
-        val resolvedCid = cid.takeIf { it > 0L } ?: return null
         val resolvedAid = aid?.takeIf { it > 0L }
         val resolvedBvid = bvid?.takeIf { it.isNotBlank() }
         val resolvedEpId = epId?.takeIf { it > 0L }
@@ -3179,7 +3182,7 @@ class VideoPlayerViewModel(
         return PlayRequestIdentity(
             aid = resolvedAid,
             bvid = resolvedBvid,
-            cid = resolvedCid,
+            cid = cid.coerceAtLeast(0L),
             epId = resolvedEpId
         )
     }

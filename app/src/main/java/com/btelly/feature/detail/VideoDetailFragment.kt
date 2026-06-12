@@ -53,12 +53,15 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
     companion object {
         private const val ARG_AID = "aid"
         private const val ARG_BVID = "bvid"
+        private const val ARG_PLAY_QUEUE_TOKEN = "play_queue_token"
 
-        fun newInstance(video: VideoModel): VideoDetailFragment {
+        fun newInstance(video: VideoModel, playQueue: List<VideoModel> = emptyList()): VideoDetailFragment {
+            val queueToken = VideoDetailPlayQueueStore.enqueue(playQueue)
             return VideoDetailFragment().apply {
                 arguments = bundleOf(
                     ARG_AID to video.aid.takeIf { it > 0L },
-                    ARG_BVID to video.bvid.takeIf { it.isNotBlank() }
+                    ARG_BVID to video.bvid.takeIf { it.isNotBlank() },
+                    ARG_PLAY_QUEUE_TOKEN to queueToken
                 )
             }
         }
@@ -85,6 +88,7 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
     private var videoView: VideoView? = null
     private var aid: Long? = null
     private var bvid: String? = null
+    private var launchPlayQueue: List<VideoModel> = emptyList()
 
     private val appEventHub: AppEventHub by inject()
     private val sessionGateway: NetworkSessionGateway by inject()
@@ -120,6 +124,7 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
         arguments?.let { args ->
             aid = if (args.containsKey(ARG_AID)) args.getLong(ARG_AID) else null
             bvid = if (args.containsKey(ARG_BVID)) args.getString(ARG_BVID) else null
+            launchPlayQueue = VideoDetailPlayQueueStore.consume(args.getString(ARG_PLAY_QUEUE_TOKEN))
         }
     }
 
@@ -531,6 +536,7 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
         VideoRouteNavigator.openVideo(
             context = requireContext(),
             video = targetVideo,
+            playQueue = launchPlayQueue,
             forcePlayer = true
         )
     }
@@ -565,6 +571,7 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
             playVideo()
             return
         }
+        launchPlayQueue = emptyList()
         pendingFocusAid = model.aid
         lastPlaybackSource = PlaybackSource.NONE
         aid = model.aid.takeIf { it > 0 }

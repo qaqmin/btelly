@@ -3,7 +3,6 @@ package com.btelly.feature.player
 import android.os.Bundle
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
-import com.btelly.core.model.id.Cid
 import com.btelly.feature.player.settings.AfterPlayMode
 import com.btelly.model.video.VideoModel
 import com.btelly.model.video.detail.VideoDetailModel
@@ -282,8 +281,6 @@ class PlayerSessionCoordinator {
     }
 
     private fun VideoModel.toPreloadTarget(source: PlaybackPreloadTarget.Source): PlaybackPreloadTarget? {
-        val typedCid = Cid(cid)
-        if (!typedCid.isValid()) return null
         val targetAid = aid.takeIf { it > 0L }
         val targetBvid = bvid.takeIf { it.isNotBlank() }
         val targetEpId = playbackEpId.takeIf { it > 0L }
