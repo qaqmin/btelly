@@ -29,6 +29,7 @@ import com.btelly.core.ui.base.OnBackPressedHandler
 import com.btelly.model.user.UserDetailInfoModel
 import com.btelly.model.video.VideoModel
 import com.btelly.feature.category.CategoryFragment
+import com.btelly.feature.cctv.CctvLiveFragment
 import com.btelly.feature.dynamic.DynamicFragment
 import com.btelly.feature.home.HomeFragment
 import com.btelly.feature.live.LiveFragment
@@ -66,18 +67,20 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     companion object {
         private const val SETTINGS_OVERLAY_TAG = "settings"
         private const val SETTINGS_OVERLAY_EXIT_ANIM_MS = 275L
-        private const val SEARCH_TAB_INDEX = 5
+        private const val CCTV_TAB_INDEX = 4
+        private const val SEARCH_TAB_INDEX = 6
         private const val STARTUP_TAG = "AppStartup"
     }
 
     // tab 顺序固定（与 fragmentFactories 一一对应）：
-    // 0 推荐 / 1 分类 / 2 动态 / 3 直播 / 4 我的 / 5 搜索。
+    // 0 推荐 / 1 分类 / 2 动态 / 3 直播 / 4 CCTV直播 / 5 我的 / 6 搜索。
     // 用 lazy factory 让 4 个非首屏 tab 真正点中时再构造，省去 1.1s 的 onCreate 大段时间。
     private val fragmentFactories: List<() -> Fragment> = listOf(
         { HomeFragment.newInstance() },
         { CategoryFragment.newInstance() },
         { DynamicFragment.newInstance() },
         { LiveFragment.newInstance() },
+        { CctvLiveFragment.newInstance() },
         { MeFragment.newInstance() },
         { SearchNewFragment.newInstance() }
     )
@@ -182,6 +185,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         applyBackgroundImage()
         applyCategoryEntryVisibility()
         applyLiveEntryVisibility()
+        applyCctvLiveEntryVisibility()
         AppLog.i(STARTUP_TAG, "STARTUP MainActivity.initView elapsed=${SystemClock.elapsedRealtime() - t0}ms")
     }
 
@@ -321,6 +325,15 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         }
     }
 
+    fun applyCctvLiveEntryVisibility() {
+        val cctvLiveEntry = appSettings.getCachedString("cctv_live_entry", "关") ?: "关"
+        val show = cctvLiveEntry == "开"
+        binding.myTabView.setCctvLiveButtonVisible(show)
+        if (!show && currentFragmentIndex == CCTV_TAB_INDEX) {
+            binding.myTabView.selectTab(0)
+        }
+    }
+
     private fun initFragments() {
         // 不再在这里同步 new 6 个 Fragment，全部走 [getOrCreateFragment] 按需 lazy 构造。
         // savedInstanceState 恢复路径下，FragmentManager 自带 restoredFragment，下面 showFragment
@@ -335,6 +348,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         if (index < 0 || index >= fragments.size) return
         if (index == 1 && !binding.myTabView.isCategoryButtonVisible()) return
         if (index == 3 && !binding.myTabView.isLiveButtonVisible()) return
+        if (index == CCTV_TAB_INDEX && !binding.myTabView.isCctvLiveButtonVisible()) return
         if (currentFragmentIndex == index) return
 
         val fragmentTag = "fragment_$index"

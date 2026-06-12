@@ -227,6 +227,10 @@
     <string name="liked_">已点赞</string>
     <string name="live">直播</string>
     <string name="live_entry">直播入口</string>
+    <string name="cctv_live">CCTV直播</string>
+    <string name="cctv_live_subtitle">央视频道列表</string>
+    <string name="cctv_player_hint">上下键/上下滑动切换频道 · 确定键显示控制栏</string>
+    <string name="cctv_quality">画质</string>
     <string name="minor_protection">青少年保护</string>
     <string name="menu_add_watch_later">加入稍后观看</string>
     <string name="menu_video_card_subtitle">加入稍后观看，或减少你不想再看到的内容</string>

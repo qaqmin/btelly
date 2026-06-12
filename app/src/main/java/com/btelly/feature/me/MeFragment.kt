@@ -151,7 +151,7 @@ class MeFragment : BaseFragment<FragmentMeBinding>(), MainTabFocusTarget {
                     }
                     when (event) {
                         is MainNavigationViewModel.Event.MainTabSelected ->
-                            if (event.index == 4) {
+                            if (event.index == 5) {
                                 if (viewModel.shouldRefresh(USER_INFO_CACHE_TTL_MS)) {
                                     viewModel.loadUserInfo()
                                 }
@@ -159,7 +159,7 @@ class MeFragment : BaseFragment<FragmentMeBinding>(), MainTabFocusTarget {
                             }
 
                         is MainNavigationViewModel.Event.MainTabReselected ->
-                            if (event.index == 4) {
+                            if (event.index == 5) {
                                 if (viewModel.shouldRefresh(USER_INFO_CACHE_TTL_MS)) {
                                     viewModel.loadUserInfo()
                                 }

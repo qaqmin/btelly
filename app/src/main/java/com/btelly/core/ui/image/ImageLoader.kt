@@ -1123,7 +1123,7 @@ object ImageLoader {
             .cache(Cache(cacheDir, 128L * 1024L * 1024L))
             .addNetworkInterceptor { chain ->
                 val response = chain.proceed(chain.request())
-                if (isBilibiliImageUrl(chain.request().url.toString())) {
+                if (isCacheableImageUrl(chain.request().url.toString())) {
                     response.newBuilder()
                         .removeHeader("Pragma")
                         .header("Cache-Control", "public, max-age=604800")
@@ -1308,6 +1308,11 @@ object ImageLoader {
         return url.contains("hdslb.com", ignoreCase = true) ||
             url.contains("biliimg.com", ignoreCase = true) ||
             url.startsWith("bfs/")
+    }
+
+    private fun isCacheableImageUrl(url: String): Boolean {
+        return isBilibiliImageUrl(url) ||
+            url.contains("cctvpic.com", ignoreCase = true)
     }
 
     private fun appendImageSuffix(url: String, suffix: String): String {

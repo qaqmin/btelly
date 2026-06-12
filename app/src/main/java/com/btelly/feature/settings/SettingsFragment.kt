@@ -75,6 +75,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val KEY_IMAGE_QUALITY = "image_quality"
         private const val KEY_THEME = "theme"
         private const val KEY_LIVE_ENTRY = "live_entry"
+        private const val KEY_CCTV_LIVE_ENTRY = "cctv_live_entry"
         private const val KEY_MINOR_PROTECTION = "minor_protection"
         private const val KEY_DEFAULT_VIDEO_QUALITY = "default_video_quality"
         private const val KEY_DEFAULT_AUDIO_TRACK = "default_audio_track"
@@ -108,7 +109,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val KEY_DOUYIN_MODE = "douyin_mode"
         private const val KEY_RESUME_PLAYBACK = "resume_playback"
         private const val KEY_SPONSOR_BLOCK_ENABLED = "sponsor_block_enabled"
-        private const val COMMON_POSITION_RISK_CONTROL = 7
+        private const val COMMON_POSITION_RISK_CONTROL = 8
         private val DM_SMART_FILTER_OPTIONS = arrayOf("关", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10")
 
         private val HOME_START_PAGE_OPTIONS = arrayOf("推荐", "热门", "番剧", "影视", "动态")
@@ -183,6 +184,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.image_quality), "中尺寸"),
             SettingModel(getString(R.string.theme), "黑色"),
             SettingModel(getString(R.string.live_entry), "关"),
+            SettingModel(getString(R.string.cctv_live), "关"),
             SettingModel(getString(R.string.minor_protection), "开"),
             SettingModel(getString(R.string.risk_control_verify), "无"),
             SettingModel(getString(R.string.show_video_detail_page), "关"),
@@ -327,18 +329,23 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
                 val activity = activity as? MainActivity
                 activity?.applyLiveEntryVisibility()
             }
-            6 -> {
-                val setting = commonSettings.getOrNull(6) ?: return
+            6 -> toggleSetting(commonSettings, 6, KEY_CCTV_LIVE_ENTRY) { value ->
+                appSettings.putStringAsync(KEY_CCTV_LIVE_ENTRY, value)
+                val activity = activity as? MainActivity
+                activity?.applyCctvLiveEntryVisibility()
+            }
+            7 -> {
+                val setting = commonSettings.getOrNull(7) ?: return
                 if (setting.info == "开") {
                     showMinorProtectionVerifyDialog {
-                        toggleSetting(commonSettings, 6, KEY_MINOR_PROTECTION) { value ->
+                        toggleSetting(commonSettings, 7, KEY_MINOR_PROTECTION) { value ->
                             appSettings.putStringAsync(KEY_MINOR_PROTECTION, value)
                             val activity = activity as? MainActivity
                             activity?.applyCategoryEntryVisibility()
                         }
                     }
                 } else {
-                    toggleSetting(commonSettings, 6, KEY_MINOR_PROTECTION) { value ->
+                    toggleSetting(commonSettings, 7, KEY_MINOR_PROTECTION) { value ->
                         appSettings.putStringAsync(KEY_MINOR_PROTECTION, value)
                         val activity = activity as? MainActivity
                         activity?.applyCategoryEntryVisibility()
@@ -346,10 +353,10 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
                 }
             }
             COMMON_POSITION_RISK_CONTROL -> showRiskControlDialog()
-            8 -> toggleSetting(commonSettings, 8, KEY_SHOW_VIDEO_DETAIL)
-            9 -> showCommonChoiceDialog(position, KEY_GIVE_COIN_NUMBER, arrayOf("1", "2"))
-            10 -> toggleSetting(commonSettings, 10, KEY_IPV4_ONLY)
-            11 -> toggleSetting(commonSettings, 11, KEY_DOUYIN_MODE)
+            9 -> toggleSetting(commonSettings, 9, KEY_SHOW_VIDEO_DETAIL)
+            10 -> showCommonChoiceDialog(position, KEY_GIVE_COIN_NUMBER, arrayOf("1", "2"))
+            11 -> toggleSetting(commonSettings, 11, KEY_IPV4_ONLY)
+            12 -> toggleSetting(commonSettings, 12, KEY_DOUYIN_MODE)
             commonSettings.lastIndex - 1 -> {
                 val newValue = if (AppLog.isEnabled) "关" else "开"
                 AppLog.setEnabled(newValue == "开")
@@ -802,12 +809,13 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         val theme = appSettings.getCachedInt("theme", 1)
         commonSettings[4].info = theme.toThemeName()
         applySavedValue(commonSettings, 5, KEY_LIVE_ENTRY)
-        applySavedValue(commonSettings, 6, KEY_MINOR_PROTECTION)
+        applySavedValue(commonSettings, 6, KEY_CCTV_LIVE_ENTRY)
+        applySavedValue(commonSettings, 7, KEY_MINOR_PROTECTION)
         updateRiskControlStatus()
-        applySavedValue(commonSettings, 8, KEY_SHOW_VIDEO_DETAIL)
-        applySavedValue(commonSettings, 9, KEY_GIVE_COIN_NUMBER)
-        applySavedValue(commonSettings, 10, KEY_IPV4_ONLY)
-        applySavedValue(commonSettings, 11, KEY_DOUYIN_MODE)
+        applySavedValue(commonSettings, 9, KEY_SHOW_VIDEO_DETAIL)
+        applySavedValue(commonSettings, 10, KEY_GIVE_COIN_NUMBER)
+        applySavedValue(commonSettings, 11, KEY_IPV4_ONLY)
+        applySavedValue(commonSettings, 12, KEY_DOUYIN_MODE)
 
         applySavedValue(playerSettings, 0, KEY_DEFAULT_VIDEO_QUALITY)
         applySavedValue(playerSettings, 1, KEY_DEFAULT_AUDIO_TRACK)

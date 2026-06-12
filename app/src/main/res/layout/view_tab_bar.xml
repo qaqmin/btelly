@@ -79,6 +79,22 @@
         app:srcCompat="@drawable/tab_live"
         app:tint="?attr/tabBarNormal"/>
     <androidx.appcompat.widget.AppCompatImageView
+        android:id="@+id/button_cctv_live"
+        android:background="@drawable/tab_round_background"
+        android:padding="@dimen/px12"
+        android:focusable="true"
+        android:clickable="true"
+        android:visibility="gone"
+        android:layout_width="@dimen/px70"
+        android:layout_height="@dimen/px70"
+        android:layout_marginTop="@dimen/px20"
+        android:contentDescription="@string/cctv_live"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/button_live"
+        app:srcCompat="@drawable/ic_tv"
+        app:tint="?attr/tabBarNormal"/>
+    <androidx.appcompat.widget.AppCompatImageView
         android:id="@+id/button_me"
         android:background="@drawable/tab_round_background"
         android:padding="@dimen/px12"
@@ -91,7 +107,7 @@
         android:contentDescription="@string/me"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/button_live"
+        app:layout_constraintTop_toBottomOf="@+id/button_cctv_live"
         app:srcCompat="@drawable/tab_me"
         app:tint="?attr/tabBarNormal"/>
     <com.btelly.core.ui.image.AvatarBadgeView

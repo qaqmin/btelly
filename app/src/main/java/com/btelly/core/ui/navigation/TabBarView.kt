@@ -25,6 +25,7 @@ class TabBarView @JvmOverloads constructor(
     private val buttonCategory: AppCompatImageView
     private val buttonDynamic: AppCompatImageView
     private val buttonLive: AppCompatImageView
+    private val buttonCctvLive: AppCompatImageView
     private val buttonMe: AppCompatImageView
     private val buttonSetting: AppCompatImageView
     private val imageAvatar: AvatarBadgeView
@@ -43,6 +44,7 @@ class TabBarView @JvmOverloads constructor(
         buttonCategory = view.findViewById(R.id.button_category)
         buttonDynamic = view.findViewById(R.id.button_dynamic)
         buttonLive = view.findViewById(R.id.button_live)
+        buttonCctvLive = view.findViewById(R.id.button_cctv_live)
         buttonMe = view.findViewById(R.id.button_me)
         buttonSetting = view.findViewById(R.id.button_setting)
         imageAvatar = view.findViewById(R.id.image_avatar)
@@ -60,6 +62,7 @@ class TabBarView @JvmOverloads constructor(
             buttonCategory,
             buttonDynamic,
             buttonLive,
+            buttonCctvLive,
             buttonMe,
             buttonSearch
         ))
@@ -138,8 +141,9 @@ class TabBarView @JvmOverloads constructor(
         if (index < 0 || index >= tabButtons.size) return
         if (index == 1 && buttonCategory.visibility == GONE) return
         if (index == 3 && buttonLive.visibility == GONE) return
+        if (index == 4 && buttonCctvLive.visibility == GONE) return
         if (currentSelectedIndex == index) {
-            if (index == 5) {
+            if (index == 6) {
                 onTabClickListener?.onSearchClick()
             } else {
                 onTabClickListener?.onTabReselected(index)
@@ -151,7 +155,7 @@ class TabBarView @JvmOverloads constructor(
         currentSelectedIndex = index
         applyTabColor(tabButtons[currentSelectedIndex], true)
 
-        if (index == 5) {
+        if (index == 6) {
             onTabClickListener?.onSearchClick()
         } else {
             onTabClickListener?.onTabSelected(index)
@@ -168,6 +172,14 @@ class TabBarView @JvmOverloads constructor(
 
     fun isLiveButtonVisible(): Boolean {
         return buttonLive.visibility == VISIBLE
+    }
+
+    fun setCctvLiveButtonVisible(visible: Boolean) {
+        buttonCctvLive.visibility = if (visible) VISIBLE else GONE
+    }
+
+    fun isCctvLiveButtonVisible(): Boolean {
+        return buttonCctvLive.visibility == VISIBLE
     }
 
     fun setCategoryButtonVisible(visible: Boolean) {
@@ -224,6 +236,7 @@ class TabBarView @JvmOverloads constructor(
             add(buttonCategory)
             add(buttonDynamic)
             add(buttonLive)
+            add(buttonCctvLive)
             add(buttonMe)
             add(imageAvatar)
             add(buttonSetting)
