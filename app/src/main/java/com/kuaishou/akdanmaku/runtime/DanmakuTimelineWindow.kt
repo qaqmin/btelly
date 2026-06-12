@@ -104,9 +104,7 @@ internal class DanmakuTimelineWindow<T>(
   private fun trimLiveHistory() {
     if (items.size <= liveHistoryMax) return
     val removeCount = items.size - liveHistoryMax
-    repeat(removeCount) {
-      items.removeAt(0)
-    }
+    items.subList(0, removeCount).clear()
     scanIndex = (scanIndex - removeCount).coerceAtLeast(0)
   }
 }

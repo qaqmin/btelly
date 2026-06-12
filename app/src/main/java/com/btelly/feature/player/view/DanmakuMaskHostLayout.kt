@@ -11,6 +11,7 @@ import android.widget.FrameLayout
 import com.btelly.core.common.log.AppLog
 import com.btelly.model.dm.DmMaskTimeline
 import com.btelly.model.dm.MaskFrame
+import java.util.Locale
 
 /**
  * 弹幕防挡蒙版宿主容器。
@@ -66,6 +67,22 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
     private var cachedBoundsBottom = 0
     private var lastMaskStateLogMs = 0L
     private var lastMaskStateKey = ""
+    private var lastMaskPerfLogMs = 0L
+    private var lastMaskPerfSlowLogMs = 0L
+    private var maskPerfFrames = 0
+    private var maskPerfMaskedFrames = 0
+    private var maskPerfRebuilds = 0
+    private var maskPerfCacheReuses = 0
+    private var maskPerfNoFrame = 0
+    private var maskPerfEmptyPaths = 0
+    private var maskPerfTotalCostMs = 0L
+    private var maskPerfMaxCostMs = 0L
+    private var maskPerfTotalPathBuildMs = 0L
+    private var maskPerfMaxPathBuildMs = 0L
+    private var maskPerfPathTotal = 0L
+    private var maskPerfLastPtsMs: Long? = null
+    private var maskPerfLastFramePtsMs: Long? = null
+    private var maskPerfLastReason = ""
 
     /**
      * 由 DmMaskController 在 seek / release 时调用：清除缓存的遮罩，
@@ -87,6 +104,7 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
     }
 
     override fun dispatchDraw(canvas: Canvas) {
+        val drawStartedAtMs = SystemClock.elapsedRealtime()
         // 1. controller 说不要渲染 → 不裁剪（仅 IDLE 状态）
         if (shouldRenderMask?.invoke() == false) {
             maybeLogMaskState("disabled", null, null, null, false)
@@ -100,11 +118,13 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
             if (bounds == null || bounds.isEmpty || cachedFrame == null || cachedFrame!!.paths.isEmpty()) {
                 maybeLogMaskState("seeking_no_cached_frame", null, cachedFrame, bounds, false)
                 super.dispatchDraw(canvas)
+                recordMaskPerf("seeking_no_cached_frame", drawStartedAtMs, null, cachedFrame, bounds, false, false, false, 0L)
                 return
             }
             // 直接用缓存的 mergedPath，不更新。
             maybeLogMaskState("seeking_cached_frame", null, cachedFrame, bounds, true)
             drawDanmakuWithMask(canvas)
+            recordMaskPerf("seeking_cached_frame", drawStartedAtMs, null, cachedFrame, bounds, true, false, true, 0L)
             return
         }
 
@@ -124,6 +144,7 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
         if (bounds == null || bounds.isEmpty) {
             maybeLogMaskState("invalid_bounds", pts, frame, bounds, false)
             super.dispatchDraw(canvas)
+            recordMaskPerf("invalid_bounds", drawStartedAtMs, pts, frame, bounds, false, false, false, 0L)
             return
         }
 
@@ -134,6 +155,7 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
             mergedPath.fillType = Path.FillType.WINDING
             maybeLogMaskState("empty_paths", pts, frame, bounds, false)
             super.dispatchDraw(canvas)
+            recordMaskPerf("empty_paths", drawStartedAtMs, pts, frame, bounds, false, false, false, 0L)
             return
         }
 
@@ -144,6 +166,7 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
         if (effectiveFrame == null || effectiveFrame.paths.isEmpty()) {
             maybeLogMaskState("no_frame", pts, effectiveFrame, bounds, false)
             super.dispatchDraw(canvas)
+            recordMaskPerf("no_frame", drawStartedAtMs, pts, effectiveFrame, bounds, false, false, false, 0L)
             return
         }
 
@@ -153,6 +176,8 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
             bounds.left == cachedBoundsLeft && bounds.top == cachedBoundsTop &&
             bounds.right == cachedBoundsRight && bounds.bottom == cachedBoundsBottom
 
+        var rebuiltPath = false
+        var pathBuildCostMs = 0L
         if (!sameAsCache) {
             // 只在帧或 bounds 变化时才更新缓存和重建 path
             if (currentFrame != null) {
@@ -163,12 +188,16 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
             cachedBoundsRight = bounds.right
             cachedBoundsBottom = bounds.bottom
 
+            val pathBuildStartedAtMs = SystemClock.elapsedRealtime()
             buildMergedPath(effectiveFrame, bounds)
+            pathBuildCostMs = SystemClock.elapsedRealtime() - pathBuildStartedAtMs
+            rebuiltPath = true
         }
 
         // 9. 参考 shader 近似：直接把弹幕裁到 webmask 可显示区。
         maybeLogMaskState("masked", pts, effectiveFrame, bounds, true)
         drawDanmakuWithMask(canvas)
+        recordMaskPerf("masked", drawStartedAtMs, pts, effectiveFrame, bounds, true, rebuiltPath, sameAsCache, pathBuildCostMs)
     }
 
     private fun drawDanmakuWithMask(canvas: Canvas) {
@@ -236,5 +265,85 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
             "mask state=$reason masked=$masked pts=$ptsMs framePts=${frame?.presentationTimeMs} " +
                 "paths=${frame?.paths?.size} bounds=$bounds cachedPts=${cachedFrame?.presentationTimeMs}"
         )
+    }
+
+    private fun recordMaskPerf(
+        reason: String,
+        startedAtMs: Long,
+        ptsMs: Long?,
+        frame: MaskFrame?,
+        bounds: Rect?,
+        masked: Boolean,
+        rebuiltPath: Boolean,
+        reusedPath: Boolean,
+        pathBuildCostMs: Long
+    ) {
+        val now = SystemClock.elapsedRealtime()
+        val costMs = now - startedAtMs
+        maskPerfFrames++
+        if (masked) maskPerfMaskedFrames++
+        if (rebuiltPath) maskPerfRebuilds++
+        if (reusedPath) maskPerfCacheReuses++
+        if (reason == "no_frame") maskPerfNoFrame++
+        if (reason == "empty_paths") maskPerfEmptyPaths++
+        maskPerfTotalCostMs += costMs
+        maskPerfMaxCostMs = maxOf(maskPerfMaxCostMs, costMs)
+        maskPerfTotalPathBuildMs += pathBuildCostMs
+        maskPerfMaxPathBuildMs = maxOf(maskPerfMaxPathBuildMs, pathBuildCostMs)
+        maskPerfPathTotal += frame?.paths?.size ?: 0
+        maskPerfLastPtsMs = ptsMs
+        maskPerfLastFramePtsMs = frame?.presentationTimeMs
+        maskPerfLastReason = reason
+
+        val slow = costMs >= MASK_DRAW_SLOW_MS
+        if (slow && now - lastMaskPerfSlowLogMs >= MASK_DRAW_SLOW_LOG_INTERVAL_MS) {
+            lastMaskPerfSlowLogMs = now
+            AppLog.w(
+                "PlaybackPerf",
+                "mask_draw_slow cost=${costMs}ms pathBuild=${pathBuildCostMs}ms reason=$reason masked=$masked rebuilt=$rebuiltPath " +
+                    "reuse=$reusedPath pts=$ptsMs framePts=${frame?.presentationTimeMs} " +
+                    "ptsBehind=${ptsMs?.let { frame?.presentationTimeMs?.let { framePts -> it - framePts } }}ms " +
+                    "paths=${frame?.paths?.size ?: 0} bounds=$bounds size=${width}x$height"
+            )
+        }
+
+        if (now - lastMaskPerfLogMs < MASK_DRAW_SUMMARY_INTERVAL_MS) return
+        lastMaskPerfLogMs = now
+        val frames = maskPerfFrames.coerceAtLeast(1)
+        val avgCost = maskPerfTotalCostMs.toFloat() / frames
+        val avgPathBuild = maskPerfTotalPathBuildMs.toFloat() / frames
+        val avgPaths = maskPerfPathTotal.toFloat() / frames
+        AppLog.d(
+            "PlaybackPerf",
+            "mask_draw_summary frames=$maskPerfFrames masked=$maskPerfMaskedFrames " +
+                "rebuilds=$maskPerfRebuilds cacheReuse=$maskPerfCacheReuses noFrame=$maskPerfNoFrame " +
+                "emptyPaths=$maskPerfEmptyPaths avgCost=${"%.2f".format(Locale.US, avgCost)}ms maxCost=${maskPerfMaxCostMs}ms " +
+                "avgPathBuild=${"%.2f".format(Locale.US, avgPathBuild)}ms maxPathBuild=${maskPerfMaxPathBuildMs}ms " +
+                "avgPaths=${"%.1f".format(Locale.US, avgPaths)} lastReason=$maskPerfLastReason " +
+                "lastPts=$maskPerfLastPtsMs lastFramePts=$maskPerfLastFramePtsMs " +
+                "lastPtsBehind=${maskPerfLastPtsMs?.let { pts -> maskPerfLastFramePtsMs?.let { pts - it } }}ms " +
+                "size=${width}x$height"
+        )
+        resetMaskPerfCounters()
+    }
+
+    private fun resetMaskPerfCounters() {
+        maskPerfFrames = 0
+        maskPerfMaskedFrames = 0
+        maskPerfRebuilds = 0
+        maskPerfCacheReuses = 0
+        maskPerfNoFrame = 0
+        maskPerfEmptyPaths = 0
+        maskPerfTotalCostMs = 0L
+        maskPerfMaxCostMs = 0L
+        maskPerfTotalPathBuildMs = 0L
+        maskPerfMaxPathBuildMs = 0L
+        maskPerfPathTotal = 0L
+    }
+
+    private companion object {
+        private const val MASK_DRAW_SLOW_MS = 8L
+        private const val MASK_DRAW_SUMMARY_INTERVAL_MS = 1_000L
+        private const val MASK_DRAW_SLOW_LOG_INTERVAL_MS = 500L
     }
 }

@@ -73,6 +73,7 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     private const val MAX_PRIME_MEASURE_ON_UPDATE = 160
     private const val MAX_PRIME_MEASURE_ON_APPEND = 12
     private const val MAX_SYNC_PRIME_MEASURE_ON_REPLACE = 32
+    private const val ACTION_PERF_SUMMARY_INTERVAL_MS = 2_000L
     const val MIN_DANMAKU_DURATION: Long = 4000
     const val MAX_DANMAKU_DURATION_HIGH_DENSITY: Long = 9000
     /**
@@ -103,6 +104,11 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
   private var config: DanmakuConfig? = null
   @Volatile
   private var frameCallbackScheduled = false
+  private var actionPerfWindowStartedAtMs = 0L
+  private var actionPerfFrames = 0
+  private var actionPerfSlowFrames = 0
+  private var actionPerfTotalMs = 0L
+  private var actionPerfMaxMs = 0L
 
   @Volatile
   private var started = false
@@ -123,6 +129,8 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
 
   val cacheHit: Fraction?
     get() = engine.runtime.cacheHit
+
+  internal fun diagnosticSummary(): String = engine.runtime.diagnosticSummary()
 
   init {
     dataSource?.setListener(dataSourceListener)
@@ -190,12 +198,42 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     if (!isManualStep) {
       postFrameCallback()
     }
+    recordActionPerf(actMs)
     if (actMs >= 12L || totalMs >= 96L) {
       AppLog.w(
         "PlaybackPerf",
-        "danmaku_action act=${actMs}ms total=${totalMs}ms manual=$isManualStep"
+        "danmaku_action act=${actMs}ms total=${totalMs}ms manual=$isManualStep " +
+          diagnosticSummary()
       )
     }
+  }
+
+  private fun recordActionPerf(actMs: Long) {
+    val nowMs = SystemClock.elapsedRealtime()
+    if (actionPerfWindowStartedAtMs == 0L) {
+      actionPerfWindowStartedAtMs = nowMs
+    }
+    actionPerfFrames++
+    if (actMs >= 12L) {
+      actionPerfSlowFrames++
+    }
+    actionPerfTotalMs += actMs
+    actionPerfMaxMs = max(actionPerfMaxMs, actMs)
+    val elapsedMs = nowMs - actionPerfWindowStartedAtMs
+    if (elapsedMs < ACTION_PERF_SUMMARY_INTERVAL_MS) return
+    val frames = actionPerfFrames.coerceAtLeast(1)
+    val avgMs = actionPerfTotalMs.toFloat() / frames
+    AppLog.d(
+      "PlaybackPerf",
+      "danmaku_action_summary frames=$actionPerfFrames slow=$actionPerfSlowFrames " +
+        "avg=${String.format(java.util.Locale.US, "%.2f", avgMs)}ms max=${actionPerfMaxMs}ms " +
+        diagnosticSummary()
+    )
+    actionPerfWindowStartedAtMs = nowMs
+    actionPerfFrames = 0
+    actionPerfSlowFrames = 0
+    actionPerfTotalMs = 0L
+    actionPerfMaxMs = 0L
   }
 
   internal fun draw(canvas: Canvas) {

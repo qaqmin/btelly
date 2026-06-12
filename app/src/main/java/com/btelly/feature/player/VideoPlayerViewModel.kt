@@ -116,6 +116,7 @@ class VideoPlayerViewModel(
         private const val FIRST_DANMAKU_TAIL_PREFETCH_AHEAD_MS = 10_000L
         private const val FIRST_DANMAKU_FAR_TAIL_MIN_DELAY_MS = 60_000L
         private const val DANMAKU_SEGMENT_DURATION_MS = 360_000L
+        private const val DANMAKU_PUBLISH_DIAG_THRESHOLD_MS = 4L
         private val verboseDanmakuCandidateLog =
             java.lang.Boolean.getBoolean("btelly.verbose_danmaku_candidate_log")
         @Volatile
@@ -146,6 +147,7 @@ class VideoPlayerViewModel(
                 return size > 4
             }
         }
+        private val DANMAKU_AVAILABLE_MARKER = listOf(DmModel(content = "__danmaku_available__"))
         private const val DOUYIN_DANMAKU_SEGMENT_CACHE_TTL_MS = 120_000L
 
         // 跨 VM 实例记录最近播放过的 cid，用于同视频重播热路径检测
@@ -643,6 +645,8 @@ class VideoPlayerViewModel(
     private val danmakuLoadingSegments = linkedSetOf<Int>()
     private val danmakuPublishedSegments = linkedSetOf<Int>()
     private val danmakuPublishPendingSegments = linkedSetOf<Int>()
+    private val publishedRegularDanmakuKeys = HashSet<String>()
+    private val publishedSpecialDanmakuKeys = HashSet<String>()
     private var currentDanmakuSegmentIndex: Int = -1
     private var danmakuTotalSegments: Int = 0
     private var currentDanmakuFilterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY
@@ -3785,7 +3789,7 @@ class VideoPlayerViewModel(
             danmakuPublishedSegments.clear()
             danmakuPublishedSegments.add(initialSegment)
             publishDanmaku(currentPayload.regularItems, replace = true)
-            _specialDanmaku.value = currentPayload.specialItems
+            publishSpecialDanmaku(currentPayload.specialItems, replace = true)
             logDanmakuDiagnostics(
                 label = "segment-$initialSegment",
                 items = currentPayload.regularItems,
@@ -3835,9 +3839,7 @@ class VideoPlayerViewModel(
                         publishDanmaku(specialPayload.regularItems.sortedBy { it.progress }, replace = false)
                     }
                     if (specialPayload.specialItems.isNotEmpty()) {
-                        val currentSpecial = _specialDanmaku.value.orEmpty()
-                        _specialDanmaku.value = (currentSpecial + specialPayload.specialItems)
-                            .distinctSpecialDanmaku()
+                        publishSpecialDanmaku(specialPayload.specialItems, replace = false)
                     }
                 }
             }
@@ -3917,9 +3919,7 @@ class VideoPlayerViewModel(
                 publishDanmaku(tailRegularItems, replace = false)
             }
             if (tailSpecialItems.isNotEmpty()) {
-                val currentSpecial = _specialDanmaku.value.orEmpty()
-                _specialDanmaku.value = (currentSpecial + tailSpecialItems)
-                    .distinctSpecialDanmaku()
+                publishSpecialDanmaku(tailSpecialItems, replace = false)
             }
         }
     }
@@ -4199,6 +4199,7 @@ class VideoPlayerViewModel(
     }
 
     private fun publishDanmaku(items: List<DmModel>, replace: Boolean) {
+        val startedAtMs = SystemClock.elapsedRealtime()
         val normalizedItems = items.distinctRegularDanmaku()
         if (replace && normalizedItems.isNotEmpty() && firstDanmakuTraceLoggedId != currentStartupTraceId) {
             firstDanmakuTraceLoggedId = currentStartupTraceId
@@ -4209,12 +4210,12 @@ class VideoPlayerViewModel(
                 message = "count=${normalizedItems.size} cid=$currentCid"
             )
         }
-        val currentItems = _danmaku.value.orEmpty()
         val emittedItems = if (replace) {
+            publishedRegularDanmakuKeys.clear()
+            normalizedItems.forEach { publishedRegularDanmakuKeys.add(it.danmakuIdentityKey()) }
             normalizedItems
         } else {
-            val existingKeys = currentItems.mapTo(HashSet(currentItems.size)) { it.danmakuIdentityKey() }
-            normalizedItems.filter { existingKeys.add(it.danmakuIdentityKey()) }
+            normalizedItems.filter { publishedRegularDanmakuKeys.add(it.danmakuIdentityKey()) }
         }
         if (!replace && emittedItems.size != normalizedItems.size) {
             PlaybackStartupTrace.log(
@@ -4225,10 +4226,23 @@ class VideoPlayerViewModel(
             )
         }
         _danmaku.value = if (replace) {
-            normalizedItems
+            if (normalizedItems.isEmpty()) emptyList() else DANMAKU_AVAILABLE_MARKER
         } else {
-            (currentItems + emittedItems).distinctRegularDanmaku()
+            if (_danmaku.value.orEmpty().isNotEmpty() || emittedItems.isNotEmpty()) {
+                DANMAKU_AVAILABLE_MARKER
+            } else {
+                emptyList()
+            }
         }
+        logDanmakuPublishPerf(
+            type = "regular",
+            replace = replace,
+            inputCount = items.size,
+            normalizedCount = normalizedItems.size,
+            emittedCount = emittedItems.size,
+            totalPublishedKeys = publishedRegularDanmakuKeys.size,
+            startedAtMs = startedAtMs
+        )
         if (!replace && emittedItems.isEmpty()) {
             return
         }
@@ -4237,6 +4251,60 @@ class VideoPlayerViewModel(
             replace = replace,
             filterContext = currentDanmakuFilterContext
         ))
+    }
+
+    private fun publishSpecialDanmaku(items: List<SpecialDanmakuModel>, replace: Boolean) {
+        val startedAtMs = SystemClock.elapsedRealtime()
+        val normalizedItems = items.distinctSpecialDanmaku()
+        val emittedItems = if (replace) {
+            publishedSpecialDanmakuKeys.clear()
+            normalizedItems.forEach { publishedSpecialDanmakuKeys.add(it.specialDanmakuIdentityKey()) }
+            normalizedItems
+        } else {
+            normalizedItems.filter { publishedSpecialDanmakuKeys.add(it.specialDanmakuIdentityKey()) }
+        }
+        if (replace) {
+            _specialDanmaku.value = normalizedItems
+        } else if (emittedItems.isNotEmpty()) {
+            _specialDanmaku.value = _specialDanmaku.value.orEmpty() + emittedItems
+        }
+        logDanmakuPublishPerf(
+            type = "special",
+            replace = replace,
+            inputCount = items.size,
+            normalizedCount = normalizedItems.size,
+            emittedCount = emittedItems.size,
+            totalPublishedKeys = publishedSpecialDanmakuKeys.size,
+            startedAtMs = startedAtMs
+        )
+    }
+
+    private fun logDanmakuPublishPerf(
+        type: String,
+        replace: Boolean,
+        inputCount: Int,
+        normalizedCount: Int,
+        emittedCount: Int,
+        totalPublishedKeys: Int,
+        startedAtMs: Long
+    ) {
+        val costMs = SystemClock.elapsedRealtime() - startedAtMs
+        val sameBatchDropped = inputCount - normalizedCount
+        val historicalDropped = normalizedCount - emittedCount
+        if (costMs < DANMAKU_PUBLISH_DIAG_THRESHOLD_MS &&
+            inputCount < 512 &&
+            sameBatchDropped == 0 &&
+            historicalDropped == 0
+        ) {
+            return
+        }
+        AppLog.d(
+            "PlaybackPerf",
+            "danmaku_publish type=$type replace=$replace cost=${costMs}ms input=$inputCount " +
+                "normalized=$normalizedCount emitted=$emittedCount sameBatchDropped=$sameBatchDropped " +
+                "historyDropped=$historicalDropped publishedKeys=$totalPublishedKeys cid=$currentCid " +
+                "segment=$currentDanmakuSegmentIndex/$danmakuTotalSegments"
+        )
     }
 
     private fun scheduleDmMaskReadyCallback(dmMask: DmMaskInfo) {
@@ -4260,6 +4328,8 @@ class VideoPlayerViewModel(
         danmakuLoadingSegments.clear()
         danmakuPublishedSegments.clear()
         danmakuPublishPendingSegments.clear()
+        publishedRegularDanmakuKeys.clear()
+        publishedSpecialDanmakuKeys.clear()
         currentDanmakuSegmentIndex = -1
         danmakuTotalSegments = 0
         currentDanmakuFilterContext = DanmakuFilterContext.EMPTY
@@ -4611,8 +4681,7 @@ class VideoPlayerViewModel(
             publishDanmaku(payload.regularItems, replace = false)
         }
         if (payload.specialItems.isNotEmpty()) {
-            val currentSpecial = _specialDanmaku.value.orEmpty()
-            _specialDanmaku.value = (currentSpecial + payload.specialItems).distinctSpecialDanmaku()
+            publishSpecialDanmaku(payload.specialItems, replace = false)
         }
     }
 

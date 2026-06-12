@@ -76,6 +76,31 @@ class DanmakuTimelineWindowTest {
     assertEquals(0, window.scanIndex)
   }
 
+  @Test
+  fun liveModeTrimsLargeHistoryInOneBatchAndKeepsScanIndexValid() {
+    val items = ArrayList<TestItem>()
+    val window = window(items, liveHistoryMax = 2_000)
+    val firstBatch = ArrayList<TestItem>(2_000)
+    repeat(2_000) { index ->
+      firstBatch.add(item(index.toLong(), index.toLong()))
+    }
+    window.syncPending(firstBatch, liveMode = true)
+    window.reset(positionMs = 1_500, durationMs = 0, rollingDurationMs = 0)
+
+    val secondBatch = ArrayList<TestItem>(2_000)
+    repeat(2_000) { offset ->
+      val index = 2_000 + offset
+      secondBatch.add(item(index.toLong(), index.toLong()))
+    }
+
+    window.syncPending(secondBatch, liveMode = true)
+
+    assertEquals(2_000, items.size)
+    assertEquals(2_000L, items.first().positionMs)
+    assertEquals(3_999L, items.last().positionMs)
+    assertEquals(0, window.scanIndex)
+  }
+
   private fun window(items: MutableList<TestItem>, liveHistoryMax: Int): DanmakuTimelineWindow<TestItem> =
     DanmakuTimelineWindow(items, comparator, liveHistoryMax) { it.positionMs }
 

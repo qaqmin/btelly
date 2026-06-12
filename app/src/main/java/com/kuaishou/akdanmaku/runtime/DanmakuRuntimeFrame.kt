@@ -141,6 +141,20 @@ internal class RuntimeFrame {
     return detached
   }
 
+  fun detachRetainedCaches(maxCount: Int): ArrayList<DrawingCache> {
+    if (maxCount <= 0 || retainedCaches.isEmpty()) return ArrayList(0)
+    val count = maxCount.coerceAtMost(retainedCaches.size)
+    val detached = ArrayList<DrawingCache>(count)
+    repeat(count) {
+      val cache = retainedCaches.removeAt(retainedCaches.lastIndex)
+      retainedCacheSet.remove(cache)
+      detached.add(cache)
+    }
+    return detached
+  }
+
+  fun hasRetainedCaches(): Boolean = retainedCaches.isNotEmpty()
+
   private companion object {
     const val TRANSITION_FRAME_MAX_AGE_MS = 5_000L
   }

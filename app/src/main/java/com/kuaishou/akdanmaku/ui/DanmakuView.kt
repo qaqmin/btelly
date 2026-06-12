@@ -20,6 +20,12 @@ class DanmakuView @JvmOverloads constructor(
   var danmakuPlayer: DanmakuPlayer? = null
   internal val displayer: ViewDisplayer = ViewDisplayer()
   private var lastDrawAtMs = 0L
+  private var drawPerfWindowStartedAtMs = 0L
+  private var drawPerfFrames = 0
+  private var drawPerfSlowFrames = 0
+  private var drawPerfTotalMs = 0L
+  private var drawPerfMaxMs = 0L
+  private var drawPerfMaxIntervalMs = 0L
 
   init {
     context?.resources?.displayMetrics?.let { metrics ->
@@ -42,12 +48,45 @@ class DanmakuView @JvmOverloads constructor(
     val costMs = SystemClock.elapsedRealtime() - startedAtMs
     val intervalMs = if (lastDrawAtMs > 0L) startedAtMs - lastDrawAtMs else 0L
     lastDrawAtMs = startedAtMs
+    recordDrawPerf(costMs, intervalMs)
     if (costMs >= 16L || intervalMs >= 120L) {
       AppLog.w(
         "PlaybackPerf",
-        "danmaku_draw cost=${costMs}ms interval=${intervalMs}ms size=${width}x$height"
+        "danmaku_draw cost=${costMs}ms interval=${intervalMs}ms size=${width}x$height " +
+          (danmakuPlayer?.diagnosticSummary() ?: "player=null")
       )
     }
+  }
+
+  private fun recordDrawPerf(costMs: Long, intervalMs: Long) {
+    val nowMs = SystemClock.elapsedRealtime()
+    if (drawPerfWindowStartedAtMs == 0L) {
+      drawPerfWindowStartedAtMs = nowMs
+    }
+    drawPerfFrames++
+    if (costMs >= 16L || intervalMs >= 34L) {
+      drawPerfSlowFrames++
+    }
+    drawPerfTotalMs += costMs
+    drawPerfMaxMs = maxOf(drawPerfMaxMs, costMs)
+    drawPerfMaxIntervalMs = maxOf(drawPerfMaxIntervalMs, intervalMs)
+    val elapsedMs = nowMs - drawPerfWindowStartedAtMs
+    if (elapsedMs < DRAW_PERF_SUMMARY_INTERVAL_MS) return
+    val frames = drawPerfFrames.coerceAtLeast(1)
+    val avgMs = drawPerfTotalMs.toFloat() / frames
+    AppLog.d(
+      "PlaybackPerf",
+      "danmaku_draw_summary frames=$drawPerfFrames slow=$drawPerfSlowFrames " +
+        "avg=${String.format(java.util.Locale.US, "%.2f", avgMs)}ms max=${drawPerfMaxMs}ms " +
+        "maxInterval=${drawPerfMaxIntervalMs}ms " +
+        (danmakuPlayer?.diagnosticSummary() ?: "player=null")
+    )
+    drawPerfWindowStartedAtMs = nowMs
+    drawPerfFrames = 0
+    drawPerfSlowFrames = 0
+    drawPerfTotalMs = 0L
+    drawPerfMaxMs = 0L
+    drawPerfMaxIntervalMs = 0L
   }
 
   override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -67,5 +106,9 @@ class DanmakuView @JvmOverloads constructor(
     override var density: Float = 1f
     override var scaleDensity: Float = 1f
     override var densityDpi: Int = 160
+  }
+
+  private companion object {
+    private const val DRAW_PERF_SUMMARY_INTERVAL_MS = 2_000L
   }
 }

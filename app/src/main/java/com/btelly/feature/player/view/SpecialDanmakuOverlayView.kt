@@ -30,6 +30,7 @@ class SpecialDanmakuOverlayView @JvmOverloads constructor(
     }
     private val fontMetrics = Paint.FontMetrics()
     private var items: List<SpecialDanmakuModel> = emptyList()
+    private var maxDurationMs = 0L
     private var enabled = true
     private var globalAlpha = 1f
     private var textScale = 1f
@@ -56,6 +57,7 @@ class SpecialDanmakuOverlayView @JvmOverloads constructor(
                     model.copy(animations = model.animations.sortedBy { it.startMs })
                 }
             }
+        maxDurationMs = this.items.maxOfOrNull { it.durationMs } ?: 0L
         invalidate()
     }
 
@@ -107,6 +109,7 @@ class SpecialDanmakuOverlayView @JvmOverloads constructor(
 
     fun clear() {
         items = emptyList()
+        maxDurationMs = 0L
         invalidate()
     }
 
@@ -159,14 +162,15 @@ class SpecialDanmakuOverlayView @JvmOverloads constructor(
     }
 
     private fun binarySearchStart(currentPositionMs: Long): Int {
+        val earliestActiveProgressMs = (currentPositionMs - maxDurationMs).coerceAtLeast(0L)
         var low = 0
-        var high = items.size - 1
+        var high = items.size
         var result = items.size
-        while (low <= high) {
+        while (low < high) {
             val mid = (low + high) ushr 1
-            if (items[mid].progress.toLong() + items[mid].durationMs >= currentPositionMs) {
+            if (items[mid].progress.toLong() >= earliestActiveProgressMs) {
                 result = mid
-                high = mid - 1
+                high = mid
             } else {
                 low = mid + 1
             }

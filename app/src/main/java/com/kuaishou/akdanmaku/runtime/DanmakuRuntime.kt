@@ -363,6 +363,13 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       promotedItems = promotedItems,
       scheduledMeasures = scheduledMeasures
     )
+    val measureOnlyReuse = reuseMissReason?.startsWith("scheduledMeasure:") == true &&
+      frame != null &&
+      transitionFrame == null &&
+      frameBaseReuseMissReason(frame!!, config, promotedItems = 0) == null
+    if (measureOnlyReuse) {
+      reuseMissReason = null
+    }
     var canReuseFrame = reuseMissReason == null
     val incrementalProfile = if (!canReuseFrame) {
       tryAppendPromotedCommands(
@@ -623,6 +630,16 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       }
     }
     return result
+  }
+
+  @Synchronized
+  fun diagnosticSummary(): String {
+    val liveFrame = frame
+    val transition = transitionFrame
+    return "active=${activeStates.size} waiting=${waitingStates.size} pending=${pendingAddItems.size} " +
+      "sorted=${sortedItems.size} scan=${timelineWindow.scanIndex} measureQueue=${measureQueue.size} " +
+      "commands=${liveFrame?.commands?.size ?: 0} transition=${transition?.commands?.size ?: 0} " +
+      "loadShed=$loadShedLevel cacheHit=${cacheHit.num}/${cacheHit.den}"
   }
 
   fun getDanmakus(rect: RectF): List<DanmakuItem>? {
@@ -933,9 +950,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     }
     if (incrementalItems > MAX_INCREMENTAL_PROMOTED_PER_FRAME) {
       return IncrementalFrameProfile.notApplied("tooMany:$incrementalItems")
-    }
-    if (scheduledMeasures != 0) {
-      return IncrementalFrameProfile.notApplied("scheduledMeasure:$scheduledMeasures")
     }
     if (transitionFrame != null) {
       return IncrementalFrameProfile.notApplied("transition")
@@ -1599,18 +1613,24 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     var cacheCount = 0
     var releaseRefMs = 0L
     var recycleMs = 0L
-    for (oldFrame in pendingReleaseFrames) {
+    var remainingBudget = MAX_FRAME_CACHE_RELEASES_PER_UPDATE
+    val iterator = pendingReleaseFrames.iterator()
+    while (iterator.hasNext() && remainingBudget > 0) {
+      val oldFrame = iterator.next()
       frameCount++
-      cacheCount += oldFrame.retainedCaches.size
       val releaseStartedAt = SystemClock.elapsedRealtime()
-      val retainedCaches = oldFrame.detachRetainedCaches()
+      val retainedCaches = oldFrame.detachRetainedCaches(remainingBudget)
+      cacheCount += retainedCaches.size
+      remainingBudget -= retainedCaches.size
       context.cacheManager.releaseReferenceSnapshot(retainedCaches, FRAME_CACHE_RELEASE_DELAY_MS)
       releaseRefMs += SystemClock.elapsedRealtime() - releaseStartedAt
-      val recycleStartedAt = SystemClock.elapsedRealtime()
-      framePool.release(oldFrame)
-      recycleMs += SystemClock.elapsedRealtime() - recycleStartedAt
+      if (!oldFrame.hasRetainedCaches()) {
+        val recycleStartedAt = SystemClock.elapsedRealtime()
+        framePool.release(oldFrame)
+        iterator.remove()
+        recycleMs += SystemClock.elapsedRealtime() - recycleStartedAt
+      }
     }
-    pendingReleaseFrames.clear()
     val postMs = SystemClock.elapsedRealtime() - startedAt
     return ReleaseProfile(frameCount, cacheCount, postMs, releaseRefMs, recycleMs)
   }
@@ -2062,6 +2082,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     private const val MAX_FIXED_COMMANDS_LOAD_SHED_LEVEL_2 = 4
     private const val MAX_FIXED_COMMANDS_LOAD_SHED_LEVEL_3 = 2
     private const val MAX_FALLBACK_CACHE_BOOSTS_PER_FRAME = 4
+    private const val MAX_FRAME_CACHE_RELEASES_PER_UPDATE = 16
     private const val FALLBACK_LIMIT_LOG_INTERVAL = 30
     private const val ZERO_FRAME_LOG_INTERVAL_MS = 1_000L
     private const val ZERO_FRAME_SAMPLE_LIMIT = 3
