@@ -1312,8 +1312,13 @@ class MyPlayerDanmakuController(
             return
         }
         if (forceSeek && !bypassDedup && !isActiveWindowFreshFor(targetPositionMs)) {
-            player.clearDataKeepingLastFrame()
-            clearActiveWindowState()
+            // 目标位置若无弹幕数据（目标分段尚未加载到位），不清空引擎，避免引擎进入
+            // 空数据 transition 后无新帧可绘制而长时间卡死（active=0）。
+            // 保留当前帧作为 transition 继续显示，待数据 appendData 后由下一次窗口刷新补上。
+            if (danmakuTimeline.data.hasDataAround(targetPositionMs)) {
+                player.clearDataKeepingLastFrame()
+                clearActiveWindowState()
+            }
             scheduleActiveWindowRefresh(
                 positionMs = targetPositionMs,
                 force = true,
@@ -1486,6 +1491,16 @@ class MyPlayerDanmakuController(
         val from = lowerBoundProgress(startMs)
         if (from >= size) return 0
         return upperBoundProgress(endMs) - from
+    }
+
+    /**
+     * 判断 [positionMs] 的活动窗口范围（前 ACTIVE_WINDOW_BEHIND_MS ~ 后 ACTIVE_WINDOW_AHEAD_MS）
+     * 内是否已有弹幕数据。用于 seek 时决定是否清空引擎：无数据则不清屏，避免空转卡死。
+     */
+    private fun List<DmModel>.hasDataAround(positionMs: Long): Boolean {
+        val behindStart = (positionMs - ACTIVE_WINDOW_BEHIND_MS).coerceAtLeast(0L)
+        val aheadEnd = positionMs + ACTIVE_WINDOW_AHEAD_MS
+        return countInRange(behindStart, aheadEnd) > 0
     }
 
     private fun List<DmModel>.buildPreparedWindow(

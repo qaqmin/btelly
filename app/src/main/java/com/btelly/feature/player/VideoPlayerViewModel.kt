@@ -111,12 +111,18 @@ class VideoPlayerViewModel(
         private const val FIRST_FRAME_SPONSOR_LOAD_DELAY_MS = 1_500L
         private const val FIRST_FRAME_DM_MASK_LOAD_DELAY_MS = 2_500L
         private const val FIRST_DANMAKU_PARTIAL_END_MS = 120_000L
-        private const val FIRST_DANMAKU_INITIAL_PARSE_END_MS = 30_000L
+        private const val FIRST_DANMAKU_INITIAL_PARSE_END_MS = 60_000L
         private const val FIRST_DANMAKU_INITIAL_RANGE_END_MS = FIRST_DANMAKU_INITIAL_PARSE_END_MS
         private const val FIRST_DANMAKU_TAIL_PREFETCH_AHEAD_MS = 10_000L
         private const val FIRST_DANMAKU_FAR_TAIL_MIN_DELAY_MS = 60_000L
         private const val DANMAKU_SEGMENT_DURATION_MS = 360_000L
         private const val DANMAKU_PUBLISH_DIAG_THRESHOLD_MS = 4L
+        // seek 跳变阈值：播放位置前进超过此值视为用户快进，需主动补全目标位置弹幕数据。
+        private const val DANMAKU_SEEK_JUMP_THRESHOLD_MS = 3_000L
+        // seek 补全时，从已覆盖位置加载到「目标位置 + 此提前量」的范围，保证窗口内有缓冲弹幕。
+        private const val DANMAKU_SEEK_RANGE_AHEAD_MS = 30_000L
+        // 预取窗口：自然播放预加载时，单次至少加载此大小的范围（避免每次 position 微增都触发小请求）。
+        private const val DANMAKU_PREFETCH_WINDOW_MS = 120_000L
         private val verboseDanmakuCandidateLog =
             java.lang.Boolean.getBoolean("btelly.verbose_danmaku_candidate_log")
         @Volatile
@@ -632,6 +638,10 @@ class VideoPlayerViewModel(
     private var selectedAudioId: Int? = null
     private var selectedCodec: VideoCodecEnum? = null
     private var pendingSeekPositionMs: Long = 0L
+    // 上一次同步给弹幕分段的播放位置，用于检测 seek 跳变。
+    private var lastDanmakuSyncPositionMs: Long = 0L
+    // 每个弹幕分段已加载覆盖到的时间点（毫秒），用于 seek 时判断目标位置是否已有数据。
+    private val danmakuSegmentCoveredUntilMs = mutableMapOf<Int, Long>()
     private var pendingPlayWhenReady: Boolean = true
     private var didApplyLastPlayPosition = false
     private var launchStartEpisodeIndex: Int = -1
@@ -1234,6 +1244,12 @@ class VideoPlayerViewModel(
         if (!sponsorSkipPending) {
             pendingSeekPositionMs = sanitizedPositionMs
         }
+        // seek 跳变检测：位置前进超过阈值视为快进，主动补全目标位置所在分段的弹幕数据，
+        // 避免目标位置落在尚未加载的分段尾部时引擎空转卡死。
+        if (sanitizedPositionMs - lastDanmakuSyncPositionMs > DANMAKU_SEEK_JUMP_THRESHOLD_MS) {
+            ensureDanmakuDataForPosition(sanitizedPositionMs)
+        }
+        lastDanmakuSyncPositionMs = sanitizedPositionMs
         if (publishProgressState) {
             if (_currentPosition.value != sanitizedPositionMs) {
                 _currentPosition.value = sanitizedPositionMs
@@ -3710,6 +3726,7 @@ class VideoPlayerViewModel(
             danmakuLoadingSegments.clear()
             danmakuPublishedSegments.clear()
             danmakuPublishPendingSegments.clear()
+            danmakuSegmentCoveredUntilMs.clear()
             danmakuTotalSegments = segmentCount
 
             // 2. 计算初始段（根据 seekPosition，使用协程启动前的快照）
@@ -3786,6 +3803,11 @@ class VideoPlayerViewModel(
             if (!useInitialPartialSegment) {
                 danmakuLoadedSegments.add(initialSegment)
             }
+            danmakuSegmentCoveredUntilMs[initialSegment] = if (useInitialPartialSegment) {
+                FIRST_DANMAKU_INITIAL_RANGE_END_MS
+            } else {
+                initialSegment.toLong() * DANMAKU_SEGMENT_DURATION_MS
+            }
             danmakuPublishedSegments.clear()
             danmakuPublishedSegments.add(initialSegment)
             publishDanmaku(currentPayload.regularItems, replace = true)
@@ -3849,6 +3871,8 @@ class VideoPlayerViewModel(
 
     private fun resolveInitialTailLoadDelayMs(boundaryMs: Long, minDelayMs: Long): Long {
         val positionMs = _currentPosition.value.coerceAtLeast(0L)
+        // 已越过该 tail 边界（如续播或 seek 跳过）则立即加载，避免该区间弹幕断档。
+        if (positionMs >= boundaryMs) return 0L
         val targetDelayMs = boundaryMs - positionMs - FIRST_DANMAKU_TAIL_PREFETCH_AHEAD_MS
         return maxOf(minDelayMs, targetDelayMs.coerceAtLeast(0L))
     }
@@ -3912,6 +3936,7 @@ class VideoPlayerViewModel(
                 )
             }
             danmakuSegmentPayloads[segmentIndex] = mergedPayload
+            danmakuSegmentCoveredUntilMs[segmentIndex] = rangeEndMs
             if (rangeEndMs >= DANMAKU_SEGMENT_DURATION_MS) {
                 danmakuLoadedSegments.add(segmentIndex)
             }
@@ -4521,6 +4546,9 @@ class VideoPlayerViewModel(
                     loadDanmakuSegmentIfNeeded(newIndex + 1, publishWhenReady = false)
                 }
             }
+            // 当前段内部预加载：自然播放接近已加载覆盖边界时补全后续范围，
+            // 覆盖 segment 1 partial 尾部等「已发布但未加载完整」盲区，避免越过边界后断档。
+            ensureDanmakuDataForPosition(positionMs)
             return
         }
         if (!hasReachedFirstFrame && currentDanmakuSegmentIndex > 1 && newIndex == 1 && positionMs < 1_000L) {
@@ -4546,6 +4574,90 @@ class VideoPlayerViewModel(
         // 预加载下一段
         if (newIndex < danmakuTotalSegments) {
             loadDanmakuSegmentIfNeeded(newIndex + 1, publishWhenReady = false)
+        }
+    }
+
+    /**
+     * seek 到 [positionMs] 时，确保该位置所在分段的数据已加载并发布。
+     *
+     * 解决两类盲区：
+     * 1. seek 落在 segment 1 已发布（partial）但未加载的尾部（如只加载了 0-60s，seek 到 262s）；
+     * 2. seek 跨到尚未加载的分段。
+     *
+     * 通过 [danmakuSegmentCoveredUntilMs] 跟踪每段已覆盖到的时间点，仅加载缺失范围并 append 发布，
+     * 避免重复加载与清屏闪烁。
+     */
+    private fun ensureDanmakuDataForPosition(positionMs: Long) {
+        val targetSegment = resolveDanmakuSegmentIndex(positionMs)
+        if (targetSegment <= 0) return
+        // init 首段尚未发布、或仍在初始范围内（由 init + tail 覆盖）时不介入，
+        // 避免 appendData 与 init 的 setData 竞争、抢占 prepareGeneration 导致引擎未初始化、弹幕完全不显示。
+        if (danmakuPublishedSegments.isEmpty()) return
+        if (positionMs <= FIRST_DANMAKU_INITIAL_RANGE_END_MS) return
+        val cid = currentCid
+        val aid = currentAid ?: 0L
+        if (cid <= 0L || aid <= 0L) return
+        val segmentEndMs = targetSegment.toLong() * DANMAKU_SEGMENT_DURATION_MS
+        val coveredUntil = danmakuSegmentCoveredUntilMs[targetSegment] ?: 0L
+        // 提前预加载：position 距已覆盖边界不足 DANMAKU_SEEK_RANGE_AHEAD_MS 时即触发，
+        // 使自然播放/seek 到达边界前数据已就绪，避免越过 coveredUntil 后断档空窗。
+        if (positionMs + DANMAKU_SEEK_RANGE_AHEAD_MS <= coveredUntil) return
+        // 跨到尚未发布的分段：走标准分段加载通道，保证分段状态机（loaded/published）一致。
+        if (targetSegment != currentDanmakuSegmentIndex &&
+            !danmakuPublishedSegments.contains(targetSegment)
+        ) {
+            loadDanmakuSegmentIfNeeded(targetSegment, publishWhenReady = true)
+            return
+        }
+        // 当前分段（含 segment 1 的 partial 尾部）补全：从已覆盖处续加载。
+        // 范围至少覆盖 positionMs + 提前量，且至少预取一个 PREFETCH_WINDOW（避免每次 position 微增
+        // 都触发一次小范围请求），取两者较大值，受段尾限制。
+        val rangeStartMs = coveredUntil
+        val rangeEndMs = minOf(
+            maxOf(positionMs + DANMAKU_SEEK_RANGE_AHEAD_MS, rangeStartMs + DANMAKU_PREFETCH_WINDOW_MS),
+            segmentEndMs
+        )
+        if (rangeEndMs <= rangeStartMs) return
+        // 乐观标记已覆盖到 rangeEndMs：在异步加载完成前，避免 onDanmakuSegmentChanged 每帧
+        // 因 position 微增而重复触发同一范围的请求；加载失败/作废时回滚。
+        danmakuSegmentCoveredUntilMs[targetSegment] = rangeEndMs
+        val loadGeneration = danmakuLoadGeneration
+        PlaybackStartupTrace.log(
+            traceId = currentStartupTraceId,
+            startElapsedMs = currentStartupTraceStartElapsedMs,
+            step = "danmaku_seek_range_load",
+            message = "segment=$targetSegment position=$positionMs range=${formatDanmakuRange(rangeStartMs, rangeEndMs)} covered=$coveredUntil"
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            val payload = runCatching {
+                loadDanmakuSegmentPayload(
+                    cid = cid,
+                    aid = aid,
+                    segmentIndices = listOf(targetSegment),
+                    expectedSegmentCount = 0,
+                    rangeStartMs = rangeStartMs,
+                    rangeEndMs = rangeEndMs,
+                    parseEndMs = rangeEndMs
+                )
+            }.getOrNull()
+            withContext(Dispatchers.Main) {
+                if (!isActiveDanmakuRequest(loadGeneration) || currentCid != cid || payload == null) {
+                    // 加载作废或失败：回滚乐观标记，下次重试。
+                    if (danmakuSegmentCoveredUntilMs[targetSegment] == rangeEndMs) {
+                        danmakuSegmentCoveredUntilMs[targetSegment] = rangeStartMs
+                    }
+                    return@withContext
+                }
+                if (rangeEndMs >= segmentEndMs) {
+                    danmakuLoadedSegments.add(targetSegment)
+                }
+                val rangeItems = payload.regularItems
+                    .filter { it.progress >= rangeStartMs && it.progress < rangeEndMs }
+                    .sortedBy { it.progress }
+                if (rangeItems.isNotEmpty()) {
+                    publishDanmaku(rangeItems, replace = false)
+                }
+            }
         }
     }
 
@@ -4653,6 +4765,7 @@ class VideoPlayerViewModel(
                 }
                 danmakuSegmentPayloads[segmentIndex] = payload
                 danmakuLoadedSegments.add(segmentIndex)
+                danmakuSegmentCoveredUntilMs[segmentIndex] = segmentIndex.toLong() * DANMAKU_SEGMENT_DURATION_MS
                 PlaybackStartupTrace.log(
                     traceId = currentStartupTraceId,
                     startElapsedMs = currentStartupTraceStartElapsedMs,
