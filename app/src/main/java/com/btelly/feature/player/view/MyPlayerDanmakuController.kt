@@ -257,9 +257,12 @@ class MyPlayerDanmakuController(
         val generation = ++prepareGeneration
         prepareJob = controllerScope.launch {
             previousJob?.join()
-            val mergedRawData = withContext(Dispatchers.Main.immediate) {
-                (danmakuTimeline.data + data).sortedBy { it.progress }
+            // 主线程只取 timeline 快照（引用拷贝 O(1)）；合并、排序、签名全部在 Default 后台完成，
+            // 避免主线程对上万条数据做全量拼接与排序（P0 主线程阻塞，rawTotal 最高 25580）。
+            val existingData = withContext(Dispatchers.Main.immediate) {
+                danmakuTimeline.data
             }
+            val mergedRawData = mergeSortedTimelines(existingData, data)
             val rawSignature = mergedRawData.fastRawSignature()
             val timeline = DanmakuTimeline(mergedRawData, rawSignature)
             val positionSnapshotMs = withContext(Dispatchers.Main.immediate) {
@@ -1792,6 +1795,31 @@ class MyPlayerDanmakuController(
             7 -> 3f / 4f
             else -> 1f
         }
+    }
+
+    /**
+     * 归并两条按 progress 升序的弹幕时间线。existingData 已有序（timeline 维护的不变量），
+     * incomingData 通常是小批次（可能乱序），先内部排序再归并；结果等价于
+     * (existing + incoming).sortedBy { progress }，但复杂度从 O(n log n) 降到 O(n)。
+     * 供 appendData 在后台线程调用，替代原先主线程的全量 sortedBy。
+     */
+    private fun mergeSortedTimelines(existing: List<DmModel>, incoming: List<DmModel>): List<DmModel> {
+        if (incoming.isEmpty()) return existing
+        if (existing.isEmpty()) return incoming.sortedBy { it.progress }
+        val sortedIncoming = if (incoming.size <= 1) incoming else incoming.sortedBy { it.progress }
+        val result = ArrayList<DmModel>(existing.size + sortedIncoming.size)
+        var i = 0
+        var j = 0
+        while (i < existing.size && j < sortedIncoming.size) {
+            if (existing[i].progress <= sortedIncoming[j].progress) {
+                result.add(existing[i]); i++
+            } else {
+                result.add(sortedIncoming[j]); j++
+            }
+        }
+        while (i < existing.size) { result.add(existing[i]); i++ }
+        while (j < sortedIncoming.size) { result.add(sortedIncoming[j]); j++ }
+        return result
     }
 
     private fun List<DmModel>.fastRawSignature(): Long {

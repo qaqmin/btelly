@@ -3895,12 +3895,27 @@ class VideoPlayerViewModel(
         )
         delay(delayMs)
         if (!isActiveDanmakuRequest(loadGeneration)) return
+        // 二次确认覆盖范围：延迟期间 seek/预加载可能已覆盖此 range 的前段，
+        // 跳过或推进起点，避免重复请求与发布（解决 historyDropped 重复丢弃）。
+        val coveredNow = withContext(Dispatchers.Main) {
+            danmakuSegmentCoveredUntilMs[segmentIndex] ?: 0L
+        }
+        val effectiveRangeStart = maxOf(rangeStartMs, coveredNow)
+        if (effectiveRangeStart >= rangeEndMs) {
+            PlaybackStartupTrace.log(
+                traceId = currentStartupTraceId,
+                startElapsedMs = currentStartupTraceStartElapsedMs,
+                step = "danmaku_tail_load_skipped",
+                message = "segment=$segmentIndex range=${formatDanmakuRange(rangeStartMs, rangeEndMs)} covered=$coveredNow"
+            )
+            return
+        }
         val tailPayload = loadDanmakuSegmentPayload(
             cid = cid,
             aid = aid,
             segmentIndices = listOf(segmentIndex),
             expectedSegmentCount = 0,
-            rangeStartMs = rangeStartMs,
+            rangeStartMs = effectiveRangeStart,
             rangeEndMs = rangeEndMs
         )
         if (!isActiveDanmakuRequest(loadGeneration)) return
@@ -3912,10 +3927,10 @@ class VideoPlayerViewModel(
             val existingSpecialKeys = currentPayload.specialItems
                 .mapTo(HashSet(currentPayload.specialItems.size)) { it.specialDanmakuIdentityKey() }
             val tailRegularCandidates = tailPayload.regularItems
-                .filter { it.progress >= rangeStartMs && it.progress < rangeEndMs }
+                .filter { it.progress >= effectiveRangeStart && it.progress < rangeEndMs }
                 .sortedBy { it.progress }
             val tailSpecialCandidates = tailPayload.specialItems
-                .filter { it.progress >= rangeStartMs && it.progress < rangeEndMs }
+                .filter { it.progress >= effectiveRangeStart && it.progress < rangeEndMs }
                 .sortedBy { it.progress }
             val tailRegularItems = tailRegularCandidates.filter { existingRegularKeys.add(it.danmakuIdentityKey()) }
             val tailSpecialItems = tailSpecialCandidates.filter { existingSpecialKeys.add(it.specialDanmakuIdentityKey()) }
@@ -3926,13 +3941,13 @@ class VideoPlayerViewModel(
             val droppedRegular = tailRegularCandidates.size - tailRegularItems.size
             val droppedSpecial = tailSpecialCandidates.size - tailSpecialItems.size
             if (droppedRegular > 0 || droppedSpecial > 0 ||
-                tailPayload.regularItems.any { it.progress < rangeStartMs || it.progress >= rangeEndMs }
+                tailPayload.regularItems.any { it.progress < effectiveRangeStart || it.progress >= rangeEndMs }
             ) {
                 PlaybackStartupTrace.log(
                     traceId = currentStartupTraceId,
                     startElapsedMs = currentStartupTraceStartElapsedMs,
                     step = "danmaku_tail_dedup",
-                    message = "segment=$segmentIndex range=${formatDanmakuRange(rangeStartMs, rangeEndMs)} tailRegular=${tailPayload.regularItems.size} appendRegular=${tailRegularItems.size} droppedRegular=$droppedRegular tailSpecial=${tailPayload.specialItems.size} appendSpecial=${tailSpecialItems.size} droppedSpecial=$droppedSpecial"
+                    message = "segment=$segmentIndex range=${formatDanmakuRange(effectiveRangeStart, rangeEndMs)} tailRegular=${tailPayload.regularItems.size} appendRegular=${tailRegularItems.size} droppedRegular=$droppedRegular tailSpecial=${tailPayload.specialItems.size} appendSpecial=${tailSpecialItems.size} droppedSpecial=$droppedSpecial"
                 )
             }
             danmakuSegmentPayloads[segmentIndex] = mergedPayload
