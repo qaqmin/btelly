@@ -64,7 +64,7 @@ internal class RollingTrackAllocator {
         overlapFraction = config.overlapFraction
       ) ?: return false
       if (item.rollingStartTimeMs == ROLLING_START_TIME_UNSET) {
-        item.rollingStartTimeMs = nowMs.coerceAtLeast(item.timePosition)
+        item.rollingStartTimeMs = item.timePosition
       }
       if (item.rollingMotionWidth <= 0f) {
         item.rollingMotionWidth = item.drawState.width

@@ -1529,7 +1529,7 @@ class MyPlayerDanmakuController(
             allowVipColorful = allowVipColorful,
             stage = stage,
             startIndex = range.startIndex.toLong()
-        ).withInitialImmediateItems(stage, positionMs)
+        )
         logWindowIdStats(stage, rawWindowData, preparedData)
         val coveredUntilMs = when {
             preparedData.isEmpty() -> range.windowEndMs
