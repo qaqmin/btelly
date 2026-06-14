@@ -96,35 +96,12 @@ class VideoPlayerViewModel(
 
     companion object {
         private const val TAG = "VideoPlayerViewModel"
-        private const val MAX_FALLBACK_ATTEMPTS = 8
-        private const val MAX_PLAYINFO_REFRESH_RETRY = 2
-        private const val WEB_LOCATION_PLAYER = "1315873"
-        private const val PLAYER_SPMID = "333.788.0.0"
-        private const val DEFAULT_FROM_SPMID = "333.1007.tianma.1-3-3.click"
-        private const val WEB_PLAYER_VERSION = "4.9.78"
-        private const val PLAY_TYPE_START = 1
         private const val SOFTWARE_DECODER_SAFE_QUALITY_ID = 64
         private const val SOFTWARE_DECODER_MIN_KEEP_QUALITY_ID = 32
         private const val KEY_SOFTWARE_DECODER_SAFE_PLAYBACK = "player_software_decoder_safe_playback"
         private const val KEY_SOFTWARE_DECODER_SAFE_QUALITY_ID = "player_software_decoder_safe_quality_id"
         private const val FIRST_FRAME_DEFERRED_WORK_DELAY_MS = 250L
         private const val FIRST_FRAME_SPONSOR_LOAD_DELAY_MS = 1_500L
-        private const val FIRST_FRAME_DM_MASK_LOAD_DELAY_MS = 2_500L
-        private const val FIRST_DANMAKU_PARTIAL_END_MS = 120_000L
-        private const val FIRST_DANMAKU_INITIAL_PARSE_END_MS = 60_000L
-        private const val FIRST_DANMAKU_INITIAL_RANGE_END_MS = FIRST_DANMAKU_INITIAL_PARSE_END_MS
-        private const val FIRST_DANMAKU_TAIL_PREFETCH_AHEAD_MS = 10_000L
-        private const val FIRST_DANMAKU_FAR_TAIL_MIN_DELAY_MS = 60_000L
-        private const val DANMAKU_SEGMENT_DURATION_MS = 360_000L
-        private const val DANMAKU_PUBLISH_DIAG_THRESHOLD_MS = 4L
-        // seek 跳变阈值：播放位置前进超过此值视为用户快进，需主动补全目标位置弹幕数据。
-        private const val DANMAKU_SEEK_JUMP_THRESHOLD_MS = 3_000L
-        // seek 补全时，从已覆盖位置加载到「目标位置 + 此提前量」的范围，保证窗口内有缓冲弹幕。
-        private const val DANMAKU_SEEK_RANGE_AHEAD_MS = 30_000L
-        // 预取窗口：自然播放预加载时，单次至少加载此大小的范围（避免每次 position 微增都触发小请求）。
-        private const val DANMAKU_PREFETCH_WINDOW_MS = 120_000L
-        private val verboseDanmakuCandidateLog =
-            java.lang.Boolean.getBoolean("btelly.verbose_danmaku_candidate_log")
         @Volatile
         private var globalPreferSoftwareDecoderSafePlayback: Boolean = false
         @Volatile
@@ -140,21 +117,6 @@ class VideoPlayerViewModel(
         const val SAVED_QUALITY_ID = "saved_player_quality_id"
         const val SAVED_AUDIO_QUALITY_ID = "saved_player_audio_quality_id"
         const val SAVED_SUBTITLE_INDEX = "saved_player_subtitle_index"
-
-        // 弹幕元数据缓存：跨 ViewModel 实例复用，避免每次重建都重新请求
-        private val danmakuViewCache = object : LinkedHashMap<Long, Pair<DmWebViewReplyProto?, Long>>(8, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Pair<DmWebViewReplyProto?, Long>>): Boolean {
-                return size > 8
-            }
-        }
-        private var danmakuViewCacheTtlMs: Long = 300_000L
-        private val douyinDanmakuSegmentCache = object : LinkedHashMap<String, Pair<SpecialDanmakuPayload, Long>>(4, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<SpecialDanmakuPayload, Long>>): Boolean {
-                return size > 4
-            }
-        }
-        private val DANMAKU_AVAILABLE_MARKER = listOf(DmModel(content = "__danmaku_available__"))
-        private const val DOUYIN_DANMAKU_SEGMENT_CACHE_TTL_MS = 120_000L
 
         // 跨 VM 实例记录最近播放过的 cid，用于同视频重播热路径检测
         private val recentlyPlayedCids = linkedSetOf<Long>()
@@ -285,18 +247,7 @@ class VideoPlayerViewModel(
         val targetPositionMs: Long
     )
 
-    data class DanmakuUpdate(
-        val items: List<DmModel>,
-        val replace: Boolean,
-        val filterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY
-    )
-
-    private data class SpecialDanmakuPayload(
-        val regularItems: List<DmModel>,
-        val specialItems: List<SpecialDanmakuModel>
-    )
-
-    private data class PlayRequestIdentity(
+    internal data class PlayRequestIdentity(
         val aid: Long?,
         val bvid: String?,
         val cid: Long,
@@ -326,7 +277,7 @@ class VideoPlayerViewModel(
         val preferLastPlayTime: Boolean?
     )
 
-    private data class PreparedPlayback(
+    internal data class PreparedPlayback(
         val identity: PlayRequestIdentity,
         val playInfo: PlayInfoModel,
         val selectionSnapshot: VideoPlayerStreamResolver.SelectionSnapshot,
@@ -348,7 +299,7 @@ class VideoPlayerViewModel(
         val preparedPlayback: PreparedPlayback
     )
 
-    private data class PlayInfoFetchResult(
+    internal data class PlayInfoFetchResult(
         val requestedQualityId: Int,
         val response: VideoPlayerPlayInfoGateway.PlayInfoResult
     )
@@ -545,14 +496,17 @@ class VideoPlayerViewModel(
     private val _currentSubtitleText = MutableStateFlow<String?>(null)
     val currentSubtitleText: StateFlow<String?> = _currentSubtitleText
 
-    private val _danmaku = MutableStateFlow<List<DmModel>>(emptyList())
-    val danmaku: StateFlow<List<DmModel>> = _danmaku
-
-    private val _danmakuUpdates = MutableSharedFlow<DanmakuUpdate>(extraBufferCapacity = 1)
-    val danmakuUpdates: SharedFlow<DanmakuUpdate> = _danmakuUpdates
-
-    private val _specialDanmaku = MutableStateFlow<List<SpecialDanmakuModel>>(emptyList())
-    val specialDanmaku: StateFlow<List<SpecialDanmakuModel>> = _specialDanmaku
+    // ==================== 弹幕系统（转发到 DanmakuPlaybackController）====================
+    val danmaku: StateFlow<List<DmModel>> get() = danmakuController.danmaku
+    internal val danmakuUpdates: SharedFlow<DanmakuPlaybackController.DanmakuUpdate> get() = danmakuController.danmakuUpdates
+    val specialDanmaku: StateFlow<List<SpecialDanmakuModel>> get() = danmakuController.specialDanmaku
+    internal val dmMaskState: StateFlow<DanmakuPlaybackController.DmMaskState> get() = danmakuController.dmMaskState
+    var onDmMaskReady: ((maskUrl: String, cid: Long, fps: Int) -> Unit)?
+        get() = danmakuController.onDmMaskReady
+        set(value) { danmakuController.onDmMaskReady = value }
+    var onDmMaskReset: (() -> Unit)?
+        get() = danmakuController.onDmMaskReset
+        set(value) { danmakuController.onDmMaskReset = value }
 
     // ==================== 互动视频 ====================
     private val interactionEngine = InteractionEngine()
@@ -569,19 +523,6 @@ class VideoPlayerViewModel(
     private var isSteinsGateVideo = false
 
     fun getInteractionEngine(): InteractionEngine = interactionEngine
-
-    sealed class DmMaskState {
-        object Idle : DmMaskState()
-        object Loading : DmMaskState()
-        data class Ready(val maskUrl: String, val cid: Long, val fps: Int) : DmMaskState()
-        object Unavailable : DmMaskState()
-    }
-
-    private val _dmMaskState = MutableStateFlow<DmMaskState>(DmMaskState.Idle)
-    val dmMaskState: StateFlow<DmMaskState> = _dmMaskState
-
-    var onDmMaskReady: ((maskUrl: String, cid: Long, fps: Int) -> Unit)? = null
-    var onDmMaskReset: (() -> Unit)? = null
 
     val dmMaskRepository = DmMaskRepository()
 
@@ -610,8 +551,7 @@ class VideoPlayerViewModel(
                 "x-bili-gaia-vtoken=$gaiaVtoken; domain=bilibili.com; path=/; secure; expires=$expiresAt"
             )
         )
-        playInfoRefreshRetryCount = 0
-        loadPlayUrlWithCurrentContext(reason = "gaia_vgate_verified")
+        fallbackController.onGaiaVgateVerifiedAndRetry()
     }
 
     private var currentAid: Long? = null
@@ -623,13 +563,159 @@ class VideoPlayerViewModel(
     private var currentSubtitleData: SubtitleData? = null
     private var currentSubtitleCueIndex: Int = 0
     private var currentGraphVersion: Long = 0L
-    private var loadedDanmakuCid: Long = 0L
     private var currentSettings: PlayerSettings = PlayerSettingsStore.load(appContext)
     private var shouldAutoSelectSubtitle = currentSettings.showSubtitleByDefault
-    private var sessionStartTimestampMs: Long = 0L
-    private var lastReportedHeartbeatPositionSec: Long = -1L
-    private var playbackReportSession: String = ""
-    private var playbackStartReported: Boolean = false
+    private val heartbeatReporter = PlaybackHeartbeatReporter(
+        apiService = apiService,
+        sessionGateway = sessionGateway,
+        scope = viewModelScope,
+        context = HeartbeatContextImpl()
+    )
+
+    private inner class HeartbeatContextImpl : PlaybackHeartbeatReporter.HeartbeatContext {
+        override val currentAid: Long? get() = this@VideoPlayerViewModel.currentAid
+        override val currentCid: Long get() = this@VideoPlayerViewModel.currentCid
+        override val currentBvid: String? get() = this@VideoPlayerViewModel.currentBvid
+        override val pendingSeekPositionMs: Long get() = this@VideoPlayerViewModel.pendingSeekPositionMs
+        override val currentPositionMs: Long get() = _currentPosition.value
+        override val durationMs: Long get() = _duration.value
+        override val playInfoDurationMs: Long get() = currentPlayInfo?.timeLength ?: 0L
+        override val qualityId: Int
+            get() = (_selectedQuality.value?.id ?: selectedQualityId ?: currentPlayInfo?.quality ?: 0)
+                .takeIf { it > 0 } ?: 80
+    }
+
+    private val danmakuController = DanmakuPlaybackController(
+        playInfoGateway = playInfoGateway,
+        scope = viewModelScope,
+        context = DanmakuContextImpl()
+    )
+
+    private val fallbackController = PlaybackFallbackController(
+        streamResolver = streamResolver,
+        dashMediaSourceFactory = dashMediaSourceFactory,
+        qualityPolicy = qualityPolicy,
+        playInfoGateway = playInfoGateway,
+        scope = viewModelScope,
+        context = FallbackContextImpl()
+    )
+
+    private inner class DanmakuContextImpl : DanmakuPlaybackController.DanmakuPlaybackContext {
+        override val currentCid: Long get() = this@VideoPlayerViewModel.currentCid
+        override val currentAid: Long? get() = this@VideoPlayerViewModel.currentAid
+        override val hasReachedFirstFrame: Boolean get() = this@VideoPlayerViewModel.hasReachedFirstFrame
+        override val pendingSeekPositionMs: Long get() = this@VideoPlayerViewModel.pendingSeekPositionMs
+        override val currentPositionMs: Long get() = _currentPosition.value
+        override val durationMs: Long get() = _duration.value
+        override val startupTraceId: String get() = currentStartupTraceId
+        override val startupTraceStartElapsedMs: Long get() = currentStartupTraceStartElapsedMs
+        override val videoLoadGeneration: Long get() = this@VideoPlayerViewModel.videoLoadGeneration
+        override fun isActiveVideoLoad(loadGeneration: Long): Boolean =
+            this@VideoPlayerViewModel.isActiveVideoLoad(loadGeneration)
+    }
+
+    private inner class FallbackContextImpl : PlaybackFallbackController.FallbackContext {
+        // ===== 只读播放上下文（实时读 VM 字段） =====
+        override val currentPlayInfo: PlayInfoModel? get() = this@VideoPlayerViewModel.currentPlayInfo
+        override val currentCid: Long get() = this@VideoPlayerViewModel.currentCid
+        override val currentAid: Long? get() = this@VideoPlayerViewModel.currentAid
+        override val currentBvid: String? get() = this@VideoPlayerViewModel.currentBvid
+        override val currentEpId: Long? get() = this@VideoPlayerViewModel.currentEpId
+        override val currentSeasonId: Long? get() = this@VideoPlayerViewModel.currentSeasonId
+        override val selectedQualityId: Int? get() = this@VideoPlayerViewModel.selectedQualityId
+        override val selectedCodec: VideoCodecEnum? get() = this@VideoPlayerViewModel.selectedCodec
+        override val requestedQualityId: Int? get() = this@VideoPlayerViewModel.requestedQualityId
+        override val requestedCodec: VideoCodecEnum? get() = this@VideoPlayerViewModel.requestedCodec
+        override val useDashPlayback: Boolean get() = this@VideoPlayerViewModel.useDashPlayback
+        override val hardwareSupportedVideoCodecs: Set<VideoCodecEnum>
+            get() = this@VideoPlayerViewModel.hardwareSupportedVideoCodecs
+        override val activePlaybackIntentId: String get() = this@VideoPlayerViewModel.activePlaybackIntentId
+        override val startupTraceId: String get() = this@VideoPlayerViewModel.currentStartupTraceId
+        override val startupTraceStartElapsedMs: Long get() = this@VideoPlayerViewModel.currentStartupTraceStartElapsedMs
+        override val preferSoftwareDecoderSafePlayback: Boolean
+            get() = this@VideoPlayerViewModel.preferSoftwareDecoderSafePlayback
+
+        // ===== 共享状态读（实时读 VM 字段，不缓存） =====
+        override val dashSession: VideoPlaybackSession? get() = this@VideoPlayerViewModel.currentDashSession
+        override val streamFallbackPlan: VideoPlayerStreamResolver.StreamFallbackPlan?
+            get() = this@VideoPlayerViewModel.currentStreamFallbackPlan
+        override val fallbackRouteIndex: Int get() = this@VideoPlayerViewModel.fallbackRouteIndex
+        override val fallbackCdnIndex: Int get() = this@VideoPlayerViewModel.fallbackCdnIndex
+
+        // ===== 共享状态写（提议新值，由 VM 主线程落地） =====
+        override fun onDashSessionUpdated(session: VideoPlaybackSession?) {
+            this@VideoPlayerViewModel.currentDashSession = session
+        }
+
+        override fun onStreamFallbackPlanUpdated(
+            plan: VideoPlayerStreamResolver.StreamFallbackPlan?,
+            routeIndex: Int,
+            cdnIndex: Int
+        ) {
+            this@VideoPlayerViewModel.currentStreamFallbackPlan = plan
+            this@VideoPlayerViewModel.fallbackRouteIndex = routeIndex
+            this@VideoPlayerViewModel.fallbackCdnIndex = cdnIndex
+        }
+
+        // ===== VM 私有方法转发 =====
+        override fun currentPlayRequestIdentity(): PlayRequestIdentity? =
+            this@VideoPlayerViewModel.currentPlayRequestIdentity()
+
+        override fun readSoftwareDecoderSafeQualityId(): Int =
+            this@VideoPlayerViewModel.readSoftwareDecoderSafeQualityId()
+
+        override fun rememberSoftwareDecoderSafeQuality(qualityId: Int) =
+            this@VideoPlayerViewModel.rememberSoftwareDecoderSafeQuality(qualityId)
+
+        override fun emitRiskControlTryLookBypass() {
+            _riskControlTryLookBypass.value = true
+        }
+
+        // ===== UI/派发写 =====
+        override fun emitPlaybackRequest(request: PlaybackRequest) {
+            _playbackRequest.value = request
+        }
+
+        override fun setSelectedCodec(codec: VideoCodecEnum) {
+            this@VideoPlayerViewModel.selectedCodec = codec
+            _selectedVideoCodec.value = codec
+        }
+
+        override fun clearError() {
+            _error.value = null
+        }
+
+        override fun reportError(message: String) {
+            _error.value = message
+        }
+
+        // ===== 加载主链回调（转发到 VM 私有方法） =====
+        override suspend fun requestPreparedPlayback(
+            identity: PlayRequestIdentity,
+            preferLastPlayTime: Boolean,
+            replaceInPlace: Boolean,
+            playbackPositionMs: Long,
+            playWhenReady: Boolean,
+            qualityCandidates: List<Int>
+        ): PreparedPlayback? = this@VideoPlayerViewModel.requestPreparedPlayback(
+            identity = identity,
+            preferLastPlayTime = preferLastPlayTime,
+            replaceInPlace = replaceInPlace,
+            playbackPositionMs = playbackPositionMs,
+            playWhenReady = playWhenReady,
+            qualityCandidates = qualityCandidates
+        )
+
+        override fun applyPreparedPlayback(
+            preparedPlayback: PreparedPlayback,
+            resetFallbackAttempts: Boolean,
+            countCurrentAttemptAsFallback: Boolean
+        ) = this@VideoPlayerViewModel.applyPreparedPlayback(
+            preparedPlayback = preparedPlayback,
+            resetFallbackAttempts = resetFallbackAttempts,
+            countCurrentAttemptAsFallback = countCurrentAttemptAsFallback
+        )
+    }
 
     private var requestedQualityId: Int? = null
     private var requestedAudioId: Int? = null
@@ -638,57 +724,21 @@ class VideoPlayerViewModel(
     private var selectedAudioId: Int? = null
     private var selectedCodec: VideoCodecEnum? = null
     private var pendingSeekPositionMs: Long = 0L
-    // 上一次同步给弹幕分段的播放位置，用于检测 seek 跳变。
-    private var lastDanmakuSyncPositionMs: Long = 0L
-    // 每个弹幕分段已加载覆盖到的时间点（毫秒），用于 seek 时判断目标位置是否已有数据。
-    private val danmakuSegmentCoveredUntilMs = mutableMapOf<Int, Long>()
     private var pendingPlayWhenReady: Boolean = true
     private var didApplyLastPlayPosition = false
     private var launchStartEpisodeIndex: Int = -1
-    private var danmakuLoadJob: Job? = null
-    private var danmakuLoadGeneration: Long = 0L
     private var videoLoadGeneration: Long = 0L
-
-    // 弹幕片段缓存：按片段索引存储弹幕数据，用于淘汰远距离片段释放内存
-    private val danmakuSegmentPayloads = LinkedHashMap<Int, SpecialDanmakuPayload>()
-    private val danmakuLoadedSegments = linkedSetOf<Int>()
-    private val danmakuLoadingSegments = linkedSetOf<Int>()
-    private val danmakuPublishedSegments = linkedSetOf<Int>()
-    private val danmakuPublishPendingSegments = linkedSetOf<Int>()
-    private val publishedRegularDanmakuKeys = HashSet<String>()
-    private val publishedSpecialDanmakuKeys = HashSet<String>()
-    // 弹幕发布专用单线程后台 dispatcher：保证多次发布的计算/emit 顺序（replace 先于 append），
-    // 同时把去重、排序、identityKey 预算移出主线程（P1：init 发布 3000 条曾主线程耗时 37ms）。
-    private val danmakuPublishDispatcher = Dispatchers.Default.limitedParallelism(1)
-    private var currentDanmakuSegmentIndex: Int = -1
-    private var danmakuTotalSegments: Int = 0
-    private var currentDanmakuFilterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY
-
-    // 弹幕 view 预加载：在拿到 cid+aid 后立即启动，与 PlayInfo 并行
-    private var danmakuViewPreloadJob: Job? = null
-    private var preloadedDanmakuViewCid: Long = 0L
-    private var preloadedDanmakuView: DmWebViewReplyProto? = null
-    private var danmakuSegmentPreloadJob: Job? = null
     private var douyinWarmupJob: Job? = null
-    private var preloadedDanmakuSegmentCid: Long = 0L
-    private var preloadedDanmakuSegmentAid: Long = 0L
-    private var preloadedDanmakuSegmentIndex: Int = 0
-    private var preloadedDanmakuSegmentPayload: SpecialDanmakuPayload? = null
 
     private var currentStreamFallbackPlan: VideoPlayerStreamResolver.StreamFallbackPlan? = null
     private var fallbackRouteIndex: Int = 0
     private var fallbackCdnIndex: Int = 0
-    private var playInfoRefreshRetryCount: Int = 0
-    private var fallbackAttemptCount: Int = 0
-    private val attemptedFallbackSignatures = linkedSetOf<String>()
-    private var softwareDecoderDowngradeAttemptedCid: Long = 0L
     // 一旦真实播放命中软解，后续视频和自动预加载都优先走安全画质，避免先起高码率再卡顿降级。
     private var preferSoftwareDecoderSafePlayback: Boolean =
         globalPreferSoftwareDecoderSafePlayback ||
             appSettings.getCachedString(KEY_SOFTWARE_DECODER_SAFE_PLAYBACK) == "开"
     private var softwareDecoderSafeQualityId: Int = readSoftwareDecoderSafeQualityId()
     private var pendingResumeToastPositionMs: Long? = null
-    private var lastPlaybackPositionMs: Long = 0L
     private var preloadedPlayback: PreloadedPlayback? = null
     private var preloadingIdentity: PlayRequestIdentity? = null
     private var preloadJob: Job? = null
@@ -698,8 +748,6 @@ class VideoPlayerViewModel(
     private var hasReachedFirstFrame: Boolean = false
     private var currentStartupTraceId: String = PlaybackStartupTrace.NO_TRACE
     private var currentStartupTraceStartElapsedMs: Long = 0L
-    private var firstDanmakuTraceLoggedId: String = PlaybackStartupTrace.NO_TRACE
-    private var firstDanmakuSegmentTraceLoggedId: String = PlaybackStartupTrace.NO_TRACE
     private var pendingPlayerExtrasCid: Long = 0L
     private var loadedPlayerExtrasCid: Long = 0L
     private val hardwareSupportedVideoCodecs: Set<VideoCodecEnum>
@@ -826,8 +874,7 @@ class VideoPlayerViewModel(
         activePlaybackIntentId = startIntent.id
         currentStartupTraceId = startupTraceId
         currentStartupTraceStartElapsedMs = startupTraceStartElapsedMs
-        firstDanmakuTraceLoggedId = PlaybackStartupTrace.NO_TRACE
-        firstDanmakuSegmentTraceLoggedId = PlaybackStartupTrace.NO_TRACE
+        danmakuController.resetStartupTraceState()
         pendingResumeToastPositionMs = null
         PlaybackStartupTrace.log(
             traceId = currentStartupTraceId,
@@ -864,7 +911,7 @@ class VideoPlayerViewModel(
 
         // 入口只预取弹幕 view 元数据；分片解析放到首帧后，避免与解码起播抢 CPU。
         if (cid > 0L && (aid ?: 0L) > 0L) {
-            preloadDanmakuView(cid = cid, aid = aid ?: 0L, loadGeneration = loadGeneration)
+            danmakuController.preloadView(cid = cid, aid = aid ?: 0L, loadGeneration = loadGeneration)
         }
 
         prepareDeferredSponsorLoad(
@@ -878,7 +925,6 @@ class VideoPlayerViewModel(
             currentPlayInfo = null
             currentSubtitleData = null
             currentGraphVersion = 0L
-            loadedDanmakuCid = 0L
             loadedPlayerExtrasCid = 0L
             pendingPlayerExtrasCid = 0L
             requestedQualityId = preferredQualityId.takeIf { it > 0 } ?: currentSettings.defaultVideoQualityId
@@ -889,12 +935,8 @@ class VideoPlayerViewModel(
             selectedCodec = null
             didApplyLastPlayPosition = pendingSeekPositionMs > 0L
             shouldAutoSelectSubtitle = currentSettings.showSubtitleByDefault
-            sessionStartTimestampMs = 0L
-            lastReportedHeartbeatPositionSec = -1L
-            playbackReportSession = ""
-            playbackStartReported = false
-            resetFallbackState()
-            softwareDecoderDowngradeAttemptedCid = 0L
+            heartbeatReporter.clear()
+            fallbackController.reset()
             // 自动连播倒计时已经准备好的同一目标不能在入口重置时被清掉，否则会退回冷启动链路。
             clearPreloadedPlaybackIfDifferent(currentPlayRequestIdentity(), cancelJob = false)
             hasReachedFirstFrame = false
@@ -902,13 +944,12 @@ class VideoPlayerViewModel(
             _selectedSubtitleIndex.value = -1
             _currentSubtitleText.value = null
             currentSubtitleCueIndex = 0
-            clearDanmaku()
+            danmakuController.clear()
             sponsorLoadJob?.cancel()
             sponsorBlockUseCase.reset()
             _sponsorSkipState.value = SponsorSkipUiState.Hidden
             _sponsorSegments.value = emptyList()
-            _dmMaskState.value = DmMaskState.Idle
-            onDmMaskReset?.invoke()
+            danmakuController.resetDmMask()
             _interactionModel.value = null
             _interactionHiddenVars.value = null
             interactionEngine.reset()
@@ -1034,7 +1075,7 @@ class VideoPlayerViewModel(
         interactionRepository.clearCache()
         interactionProgressRestored = false
         interactionLoadingEdgeId = -1L
-        _dmMaskState.value = DmMaskState.Idle
+        danmakuController.markDmMaskIdle()
         _videoSnapshot.value = null
         _error.value = null
         clearPreloadedPlaybackIfDifferent(currentPlayRequestIdentity(), cancelJob = false)
@@ -1084,7 +1125,7 @@ class VideoPlayerViewModel(
         currentSubtitleCueIndex = 0
         _selectedSubtitleIndex.value = -1
         _currentSubtitleText.value = null
-        _dmMaskState.value = DmMaskState.Idle
+        danmakuController.markDmMaskIdle()
         clearPreloadedPlaybackIfDifferent(currentPlayRequestIdentity(), cancelJob = false)
         loadPlayUrl(preferLastPlayTime = false)
         loadInteractionInfo(edgeId)
@@ -1136,7 +1177,7 @@ class VideoPlayerViewModel(
         globalPreferSoftwareDecoderSafePlayback = true
         preferSoftwareDecoderSafePlayback = true
         appSettings.putStringAsync(KEY_SOFTWARE_DECODER_SAFE_PLAYBACK, "开")
-        if (softwareDecoderDowngradeAttemptedCid == cid) {
+        if (fallbackController.hasSoftwareDecoderDowngradeBeenAttempted(cid)) {
             return
         }
         val playInfo = currentPlayInfo ?: return
@@ -1170,7 +1211,7 @@ class VideoPlayerViewModel(
         // 起播后降级会重建 MediaSource，日志里已证明会拉长黑屏；首帧前只记录策略，
         // 后续请求直接按安全档起播，本次不再二次 prepare。
         if (!hasReachedFirstFrame) {
-            softwareDecoderDowngradeAttemptedCid = cid
+            fallbackController.markSoftwareDecoderDowngradeAttempted(cid)
             requestedQualityId = targetQualityId
             requestedCodec = VideoCodecEnum.AVC
             AppLog.w(
@@ -1181,7 +1222,7 @@ class VideoPlayerViewModel(
             return
         }
 
-        softwareDecoderDowngradeAttemptedCid = cid
+        fallbackController.markSoftwareDecoderDowngradeAttempted(cid)
         requestedQualityId = targetQualityId
         requestedCodec = VideoCodecEnum.AVC
         capturePlaybackSnapshot(currentPositionMs, playWhenReady)
@@ -1247,12 +1288,6 @@ class VideoPlayerViewModel(
         if (!sponsorSkipPending) {
             pendingSeekPositionMs = sanitizedPositionMs
         }
-        // seek 跳变检测：位置前进超过阈值视为快进，主动补全目标位置所在分段的弹幕数据，
-        // 避免目标位置落在尚未加载的分段尾部时引擎空转卡死。
-        if (sanitizedPositionMs - lastDanmakuSyncPositionMs > DANMAKU_SEEK_JUMP_THRESHOLD_MS) {
-            ensureDanmakuDataForPosition(sanitizedPositionMs)
-        }
-        lastDanmakuSyncPositionMs = sanitizedPositionMs
         if (publishProgressState) {
             if (_currentPosition.value != sanitizedPositionMs) {
                 _currentPosition.value = sanitizedPositionMs
@@ -1263,7 +1298,9 @@ class VideoPlayerViewModel(
         }
         updateSubtitleText(sanitizedPositionMs)
         checkSponsorBlock(sanitizedPositionMs)
-        onDanmakuSegmentChanged(sanitizedPositionMs)
+        // 弹幕分段同步：seek 跳变检测 → 补全目标位置弹幕；更新 lastSync；分段切换加载。
+        // 整体由 controller 封装，pendingSeekPositionMs 已在上方写入。
+        danmakuController.onPositionChanged(sanitizedPositionMs)
     }
 
     fun setLoading(loading: Boolean) {
@@ -1463,7 +1500,7 @@ class VideoPlayerViewModel(
             AppLog.i(TAG, "playback_preload_ready identity=$identity source=${target.source}")
             val preloadAid = identity.aid?.takeIf { it > 0L }
             preloadAid?.let { aid ->
-                preloadDanmakuView(cid = identity.cid, aid = aid, loadGeneration = videoLoadGeneration)
+                danmakuController.preloadView(cid = identity.cid, aid = aid, loadGeneration = videoLoadGeneration)
             }
             if (target.source == PlaybackPreloadTarget.Source.DOUYIN_MODE) {
                 warmupDouyinPlayback(
@@ -1501,7 +1538,7 @@ class VideoPlayerViewModel(
                 ?.takeIf { it > 0L }
                 ?.let {
                     launch {
-                        warmupDouyinDanmakuSegment(
+                        danmakuController.warmupDouyinDanmakuSegment(
                             cid = identity.cid,
                             aid = it,
                             segmentIndex = 1
@@ -1516,290 +1553,8 @@ class VideoPlayerViewModel(
         }
     }
 
-    private suspend fun warmupDouyinDanmakuSegment(cid: Long, aid: Long, segmentIndex: Int) {
-        val cacheKey = douyinDanmakuCacheKey(cid, aid, segmentIndex)
-        synchronized(douyinDanmakuSegmentCache) {
-            val cached = douyinDanmakuSegmentCache[cacheKey]
-            if (cached != null && System.currentTimeMillis() - cached.second < DOUYIN_DANMAKU_SEGMENT_CACHE_TTL_MS) {
-                return
-            }
-        }
-        val payload = loadDanmakuSegmentPayload(
-            cid = cid,
-            aid = aid,
-            segmentIndices = listOf(segmentIndex),
-            expectedSegmentCount = 0,
-            rangeStartMs = 0L,
-            rangeEndMs = FIRST_DANMAKU_INITIAL_RANGE_END_MS,
-            parseEndMs = FIRST_DANMAKU_INITIAL_RANGE_END_MS
-        )
-        synchronized(douyinDanmakuSegmentCache) {
-            douyinDanmakuSegmentCache[cacheKey] = payload to System.currentTimeMillis()
-        }
-    }
-
-    private fun takeDouyinDanmakuSegmentCache(
-        cid: Long,
-        aid: Long,
-        segmentIndex: Int
-    ): SpecialDanmakuPayload? {
-        val cacheKey = douyinDanmakuCacheKey(cid, aid, segmentIndex)
-        return synchronized(douyinDanmakuSegmentCache) {
-            val cached = douyinDanmakuSegmentCache[cacheKey] ?: return@synchronized null
-            if (System.currentTimeMillis() - cached.second >= DOUYIN_DANMAKU_SEGMENT_CACHE_TTL_MS) {
-                douyinDanmakuSegmentCache.remove(cacheKey)
-                null
-            } else {
-                douyinDanmakuSegmentCache.remove(cacheKey)?.first
-            }
-        }
-    }
-
-    private fun douyinDanmakuCacheKey(cid: Long, aid: Long, segmentIndex: Int): String {
-        return "$aid#$cid#$segmentIndex"
-    }
-
     fun reportPlaybackHeartbeat(playType: Int = 0) {
-        val aid = currentAid
-        val cid = currentCid
-        val rawPositionMs = _currentPosition.value.coerceAtLeast(0L)
-        val positionMs = rawPositionMs.takeIf { it > 0L } ?: pendingSeekPositionMs.coerceAtLeast(0L)
-        val positionSec = positionMs / 1000L
-        val csrf = sessionGateway.getCsrfToken()
-        if (aid == null || aid <= 0L) {
-            return
-        }
-        if (cid <= 0L || csrf.isBlank()) {
-            return
-        }
-        if (positionSec <= 0L && playType != PLAY_TYPE_START) {
-            return
-        }
-        if (positionSec == lastReportedHeartbeatPositionSec) {
-            return
-        }
-        lastReportedHeartbeatPositionSec = positionSec
-        val startTimestampSec = ((sessionStartTimestampMs.takeIf { it > 0L } ?: System.currentTimeMillis()) / 1000L)
-            .coerceAtLeast(1L)
-        val realtimeSec = ((System.currentTimeMillis() / 1000L) - startTimestampSec).coerceAtLeast(0L)
-        val durationSec = ((_duration.value.takeIf { it > 0L } ?: currentPlayInfo?.timeLength ?: 0L) / 1000L)
-            .coerceAtLeast(positionSec)
-        val userInfo = sessionGateway.getUserInfo()
-        val mid = userInfo?.mid?.takeIf { it > 0L }
-        val quality = (_selectedQuality.value?.id ?: selectedQualityId ?: currentPlayInfo?.quality ?: 0)
-            .takeIf { it > 0 } ?: 80
-        val session = ensurePlaybackReportSession()
-
-        viewModelScope.launch {
-            reportPlaybackStartIfNeeded(
-                aid = aid,
-                cid = cid,
-                mid = mid,
-                csrf = csrf,
-                startTimestampSec = startTimestampSec,
-                session = session
-            )
-
-            val params = linkedMapOf(
-                "start_ts" to startTimestampSec.toString(),
-                "aid" to aid.toString(),
-                "cid" to cid.toString(),
-                "played_time" to positionSec.toString(),
-                "realtime" to realtimeSec.toString(),
-                "real_played_time" to positionSec.toString(),
-                "type" to "3",
-                "sub_type" to "0",
-                "dt" to "2",
-                "play_type" to playType.toString(),
-                "refer_url" to buildPlaybackReferUrl(),
-                "quality" to quality.toString(),
-                "is_auto_qn" to "1",
-                "video_duration" to durationSec.toString(),
-                "last_play_progress_time" to positionSec.toString(),
-                "max_play_progress_time" to positionSec.toString(),
-                "outer" to "0",
-                "statistics" to buildWebStatistics(),
-                "mobi_app" to "web",
-                "device" to "web",
-                "platform" to "web",
-                "cur_language_vt" to "{}",
-                "perfer_type" to "{}",
-                "play_mode" to if (playType == PLAY_TYPE_START) "1" else "8",
-                "spmid" to PLAYER_SPMID,
-                "from_spmid" to DEFAULT_FROM_SPMID,
-                "session" to session,
-                "track_id" to "",
-                "extra" to buildPlaybackExtra(),
-                "csrf" to csrf
-            )
-            mid?.let { params["mid"] = it.toString() }
-            val queryParams = buildHeartbeatWbiParams(
-                aid = aid,
-                mid = mid,
-                startTimestampSec = startTimestampSec,
-                realtimeSec = realtimeSec,
-                playedSec = positionSec,
-                durationSec = durationSec
-            )
-            var attempt = 0
-            while (attempt < 2) {
-                val result = runCatching {
-                    sessionGateway.syncAuthState(
-                        apiService.playVideoHeartbeatSigned(queryParams, params),
-                        source = "player.playVideoHeartbeat"
-                    )
-                }
-                if (result.isSuccess) break
-                attempt++
-                if (attempt < 2) {
-                    delay(2000L)
-                } else {
-                    AppLog.e(TAG, "reportPlaybackHeartbeat failed after retries: ${result.exceptionOrNull()?.message}", result.exceptionOrNull())
-                }
-            }
-        }
-    }
-
-    private suspend fun reportPlaybackStartIfNeeded(
-        aid: Long,
-        cid: Long,
-        mid: Long?,
-        csrf: String,
-        startTimestampSec: Long,
-        session: String
-    ) {
-        if (playbackStartReported || csrf.isBlank()) return
-        playbackStartReported = true
-        val nowSec = System.currentTimeMillis() / 1000L
-        val queryParams = buildClickH5WbiParams(
-            aid = aid,
-            startTimestampSec = startTimestampSec,
-            reportTimestampSec = nowSec
-        )
-        val params = linkedMapOf(
-            "aid" to aid.toString(),
-            "cid" to cid.toString(),
-            "part" to "1",
-            "lv" to (sessionGateway.getUserInfo()?.levelInfo?.currentLevel ?: 0).toString(),
-            "ftime" to startTimestampSec.toString(),
-            "stime" to nowSec.toString(),
-            "type" to "3",
-            "sub_type" to "0",
-            "refer_url" to buildPlaybackReferUrl(),
-            "outer" to "0",
-            "statistics" to buildWebStatistics(),
-            "mobi_app" to "web",
-            "device" to "web",
-            "platform" to "web",
-            "cur_language" to "",
-            "perfer_type" to "",
-            "play_mode" to "1",
-            "spmid" to PLAYER_SPMID,
-            "from_spmid" to DEFAULT_FROM_SPMID,
-            "session" to session,
-            "track_id" to "",
-            "extra" to buildPlaybackExtra(includePlayerVersion = false),
-            "csrf" to csrf
-        )
-        mid?.let { params["mid"] = it.toString() }
-        runCatching {
-            sessionGateway.syncAuthState(
-                apiService.reportVideoClickH5(queryParams, params),
-                source = "player.reportVideoClickH5"
-            )
-        }.onFailure {
-            playbackStartReported = false
-            AppLog.w(TAG, "reportPlaybackStart failed: ${it.message}")
-        }
-    }
-
-    private suspend fun buildHeartbeatWbiParams(
-        aid: Long,
-        mid: Long?,
-        startTimestampSec: Long,
-        realtimeSec: Long,
-        playedSec: Long,
-        durationSec: Long
-    ): Map<String, String> {
-        if (sessionGateway.areWbiKeysStale()) {
-            runCatching { sessionGateway.ensureWbiKeys() }
-                .onFailure { AppLog.w(TAG, "heartbeat ensureWbiKeys failed: ${it.message}") }
-        }
-        val (imgKey, subKey) = sessionGateway.getWbiKeys()
-        val params = linkedMapOf(
-            "w_start_ts" to startTimestampSec.toString(),
-            "w_aid" to aid.toString(),
-            "w_dt" to "2",
-            "w_realtime" to realtimeSec.toString(),
-            "w_played_time" to playedSec.toString(),
-            "w_real_played_time" to playedSec.toString(),
-            "w_video_duration" to durationSec.toString(),
-            "w_last_play_progress_time" to playedSec.toString(),
-            "web_location" to WEB_LOCATION_PLAYER
-        )
-        mid?.let { params["w_mid"] = it.toString() }
-        return WbiGenerator.generateWbiParams(params, imgKey, subKey)
-    }
-
-    private suspend fun buildClickH5WbiParams(
-        aid: Long,
-        startTimestampSec: Long,
-        reportTimestampSec: Long
-    ): Map<String, String> {
-        if (sessionGateway.areWbiKeysStale()) {
-            runCatching { sessionGateway.ensureWbiKeys() }
-                .onFailure { AppLog.w(TAG, "clickH5 ensureWbiKeys failed: ${it.message}") }
-        }
-        val (imgKey, subKey) = sessionGateway.getWbiKeys()
-        return WbiGenerator.generateWbiParams(
-            linkedMapOf(
-                "w_aid" to aid.toString(),
-                "w_part" to "1",
-                "w_ftime" to startTimestampSec.toString(),
-                "w_stime" to reportTimestampSec.toString(),
-                "w_type" to "3",
-                "web_location" to WEB_LOCATION_PLAYER
-            ),
-            imgKey,
-            subKey
-        )
-    }
-
-    private fun ensurePlaybackReportSession(): String {
-        if (playbackReportSession.isBlank()) {
-            playbackReportSession = UUID.randomUUID().toString().replace("-", "")
-        }
-        return playbackReportSession
-    }
-
-    private fun resetPlaybackReportSession() {
-        playbackReportSession = UUID.randomUUID().toString().replace("-", "")
-        playbackStartReported = false
-    }
-
-    private fun buildPlaybackReferUrl(): String {
-        val bvid = currentBvid?.takeIf { it.isNotBlank() }
-        return if (bvid != null) {
-            "https://www.bilibili.com/video/$bvid/"
-        } else {
-            "https://www.bilibili.com/"
-        }
-    }
-
-    private fun buildWebStatistics(): String {
-        return """{"appId":100,"platform":5,"abtest":"","version":""}"""
-    }
-
-    private fun buildPlaybackExtra(includePlayerVersion: Boolean = true): String {
-        val values = linkedMapOf<String, Any>(
-            "play_method" to 2,
-            "play_volume" to 1,
-            "auto_play" to 0
-        )
-        if (includePlayerVersion) {
-            values["player_version"] = WEB_PLAYER_VERSION
-        }
-        return Gson().toJson(values)
+        heartbeatReporter.reportPlaybackHeartbeat(playType)
     }
 
     private fun rebuildPlayback() {
@@ -1994,7 +1749,7 @@ class VideoPlayerViewModel(
         currentBvid = selectedEpisode?.bvid?.takeIf { it.isNotBlank() } ?: currentBvid
 
         // 提前启动弹幕 view 请求，和 PlayInfo 并行
-        preloadDanmakuViewIfNeeded(loadGeneration)
+        danmakuController.preloadViewIfNeeded(loadGeneration)
 
         _videoInfo.value = episodeCatalogBuilder.buildPgcVideoDetail(
             detail = mergedDetail,
@@ -2166,7 +1921,7 @@ class VideoPlayerViewModel(
 
             val cachedPlayInfo = initialIdentity!!.bvid!!.let { bvid ->
                 VideoPlayerPlayInfoCache.get(bvid = bvid, cid = initialIdentity.cid)
-            }?.takeIf(::hasPlayableMedia)
+            }?.takeIf { fallbackController.hasPlayableMedia(it) }
 
             if (cachedPlayInfo != null) {
 
@@ -2303,7 +2058,7 @@ class VideoPlayerViewModel(
         _currentCidLive.value = currentCid
 
         // 提前启动弹幕 view 请求，和 PlayInfo 并行
-        preloadDanmakuViewIfNeeded(loadGeneration)
+        danmakuController.preloadViewIfNeeded(loadGeneration)
 
         if (currentCid <= 0L) {
             _error.value = "未找到可播放分P"
@@ -2389,7 +2144,7 @@ class VideoPlayerViewModel(
     ): PreparedPlayback? {
         val requestStartMs = System.currentTimeMillis()
         val hardwareCodecs = hardwareSupportedVideoCodecs
-        val effectiveQualityCandidates = buildSoftwareDecoderSafeQualityCandidates(
+        val effectiveQualityCandidates = fallbackController.buildSoftwareDecoderSafeQualityCandidates(
             qualityCandidates = qualityCandidates,
             hardwareCodecs = hardwareCodecs
         )
@@ -2401,7 +2156,7 @@ class VideoPlayerViewModel(
         val cachedPlayInfo = identity.bvid
             ?.takeIf { !replaceInPlace && it.isNotBlank() && identity.epId == null }
             ?.let { bvid -> VideoPlayerPlayInfoCache.get(bvid = bvid, cid = identity.cid) }
-            ?.takeIf(::hasPlayableMedia)
+            ?.takeIf { fallbackController.hasPlayableMedia(it) }
         val usedCachedPlayInfo = cachedPlayInfo != null
         if (usedCachedPlayInfo) {
         }
@@ -2413,7 +2168,7 @@ class VideoPlayerViewModel(
         val (initialPlayInfo, effectiveRequestedQualityId) = if (usedCachedPlayInfo) {
             cachedPlayInfo!! to preferredQualityId
         } else {
-            val playInfoFetch = requestPlayInfoWithQualityFallback(
+            val playInfoFetch = fallbackController.requestPlayInfoWithQualityFallback(
                 identity = identity,
                 qualityCandidates = effectiveQualityCandidates,
                 suppressUiSignals = suppressUiSignals
@@ -2472,7 +2227,7 @@ class VideoPlayerViewModel(
 
         return withContext(Dispatchers.Default) {
             val initialQualities = streamResolver.buildQualityList(initialPlayInfo)
-            val resolvedQualityId = resolvePlayableQualityId(
+            val resolvedQualityId = fallbackController.resolvePlayableQualityId(
                 requestedQualityId = effectiveRequestedQualityId,
                 playInfo = initialPlayInfo,
                 availableQualities = initialQualities,
@@ -2601,16 +2356,14 @@ class VideoPlayerViewModel(
             didApplyLastPlayPosition = true
         }
         if (!preparedPlayback.replaceInPlace) {
-            sessionStartTimestampMs = System.currentTimeMillis()
-            lastReportedHeartbeatPositionSec = -1L
-            resetPlaybackReportSession()
+            heartbeatReporter.beginNewReportSession()
             hasReachedFirstFrame = false
         }
 
         if (resetFallbackAttempts) {
-            resetFallbackState()
+            fallbackController.reset()
         }
-        rememberCurrentFallbackAttempt(countAsFallback = countCurrentAttemptAsFallback)
+        fallbackController.rememberCurrentFallbackAttempt(countAsFallback = countCurrentAttemptAsFallback)
 
         _playbackRequest.value = PlaybackRequest(
             mediaSource = preparedPlayback.mediaSource,
@@ -2655,7 +2408,7 @@ class VideoPlayerViewModel(
         if (loadedPlayerExtrasCid != preparedPlayback.identity.cid) {
             pendingPlayerExtrasCid = preparedPlayback.identity.cid
         }
-        if (loadedDanmakuCid != preparedPlayback.identity.cid) {
+        if (danmakuController.loadedCid != preparedPlayback.identity.cid) {
             pendingSeekPositionMs = preparedPlayback.seekToStart
             val danmakuAid = currentAid
                 ?: preparedPlayback.identity.aid
@@ -2663,18 +2416,17 @@ class VideoPlayerViewModel(
             val fallbackSegmentCount = maxOf(
                 1,
                 ((preparedPlayback.playInfo.timeLength.coerceAtLeast(1L) - 1L) /
-                    DANMAKU_SEGMENT_DURATION_MS + 1L).toInt()
+                    DanmakuPlaybackController.DANMAKU_SEGMENT_DURATION_MS + 1L).toInt()
             )
             val preloadSegment = ((preparedPlayback.seekToStart.coerceAtLeast(0L) /
-                DANMAKU_SEGMENT_DURATION_MS) + 1L).toInt().coerceIn(1, fallbackSegmentCount)
-            preloadInitialDanmakuSegment(
+                DanmakuPlaybackController.DANMAKU_SEGMENT_DURATION_MS) + 1L).toInt().coerceIn(1, fallbackSegmentCount)
+            danmakuController.preloadInitialSegment(
                 cid = preparedPlayback.identity.cid,
                 aid = danmakuAid,
                 segmentIndex = preloadSegment
             )
             if (hasReachedFirstFrame) {
-                loadedDanmakuCid = preparedPlayback.identity.cid
-                loadDanmaku(
+                danmakuController.loadDanmaku(
                     cid = preparedPlayback.identity.cid,
                     aid = danmakuAid,
                     durationMs = preparedPlayback.playInfo.timeLength
@@ -2720,12 +2472,13 @@ class VideoPlayerViewModel(
         if (cid == null) return
         val resumeToastPositionMs = pendingResumeToastPositionMs
         pendingResumeToastPositionMs = null
-        if (loadedDanmakuCid != cid) {
+        if (danmakuController.loadedCid != cid) {
             val danmakuAid = currentAid ?: 0L
-            loadedDanmakuCid = cid
             viewModelScope.launch {
-                if (currentCid != cid || loadedDanmakuCid != cid) return@launch
-                loadDanmaku(
+                // loadedCid 由 loadDanmaku 内部设置，此处调用前仍是旧值，
+                // 仅用 currentCid 做切集检测；防重复由入口 loadedCid 门控 + loadDanmaku 内部 generation 保证。
+                if (currentCid != cid) return@launch
+                danmakuController.loadDanmaku(
                     cid = cid,
                     aid = danmakuAid,
                     durationMs = currentPlayInfo?.timeLength ?: 0L
@@ -2739,7 +2492,7 @@ class VideoPlayerViewModel(
             if (currentCid != cid) return@launch
             resumeToastPositionMs?.let { showResumePositionToast(it) }
             markRecentlyPlayed(cid)
-            reportPlaybackHeartbeat(playType = PLAY_TYPE_START)
+            reportPlaybackHeartbeat(playType = PlaybackHeartbeatReporter.PLAY_TYPE_START)
             if (pendingPlayerExtrasCid == cid && loadedPlayerExtrasCid != cid) {
                 pendingPlayerExtrasCid = 0L
                 loadedPlayerExtrasCid = cid
@@ -2805,536 +2558,12 @@ class VideoPlayerViewModel(
         }
     }
 
-    fun handlePlaybackError(error: androidx.media3.common.PlaybackException, currentPositionMs: Long) {
-        lastPlaybackPositionMs = currentPositionMs.coerceAtLeast(0L)
-        val hasDashFallback = currentDashSession?.routePlan?.routes?.isNotEmpty() == true && useDashPlayback
-        val hasProgressiveFallback = currentStreamFallbackPlan?.routes?.isNotEmpty() == true
-        if (!hasDashFallback && !hasProgressiveFallback) {
-            _error.value = error.message ?: "加载失败"
-            return
-        }
+    fun handlePlaybackError(error: androidx.media3.common.PlaybackException, currentPositionMs: Long) =
+        fallbackController.handlePlaybackError(error, currentPositionMs)
 
-        val errorType = classifyPlaybackError(error)
-        val isDash = currentDashSession != null && useDashPlayback
+    fun handlePlaybackStall(positionMs: Long, stalledMs: Long): Boolean =
+        fallbackController.handlePlaybackStall(positionMs, stalledMs)
 
-        val handled = when (errorType) {
-            PlaybackErrorType.DECODER -> {
-                trySwitchToCodec(VideoCodecEnum.AVC, lastPlaybackPositionMs, reason = "decoder_error_prefer_avc") ||
-                    trySwitchCodec(lastPlaybackPositionMs, reason = "decoder_error") ||
-                    tryNextCdnInCurrentCodec(lastPlaybackPositionMs, reason = "decoder_error_cdn_retry") ||
-                    tryRefreshPlayInfo(reason = "decoder_error_refresh")
-            }
-            PlaybackErrorType.NETWORK -> {
-                trySwitchToCodec(VideoCodecEnum.AVC, lastPlaybackPositionMs, reason = "network_error_prefer_avc") ||
-                    tryNextCdnInCurrentCodec(lastPlaybackPositionMs, reason = "network_error") ||
-                    tryRefreshPlayInfo(reason = "network_error_refresh") ||
-                    trySwitchCodec(lastPlaybackPositionMs, reason = "network_error_codec_switch")
-            }
-            PlaybackErrorType.UNKNOWN -> {
-                trySwitchToCodec(VideoCodecEnum.AVC, lastPlaybackPositionMs, reason = "unknown_error_prefer_avc") ||
-                    tryNextCdnInCurrentCodec(lastPlaybackPositionMs, reason = "unknown_error") ||
-                    trySwitchCodec(lastPlaybackPositionMs, reason = "unknown_error_codec_switch") ||
-                    tryRefreshPlayInfo(reason = "unknown_error_refresh")
-            }
-        }
-
-        if (!handled) {
-            val qualityLocked = currentDashSession?.routePlan?.qualityId
-                ?: currentStreamFallbackPlan?.qualityId
-                ?: 0
-            AppLog.e(TAG, "fallback exhausted: qualityLocked=$qualityLocked, isDash=$isDash, attempts=$fallbackAttemptCount")
-            _error.value = "当前清晰度下所有线路与编码器都不可用"
-        }
-    }
-
-    fun handlePlaybackStall(positionMs: Long, stalledMs: Long): Boolean {
-        lastPlaybackPositionMs = positionMs.coerceAtLeast(0L)
-        if (shouldKeepCurrentSourceOnPlaybackStall()) {
-            AppLog.w(
-                TAG,
-                "playback stall keep current source: position=$lastPlaybackPositionMs stalledMs=$stalledMs " +
-                    "quality=$selectedQualityId codec=$selectedCodec safeQuality=${readSoftwareDecoderSafeQualityId()}"
-            )
-            return false
-        }
-        val handled =
-            trySwitchToCodec(VideoCodecEnum.AVC, lastPlaybackPositionMs, reason = "stall_${stalledMs}ms_prefer_avc") ||
-                tryNextCdnInCurrentCodec(lastPlaybackPositionMs, reason = "stall_${stalledMs}ms") ||
-                tryRefreshPlayInfo(reason = "stall_${stalledMs}ms_refresh") ||
-                trySwitchCodec(lastPlaybackPositionMs, reason = "stall_${stalledMs}ms_codec_switch")
-        if (handled) {
-        }
-        return handled
-    }
-
-    private fun shouldKeepCurrentSourceOnPlaybackStall(): Boolean {
-        val safeQualityId = readSoftwareDecoderSafeQualityId()
-        val currentQualityId = selectedQualityId ?: requestedQualityId ?: currentPlayInfo?.quality
-        val currentCodec = selectedCodec ?: requestedCodec
-        return preferSoftwareDecoderSafePlayback &&
-            currentQualityId != null &&
-            currentQualityId <= safeQualityId &&
-            currentCodec == VideoCodecEnum.AVC
-    }
-
-    private enum class PlaybackErrorType {
-        DECODER,
-        NETWORK,
-        UNKNOWN
-    }
-
-    private fun classifyPlaybackError(error: androidx.media3.common.PlaybackException): PlaybackErrorType {
-        val code = error.errorCode
-        if (code in 4000..4999) {
-            return PlaybackErrorType.DECODER
-        }
-        if (code in 2000..2999) {
-            return PlaybackErrorType.NETWORK
-        }
-        val message = buildString {
-            append(error.message.orEmpty())
-            append(' ')
-            append(error.cause?.javaClass?.name.orEmpty())
-            append(' ')
-            append(error.cause?.message.orEmpty())
-        }.lowercase()
-        return when {
-            message.contains("decoder") ||
-                message.contains("mediacodec") ||
-                message.contains("codec init") ||
-                message.contains("no suitable decoder") -> PlaybackErrorType.DECODER
-            message.contains("timeout") ||
-                message.contains("network") ||
-                message.contains("http") ||
-                message.contains("source error") ||
-                message.contains("connection") -> PlaybackErrorType.NETWORK
-            else -> PlaybackErrorType.UNKNOWN
-        }
-    }
-
-    private fun tryNextCdnInCurrentCodec(positionMs: Long, reason: String): Boolean {
-        val dashSession = currentDashSession
-        if (dashSession != null && useDashPlayback) {
-            return tryDispatchDashPlaybackAttempt(
-                routeIndex = dashSession.fallbackRouteIndex,
-                seekPositionMs = positionMs,
-                reason = reason
-            )
-        }
-        val plan = currentStreamFallbackPlan ?: return false
-        if (fallbackRouteIndex !in plan.routes.indices) {
-            return false
-        }
-        return tryDispatchPlaybackAttempt(
-            routeIndex = fallbackRouteIndex,
-            startCdnIndex = fallbackCdnIndex + 1,
-            seekPositionMs = positionMs,
-            reason = reason
-        )
-    }
-
-    private fun trySwitchCodec(positionMs: Long, reason: String): Boolean {
-        val dashSession = currentDashSession
-        if (dashSession != null && useDashPlayback) {
-            val routePlan = dashSession.routePlan ?: return false
-            for (routeIndex in (dashSession.fallbackRouteIndex + 1) until routePlan.routes.size) {
-                if (tryDispatchDashPlaybackAttempt(routeIndex, positionMs, reason)) {
-                    return true
-                }
-            }
-            return false
-        }
-        val plan = currentStreamFallbackPlan ?: return false
-        for (routeIndex in (fallbackRouteIndex + 1) until plan.routes.size) {
-            if (tryDispatchPlaybackAttempt(routeIndex, 0, positionMs, reason)) {
-                return true
-            }
-        }
-        return false
-    }
-
-    private fun trySwitchToCodec(
-        targetCodec: VideoCodecEnum,
-        positionMs: Long,
-        reason: String
-    ): Boolean {
-        val dashSession = currentDashSession
-        if (dashSession != null && useDashPlayback) {
-            val routePlan = dashSession.routePlan ?: return false
-            if (dashSession.actualCodec == targetCodec) {
-                return false
-            }
-            val routeIndex = routePlan.routes.indexOfFirst { it.codec == targetCodec }
-            if (routeIndex < 0) {
-                return false
-            }
-            return tryDispatchDashPlaybackAttempt(routeIndex, positionMs, reason)
-        }
-        val plan = currentStreamFallbackPlan ?: return false
-        if (selectedCodec == targetCodec) {
-            return false
-        }
-        val routeIndex = plan.routes.indexOfFirst { it.codec == targetCodec }
-        if (routeIndex < 0) {
-            return false
-        }
-        return tryDispatchPlaybackAttempt(routeIndex, 0, positionMs, reason)
-    }
-
-    private fun tryRefreshPlayInfo(reason: String): Boolean {
-        if (playInfoRefreshRetryCount >= MAX_PLAYINFO_REFRESH_RETRY) {
-            return false
-        }
-        playInfoRefreshRetryCount += 1
-        return loadPlayUrlWithCurrentContext(reason = reason)
-    }
-
-    private fun loadPlayUrlWithCurrentContext(reason: String): Boolean {
-        val identity = currentPlayRequestIdentity() ?: return false
-        val lockedQualityId = requestedQualityId ?: selectedQualityId ?: 80
-        viewModelScope.launch {
-            val preparedPlayback = requestPreparedPlayback(
-                identity = identity,
-                preferLastPlayTime = false,
-                replaceInPlace = true,
-                playbackPositionMs = lastPlaybackPositionMs,
-                playWhenReady = true,
-                qualityCandidates = qualityPolicy.buildCandidates(lockedQualityId)
-            )
-            if (preparedPlayback != null) {
-                applyPreparedPlayback(
-                    preparedPlayback = preparedPlayback,
-                    resetFallbackAttempts = false,
-                    countCurrentAttemptAsFallback = true
-                )
-                return@launch
-            }
-            if (!trySwitchCodec(lastPlaybackPositionMs, reason = "refresh_failed")) {
-                _error.value = "当前清晰度下播放失败，请稍后重试"
-            }
-        }
-        return true
-    }
-
-    private fun tryDispatchPlaybackAttempt(
-        routeIndex: Int,
-        startCdnIndex: Int,
-        seekPositionMs: Long,
-        reason: String
-    ): Boolean {
-        val plan = currentStreamFallbackPlan ?: return false
-        if (routeIndex !in plan.routes.indices) {
-            return false
-        }
-        if (fallbackAttemptCount >= MAX_FALLBACK_ATTEMPTS) {
-            return false
-        }
-        val route = plan.routes[routeIndex]
-        if (route.videoUrls.isEmpty()) {
-            return false
-        }
-        val audioVariantCount = route.audioUrls.size.takeIf { it > 0 } ?: 1
-        val totalVariants = maxOf(route.videoUrls.size, audioVariantCount)
-        for (cdnIndex in startCdnIndex until totalVariants) {
-            val videoUrl = route.videoUrls.getOrElse(cdnIndex) { route.videoUrls.first() }
-            val audioUrl = route.audioUrls
-                .takeIf { it.isNotEmpty() }
-                ?.getOrElse(cdnIndex) { route.audioUrls.first() }
-            val signature = buildFallbackSignature(plan.qualityId, route.codec, videoUrl, audioUrl)
-            if (!attemptedFallbackSignatures.add(signature)) {
-                continue
-            }
-            fallbackAttemptCount += 1
-            fallbackRouteIndex = routeIndex
-            fallbackCdnIndex = cdnIndex
-            selectedCodec = route.codec
-            _selectedVideoCodec.value = route.codec
-            val selection = streamResolver.buildMediaSourceForRoute(
-                route = route,
-                videoUrl = videoUrl,
-                audioUrl = audioUrl,
-                availableCodecs = plan.routes.map { it.codec },
-                selectedCodec = route.codec,
-                durationMs = plan.durationMs,
-                minBufferTimeMs = plan.minBufferTimeMs
-            )
-            _error.value = null
-            _playbackRequest.value = PlaybackRequest(
-                mediaSource = selection.mediaSource,
-                aid = currentAid,
-                bvid = currentBvid,
-                cid = currentCid,
-                seekPositionMs = seekPositionMs,
-                playWhenReady = true,
-                replaceInPlace = true,
-                durationMs = plan.durationMs,
-                playbackIntentId = activePlaybackIntentId,
-                startupTraceId = currentStartupTraceId,
-                startupTraceStartElapsedMs = currentStartupTraceStartElapsedMs
-            )
-            return true
-        }
-        return false
-    }
-
-    private fun tryDispatchDashPlaybackAttempt(
-        routeIndex: Int,
-        seekPositionMs: Long,
-        reason: String
-    ): Boolean {
-        val session = currentDashSession ?: return false
-        val routePlan = session.routePlan ?: return false
-        if (routeIndex !in routePlan.routes.indices) {
-            return false
-        }
-        if (fallbackAttemptCount >= MAX_FALLBACK_ATTEMPTS) {
-            return false
-        }
-        val route = routePlan.routes[routeIndex]
-        val signature = "dash|${routePlan.qualityId}|${route.codec.name}|${route.videoRepresentation.baseUrl}"
-        if (!attemptedFallbackSignatures.add(signature)) {
-            return false
-        }
-        fallbackAttemptCount += 1
-        try {
-            val mediaSource = dashMediaSourceFactory.createMediaSource(route)
-            selectedCodec = route.codec
-            _selectedVideoCodec.value = route.codec
-            currentDashSession = session.copy(
-                currentRoute = route,
-                actualCodec = route.codec,
-                fallbackRouteIndex = routeIndex,
-                fallbackAttemptCount = fallbackAttemptCount
-            )
-            _error.value = null
-            _playbackRequest.value = PlaybackRequest(
-                mediaSource = mediaSource,
-                aid = currentAid,
-                bvid = currentBvid,
-                cid = currentCid,
-                seekPositionMs = seekPositionMs,
-                playWhenReady = true,
-                replaceInPlace = true,
-                durationMs = route.durationMs,
-                playbackIntentId = activePlaybackIntentId,
-                startupTraceId = currentStartupTraceId,
-                startupTraceStartElapsedMs = currentStartupTraceStartElapsedMs
-            )
-            return true
-        } catch (e: Exception) {
-            AppLog.e(TAG, "fallback:codec: dash failed route=$routeIndex error=${e.message}", e)
-            return false
-        }
-    }
-
-    private fun initializeFallbackPlan(
-        playInfo: PlayInfoModel,
-        lockedQualityId: Int,
-        selectedAudioId: Int?,
-        preferredCodec: VideoCodecEnum?,
-        resetAttempts: Boolean
-    ) {
-        currentStreamFallbackPlan = streamResolver.buildStreamFallbackPlan(
-            playInfo = playInfo,
-            lockedQualityId = lockedQualityId,
-            selectedAudioId = selectedAudioId,
-            preferredCodec = preferredCodec,
-            hardwareSupportedCodecs = hardwareSupportedVideoCodecs
-        )
-        fallbackRouteIndex = currentStreamFallbackPlan
-            ?.routes
-            ?.indexOfFirst { it.codec == preferredCodec }
-            ?.takeIf { it >= 0 }
-            ?: 0
-        fallbackCdnIndex = 0
-        if (resetAttempts) {
-            fallbackAttemptCount = 0
-            attemptedFallbackSignatures.clear()
-        }
-    }
-
-    private fun resetFallbackState() {
-        currentStreamFallbackPlan = null
-        fallbackRouteIndex = 0
-        fallbackCdnIndex = 0
-        fallbackAttemptCount = 0
-        attemptedFallbackSignatures.clear()
-        playInfoRefreshRetryCount = 0
-    }
-
-    private fun rememberCurrentFallbackAttempt(countAsFallback: Boolean): Boolean {
-        val plan = currentStreamFallbackPlan ?: return false
-        val route = plan.routes.getOrNull(fallbackRouteIndex) ?: return false
-        val videoUrl = route.videoUrls.getOrNull(fallbackCdnIndex)
-            ?: route.videoUrls.firstOrNull()
-            ?: return false
-        val audioUrl = route.audioUrls
-            .takeIf { it.isNotEmpty() }
-            ?.getOrElse(fallbackCdnIndex) { route.audioUrls.first() }
-        val signature = buildFallbackSignature(plan.qualityId, route.codec, videoUrl, audioUrl)
-        val added = attemptedFallbackSignatures.add(signature)
-        if (added && countAsFallback) {
-            fallbackAttemptCount += 1
-        }
-        return added
-    }
-
-    private fun buildFallbackSignature(
-        qualityId: Int,
-        codec: VideoCodecEnum,
-        videoUrl: String,
-        audioUrl: String?
-    ): String {
-        return "$qualityId|${codec.name}|$videoUrl|${audioUrl.orEmpty()}"
-    }
-
-    private suspend fun requestPlayInfoWithQualityFallback(
-        identity: PlayRequestIdentity,
-        qualityCandidates: List<Int>,
-        suppressUiSignals: Boolean
-    ): PlayInfoFetchResult? {
-        val attemptedQualities = linkedSetOf<Int>()
-        val requestedQualityId = qualityCandidates.firstOrNull()
-            ?: this.requestedQualityId
-            ?: selectedQualityId
-            ?: 80
-        var lastResult: PlayInfoFetchResult? = null
-        var allowWbi = true
-        qualityCandidates.forEach { qualityId ->
-            if (!attemptedQualities.add(qualityId)) {
-                return@forEach
-            }
-            val response = playInfoGateway.requestPlayInfo(
-                aid = identity.aid,
-                bvid = identity.bvid,
-                cid = identity.cid,
-                epId = identity.epId,
-                qualityId = qualityId,
-                fnval = streamResolver.buildFnval(qualityId),
-                fourk = streamResolver.buildFourk(qualityId),
-                allowWbi = allowWbi,
-                seasonId = currentSeasonId ?: 0L
-            ) ?: return@forEach
-            allowWbi = false
-            lastResult = PlayInfoFetchResult(
-                requestedQualityId = qualityId,
-                response = response
-            )
-            val playInfo = response.data
-            if (response.isSuccess && hasPlayableMedia(playInfo)) {
-                if (qualityId != requestedQualityId) {
-                }
-                if (response.isTryLookBypass) {
-                    if (!suppressUiSignals) {
-                        _riskControlTryLookBypass.value = true
-                    }
-                }
-                return lastResult
-            }
-            if (response.code == -351 || response.code == -412 || response.code == -352) {
-                return lastResult
-            }
-            if (response.code == 0 && playInfo != null && !hasPlayableMedia(playInfo)) {
-                if (shouldContinueQualityFallback(qualityId, response.message, playInfo)) {
-                    return@forEach
-                }
-                return lastResult
-            }
-        }
-        return lastResult
-    }
-
-    private fun hasPlayableMedia(playInfo: PlayInfoModel?): Boolean {
-        if (playInfo == null) {
-            return false
-        }
-        val hasDashVideo = playInfo.dash?.video.orEmpty().isNotEmpty()
-        val hasDurl = playInfo.durl.orEmpty().any { it.url.isNotBlank() }
-        return hasDashVideo || hasDurl
-    }
-
-    private fun shouldContinueQualityFallback(
-        requestedQualityId: Int,
-        message: String,
-        playInfo: PlayInfoModel
-    ): Boolean {
-        val normalizedMessage = message.lowercase()
-        if (
-            normalizedMessage.contains("请求的画质太高") ||
-            normalizedMessage.contains("画质太高") ||
-            normalizedMessage.contains("quality is too high") ||
-            normalizedMessage.contains("requested quality is too high")
-        ) {
-            return true
-        }
-
-        val highestDeclaredQuality = buildList {
-            addAll(playInfo.acceptQuality.orEmpty())
-            addAll(playInfo.supportFormats.orEmpty().map { it.quality })
-            add(playInfo.quality)
-        }.filter { it > 0 }.maxOrNull()
-
-        return highestDeclaredQuality != null && highestDeclaredQuality < requestedQualityId
-    }
-
-    private fun resolvePlayableQualityId(
-        requestedQualityId: Int,
-        playInfo: PlayInfoModel,
-        availableQualities: List<VideoQuality>,
-        reason: String
-    ): Int {
-        val streamQualityIds = playInfo.dash?.video
-            .orEmpty()
-            .map { it.id }
-            .distinct()
-        if (streamQualityIds.isNotEmpty()) {
-            if (requestedQualityId in streamQualityIds) {
-                return requestedQualityId
-            }
-            val fallbackQualityId = playInfo.quality
-                .takeIf { it in streamQualityIds }
-                ?: streamQualityIds.maxOrNull()
-                ?: requestedQualityId
-            return fallbackQualityId
-        }
-        if (availableQualities.isEmpty()) {
-            return requestedQualityId
-        }
-        if (availableQualities.any { it.id == requestedQualityId }) {
-            return requestedQualityId
-        }
-        val fallbackQualityId = availableQualities.maxByOrNull { it.id }?.id
-            ?: availableQualities.firstOrNull()?.id
-            ?: requestedQualityId
-        return fallbackQualityId
-    }
-
-    private fun buildSoftwareDecoderSafeQualityCandidates(
-        qualityCandidates: List<Int>,
-        hardwareCodecs: Set<VideoCodecEnum>
-    ): List<Int> {
-        if (hardwareCodecs.isNotEmpty() && !preferSoftwareDecoderSafePlayback) {
-            return qualityCandidates
-        }
-        val requestedQualityId = qualityCandidates.firstOrNull()
-            ?: requestedQualityId
-            ?: selectedQualityId
-            ?: return qualityCandidates
-        val safeQualityId = readSoftwareDecoderSafeQualityId()
-        softwareDecoderSafeQualityId = safeQualityId
-        if (requestedQualityId <= safeQualityId) {
-            return qualityCandidates
-        }
-        val cappedCandidates = qualityPolicy.buildCandidates(safeQualityId)
-        AppLog.w(
-            TAG,
-            "software-only decoder quality cap: requested=$requestedQualityId " +
-                "cap=$safeQualityId " +
-                "preferSoftwareSafe=$preferSoftwareDecoderSafePlayback " +
-                "hardwareCodecs=$hardwareCodecs candidates=$cappedCandidates"
-        )
-        return cappedCandidates
-    }
 
     private fun currentPlayRequestIdentity(): PlayRequestIdentity? {
         val cid = currentCid.takeIf { it > 0L } ?: return null
@@ -3457,18 +2686,9 @@ class VideoPlayerViewModel(
             preloadJob?.cancel()
             preloadJob = null
             preloadingIdentity = null
-            danmakuSegmentPreloadJob?.cancel()
-            danmakuSegmentPreloadJob = null
+            danmakuController.cancelPreload()
             douyinWarmupJob?.cancel()
             douyinWarmupJob = null
-            danmakuViewPreloadJob?.cancel()
-            danmakuViewPreloadJob = null
-            preloadedDanmakuViewCid = 0L
-            preloadedDanmakuView = null
-            preloadedDanmakuSegmentCid = 0L
-            preloadedDanmakuSegmentAid = 0L
-            preloadedDanmakuSegmentIndex = 0
-            preloadedDanmakuSegmentPayload = null
         }
     }
 
@@ -3564,17 +2784,9 @@ class VideoPlayerViewModel(
                 }
                 val dmMask = wrapper.dmMask
                 if (dmMask != null && dmMask.maskUrl.isNotBlank()) {
-                    AppLog.d(TAG, "dm_mask ready: cid=${dmMask.cid} fps=${dmMask.fps}")
-                    _dmMaskState.value = DmMaskState.Ready(
-                        maskUrl = dmMask.maskUrl,
-                        cid = dmMask.cid,
-                        fps = dmMask.fps
-                    )
-                    scheduleDmMaskReadyCallback(dmMask)
-                    Unit
+                    danmakuController.applyDmMask(dmMask)
                 } else {
-                    AppLog.d(TAG, "dm_mask unavailable for this video")
-                    _dmMaskState.value = DmMaskState.Unavailable
+                    danmakuController.applyDmMask(null)
                 }
             } ?: AppLog.e(TAG, "loadPlayerExtras failed: cid=$cid")
 
@@ -3652,1173 +2864,6 @@ class VideoPlayerViewModel(
                     interactionRepository.preloadNodes(bvid, aid, resolvedGraphVersion, nextEdgeIds)
                 }
             }
-        }
-    }
-
-    private fun loadDanmaku(cid: Long, aid: Long, durationMs: Long) {
-        danmakuLoadJob?.cancel()
-        if (cid <= 0L || aid <= 0L) {
-            clearDanmaku()
-            return
-        }
-        val loadGeneration = ++danmakuLoadGeneration
-        val seekPositionMs = pendingSeekPositionMs
-        danmakuLoadJob = viewModelScope.launch {
-            val fallbackSegmentCount = maxOf(1, ((durationMs.coerceAtLeast(1L) - 1L) / DANMAKU_SEGMENT_DURATION_MS + 1L).toInt())
-            val eagerInitialSegment = ((seekPositionMs.coerceAtLeast(0L) / DANMAKU_SEGMENT_DURATION_MS) + 1L)
-                .toInt()
-                .coerceIn(1, fallbackSegmentCount)
-            // 1. 获取弹幕 view 元数据（优先：预加载 > 缓存 > 网络）
-            var danmakuViewSource = "none"
-            val danmakuView = if (preloadedDanmakuViewCid == cid) {
-                danmakuViewSource = "preloaded"
-                preloadedDanmakuView.also {
-                    preloadedDanmakuViewCid = 0L
-                    preloadedDanmakuView = null
-                }
-            } else {
-                val cacheEntry = danmakuViewCache[cid]
-                val cacheAge = cacheEntry?.second?.let { System.currentTimeMillis() - it }
-                val cached = cacheEntry
-                    ?.takeIf { System.currentTimeMillis() - it.second < danmakuViewCacheTtlMs }
-                    ?.first
-                if (cached != null) {
-                    danmakuViewSource = "cache"
-                    cached
-                } else {
-                    playInfoGateway.requestDanmakuViewBytes(
-                        cid = cid,
-                        aid = aid
-                    )?.let { bytes ->
-                        danmakuViewSource = "network"
-                        runCatching { DmProtoParser.parseView(bytes) }.getOrNull()
-                    }
-                }
-            }
-            // 只缓存非 null 的元数据
-            if (danmakuView != null) {
-                danmakuViewCache[cid] = danmakuView to System.currentTimeMillis()
-            }
-            currentDanmakuFilterContext = DanmakuFilterContext.fromView(danmakuView)
-            val smartFilter = danmakuView?.smartFilterConfig
-            PlaybackStartupTrace.log(
-                traceId = currentStartupTraceId,
-                startElapsedMs = currentStartupTraceStartElapsedMs,
-                step = "danmaku_view_ready",
-                message = "cid=$cid source=$danmakuViewSource segments=${danmakuView?.totalSegments ?: 0} totalCount=${danmakuView?.totalCount ?: 0} special=${danmakuView?.specialDanmakuUrls?.size ?: 0} filterLevel=${smartFilter?.resolvedLevel ?: 0} filterEnabled=${smartFilter?.resolvedEnabled ?: false} cloudLvl=${smartFilter?.cloudLevel ?: 0} cloudSw=${smartFilter?.cloudSwitch ?: 0} playerLvl=${smartFilter?.playerLevel ?: 0} playerOn=${smartFilter?.playerEnabled ?: false}"
-            )
-
-            val segmentCount = danmakuView?.totalSegments
-                ?.takeIf { it > 0 }
-                ?: fallbackSegmentCount
-            val expectedSegmentCount = resolveExpectedDanmakuSegmentCount(
-                totalCount = danmakuView?.totalCount ?: 0L,
-                totalSegments = segmentCount
-            )
-            logDanmakuMeta(
-                cid = cid,
-                aid = aid,
-                durationMs = durationMs,
-                segmentCount = segmentCount,
-                danmakuView = danmakuView
-            )
-
-            // 初始化片段缓存
-            danmakuSegmentPayloads.clear()
-            danmakuLoadedSegments.clear()
-            danmakuLoadingSegments.clear()
-            danmakuPublishedSegments.clear()
-            danmakuPublishPendingSegments.clear()
-            danmakuSegmentCoveredUntilMs.clear()
-            danmakuTotalSegments = segmentCount
-
-            // 2. 计算初始段（根据 seekPosition，使用协程启动前的快照）
-            val initialSegment = resolveDanmakuSegmentIndex(seekPositionMs)
-                .takeIf { it > 0 } ?: eagerInitialSegment
-            val useInitialPartialSegment = initialSegment == 1 && seekPositionMs < FIRST_DANMAKU_PARTIAL_END_MS
-            currentDanmakuSegmentIndex = initialSegment
-            PlaybackStartupTrace.log(
-                traceId = currentStartupTraceId,
-                startElapsedMs = currentStartupTraceStartElapsedMs,
-                step = "danmaku_initial_segment_selected",
-                message = "cid=$cid seekMs=$seekPositionMs segment=$initialSegment total=$segmentCount"
-            )
-
-            // 3. 当前段先发布；特殊弹幕和下一段后台补，避免首段弹幕被额外请求拖慢。
-            danmakuLoadingSegments.add(initialSegment)
-            val currentPayload = try {
-                val preloaded = if (initialSegment == eagerInitialSegment) {
-                    awaitPreloadedDanmakuSegment(
-                        cid = cid,
-                        aid = aid,
-                        segmentIndex = eagerInitialSegment
-                    )
-                } else {
-                    null
-                }
-                if (preloaded != null) {
-                    PlaybackStartupTrace.log(
-                        traceId = currentStartupTraceId,
-                        startElapsedMs = currentStartupTraceStartElapsedMs,
-                        step = "danmaku_segment_preload_hit",
-                        message = "cid=$cid segment=$initialSegment regular=${preloaded.regularItems.size} special=${preloaded.specialItems.size}"
-                    )
-                    preloaded
-                } else {
-                    val douyinCached = takeDouyinDanmakuSegmentCache(cid, aid, initialSegment)
-                    if (douyinCached != null && useInitialPartialSegment) {
-                        PlaybackStartupTrace.log(
-                            traceId = currentStartupTraceId,
-                            startElapsedMs = currentStartupTraceStartElapsedMs,
-                            step = "danmaku_segment_preload_hit",
-                            message = "cid=$cid segment=$initialSegment source=douyin_cache regular=${douyinCached.regularItems.size} special=${douyinCached.specialItems.size}"
-                        )
-                        douyinCached
-                    } else {
-                        loadDanmakuSegmentPayload(
-                            cid = cid,
-                            aid = aid,
-                            segmentIndices = listOf(initialSegment),
-                            expectedSegmentCount = if (useInitialPartialSegment) 0 else expectedSegmentCount,
-                            rangeStartMs = if (useInitialPartialSegment) 0L else null,
-                            rangeEndMs = if (useInitialPartialSegment) FIRST_DANMAKU_INITIAL_RANGE_END_MS else null,
-                            parseEndMs = if (useInitialPartialSegment) FIRST_DANMAKU_INITIAL_RANGE_END_MS else null
-                        )
-                    }
-                }
-            } finally {
-                danmakuLoadingSegments.remove(initialSegment)
-            }
-            if (!isActiveDanmakuRequest(loadGeneration)) {
-                return@launch
-            }
-            if (firstDanmakuSegmentTraceLoggedId != currentStartupTraceId) {
-                firstDanmakuSegmentTraceLoggedId = currentStartupTraceId
-                PlaybackStartupTrace.log(
-                    traceId = currentStartupTraceId,
-                    startElapsedMs = currentStartupTraceStartElapsedMs,
-                    step = "danmaku_initial_segment_ready",
-                    message = "segment=$initialSegment regular=${currentPayload.regularItems.size} special=${currentPayload.specialItems.size}"
-                )
-            }
-            // 缓存当前段
-            danmakuSegmentPayloads[initialSegment] = currentPayload
-            if (!useInitialPartialSegment) {
-                danmakuLoadedSegments.add(initialSegment)
-            }
-            danmakuSegmentCoveredUntilMs[initialSegment] = if (useInitialPartialSegment) {
-                FIRST_DANMAKU_INITIAL_RANGE_END_MS
-            } else {
-                initialSegment.toLong() * DANMAKU_SEGMENT_DURATION_MS
-            }
-            danmakuPublishedSegments.clear()
-            danmakuPublishedSegments.add(initialSegment)
-            publishDanmaku(currentPayload.regularItems, replace = true)
-            publishSpecialDanmaku(currentPayload.specialItems, replace = true)
-            logDanmakuDiagnostics(
-                label = "segment-$initialSegment",
-                items = currentPayload.regularItems,
-                danmakuView = danmakuView
-            )
-            trimDistantDanmakuSegments()
-
-            if (useInitialPartialSegment) {
-                launch(Dispatchers.IO) {
-                    loadAndPublishInitialTailRange(
-                        cid = cid,
-                        aid = aid,
-                        segmentIndex = initialSegment,
-                        loadGeneration = loadGeneration,
-                        basePayload = currentPayload,
-                        delayMs = resolveInitialTailLoadDelayMs(
-                            boundaryMs = FIRST_DANMAKU_INITIAL_PARSE_END_MS,
-                            minDelayMs = 0L
-                        ),
-                        rangeStartMs = FIRST_DANMAKU_INITIAL_PARSE_END_MS,
-                        rangeEndMs = FIRST_DANMAKU_PARTIAL_END_MS
-                    )
-                }
-                launch(Dispatchers.IO) {
-                    loadAndPublishInitialTailRange(
-                        cid = cid,
-                        aid = aid,
-                        segmentIndex = initialSegment,
-                        loadGeneration = loadGeneration,
-                        basePayload = currentPayload,
-                        delayMs = resolveInitialTailLoadDelayMs(
-                            boundaryMs = FIRST_DANMAKU_PARTIAL_END_MS,
-                            minDelayMs = FIRST_DANMAKU_FAR_TAIL_MIN_DELAY_MS
-                        ),
-                        rangeStartMs = FIRST_DANMAKU_PARTIAL_END_MS,
-                        rangeEndMs = DANMAKU_SEGMENT_DURATION_MS
-                    )
-                }
-            }
-
-            launch(Dispatchers.IO) {
-                val specialPayload = loadSpecialDanmakuPayload(danmakuView?.specialDanmakuUrls.orEmpty())
-                if (!isActiveDanmakuRequest(loadGeneration)) return@launch
-                withContext(Dispatchers.Main) {
-                    if (!isActiveDanmakuRequest(loadGeneration)) return@withContext
-                    if (specialPayload.regularItems.isNotEmpty()) {
-                        publishDanmaku(specialPayload.regularItems.sortedBy { it.progress }, replace = false)
-                    }
-                    if (specialPayload.specialItems.isNotEmpty()) {
-                        publishSpecialDanmaku(specialPayload.specialItems, replace = false)
-                    }
-                }
-            }
-
-        }
-    }
-
-    private fun resolveInitialTailLoadDelayMs(boundaryMs: Long, minDelayMs: Long): Long {
-        val positionMs = _currentPosition.value.coerceAtLeast(0L)
-        // 已越过该 tail 边界（如续播或 seek 跳过）则立即加载，避免该区间弹幕断档。
-        if (positionMs >= boundaryMs) return 0L
-        val targetDelayMs = boundaryMs - positionMs - FIRST_DANMAKU_TAIL_PREFETCH_AHEAD_MS
-        return maxOf(minDelayMs, targetDelayMs.coerceAtLeast(0L))
-    }
-
-    private suspend fun loadAndPublishInitialTailRange(
-        cid: Long,
-        aid: Long,
-        segmentIndex: Int,
-        loadGeneration: Long,
-        basePayload: SpecialDanmakuPayload,
-        delayMs: Long,
-        rangeStartMs: Long,
-        rangeEndMs: Long
-    ) {
-        PlaybackStartupTrace.log(
-            traceId = currentStartupTraceId,
-            startElapsedMs = currentStartupTraceStartElapsedMs,
-            step = "danmaku_tail_load_deferred",
-            message = "segment=$segmentIndex delayMs=$delayMs range=${formatDanmakuRange(rangeStartMs, rangeEndMs)}"
-        )
-        delay(delayMs)
-        if (!isActiveDanmakuRequest(loadGeneration)) return
-        // 二次确认覆盖范围：延迟期间 seek/预加载可能已覆盖此 range 的前段，
-        // 跳过或推进起点，避免重复请求与发布（解决 historyDropped 重复丢弃）。
-        val coveredNow = withContext(Dispatchers.Main) {
-            danmakuSegmentCoveredUntilMs[segmentIndex] ?: 0L
-        }
-        val effectiveRangeStart = maxOf(rangeStartMs, coveredNow)
-        if (effectiveRangeStart >= rangeEndMs) {
-            PlaybackStartupTrace.log(
-                traceId = currentStartupTraceId,
-                startElapsedMs = currentStartupTraceStartElapsedMs,
-                step = "danmaku_tail_load_skipped",
-                message = "segment=$segmentIndex range=${formatDanmakuRange(rangeStartMs, rangeEndMs)} covered=$coveredNow"
-            )
-            return
-        }
-        val tailPayload = loadDanmakuSegmentPayload(
-            cid = cid,
-            aid = aid,
-            segmentIndices = listOf(segmentIndex),
-            expectedSegmentCount = 0,
-            rangeStartMs = effectiveRangeStart,
-            rangeEndMs = rangeEndMs
-        )
-        if (!isActiveDanmakuRequest(loadGeneration)) return
-        withContext(Dispatchers.Main) {
-            if (!isActiveDanmakuRequest(loadGeneration)) return@withContext
-            val currentPayload = danmakuSegmentPayloads[segmentIndex] ?: basePayload
-            val existingRegularKeys = currentPayload.regularItems
-                .mapTo(HashSet(currentPayload.regularItems.size)) { it.danmakuIdentityKey() }
-            val existingSpecialKeys = currentPayload.specialItems
-                .mapTo(HashSet(currentPayload.specialItems.size)) { it.specialDanmakuIdentityKey() }
-            val tailRegularCandidates = tailPayload.regularItems
-                .filter { it.progress >= effectiveRangeStart && it.progress < rangeEndMs }
-                .sortedBy { it.progress }
-            val tailSpecialCandidates = tailPayload.specialItems
-                .filter { it.progress >= effectiveRangeStart && it.progress < rangeEndMs }
-                .sortedBy { it.progress }
-            val tailRegularItems = tailRegularCandidates.filter { existingRegularKeys.add(it.danmakuIdentityKey()) }
-            val tailSpecialItems = tailSpecialCandidates.filter { existingSpecialKeys.add(it.specialDanmakuIdentityKey()) }
-            val mergedPayload = SpecialDanmakuPayload(
-                regularItems = (currentPayload.regularItems + tailRegularItems).distinctRegularDanmaku(),
-                specialItems = (currentPayload.specialItems + tailSpecialItems).distinctSpecialDanmaku()
-            )
-            val droppedRegular = tailRegularCandidates.size - tailRegularItems.size
-            val droppedSpecial = tailSpecialCandidates.size - tailSpecialItems.size
-            if (droppedRegular > 0 || droppedSpecial > 0 ||
-                tailPayload.regularItems.any { it.progress < effectiveRangeStart || it.progress >= rangeEndMs }
-            ) {
-                PlaybackStartupTrace.log(
-                    traceId = currentStartupTraceId,
-                    startElapsedMs = currentStartupTraceStartElapsedMs,
-                    step = "danmaku_tail_dedup",
-                    message = "segment=$segmentIndex range=${formatDanmakuRange(effectiveRangeStart, rangeEndMs)} tailRegular=${tailPayload.regularItems.size} appendRegular=${tailRegularItems.size} droppedRegular=$droppedRegular tailSpecial=${tailPayload.specialItems.size} appendSpecial=${tailSpecialItems.size} droppedSpecial=$droppedSpecial"
-                )
-            }
-            danmakuSegmentPayloads[segmentIndex] = mergedPayload
-            danmakuSegmentCoveredUntilMs[segmentIndex] = rangeEndMs
-            if (rangeEndMs >= DANMAKU_SEGMENT_DURATION_MS) {
-                danmakuLoadedSegments.add(segmentIndex)
-            }
-            if (tailRegularItems.isNotEmpty()) {
-                publishDanmaku(tailRegularItems, replace = false)
-            }
-            if (tailSpecialItems.isNotEmpty()) {
-                publishSpecialDanmaku(tailSpecialItems, replace = false)
-            }
-        }
-    }
-
-    private suspend fun loadDanmakuSegmentPayload(
-        cid: Long,
-        aid: Long,
-        segmentIndices: List<Int>,
-        expectedSegmentCount: Int = 0,
-        rangeStartMs: Long? = null,
-        rangeEndMs: Long? = null,
-        parseStartMs: Long? = null,
-        parseEndMs: Long? = null
-    ): SpecialDanmakuPayload = withContext(Dispatchers.IO) {
-        val regularItems = mutableListOf<DmModel>()
-        val specialItems = mutableListOf<SpecialDanmakuModel>()
-        segmentIndices.forEach { segmentIndex ->
-            val bytes = playInfoGateway.requestDanmakuSegmentBytes(
-                cid = cid,
-                aid = aid,
-                segmentIndex = segmentIndex,
-                expectedSegmentCount = expectedSegmentCount,
-                rangeStartMs = rangeStartMs,
-                rangeEndMs = rangeEndMs
-            ) ?: return@forEach
-            PlaybackStartupTrace.log(
-                traceId = currentStartupTraceId,
-                startElapsedMs = currentStartupTraceStartElapsedMs,
-                step = "danmaku_segment_bytes_loaded",
-                message = "cid=$cid segment=$segmentIndex bytes=${bytes.size} range=${formatDanmakuRange(rangeStartMs, rangeEndMs)}"
-            )
-            val regularStartIndex = regularItems.size
-            val specialStartIndex = specialItems.size
-            var advancedCount = 0
-            val scanResult = runCatching {
-                DmProtoParser.forEachSegmentElemWithMetaInProgressRange(bytes, parseStartMs, parseEndMs) { elem ->
-                    if (elem.mode == 7) {
-                        if (!isDanmakuElemInParseRange(elem.progress, parseStartMs, parseEndMs)) {
-                            return@forEachSegmentElemWithMetaInProgressRange
-                        }
-                        advancedCount += 1
-                        AdvancedDanmakuParser.parse(
-                            id = elem.id.takeIf { it > 0L } ?: elem.progress.toLong(),
-                            progressMs = elem.progress,
-                            color = elem.color,
-                            fontSize = elem.fontSize,
-                            rawContent = elem.content
-                        )?.let(specialItems::add)
-                    } else {
-                        if (!isDanmakuElemInParseRange(elem.progress, parseStartMs, parseEndMs)) {
-                            return@forEachSegmentElemWithMetaInProgressRange
-                        }
-                        regularItems += DmModel(
-                            id = elem.id,
-                            color = elem.color,
-                            colorful = elem.colorful,
-                            content = elem.content,
-                            mode = elem.mode,
-                            progress = elem.progress,
-                            fontSize = elem.fontSize,
-                            weight = elem.weight,
-                            pool = elem.pool,
-                            attr = elem.attr,
-                            aiFlagScore = 0,
-                            midHash = elem.midHash,
-                            ctime = elem.ctime,
-                            action = elem.action,
-                            idStr = elem.idStr,
-                            animation = elem.animation
-                        )
-                    }
-                }
-            }.getOrNull() ?: return@forEach
-            val meta = scanResult.meta
-            val aiFlagsById = meta.aiFlag.dmFlags.associate { it.dmid to it.flag }
-            val colorfulSrcByType = meta.colorfulSrc
-                .filter { it.type != 0 && it.src.isNotBlank() }
-                .associate { it.type to it.src }
-            if (aiFlagsById.isNotEmpty() || colorfulSrcByType.isNotEmpty()) {
-                for (index in regularStartIndex until regularItems.size) {
-                    val item = regularItems[index]
-                    val rawColorfulSrc = colorfulSrcByType[item.colorful].orEmpty()
-                    regularItems[index] = item.copy(
-                        aiFlagScore = aiFlagsById[item.id] ?: 0,
-                        colorfulSrc = rawColorfulSrc,
-                        colorfulStyle = if (rawColorfulSrc.isBlank()) {
-                            item.colorfulStyle
-                        } else {
-                            DmColorfulStyleParser.parse(rawColorfulSrc)
-                        }
-                    )
-                }
-            }
-            PlaybackStartupTrace.log(
-                traceId = currentStartupTraceId,
-                startElapsedMs = currentStartupTraceStartElapsedMs,
-                step = "danmaku_segment_parsed",
-                message = "cid=$cid segment=$segmentIndex elems=${scanResult.elemCount} regular=${regularItems.size - regularStartIndex} special=${specialItems.size - specialStartIndex} advanced=$advancedCount"
-            )
-        }
-        SpecialDanmakuPayload(
-            regularItems = regularItems,
-            specialItems = specialItems
-        )
-    }
-
-    private suspend fun loadSpecialDanmakuPayload(urls: List<String>): SpecialDanmakuPayload = withContext(Dispatchers.IO) {
-        val regularItems = mutableListOf<DmModel>()
-        val specialItems = mutableListOf<SpecialDanmakuModel>()
-        urls.forEach { url ->
-            val bytes = playInfoGateway.requestAbsoluteBytes(url) ?: return@forEach
-            val segment = runCatching {
-                DmProtoParser.parseSegment(bytes)
-            }.getOrNull() ?: return@forEach
-            val colorfulSrcByType = segment.colorfulSrc
-                .filter { it.type != 0 && it.src.isNotBlank() }
-                .associate { it.type to it.src }
-            segment.elems.forEach { elem ->
-                when {
-                    elem.mode == 7 -> {
-                        AdvancedDanmakuParser.parse(
-                            id = elem.id.takeIf { it > 0L } ?: elem.progress.toLong(),
-                            progressMs = elem.progress,
-                            color = elem.color,
-                            fontSize = elem.fontSize,
-                            rawContent = elem.content
-                        )?.let(specialItems::add)
-                    }
-                    elem.mode == 9 || elem.content.contains("def text", ignoreCase = true) -> {
-                        specialItems += SpecialDanmakuParser.parse(
-                            parentId = elem.id.takeIf { it > 0L } ?: elem.progress.toLong(),
-                            progressMs = elem.progress,
-                            fallbackColor = elem.color,
-                            script = elem.content
-                        )
-                    }
-                    else -> {
-                        val rawColorfulSrc = colorfulSrcByType[elem.colorful].orEmpty()
-                        regularItems += DmModel(
-                            id = elem.id,
-                            color = elem.color,
-                            colorful = elem.colorful,
-                            colorfulSrc = rawColorfulSrc,
-                            colorfulStyle = DmColorfulStyleParser.parse(rawColorfulSrc),
-                            content = elem.content,
-                            mode = elem.mode,
-                            progress = elem.progress,
-                            fontSize = elem.fontSize,
-                            weight = elem.weight,
-                            pool = elem.pool,
-                            attr = elem.attr,
-                            midHash = elem.midHash,
-                            ctime = elem.ctime,
-                            action = elem.action,
-                            idStr = elem.idStr,
-                            animation = elem.animation
-                        )
-                    }
-                }
-            }
-        }
-        SpecialDanmakuPayload(
-            regularItems = regularItems,
-            specialItems = specialItems
-        )
-    }
-
-    private fun logDanmakuMeta(
-        cid: Long,
-        aid: Long,
-        durationMs: Long,
-        segmentCount: Int,
-        danmakuView: DmWebViewReplyProto?
-    ) {
-        if (danmakuView == null) {
-            return
-        }
-        val filter = danmakuView.smartFilterConfig
-        AppLog.d(
-            "DanmakuMeta",
-            "cid=$cid aid=$aid duration=${durationMs}ms segments=$segmentCount totalCount=${danmakuView.totalCount} special=${danmakuView.specialDanmakuUrls.size} filterLevel=${filter.resolvedLevel} filterEnabled=${filter.resolvedEnabled} cloudLvl=${filter.cloudLevel} cloudSw=${filter.cloudSwitch} playerLvl=${filter.playerLevel} playerOn=${filter.playerEnabled} defaultLvl=${filter.defaultLevel} defaultOn=${filter.defaultEnabled}"
-        )
-    }
-
-    private fun resolveExpectedDanmakuSegmentCount(totalCount: Long, totalSegments: Int): Int {
-        if (totalCount <= 0L || totalSegments <= 0) return 0
-        return ((totalCount + totalSegments - 1L) / totalSegments)
-            .coerceAtMost(Int.MAX_VALUE.toLong())
-            .toInt()
-    }
-
-    private fun logDanmakuDiagnostics(
-        label: String,
-        items: List<DmModel>,
-        danmakuView: DmWebViewReplyProto?
-    ) {
-        if (items.isEmpty()) {
-            return
-        }
-        val totalCount = danmakuView?.totalCount ?: 0L
-        val totalSegments = danmakuView?.totalSegments ?: 0
-        val expectedPerSegment = if (totalSegments > 0 && totalCount > 0) totalCount / totalSegments else 0L
-        val filter = danmakuView?.smartFilterConfig
-        AppLog.d(
-            "DanmakuDiag",
-            "$label: received=${items.size} totalCount=$totalCount totalSegments=$totalSegments expectedPerSeg=$expectedPerSegment filterLevel=${filter?.resolvedLevel ?: 0} filterOn=${filter?.resolvedEnabled ?: false}"
-        )
-        val advancedCount = items.count { it.mode == 7 }
-        val unsupportedCount = items.count { it.mode !in setOf(1, 4, 5, 6, 7) }
-        if (advancedCount > 0) {
-        }
-        if (unsupportedCount > 0) {
-        }
-        logSpecialColorCandidates(label, items)
-    }
-
-    private fun logSpecialColorCandidates(
-        label: String,
-        items: List<DmModel>
-    ) {
-        val candidates = items.filter { item ->
-            item.mode in setOf(1, 6) && (
-                item.action.isNotBlank() ||
-                    item.animation.isNotBlank() ||
-                    item.colorful != 0 ||
-                    item.colorfulSrc.isNotBlank() ||
-                    item.attr != 0 ||
-                    item.pool != 0 ||
-                    item.aiFlagScore > 0
-                )
-        }
-        if (candidates.isEmpty()) {
-            return
-        }
-        val colorfulSummary = candidates.groupingBy { it.colorful }
-            .eachCount()
-            .entries
-            .sortedByDescending { it.value }
-            .joinToString(separator = ",") { "${it.key}:${it.value}" }
-        val attrSummary = candidates.groupingBy {
-            "${it.attr}/${it.colorful}/${if (it.colorfulSrc.isNotBlank()) "src" else "nosrc"}"
-        }
-            .eachCount()
-            .entries
-            .sortedByDescending { it.value }
-            .joinToString(separator = ",") { "${it.key}:${it.value}" }
-        if (!verboseDanmakuCandidateLog) {
-            return
-        }
-        candidates
-            .sortedWith(
-                compareByDescending<DmModel> { it.colorfulSrc.isNotBlank() }
-                    .thenByDescending { it.colorful != 0 }
-                    .thenByDescending { it.attr != 0 }
-                    .thenBy { it.progress }
-            )
-            .distinctBy { Triple("${it.attr}/${it.colorful}", it.color, it.content.take(12)) }
-            .take(8)
-            .forEachIndexed { index, item ->
-            }
-    }
-
-    private fun Int.toColorHex(): String {
-        return "0x" + toUInt().toString(16).uppercase().padStart(8, '0')
-    }
-
-    private fun String.toPreview(limit: Int): String {
-        val normalized = replace('\n', ' ').replace('\r', ' ').trim()
-        if (normalized.isEmpty()) {
-            return "<empty>"
-        }
-        return if (normalized.length <= limit) {
-            normalized
-        } else {
-            normalized.take(limit) + "..."
-        }
-    }
-
-    private fun publishDanmaku(items: List<DmModel>, replace: Boolean) {
-        val startedAtMs = SystemClock.elapsedRealtime()
-        viewModelScope.launch(danmakuPublishDispatcher) {
-            // 后台单线程：去重 + 排序 + 预算 identityKey（P1 主线程开销大头，3000 条曾耗时 37ms）。
-            val normalizedItems = items.distinctRegularDanmaku()
-            val normalizedKeys = normalizedItems.map { it.danmakuIdentityKey() }
-            withContext(Dispatchers.Main.immediate) {
-                if (replace && normalizedItems.isNotEmpty() && firstDanmakuTraceLoggedId != currentStartupTraceId) {
-                    firstDanmakuTraceLoggedId = currentStartupTraceId
-                    PlaybackStartupTrace.log(
-                        traceId = currentStartupTraceId,
-                        startElapsedMs = currentStartupTraceStartElapsedMs,
-                        step = "first_danmaku_published",
-                        message = "count=${normalizedItems.size} cid=$currentCid"
-                    )
-                }
-                val emittedItems = if (replace) {
-                    publishedRegularDanmakuKeys.clear()
-                    publishedRegularDanmakuKeys.addAll(normalizedKeys)
-                    normalizedItems
-                } else {
-                    normalizedItems.filterIndexed { i, _ -> publishedRegularDanmakuKeys.add(normalizedKeys[i]) }
-                }
-                if (!replace && emittedItems.size != normalizedItems.size) {
-                    PlaybackStartupTrace.log(
-                        traceId = currentStartupTraceId,
-                        startElapsedMs = currentStartupTraceStartElapsedMs,
-                        step = "danmaku_publish_dedup",
-                        message = "input=${normalizedItems.size} emitted=${emittedItems.size} dropped=${normalizedItems.size - emittedItems.size}"
-                    )
-                }
-                _danmaku.value = if (replace) {
-                    if (normalizedItems.isEmpty()) emptyList() else DANMAKU_AVAILABLE_MARKER
-                } else {
-                    if (_danmaku.value.orEmpty().isNotEmpty() || emittedItems.isNotEmpty()) {
-                        DANMAKU_AVAILABLE_MARKER
-                    } else {
-                        emptyList()
-                    }
-                }
-                logDanmakuPublishPerf(
-                    type = "regular",
-                    replace = replace,
-                    inputCount = items.size,
-                    normalizedCount = normalizedItems.size,
-                    emittedCount = emittedItems.size,
-                    totalPublishedKeys = publishedRegularDanmakuKeys.size,
-                    startedAtMs = startedAtMs
-                )
-                if (!replace && emittedItems.isEmpty()) {
-                    return@withContext
-                }
-                _danmakuUpdates.tryEmit(DanmakuUpdate(
-                    items = emittedItems,
-                    replace = replace,
-                    filterContext = currentDanmakuFilterContext
-                ))
-            }
-        }
-    }
-
-    private fun publishSpecialDanmaku(items: List<SpecialDanmakuModel>, replace: Boolean) {
-        val startedAtMs = SystemClock.elapsedRealtime()
-        val normalizedItems = items.distinctSpecialDanmaku()
-        val emittedItems = if (replace) {
-            publishedSpecialDanmakuKeys.clear()
-            normalizedItems.forEach { publishedSpecialDanmakuKeys.add(it.specialDanmakuIdentityKey()) }
-            normalizedItems
-        } else {
-            normalizedItems.filter { publishedSpecialDanmakuKeys.add(it.specialDanmakuIdentityKey()) }
-        }
-        if (replace) {
-            _specialDanmaku.value = normalizedItems
-        } else if (emittedItems.isNotEmpty()) {
-            _specialDanmaku.value = _specialDanmaku.value.orEmpty() + emittedItems
-        }
-        logDanmakuPublishPerf(
-            type = "special",
-            replace = replace,
-            inputCount = items.size,
-            normalizedCount = normalizedItems.size,
-            emittedCount = emittedItems.size,
-            totalPublishedKeys = publishedSpecialDanmakuKeys.size,
-            startedAtMs = startedAtMs
-        )
-    }
-
-    private fun logDanmakuPublishPerf(
-        type: String,
-        replace: Boolean,
-        inputCount: Int,
-        normalizedCount: Int,
-        emittedCount: Int,
-        totalPublishedKeys: Int,
-        startedAtMs: Long
-    ) {
-        val costMs = SystemClock.elapsedRealtime() - startedAtMs
-        val sameBatchDropped = inputCount - normalizedCount
-        val historicalDropped = normalizedCount - emittedCount
-        if (costMs < DANMAKU_PUBLISH_DIAG_THRESHOLD_MS &&
-            inputCount < 512 &&
-            sameBatchDropped == 0 &&
-            historicalDropped == 0
-        ) {
-            return
-        }
-        AppLog.d(
-            "PlaybackPerf",
-            "danmaku_publish type=$type replace=$replace cost=${costMs}ms input=$inputCount " +
-                "normalized=$normalizedCount emitted=$emittedCount sameBatchDropped=$sameBatchDropped " +
-                "historyDropped=$historicalDropped publishedKeys=$totalPublishedKeys cid=$currentCid " +
-                "segment=$currentDanmakuSegmentIndex/$danmakuTotalSegments"
-        )
-    }
-
-    private fun scheduleDmMaskReadyCallback(dmMask: DmMaskInfo) {
-        val callbackGeneration = videoLoadGeneration
-        viewModelScope.launch {
-            delay(FIRST_FRAME_DM_MASK_LOAD_DELAY_MS)
-            if (!isActiveVideoLoad(callbackGeneration) || currentCid != dmMask.cid) return@launch
-            onDmMaskReady?.invoke(dmMask.maskUrl, dmMask.cid, dmMask.fps)
-        }
-    }
-
-    private fun clearDanmaku() {
-        danmakuLoadJob?.cancel()
-        // segment preload 和 view preload 不在此取消：
-        // 它们是为下一条播放预加载的，clearDanmaku 只是清理当前播放的弹幕状态。
-        // 新的 preload 启动时会自行取消旧 job（见 preloadInitialDanmakuSegment line 3913）。
-        _danmaku.value = emptyList()
-        _specialDanmaku.value = emptyList()
-        danmakuSegmentPayloads.clear()
-        danmakuLoadedSegments.clear()
-        danmakuLoadingSegments.clear()
-        danmakuPublishedSegments.clear()
-        danmakuPublishPendingSegments.clear()
-        publishedRegularDanmakuKeys.clear()
-        publishedSpecialDanmakuKeys.clear()
-        currentDanmakuSegmentIndex = -1
-        danmakuTotalSegments = 0
-        currentDanmakuFilterContext = DanmakuFilterContext.EMPTY
-    }
-
-    /**
-     * 在 loadVideoInfo 入口立即启动弹幕元数据预加载（最早时机）
-     */
-    private fun preloadDanmakuView(cid: Long, aid: Long, loadGeneration: Long) {
-        if (cid <= 0L || aid <= 0L || preloadedDanmakuViewCid == cid) {
-            return
-        }
-        val cacheEntry = danmakuViewCache[cid]
-        val cacheAge = cacheEntry?.second?.let { System.currentTimeMillis() - it }
-        val cached = cacheEntry
-            ?.takeIf { System.currentTimeMillis() - it.second < danmakuViewCacheTtlMs }
-            ?.first
-        if (cached != null) {
-            preloadedDanmakuViewCid = cid
-            preloadedDanmakuView = cached
-            return
-        }
-        danmakuViewPreloadJob?.cancel()
-        danmakuViewPreloadJob = viewModelScope.launch(Dispatchers.IO) {
-            if (!isActiveVideoLoad(loadGeneration)) return@launch
-            val view = playInfoGateway.requestDanmakuViewBytes(cid = cid, aid = aid)
-                ?.let { runCatching { DmProtoParser.parseView(it) }.getOrNull() }
-            if (view != null && isActiveVideoLoad(loadGeneration)) {
-                preloadedDanmakuViewCid = cid
-                preloadedDanmakuView = view
-                danmakuViewCache[cid] = view to System.currentTimeMillis()
-            }
-        }
-    }
-
-    /**
-     * 在 getVideoDetail 拿到 cid+aid 后调用（兼容内部路径）
-     */
-    private fun preloadDanmakuViewIfNeeded(loadGeneration: Long) {
-        val cid = currentCid
-        val aid = currentAid ?: 0L
-        if (cid <= 0L || aid <= 0L) return
-        preloadDanmakuView(cid = cid, aid = aid, loadGeneration = loadGeneration)
-    }
-
-    private fun preloadInitialDanmakuSegment(cid: Long, aid: Long, segmentIndex: Int) {
-        if (cid <= 0L || aid <= 0L || segmentIndex <= 0) {
-            return
-        }
-        if (
-            preloadedDanmakuSegmentCid == cid &&
-            preloadedDanmakuSegmentAid == aid &&
-            preloadedDanmakuSegmentIndex == segmentIndex
-        ) {
-            return
-        }
-        danmakuSegmentPreloadJob?.cancel()
-        preloadedDanmakuSegmentCid = cid
-        preloadedDanmakuSegmentAid = aid
-        preloadedDanmakuSegmentIndex = segmentIndex
-        preloadedDanmakuSegmentPayload = null
-        PlaybackStartupTrace.log(
-            traceId = currentStartupTraceId,
-            startElapsedMs = currentStartupTraceStartElapsedMs,
-            step = "danmaku_segment_preload_started",
-            message = "cid=$cid segment=$segmentIndex range=${formatDanmakuRange(
-                if (segmentIndex == 1) 0L else null,
-                if (segmentIndex == 1) FIRST_DANMAKU_INITIAL_RANGE_END_MS else null
-            )}"
-        )
-        danmakuSegmentPreloadJob = viewModelScope.launch(Dispatchers.IO) {
-            val startedAt = SystemClock.elapsedRealtime()
-            val preloadPartialStartMs = if (segmentIndex == 1) 0L else null
-            val preloadPartialEndMs = if (segmentIndex == 1) FIRST_DANMAKU_INITIAL_RANGE_END_MS else null
-            val payload = loadDanmakuSegmentPayload(
-                cid = cid,
-                aid = aid,
-                segmentIndices = listOf(segmentIndex),
-                expectedSegmentCount = resolveExpectedDanmakuSegmentCount(
-                    totalCount = preloadedDanmakuView?.totalCount ?: danmakuViewCache[cid]?.first?.totalCount ?: 0L,
-                    totalSegments = preloadedDanmakuView?.totalSegments ?: danmakuViewCache[cid]?.first?.totalSegments ?: 0
-                ).takeIf { preloadPartialEndMs == null } ?: 0,
-                rangeStartMs = preloadPartialStartMs,
-                rangeEndMs = preloadPartialEndMs,
-                parseEndMs = preloadPartialEndMs
-            )
-            withContext(Dispatchers.Main) {
-                preloadedDanmakuSegmentCid = cid
-                preloadedDanmakuSegmentAid = aid
-                preloadedDanmakuSegmentIndex = segmentIndex
-                preloadedDanmakuSegmentPayload = payload
-                danmakuSegmentPreloadJob = null
-                PlaybackStartupTrace.log(
-                    traceId = currentStartupTraceId,
-                    startElapsedMs = currentStartupTraceStartElapsedMs,
-                    step = "danmaku_segment_preload_ready",
-                    message = "cid=$cid segment=$segmentIndex elapsedMs=${SystemClock.elapsedRealtime() - startedAt} regular=${payload.regularItems.size} special=${payload.specialItems.size}"
-                )
-            }
-        }
-    }
-
-    private fun isDanmakuElemInParseRange(progressMs: Int, parseStartMs: Long?, parseEndMs: Long?): Boolean {
-        if (parseStartMs != null && progressMs < parseStartMs) return false
-        if (parseEndMs != null && progressMs >= parseEndMs) return false
-        return true
-    }
-
-    private fun formatDanmakuRange(rangeStartMs: Long?, rangeEndMs: Long?): String {
-        return if (rangeStartMs == null && rangeEndMs == null) {
-            "full"
-        } else {
-            "[${rangeStartMs ?: ""},${rangeEndMs ?: ""}]"
-        }
-    }
-
-    private suspend fun awaitPreloadedDanmakuSegment(
-        cid: Long,
-        aid: Long,
-        segmentIndex: Int
-    ): SpecialDanmakuPayload? {
-        if (
-            preloadedDanmakuSegmentCid == cid &&
-            preloadedDanmakuSegmentAid == aid &&
-            preloadedDanmakuSegmentIndex == segmentIndex &&
-            preloadedDanmakuSegmentPayload == null
-        ) {
-            danmakuSegmentPreloadJob?.join()
-        }
-        if (
-            preloadedDanmakuSegmentCid != cid ||
-            preloadedDanmakuSegmentAid != aid ||
-            preloadedDanmakuSegmentIndex != segmentIndex
-        ) {
-            return null
-        }
-        return preloadedDanmakuSegmentPayload.also {
-            preloadedDanmakuSegmentCid = 0L
-            preloadedDanmakuSegmentAid = 0L
-            preloadedDanmakuSegmentIndex = 0
-            preloadedDanmakuSegmentPayload = null
-        }
-    }
-
-    private fun isActiveDanmakuRequest(loadGeneration: Long): Boolean {
-        return danmakuLoadGeneration == loadGeneration && currentCid == loadedDanmakuCid
-    }
-
-    /**
-     * 根据播放位置计算当前弹幕片段索引（片段从1开始，每个片段6分钟）
-     */
-    private fun resolveDanmakuSegmentIndex(positionMs: Long): Int {
-        if (danmakuTotalSegments <= 0) return -1
-        return ((positionMs.coerceAtLeast(0L) / DANMAKU_SEGMENT_DURATION_MS) + 1L).toInt().coerceIn(1, danmakuTotalSegments)
-    }
-
-    /**
-     * 清理距离当前播放片段过远的弹幕数据，保留当前片段 +/- 1 个片段
-     */
-    private fun trimDistantDanmakuSegments() {
-        if (currentDanmakuSegmentIndex <= 0 || danmakuSegmentPayloads.isEmpty()) return
-        val keepRange = (currentDanmakuSegmentIndex - 1)..(currentDanmakuSegmentIndex + 1)
-        val keysToRemove = danmakuSegmentPayloads.keys.filter { it !in keepRange }
-        if (keysToRemove.isEmpty()) return
-        keysToRemove.forEach { key ->
-            danmakuSegmentPayloads.remove(key)
-            danmakuLoadedSegments.remove(key)
-            danmakuPublishedSegments.remove(key)
-            danmakuPublishPendingSegments.remove(key)
-        }
-    }
-
-    /**
-     * 当播放位置变化导致片段切换时，更新当前片段索引、清理远距离片段、动态加载新段
-     */
-    private fun onDanmakuSegmentChanged(positionMs: Long) {
-        val newIndex = resolveDanmakuSegmentIndex(positionMs)
-        if (newIndex <= 0) return
-        if (newIndex == currentDanmakuSegmentIndex) {
-            // 重试/补发当前段：如果之前的加载失败、返回空数据，或只预加载未发布，定期重试
-            if (!danmakuPublishedSegments.contains(newIndex) && !danmakuLoadingSegments.contains(newIndex)) {
-                loadDanmakuSegmentIfNeeded(newIndex, publishWhenReady = true)
-            }
-            // 邻近预加载：距离下个 segment 边界不足 2 分钟时提前加载
-            if (newIndex < danmakuTotalSegments) {
-                val segmentEndMs = newIndex.toLong() * DANMAKU_SEGMENT_DURATION_MS
-                val remainingMs = segmentEndMs - positionMs
-                if (remainingMs in 0..120_000L) {
-                    loadDanmakuSegmentIfNeeded(newIndex + 1, publishWhenReady = false)
-                }
-            }
-            // 当前段内部预加载：自然播放接近已加载覆盖边界时补全后续范围，
-            // 覆盖 segment 1 partial 尾部等「已发布但未加载完整」盲区，避免越过边界后断档。
-            ensureDanmakuDataForPosition(positionMs)
-            return
-        }
-        if (!hasReachedFirstFrame && currentDanmakuSegmentIndex > 1 && newIndex == 1 && positionMs < 1_000L) {
-            PlaybackStartupTrace.log(
-                traceId = currentStartupTraceId,
-                startElapsedMs = currentStartupTraceStartElapsedMs,
-                step = "danmaku_segment_change_ignored",
-                message = "positionMs=$positionMs from=$currentDanmakuSegmentIndex to=$newIndex reason=startup_zero_before_first_frame"
-            )
-            return
-        }
-        val previousIndex = currentDanmakuSegmentIndex
-        currentDanmakuSegmentIndex = newIndex
-        PlaybackStartupTrace.log(
-            traceId = currentStartupTraceId,
-            startElapsedMs = currentStartupTraceStartElapsedMs,
-            step = "danmaku_segment_changed",
-            message = "positionMs=$positionMs from=$previousIndex to=$newIndex total=$danmakuTotalSegments"
-        )
-        trimDistantDanmakuSegments()
-        // 动态加载新段
-        loadDanmakuSegmentIfNeeded(newIndex, publishWhenReady = true)
-        // 预加载下一段
-        if (newIndex < danmakuTotalSegments) {
-            loadDanmakuSegmentIfNeeded(newIndex + 1, publishWhenReady = false)
-        }
-    }
-
-    /**
-     * seek 到 [positionMs] 时，确保该位置所在分段的数据已加载并发布。
-     *
-     * 解决两类盲区：
-     * 1. seek 落在 segment 1 已发布（partial）但未加载的尾部（如只加载了 0-60s，seek 到 262s）；
-     * 2. seek 跨到尚未加载的分段。
-     *
-     * 通过 [danmakuSegmentCoveredUntilMs] 跟踪每段已覆盖到的时间点，仅加载缺失范围并 append 发布，
-     * 避免重复加载与清屏闪烁。
-     */
-    private fun ensureDanmakuDataForPosition(positionMs: Long) {
-        val targetSegment = resolveDanmakuSegmentIndex(positionMs)
-        if (targetSegment <= 0) return
-        // init 首段尚未发布、或仍在初始范围内（由 init + tail 覆盖）时不介入，
-        // 避免 appendData 与 init 的 setData 竞争、抢占 prepareGeneration 导致引擎未初始化、弹幕完全不显示。
-        if (danmakuPublishedSegments.isEmpty()) return
-        if (positionMs <= FIRST_DANMAKU_INITIAL_RANGE_END_MS) return
-        val cid = currentCid
-        val aid = currentAid ?: 0L
-        if (cid <= 0L || aid <= 0L) return
-        val segmentEndMs = targetSegment.toLong() * DANMAKU_SEGMENT_DURATION_MS
-        val coveredUntil = danmakuSegmentCoveredUntilMs[targetSegment] ?: 0L
-        // 提前预加载：position 距已覆盖边界不足 DANMAKU_SEEK_RANGE_AHEAD_MS 时即触发，
-        // 使自然播放/seek 到达边界前数据已就绪，避免越过 coveredUntil 后断档空窗。
-        if (positionMs + DANMAKU_SEEK_RANGE_AHEAD_MS <= coveredUntil) return
-        // 跨到尚未发布的分段：走标准分段加载通道，保证分段状态机（loaded/published）一致。
-        if (targetSegment != currentDanmakuSegmentIndex &&
-            !danmakuPublishedSegments.contains(targetSegment)
-        ) {
-            loadDanmakuSegmentIfNeeded(targetSegment, publishWhenReady = true)
-            return
-        }
-        // 当前分段（含 segment 1 的 partial 尾部）补全：从已覆盖处续加载。
-        // 范围至少覆盖 positionMs + 提前量，且至少预取一个 PREFETCH_WINDOW（避免每次 position 微增
-        // 都触发一次小范围请求），取两者较大值，受段尾限制。
-        val rangeStartMs = coveredUntil
-        val rangeEndMs = minOf(
-            maxOf(positionMs + DANMAKU_SEEK_RANGE_AHEAD_MS, rangeStartMs + DANMAKU_PREFETCH_WINDOW_MS),
-            segmentEndMs
-        )
-        if (rangeEndMs <= rangeStartMs) return
-        // 乐观标记已覆盖到 rangeEndMs：在异步加载完成前，避免 onDanmakuSegmentChanged 每帧
-        // 因 position 微增而重复触发同一范围的请求；加载失败/作废时回滚。
-        danmakuSegmentCoveredUntilMs[targetSegment] = rangeEndMs
-        val loadGeneration = danmakuLoadGeneration
-        PlaybackStartupTrace.log(
-            traceId = currentStartupTraceId,
-            startElapsedMs = currentStartupTraceStartElapsedMs,
-            step = "danmaku_seek_range_load",
-            message = "segment=$targetSegment position=$positionMs range=${formatDanmakuRange(rangeStartMs, rangeEndMs)} covered=$coveredUntil"
-        )
-        viewModelScope.launch(Dispatchers.IO) {
-            val payload = runCatching {
-                loadDanmakuSegmentPayload(
-                    cid = cid,
-                    aid = aid,
-                    segmentIndices = listOf(targetSegment),
-                    expectedSegmentCount = 0,
-                    rangeStartMs = rangeStartMs,
-                    rangeEndMs = rangeEndMs,
-                    parseEndMs = rangeEndMs
-                )
-            }.getOrNull()
-            withContext(Dispatchers.Main) {
-                if (!isActiveDanmakuRequest(loadGeneration) || currentCid != cid || payload == null) {
-                    // 加载作废或失败：回滚乐观标记，下次重试。
-                    if (danmakuSegmentCoveredUntilMs[targetSegment] == rangeEndMs) {
-                        danmakuSegmentCoveredUntilMs[targetSegment] = rangeStartMs
-                    }
-                    return@withContext
-                }
-                if (rangeEndMs >= segmentEndMs) {
-                    danmakuLoadedSegments.add(targetSegment)
-                }
-                val rangeItems = payload.regularItems
-                    .filter { it.progress >= rangeStartMs && it.progress < rangeEndMs }
-                    .sortedBy { it.progress }
-                if (rangeItems.isNotEmpty()) {
-                    publishDanmaku(rangeItems, replace = false)
-                }
-            }
-        }
-    }
-
-    /**
-     * 按需加载指定弹幕片段（如果尚未加载）
-     */
-    private fun loadDanmakuSegmentIfNeeded(segmentIndex: Int, publishWhenReady: Boolean) {
-        if (danmakuLoadedSegments.contains(segmentIndex)) {
-            if (publishWhenReady && !danmakuPublishedSegments.contains(segmentIndex)) {
-                danmakuSegmentPayloads[segmentIndex]?.let { cachedPayload ->
-                    PlaybackStartupTrace.log(
-                        traceId = currentStartupTraceId,
-                        startElapsedMs = currentStartupTraceStartElapsedMs,
-                        step = "danmaku_segment_republish",
-                        message = "cid=$currentCid segment=$segmentIndex regular=${cachedPayload.regularItems.size} special=${cachedPayload.specialItems.size}"
-                    )
-                    publishDanmakuSegmentPayload(segmentIndex, cachedPayload)
-                }
-            }
-            return
-        }
-        if (danmakuLoadingSegments.contains(segmentIndex)) {
-            if (publishWhenReady) {
-                danmakuPublishPendingSegments.add(segmentIndex)
-            }
-            return
-        }
-        val cid = currentCid
-        val aid = currentAid ?: 0L
-        if (cid <= 0L || aid <= 0L) return
-        danmakuSegmentPayloads[segmentIndex]?.let { cachedPayload ->
-            danmakuLoadedSegments.add(segmentIndex)
-            PlaybackStartupTrace.log(
-                traceId = currentStartupTraceId,
-                startElapsedMs = currentStartupTraceStartElapsedMs,
-                step = "danmaku_segment_cache_hit",
-                message = "cid=$cid segment=$segmentIndex publish=$publishWhenReady regular=${cachedPayload.regularItems.size} special=${cachedPayload.specialItems.size}"
-            )
-            if (publishWhenReady) {
-                publishDanmakuSegmentPayload(segmentIndex, cachedPayload)
-            }
-            return
-        }
-        danmakuLoadingSegments.add(segmentIndex)
-        val loadGeneration = danmakuLoadGeneration
-        PlaybackStartupTrace.log(
-            traceId = currentStartupTraceId,
-            startElapsedMs = currentStartupTraceStartElapsedMs,
-            step = "danmaku_segment_load_started",
-            message = "cid=$cid segment=$segmentIndex publish=$publishWhenReady"
-        )
-        viewModelScope.launch(Dispatchers.IO) {
-            val expectedSegmentCount = resolveExpectedDanmakuSegmentCount(
-                totalCount = danmakuViewCache[cid]?.first?.totalCount ?: 0L,
-                totalSegments = danmakuTotalSegments
-            )
-            var payload = runCatching {
-                loadDanmakuSegmentPayload(
-                    cid = cid,
-                    aid = aid,
-                    segmentIndices = listOf(segmentIndex),
-                    expectedSegmentCount = expectedSegmentCount
-                )
-            }.getOrNull()
-            if (payload == null) {
-                delay(2000L)
-                payload = runCatching {
-                    loadDanmakuSegmentPayload(
-                        cid = cid,
-                        aid = aid,
-                        segmentIndices = listOf(segmentIndex),
-                        expectedSegmentCount = expectedSegmentCount
-                    )
-                }.getOrNull()
-            }
-            withContext(Dispatchers.Main) {
-                danmakuLoadingSegments.remove(segmentIndex)
-                if (!isActiveDanmakuRequest(loadGeneration) || currentCid != cid) {
-                    PlaybackStartupTrace.log(
-                        traceId = currentStartupTraceId,
-                        startElapsedMs = currentStartupTraceStartElapsedMs,
-                        step = "danmaku_segment_load_discarded",
-                        message = "cid=$cid segment=$segmentIndex currentCid=$currentCid active=${isActiveDanmakuRequest(loadGeneration)}"
-                    )
-                    return@withContext
-                }
-                val shouldPublish = publishWhenReady || danmakuPublishPendingSegments.remove(segmentIndex)
-                if (payload == null) {
-                    PlaybackStartupTrace.log(
-                        traceId = currentStartupTraceId,
-                        startElapsedMs = currentStartupTraceStartElapsedMs,
-                        step = "danmaku_segment_load_failed",
-                        message = "cid=$cid segment=$segmentIndex attempts=2"
-                    )
-                    return@withContext
-                }
-                if (payload.regularItems.isEmpty() && payload.specialItems.isEmpty()) {
-                    PlaybackStartupTrace.log(
-                        traceId = currentStartupTraceId,
-                        startElapsedMs = currentStartupTraceStartElapsedMs,
-                        step = "danmaku_segment_load_empty",
-                        message = "cid=$cid segment=$segmentIndex"
-                    )
-                    return@withContext
-                }
-                danmakuSegmentPayloads[segmentIndex] = payload
-                danmakuLoadedSegments.add(segmentIndex)
-                danmakuSegmentCoveredUntilMs[segmentIndex] = segmentIndex.toLong() * DANMAKU_SEGMENT_DURATION_MS
-                PlaybackStartupTrace.log(
-                    traceId = currentStartupTraceId,
-                    startElapsedMs = currentStartupTraceStartElapsedMs,
-                    step = "danmaku_segment_load_ready",
-                    message = "cid=$cid segment=$segmentIndex publish=$shouldPublish regular=${payload.regularItems.size} special=${payload.specialItems.size}"
-                )
-                if (shouldPublish) {
-                    publishDanmakuSegmentPayload(segmentIndex, payload)
-                }
-            }
-        }
-    }
-
-    private fun publishDanmakuSegmentPayload(segmentIndex: Int, payload: SpecialDanmakuPayload) {
-        if (danmakuPublishedSegments.contains(segmentIndex)) {
-            return
-        }
-        PlaybackStartupTrace.log(
-            traceId = currentStartupTraceId,
-            startElapsedMs = currentStartupTraceStartElapsedMs,
-            step = "danmaku_segment_published",
-            message = "segment=$segmentIndex regular=${payload.regularItems.size} special=${payload.specialItems.size}"
-        )
-        danmakuPublishedSegments.add(segmentIndex)
-        if (payload.regularItems.isNotEmpty()) {
-            publishDanmaku(payload.regularItems, replace = false)
-        }
-        if (payload.specialItems.isNotEmpty()) {
-            publishSpecialDanmaku(payload.specialItems, replace = false)
         }
     }
 
