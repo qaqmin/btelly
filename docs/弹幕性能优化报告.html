@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>弹幕系统性能优化报告 · BTelly</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #1f2328; --ink-soft: #57606a;
+    --line: #d8dee4; --line-soft: #eaeef2; --accent: #0969da;
+    --red: #cf222e; --red-bg: #ffebe9; --amber: #bf8700; --amber-bg: #fff8c5;
+    --green: #1a7f37; --green-bg: #dafbe1; --code-bg: #f6f8fa;
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 2px 8px rgba(0,0,0,.04);
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    font-size: 15px; line-height: 1.7; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 20px 80px; }
+
+  header.hero {
+    background: linear-gradient(135deg, #0d2b45 0%, #143756 60%, #1a4a6b 100%);
+    color: #fff; padding: 48px 20px 40px; margin-bottom: 32px;
+  }
+  .hero-inner { max-width: 980px; margin: 0 auto; }
+  .hero .eyebrow {
+    display: inline-block; font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+    background: rgba(255,255,255,.14); padding: 4px 10px; border-radius: 999px; margin-bottom: 16px;
+  }
+  .hero h1 { margin: 0 0 10px; font-size: 30px; font-weight: 700; letter-spacing: -.01em; }
+  .hero p { margin: 0; color: #c8d6e3; font-size: 14px; }
+  .hero .meta { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .hero .meta span {
+    font-size: 12px; background: rgba(255,255,255,.1); padding: 4px 10px;
+    border-radius: 6px; color: #dbe6ef;
+  }
+  .hero .meta .tag-v2 { background: #2ea44f; color: #fff; font-weight: 650; }
+
+  h2 {
+    font-size: 22px; margin: 40px 0 14px; padding-bottom: 8px;
+    border-bottom: 2px solid var(--line); font-weight: 700;
+    display: flex; align-items: center; gap: 10px;
+  }
+  h2 .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 8px; background: var(--accent); color: #fff; font-size: 14px;
+  }
+  h3 { font-size: 17px; margin: 22px 0 10px; font-weight: 650; }
+  p { margin: 8px 0; }
+  strong { font-weight: 650; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px; background: var(--code-bg); padding: 2px 6px; border-radius: 5px; color: #24292f;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line-soft); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; font-size: 13px; line-height: 1.55;
+  }
+  pre code { background: none; padding: 0; color: #24292f; }
+
+  .card { background: var(--card); border: 1px solid var(--line-soft); border-radius: 12px; padding: 20px 22px; margin: 14px 0; box-shadow: var(--shadow); }
+  .card-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .card-title h3 { margin: 0; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 650;
+    padding: 3px 10px; border-radius: 999px; line-height: 1.5; white-space: nowrap;
+  }
+  .b-red { background: var(--red-bg); color: var(--red); }
+  .b-amber { background: var(--amber-bg); color: var(--amber); }
+  .b-green { background: var(--green-bg); color: var(--green); }
+  .b-blue { background: #ddf4ff; color: var(--accent); }
+  .b-gray { background: #eaeef2; color: var(--ink-soft); }
+
+  table {
+    width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px;
+    background: var(--card); border: 1px solid var(--line-soft); border-radius: 10px; overflow: hidden;
+  }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  th { background: #f0f3f6; font-weight: 650; font-size: 13px; color: var(--ink); }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:nth-child(even) { background: #fafbfc; }
+  td.num, th.num { font-family: ui-monospace, monospace; font-size: 13px; }
+  .ok { color: var(--green); font-weight: 600; }
+  .bad { color: var(--red); font-weight: 600; }
+  .warn { color: var(--amber); font-weight: 600; }
+  .main-thread { color: var(--red); font-weight: 650; }
+  .bg-thread { color: var(--green); font-weight: 650; }
+
+  .callout { border-left: 4px solid var(--accent); background: #eef4fb; padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 14px; }
+  .callout.warn { border-left-color: var(--amber); background: #fff8e6; }
+  .callout.bad { border-left-color: var(--red); background: var(--red-bg); }
+  .callout.good { border-left-color: var(--green); background: var(--green-bg); }
+  .callout strong { color: var(--ink); }
+
+  .evidence { background: #fafbfc; border: 1px dashed var(--line); border-radius: 8px; padding: 10px 14px; margin: 10px 0; font-size: 13px; }
+  .evidence .lbl { color: var(--ink-soft); font-weight: 600; margin-right: 6px; }
+
+  .kv { display: grid; grid-template-columns: 90px 1fr; gap: 6px 12px; margin: 8px 0; font-size: 14px; }
+  .kv dt { color: var(--ink-soft); font-weight: 600; }
+  .kv dd { margin: 0; }
+
+  .bars { margin: 14px 0; }
+  .bar-row { display: grid; grid-template-columns: 150px 1fr 110px; gap: 12px; align-items: center; margin: 8px 0; font-size: 13px; }
+  .bar-track { background: var(--line-soft); border-radius: 6px; height: 22px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 6px; display: flex; align-items: center; padding-left: 8px; color: #fff; font-size: 11px; font-weight: 650; min-width: 2px; }
+  .bar-red { background: linear-gradient(90deg, #cf222e, #e5536e); }
+  .bar-amber { background: linear-gradient(90deg, #bf8700, #e0a800); }
+  .bar-green { background: linear-gradient(90deg, #1a7f37, #2ea44f); }
+
+  .roadmap { position: relative; padding-left: 28px; margin: 16px 0; }
+  .roadmap::before { content: ""; position: absolute; left: 10px; top: 6px; bottom: 6px; width: 2px; background: var(--line); }
+  .step { position: relative; padding: 0 0 18px 8px; }
+  .step::before { content: ""; position: absolute; left: -22px; top: 4px; width: 14px; height: 14px; border-radius: 50%; background: var(--card); border: 3px solid var(--accent); }
+  .step.s3::before { border-color: var(--amber); }
+  .step.s4::before { border-color: var(--ink-soft); }
+  .step .step-head { font-weight: 650; margin-bottom: 2px; }
+  .step .step-desc { color: var(--ink-soft); font-size: 13px; }
+
+  .toc { background: var(--card); border: 1px solid var(--line-soft); border-radius: 10px; padding: 14px 20px; margin: 0 0 28px; font-size: 14px; }
+  .toc strong { color: var(--ink-soft); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+  .toc ul { margin: 8px 0 0; padding-left: 0; list-style: none; columns: 2; }
+  .toc li { margin: 3px 0; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  .layer-row { display: grid; grid-template-columns: 120px 1fr; gap: 8px 14px; padding: 10px 0; border-bottom: 1px dashed var(--line-soft); }
+  .layer-row:last-child { border-bottom: none; }
+  .layer-tag { font-weight: 650; font-size: 13px; }
+
+  footer { margin-top: 50px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: 12px; text-align: center; }
+
+  @media (max-width: 640px) {
+    .bar-row { grid-template-columns: 110px 1fr 80px; font-size: 12px; }
+    .toc ul { columns: 1; } .hero h1 { font-size: 24px; }
+    table { font-size: 13px; } th, td { padding: 8px 10px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <span class="eyebrow">Performance Report</span>
+    <h1>弹幕系统性能优化报告</h1>
+    <p>BTelly · akdanmaku 弹幕链路全链路性能分析</p>
+    <div class="meta">
+      <span class="tag-v2">v2 · 含复核修正</span>
+      <span>📅 2026-06-13</span>
+      <span>🎬 cid=37551801208「大疆Pocket 4」</span>
+      <span>📊 真机 logcat 实测 + 代码核实</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <nav class="toc">
+    <strong>目录</strong>
+    <ul>
+      <li><a href="#baseline">一、性能基线（实测）</a></li>
+      <li><a href="#layers">二、三层队列画像</a></li>
+      <li><a href="#bottleneck">三、实测瓶颈</a></li>
+      <li><a href="#p0">　P0 appendData 主线程全量排序</a></li>
+      <li><a href="#p1">　P1 init 发布阻塞主线程</a></li>
+      <li><a href="#p2">　P2 重复加载丢弃 97%</a></li>
+      <li><a href="#p3">　P3 签名 O(n)</a></li>
+      <li><a href="#non">四、非瓶颈澄清</a></li>
+      <li><a href="#opt">五、优化建议 / PR 路线</a></li>
+      <li><a href="#metrics">六、日志指标补齐</a></li>
+      <li><a href="#changelog">七、修订记录</a></li>
+    </ul>
+  </nav>
+
+  <div class="callout">
+    <strong>核心结论：</strong>渲染层（draw）非常健康，单帧 avg <strong>0.2–0.6ms</strong>，远未触及 16.6ms 帧预算。
+    真正的问题是<strong>主线程阻塞有两处</strong>——<code>appendData</code> 的全量排序和 <code>publishDanmaku</code> 的去重发布，
+    外加分段范围状态机不统一导致的<strong>重复加载</strong>。<br>
+    <strong>v2 修正：</strong>初版误判 <code>appendData</code> 排序在后台线程，经代码核实实际在主线程（<code>withContext(Main.immediate)</code>），
+    因此它的优先级从 P2 上调到 <strong>P0</strong>。
+  </div>
+
+  <!-- 一、性能基线 -->
+  <h2 id="baseline"><span class="num">1</span>性能基线（实测）</h2>
+  <table>
+    <thead><tr><th>指标</th><th class="num">实测值</th><th>线程</th><th>判定</th></tr></thead>
+    <tbody>
+      <tr><td>单帧渲染 draw</td><td class="num">avg 0.2–0.6ms / max 1–3ms</td><td class="bg-thread">渲染线程</td><td class="ok">✅ 健康，非瓶颈</td></tr>
+      <tr><td>弹幕过滤 BiliDanmakuFilter</td><td class="num">initial 5ms / tick 0–5ms</td><td class="bg-thread">后台</td><td class="ok">✅ 健康</td></tr>
+      <tr><td>绘制缓存命中率</td><td class="num">&gt;90%</td><td>—</td><td class="ok">✅ 健康（仅 seek 后短暂 miss）</td></tr>
+      <tr><td><strong>appendData 全量排序</strong></td><td class="num">随 rawTotal 线性恶化（最高 25580）</td><td class="main-thread">🔴 主线程</td><td class="bad">🔴 持续卡帧</td></tr>
+      <tr><td><strong>init 批量发布</strong></td><td class="num">45ms（3000 条）</td><td class="main-thread">🔴 主线程</td><td class="bad">🔴 起播 jank 133ms</td></tr>
+      <tr><td>append 发布</td><td class="num">2–8ms</td><td class="bg-thread">后台</td><td class="warn">🟡 可接受</td></tr>
+      <tr><td>分段网络请求</td><td class="num">300–500ms / range</td><td class="bg-thread">IO</td><td class="warn">🟡 已分段</td></tr>
+      <tr><td>frame rebuild layout</td><td class="num">偶发 8ms</td><td class="bg-thread">渲染线程</td><td class="warn">🟡 偶发</td></tr>
+    </tbody>
+  </table>
+
+  <!-- 二、三层队列画像 -->
+  <h2 id="layers"><span class="num">2</span>三层队列画像（理解优化的关键）</h2>
+  <p>BTelly 的普通弹幕是<strong>「上游全量、下游窗口化」</strong>的双层结构。优化要优先收敛上游两层，不要绕过窗口化直接改 Runtime。</p>
+  <div class="card">
+    <table>
+      <thead><tr><th>层级</th><th>主要代码</th><th>数据规模</th><th>性能含义</th></tr></thead>
+      <tbody>
+        <tr><td><strong>加载层</strong></td><td><code>loadDanmakuSegmentPayload</code></td><td>range/segment proto，数千到上万条</td><td>网络 + protobuf parse + model 构建，IO 线程</td></tr>
+        <tr><td><strong>时间线层</strong></td><td><code>danmakuTimeline</code></td><td>已发布 rawTotal，日志最高 <strong>25580</strong></td><td><strong>排序、签名、窗口二分</strong>——主线程开销集中在此</td></tr>
+        <tr><td><strong>渲染窗口层</strong></td><td><code>buildPreparedWindow</code> + akdanmaku runtime</td><td>首批 144，滚动追加 96</td><td>真正进引擎的量很小，是 draw 稳定的关键</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:12px;color:var(--ink-soft);font-size:13px;">Runtime 已有增量 frame、transition frame、cache reuse、load shed、measure scheduler 等自适应保护（<code>MAX_MEASURE_PER_FRAME</code> 等）。直接改引擎布局/缓存层容易和这些策略冲突，收益不如处理时间线层。</p>
+  </div>
+
+  <!-- 三、实测瓶颈 -->
+  <h2 id="bottleneck"><span class="num">3</span>实测瓶颈（按修正后优先级）</h2>
+
+  <!-- P0 -->
+  <div class="card" id="p0">
+    <div class="card-title">
+      <span class="badge b-red">🔴 P0 · 最高优先</span>
+      <h3>appendData 全量排序在主线程，随 rawTotal 线性恶化</h3>
+    </div>
+    <div class="evidence">
+      <span class="lbl">代码证据：</span>
+      <code>MyPlayerDanmakuController.kt:258-262</code>
+    </div>
+<pre><code>prepareJob = controllerScope.launch {        // Default 启动
+    previousJob?.join()
+    val mergedRawData = withContext(Dispatchers.Main.immediate) {  // ← 切回主线程
+        (danmakuTimeline.data + data).sortedBy { it.progress }     // ← 25580 条拼接+排序在主线程
+    }
+    val rawSignature = mergedRawData.fastRawSignature()            // ← 只有签名在 Default
+}</code></pre>
+    <dl class="kv">
+      <dt>根因</dt><dd>每次 <code>appendData</code>（约每 1–2 秒一次）都把 <code>danmakuTimeline.data + data</code> <strong>全量拼接 + 全量排序</strong>，且包在 <code>withContext(Main.immediate)</code> 里。rawTotal 随视频时长/seek 次数线性增长（日志最高 25580），主线程开销随之恶化。</dd>
+      <dt>为何最高优先</dt><dd>它<strong>全程持续</strong>发生（不像 init 只起播一次），且越播越重。是当前最值得先修的主线程阻塞。</dd>
+      <dt>注</dt><dd><code>fastRawSignature</code>（<code>:1782</code>）确实在 Default 后台——初版把"签名+排序"都归为后台是错的，只有签名在后台。</dd>
+    </dl>
+  </div>
+
+  <!-- P1 -->
+  <div class="card" id="p1">
+    <div class="card-title">
+      <span class="badge b-red">🔴 P1</span>
+      <h3>init 发布阻塞主线程 45ms → 起播 jank</h3>
+    </div>
+    <div class="evidence">
+      <span class="lbl">证据：</span>
+      <code>debug.txt:139 danmaku_publish replace=true cost=45ms input=3000</code> →
+      <code>:144 ui_frame_jank interval=133ms</code>
+    </div>
+    <dl class="kv">
+      <dt>根因</dt><dd><code>publishDanmaku</code>（<code>VideoPlayerViewModel.kt:4226-4244</code>）在主线程做 <code>distinctRegularDanmaku()</code> 去重 + <code>danmakuIdentityKey()</code> 字符串生成 + <code>filter</code>。45ms 是这些的总和，不只 HashSet（初版描述不完整）。</dd>
+      <dt>关键洞察</dt><dd><code>setData</code> 把 3000 条存为 timeline，但首屏只 <code>buildPreparedWindow</code> <strong>144 条窗口</strong>（<code>initial=144 raw=3000</code>）。所以"首屏发 3000 条"是<strong>为维护 timeline，不是渲染必须</strong>。</dd>
+      <dt>正确解法</dt><dd>拆「可渲染初始窗口」和「后台 timeline 补充」：先交 144 窗口保首帧，余量异步合并进 timeline。比单纯延后 <code>setData</code> 更能保护起播首帧。</dd>
+    </dl>
+  </div>
+
+  <!-- P2 -->
+  <div class="card" id="p2">
+    <div class="card-title">
+      <span class="badge b-amber">🟡 P2</span>
+      <h3>重复加载导致 90%+ 弹幕被丢弃（historyDropped）</h3>
+    </div>
+    <div class="bars">
+      <div class="bar-row"><span><code>:744</code></span><div class="bar-track"><div class="bar-fill bar-red" style="width:97%">97% 丢弃</div></div><span class="num" style="color:var(--ink-soft);font-size:12px;text-align:right">9150 / 9412</span></div>
+      <div class="bar-row"><span><code>:463</code></span><div class="bar-track"><div class="bar-fill bar-red" style="width:90%">90% 丢弃</div></div><span class="num" style="color:var(--ink-soft);font-size:12px;text-align:right">5628 / 6238</span></div>
+      <div class="bar-row"><span><code>:474</code></span><div class="bar-track"><div class="bar-fill bar-red" style="width:89%">89% 丢弃</div></div><span class="num" style="color:var(--ink-soft);font-size:12px;text-align:right">2841 / 3174</span></div>
+    </div>
+    <dl class="kv">
+      <dt>根因</dt><dd>① <strong>三套范围跟踪互不互通</strong>：<code>ensureDanmakuDataForPosition</code> 用 <code>coveredUntil</code>、tail 用 <code>danmakuLoadedSegments</code>+延迟调度、segment 用 <code>loaded/published</code>。② <strong>tail 延迟任务执行前没有二次确认覆盖范围</strong>——<code>ensure</code> 已加载 <code>[60000,226006]</code>，tail 醒来仍拉 <code>[60000,120000]</code>/<code>[120000,360000]</code>。</dd>
+      <dt>为何 P2</dt><dd>不致错（弹幕显示正确），但浪费网络 + 万级无效解析 CPU。</dd>
+    </dl>
+  </div>
+
+  <!-- P3 -->
+  <div class="card" id="p3">
+    <div class="card-title">
+      <span class="badge b-amber">🟡 P3</span>
+      <h3>签名 O(n) 全量遍历（后台，相对次要）</h3>
+    </div>
+    <dl class="kv">
+      <dt>根因</dt><dd><code>fastRawSignature</code>（<code>:1782</code>）/ <code>fastPreparedSignature</code>（<code>:1796</code>）每次对整条 timeline 遍历 7 字段做 FNV mix。</dd>
+      <dt>线程</dt><dd><strong>后台 Default</strong>（在 <code>withContext(Main)</code> 块外）——不直接卡帧。</dd>
+      <dt>定位</dt><dd>相对次要。如果 P0 的"排序移后台 + 增量签名"一起做，此项顺带解决。</dd>
+    </dl>
+  </div>
+
+  <!-- 观察项 -->
+  <div class="card">
+    <div class="card-title"><span class="badge b-blue">🔵 观察项</span><h3>frame layout 偶发 8ms · 遮罩链路未纳入基线</h3></div>
+    <ul style="margin:6px 0 0; padding-left:20px;">
+      <li><strong>frame layout</strong>：<code>update overload layout=8ms</code>，偶发（seek/批量变更后），引擎内部轨道重分配，<strong>暂不动</strong>。</li>
+      <li><strong>遮罩/特殊弹幕</strong>：<code>DanmakuMaskHostLayout</code> / <code>DmMaskRepository</code> / <code>SpecialDanmakuOverlayView</code> 未纳入本基线。普通弹幕 draw 健康 ≠ 遮罩健康。若反馈"开智能防挡才卡"，单独看 <code>mask_draw_summary</code>（avgCost/rebuilds/pathBuild）和 <code>special_danmaku_draw</code>。</li>
+    </ul>
+  </div>
+
+  <!-- 四、非瓶颈 -->
+  <h2 id="non"><span class="num">4</span>非瓶颈澄清（避免过度优化）</h2>
+  <table>
+    <thead><tr><th>误判点</th><th class="num">实测</th><th>结论</th></tr></thead>
+    <tbody>
+      <tr><td>渲染 draw 管线</td><td class="num">avg 0.2–0.6ms</td><td class="bad">远低于帧预算，空间分区/批量绘制等引擎大改收益≈0</td></tr>
+      <tr><td>绘制缓存 cacheMiss</td><td class="num">仅 seek 后短暂出现</td><td class="bad">命中率 &gt;90%，多级缓存/LRU 改造无必要</td></tr>
+      <tr><td>BiliDanmakuFilter 过滤</td><td class="num">0–5ms / raw=96</td><td class="bad">小批次低开销，正则预编译/结果缓存收益微小</td></tr>
+      <tr><td>二分查找 lowerBoundProgress</td><td class="num">O(log n)，144 条 ~8 次</td><td class="bad">TreeMap 索引化属过度设计</td></tr>
+      <tr><td>轨道分配 findOrCreateRow</td><td class="num">rows ≈ 屏幕轨道数（个位）</td><td class="bad">非万级遍历，无需索引</td></tr>
+    </tbody>
+  </table>
+  <div class="callout bad">
+    「空间分区渲染」「增量 frame」「多级 cache」「动态对象池」针对的<strong>都不是实测瓶颈</strong>，且多需改 akdanmaku 第三方引擎，<strong>风险/收益比差，明确不推荐</strong>。
+  </div>
+
+  <!-- 五、优化建议 -->
+  <h2 id="opt"><span class="num">5</span>优化建议 / PR 路线（按修正后优先级）</h2>
+  <p>全部改项目代码、不动引擎。按「主线程阻塞优先、低风险先行」拆 5 个 PR：</p>
+
+  <div class="card">
+    <div class="card-title"><span class="badge b-green">实施进展</span><h3>截至 2026-06-14（真机验证通过）</h3></div>
+    <table>
+      <thead><tr><th>PR</th><th>状态</th><th>提交</th><th>实测效果 / 暂缓理由</th></tr></thead>
+      <tbody>
+        <tr><td><strong>PR1</strong> appendData 排序移后台 + 有序归并</td><td class="ok">✅ 已落地</td><td><code>b1b1f53</code></td><td>P0 主线程阻塞解决，排序 O(n log n)→O(n)</td></tr>
+        <tr><td><strong>PR2</strong> publishDanmaku 去重移后台</td><td class="ok">✅ 已落地</td><td><code>795996b</code></td><td>P1 起播 jank <strong>133ms→83ms</strong>（剩余为 controller initPlayer + 首帧）</td></tr>
+        <tr><td><strong>PR3</strong> tail 二次检查 coveredUntil</td><td class="ok">✅ 已落地</td><td><code>b1b1f53</code></td><td>P2 <strong>historyDropped 90%+→0</strong></td></tr>
+        <tr><td><strong>PR4</strong> DanmakuRangeCoverage 区间集合</td><td class="warn">⏸ 暂缓</td><td>—</td><td>核查发现 <code>ensure</code> 整段覆盖已 <code>danmakuLoadedSegments.add</code>（<code>:4675</code>），<code>loadDanmakuSegmentIfNeeded</code> 在 <code>:4692</code> 已跳过 full 加载——PR4 最小版与现有逻辑重复，零收益；完整版风险中、收益边际（historyDropped 已为 0）</td></tr>
+        <tr><td><strong>PR5</strong> Timeline segment blocks</td><td class="warn">⏸ 暂缓</td><td>—</td><td>rawTotal 当前 13378 + 归并 O(n)，未到瓶颈；大重构属过度设计</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:12px;color:var(--ink-soft);font-size:13px;">v2 报告的 <strong>P0/P1/P2 三个实测瓶颈已全部解决</strong>。PR4/PR5 经代码核实无实际收益，遵循「数据驱动」原则暂缓，待真机出现新瓶颈（rawTotal 3 万+、或智能防挡卡顿）再启动。</p>
+  </div>
+  <div class="roadmap">
+    <div class="step">
+      <div class="step-head">PR 1 · 去掉 appendData 主线程全量排序 <span class="badge b-red" style="margin-left:6px">最高优先</span></div>
+      <div class="step-desc">主线程只取 timeline 快照；<strong>归并、排序、签名全移到 Default</strong>；旧/新数据均有序则改 O(n) 归并。加单测覆盖有序归并。<strong>解决 P0 + 顺带 P3。</strong></div>
+    </div>
+    <div class="step">
+      <div class="step-head">PR 2 · 发布路径异步 + 首屏窗口化</div>
+      <div class="step-desc">把 <code>distinctRegularDanmaku</code>、<code>danmakuIdentityKey</code>、emitted list 计算移出主线程；先交付 144 窗口保首帧，余量异步合并进 timeline。<strong>解决 P1。</strong></div>
+    </div>
+    <div class="step s3">
+      <div class="step-head">PR 3 · tail 延迟任务二次检查（最小修复）</div>
+      <div class="step-desc">在 <code>loadAndPublishInitialTailRange</code> 的 <code>delay</code> 后、请求前重新读 <code>danmakuSegmentCoveredUntilMs[segment]</code>：若 <code>coveredUntil ≥ rangeEndMs</code> 跳过；只覆盖前半段则把 <code>rangeStartMs</code> 推进到 <code>coveredUntil</code>。<strong>风险最低、立竿见影降 historyDropped。</strong></div>
+    </div>
+    <div class="step s3">
+      <div class="step-head">PR 4 · DanmakuRangeCoverage 统一调度</div>
+      <div class="step-desc">单点 <code>coveredUntil</code> → 区间集合（每段维护 completed + in-flight 区间，请求前 subtract 取缺口）。seek/tail/segment 都调 <code>requestMissingRanges</code>。<strong>彻底解决 P2。</strong>涉及之前修过的分段逻辑，需充分回归。</div>
+    </div>
+    <div class="step s4">
+      <div class="step-head">PR 5 · Timeline segment blocks</div>
+      <div class="step-desc">rawTotal 万级后再做：timeline 改成分段有序块，窗口查询在块级索引定位，按需 materialize。从根上消除全量复制。<strong>风险最高，放最后。</strong></div>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <strong>关于 PR 3/4 的回归提示：</strong>它们触及之前刚修过的分段加载逻辑（弹幕快进修复）。建议作为独立 PR，重点回归：起播、自然播放跨段、快进到任意位置、续播。<code>appendData</code> 主线程排序修完后，<code>historyDropped</code> 的「丢弃」不再伴随主线程卡顿，但仍浪费网络，所以 PR 3/4 仍要做。
+  </div>
+
+  <!-- 六、日志补齐 -->
+  <h2 id="metrics"><span class="num">6</span>建议补齐的非渲染侧日志</h2>
+  <p>现有日志能证明 draw 健康，但缺几类能直接指导/验证优化的指标：</p>
+  <table>
+    <thead><tr><th>指标</th><th>插桩位置</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td><code>publish_dedup_ms / publish_emit_ms</code></td><td><code>publishDanmaku</code></td><td>拆开去重/排序/key/emit 成本，验证 PR 2 是否消除 P1</td></tr>
+      <tr><td><code>append_merge_ms_main / _default</code></td><td><code>appendData</code></td><td>确认全量排序是否还留在主线程（验证 PR 1）</td></tr>
+      <tr><td><code>range_requested / range_skipped / range_overlap</code></td><td>统一 range 调度器</td><td>量化重复请求下降幅度（验证 PR 3/4）</td></tr>
+      <tr><td><code>raw_total / timeline_blocks / window_submitted</code></td><td>Controller</td><td>观察 raw timeline 是否线性膨胀</td></tr>
+      <tr><td><code>mask_draw_summary</code></td><td><code>DanmakuMaskHostLayout</code></td><td>把智能防挡从普通弹幕结论里拆出来评估</td></tr>
+    </tbody>
+  </table>
+
+  <!-- 七、修订记录 -->
+  <h2 id="changelog"><span class="num">7</span>修订记录</h2>
+  <div class="card">
+    <div class="card-title"><span class="badge b-green">v2</span><h3>相对 v1 的订正</h3></div>
+    <table>
+      <thead><tr><th>条目</th><th>v1（初版）</th><th>v2（核实修正）</th></tr></thead>
+      <tbody>
+        <tr><td><code>appendData</code> 排序线程</td><td>称在 <code>Dispatchers.Default</code> 后台，定 P2</td><td>实际在 <code>withContext(Main.immediate)</code> <strong>主线程</strong>，<strong>上调为 P0 最高优先</strong></td></tr>
+        <tr><td><code>publishDanmaku</code> 45ms 构成</td><td>归因于 HashSet 构建</td><td>还包括 <code>distinctRegularDanmaku</code> 去重 + <code>danmakuIdentityKey</code> 字符串 + <code>filter</code></td></tr>
+        <tr><td>首屏 3000 条</td><td>视为渲染必须的一次性发布</td><td>渲染只消费 144 窗口；3000 条是 timeline 维护 → P1 解法改为窗口化</td></tr>
+        <tr><td>重复加载根因</td><td>三套状态不互通</td><td>补充：<strong>tail 延迟任务执行前无二次确认</strong>也是根因</td></tr>
+        <tr><td>新增</td><td>—</td><td>三层队列画像、区间集合方案、遮罩分离、日志指标、PR 拆分</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:12px;color:var(--ink-soft);font-size:13px;">v2 整合了 Codex 对 v1 的代码复核结论，所有线程归属与开销构成均已对照源码核实。</p>
+  </div>
+
+  <h2><span class="num">8</span>数据附录（关键日志行）</h2>
+<pre><code># P0/P1 主线程阻塞
+:139  danmaku_publish replace=true cost=45ms input=3000   (publishDanmaku 主线程)
+:144  ui_frame_jank interval=133ms
+      appendData: (danmakuTimeline.data + data).sortedBy  (主线程, rawTotal 最高 25580)
+
+# P2 重复加载丢弃
+:463  historyDropped=5628 / input=6238      (90%)
+:744  historyDropped=9150 / input=9412      (97%)
+
+# 数据规模
+:1036 publishedKeys=25580                   (timeline 全量维护规模)
+
+# 渲染健康（非瓶颈）
+danmaku_draw_summary avg=0.2~0.6ms max=1~3ms cacheHit=X/X
+BiliDanmakuFilter stage=playback_tick cost=0~5ms raw=96</code></pre>
+
+  <footer>
+    BTelly 弹幕系统性能优化报告 v2 · 基于 debug.txt 真机日志 + 全链路代码核实<br>
+    生成于 2026-06-13 · 实施进展更新于 2026-06-14（PR1/PR2/PR3 已落地，PR4/PR5 经评估暂缓）
+  </footer>
+
+</div>
+
+</body>
+</html>
