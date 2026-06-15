@@ -42,6 +42,7 @@ import com.btelly.core.ui.system.ViewUtils
 import com.btelly.databinding.FragmentVideoPlayerBinding
 import com.btelly.event.AppEventHub
 import com.btelly.feature.player.PlayerInstancePool
+import com.btelly.feature.player.PlaybackStartSeekResolver
 import com.btelly.feature.player.PlaybackStartupTrace
 import com.btelly.feature.player.PlaybackUiCoordinator
 import com.btelly.feature.player.PlayerOverlayCoordinator
@@ -774,7 +775,9 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             activity = this,
             playerProvider = { player },
             onCancelResume = { viewModel.cancelResumeProgress() },
-            onClearResumeHint = { viewModel.clearResumeHint() }
+            onClearResumeHint = { viewModel.clearResumeHint() },
+            onShowResumeHint = { text -> playerView.showResumeHint(text) },
+            onHideResumeHint = { playerView.hideResumeHint() }
         )
     }
 
@@ -961,6 +964,9 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     private fun setupBackHandler() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                if (cancelResume()) {
+                    return
+                }
                 uiCoordinator.handleBackPress(
                     isSettingShowing = playerView.isSettingViewShowing(),
                     hideSetting = { playerView.showHideSettingView(false) },
@@ -982,6 +988,30 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
 
     private var preloadHeaderRefreshPosted = false
 
+    private fun resolvePlaybackStartSeekPosition(
+        playbackRequest: VideoPlayerViewModel.PlaybackRequest,
+        currentPlayer: Player
+    ): Long {
+        val requestedSeekMs = playbackRequest.seekPositionMs.coerceAtLeast(0L)
+        if (!playbackRequest.reuseSameSource || requestedSeekMs <= 0L) {
+            return requestedSeekMs
+        }
+        val durationMs = currentPlayer.duration.takeIf { it > 0L && it != C.TIME_UNSET }
+            ?: return requestedSeekMs
+        val resolution = PlaybackStartSeekResolver.resolve(
+            requestedSeekMs = requestedSeekMs,
+            durationMs = durationMs,
+            reuseSameSource = true
+        )
+        if (resolution.nearEndReset) {
+            AppLog.w(
+                TAG,
+                "warm_reuse_seek_clamped reason=near_end requested=$requestedSeekMs duration=$durationMs"
+            )
+        }
+        return resolution.positionMs
+    }
+
     private fun setupObservers() {
         lifecycleScope.launch {
             viewModel.playbackRequest.collect { request ->
@@ -997,9 +1027,10 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                     }
                 }
                 progressCoordinator.reset()
+                val startSeekPositionMs = resolvePlaybackStartSeekPosition(playbackRequest, currentPlayer)
                 if (!playbackRequest.replaceInPlace) {
                     playerView.getController()?.hideImmediately()
-                    playerView.prepareForPlaybackTransition(playbackRequest.seekPositionMs)
+                    playerView.prepareForPlaybackTransition(startSeekPositionMs)
                     viewModel.resetPlaybackProgress()
                     latestPlaybackPositionMs = 0L
                     latestPlaybackDurationMs = playbackRequest.durationMs.coerceAtLeast(0L)
@@ -1027,20 +1058,20 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                             traceId = activeStartupTraceId,
                             startElapsedMs = activeStartupTraceStartElapsedMs,
                             step = "warm_reuse_prepare",
-                            message = "seek=${playbackRequest.seekPositionMs}"
+                            message = "seek=$startSeekPositionMs"
                         )
                         currentPlayer.prepare()
-                        currentPlayer.seekTo(playbackRequest.seekPositionMs)
+                        currentPlayer.seekTo(startSeekPositionMs)
                         currentPlayer.playWhenReady = playbackRequest.playWhenReady
                     } else {
                         // 冷路径：不同视频，完整重建管线
                         currentPlayer.stop()
-                        currentPlayer.setMediaSource(playbackRequest.mediaSource, playbackRequest.seekPositionMs)
+                        currentPlayer.setMediaSource(playbackRequest.mediaSource, startSeekPositionMs)
                         PlaybackStartupTrace.log(
                             traceId = activeStartupTraceId,
                             startElapsedMs = activeStartupTraceStartElapsedMs,
                             step = "media_source_set",
-                            message = "intentId=${playbackRequest.playbackIntentId} seek=${playbackRequest.seekPositionMs}"
+                            message = "intentId=${playbackRequest.playbackIntentId} seek=$startSeekPositionMs"
                         )
                         currentPlayer.prepare()
                         PlaybackStartupTrace.log(
@@ -1055,7 +1086,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                     suppressPlaybackEnvironmentSync = false
                 }
                 playerView.awaitDouyinPageTransitionFirstFrame()
-                playerView.syncDanmakuPosition(playbackRequest.seekPositionMs, forceSeek = true)
+                playerView.syncDanmakuPosition(startSeekPositionMs, forceSeek = true)
                 syncPlaybackEnvironment()
                 douyinCoordinator.schedulePreloadAfterPlaybackRequest(playbackRequest)
             }
@@ -1246,8 +1277,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
 
         lifecycleScope.launch {
             viewModel.resumeHint.collect { hint ->
-                // Toast 已在 ViewModel 中直接显示，仅消费 hint
-                if (hint != null) viewModel.clearResumeHint()
+                resumeHintController.onHintChanged(hint)
             }
         }
 

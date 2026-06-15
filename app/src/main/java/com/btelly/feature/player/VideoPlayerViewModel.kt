@@ -6,8 +6,6 @@ import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
-import android.widget.Toast
-import java.util.Locale
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -307,33 +305,8 @@ class VideoPlayerViewModel(
         _resumeHint.value = null
     }
 
-    private var resumeToast: Toast? = null
-
-    private fun showResumePositionToast(positionMs: Long) {
-        resumeToast?.cancel()
-        val totalSeconds = positionMs / 1000
-        val hours = totalSeconds / 3600
-        val minutes = (totalSeconds % 3600) / 60
-        val seconds = totalSeconds % 60
-        val timeStr = if (hours > 0) {
-            String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds)
-        } else {
-            String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
-        }
-        resumeToast = Toast.makeText(
-            appContext,
-            appContext.getString(R.string.tip_play_from_history, timeStr),
-            Toast.LENGTH_SHORT
-        ).also { it.show() }
-    }
-
     private fun publishResumeHint(positionMs: Long) {
         _resumeHint.value = ResumeProgressHint(targetPositionMs = positionMs)
-        if (hasReachedFirstFrame) {
-            showResumePositionToast(positionMs)
-        } else {
-            pendingResumeToastPositionMs = positionMs
-        }
     }
 
     private val gson = Gson()
@@ -717,7 +690,6 @@ class VideoPlayerViewModel(
     private var currentStreamFallbackPlan: VideoPlayerStreamResolver.StreamFallbackPlan? = null
     private var fallbackRouteIndex: Int = 0
     private var fallbackCdnIndex: Int = 0
-    private var pendingResumeToastPositionMs: Long? = null
     private var preloadedPlayback: PreloadedPlayback? = null
     private var preloadingIdentity: PlayRequestIdentity? = null
     private var preloadJob: Job? = null
@@ -854,7 +826,6 @@ class VideoPlayerViewModel(
         currentStartupTraceId = startupTraceId
         currentStartupTraceStartElapsedMs = startupTraceStartElapsedMs
         danmakuController.resetStartupTraceState()
-        pendingResumeToastPositionMs = null
         PlaybackStartupTrace.log(
             traceId = currentStartupTraceId,
             startElapsedMs = currentStartupTraceStartElapsedMs,
@@ -2351,8 +2322,6 @@ class VideoPlayerViewModel(
         hasReachedFirstFrame = true
         val cid = currentCid.takeIf { it > 0L }
         if (cid == null) return
-        val resumeToastPositionMs = pendingResumeToastPositionMs
-        pendingResumeToastPositionMs = null
         if (danmakuController.loadedCid != cid) {
             val danmakuAid = currentAid ?: 0L
             viewModelScope.launch {
@@ -2368,10 +2337,9 @@ class VideoPlayerViewModel(
         }
         scheduleDeferredSponsorLoadAfterFirstFrame(cid)
         viewModelScope.launch {
-            // 首帧后先把弹幕链路放出去，Toast/心跳/扩展信息延后一个很短的窗口，降低首显附近主线程抖动。
+            // 首帧后先把弹幕链路放出去，心跳/扩展信息延后一个很短的窗口，降低首显附近主线程抖动。
             delay(FIRST_FRAME_DEFERRED_WORK_DELAY_MS)
             if (currentCid != cid) return@launch
-            resumeToastPositionMs?.let { showResumePositionToast(it) }
             markRecentlyPlayed(cid)
             reportPlaybackHeartbeat(playType = PlaybackHeartbeatReporter.PLAY_TYPE_START)
             if (pendingPlayerExtrasCid == cid && loadedPlayerExtrasCid != cid) {

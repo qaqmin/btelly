@@ -4,8 +4,10 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.Rect
 import android.graphics.SurfaceTexture
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -24,6 +26,7 @@ import android.view.ViewGroup
 import android.view.ViewConfiguration
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.view.ViewStub
@@ -106,6 +109,10 @@ class MyPlayerView @JvmOverloads constructor(
         private const val SHUTTER_FADE_DURATION_MS = 180L
         private const val SHUTTER_TIMEOUT_MS = 8_000L
         private const val MASK_GEOMETRY_LOG_INTERVAL_MS = 2_000L
+        private const val RESUME_HINT_MARGIN_START_DP = 28
+        private const val RESUME_HINT_MARGIN_BOTTOM_DP = 22
+        private const val RESUME_HINT_CONTROLLER_OFFSET_DP = 130
+        private const val RESUME_HINT_ANIMATION_MS = 120L
     }
 
     private var contentFrame: AspectRatioFrameLayout? = null
@@ -123,6 +130,8 @@ class MyPlayerView @JvmOverloads constructor(
     private var specialDmkOverlayView: SpecialDanmakuOverlayView? = null
     private var dmkMaskHost: DanmakuMaskHostLayout? = null
     private var pauseIndicatorView: View? = null
+    private var resumeHintView: LinearLayout? = null
+    private var resumeHintPositionText: TextView? = null
 
     private var player: ExoPlayer? = null
     private var showBuffering: Int = SHOW_BUFFERING_WHEN_PLAYING
@@ -191,6 +200,7 @@ class MyPlayerView @JvmOverloads constructor(
                 uiCoordinator?.clearSeekPreview()
             }
             updateContentDescription()
+            updateResumeHintPosition(animate = true)
             controllerVisibilityListener?.onVisibilityChanged(visibility)
         }
     }
@@ -2100,6 +2110,7 @@ class MyPlayerView @JvmOverloads constructor(
         pauseIndicatorView?.bringToFront()
         douyinPreviewLayer?.bringToFront()
         controllerLayer?.bringToFront()
+        resumeHintView?.bringToFront()
         seekOverlayView?.bringToFront()
         settingView?.bringToFront()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -2108,9 +2119,102 @@ class MyPlayerView @JvmOverloads constructor(
             pauseIndicatorView?.translationZ = 3f
             douyinPreviewLayer?.translationZ = 4f
             controllerLayer?.translationZ = 5f
-            seekOverlayView?.translationZ = 6f
-            settingView?.translationZ = 7f
+            resumeHintView?.translationZ = 6f
+            seekOverlayView?.translationZ = 7f
+            settingView?.translationZ = 8f
         }
+    }
+
+    fun showResumeHint(text: String) {
+        val hintView = ensureResumeHintView()
+        resumeHintPositionText?.text = text
+        updateResumeHintPosition(animate = false)
+        hintView.animate().cancel()
+        hintView.alpha = 1f
+        hintView.visibility = VISIBLE
+        restoreOverlayZOrder()
+    }
+
+    fun hideResumeHint() {
+        resumeHintView?.let { view ->
+            view.animate().cancel()
+            view.visibility = GONE
+            view.alpha = 1f
+        }
+    }
+
+    private fun ensureResumeHintView(): LinearLayout {
+        resumeHintView?.let { return it }
+        val hint = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            isFocusable = false
+            isClickable = false
+            alpha = 1f
+            visibility = GONE
+            setPadding(dp(10), dp(5), dp(10), dp(5))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(2).toFloat()
+                setColor(0xCC111216.toInt())
+            }
+        }
+        val positionText = TextView(context).apply {
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            includeFontPadding = false
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        val actionText = TextView(context).apply {
+            text = context.getString(R.string.resume_hint_play_from_start)
+            setTextColor(0xFFFF5A9E.toInt())
+            textSize = 13f
+            includeFontPadding = false
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        hint.addView(
+            positionText,
+            LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
+        )
+        hint.addView(
+            actionText,
+            LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
+                marginStart = dp(14)
+            }
+        )
+        addView(
+            hint,
+            LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.START or Gravity.BOTTOM
+                marginStart = dp(RESUME_HINT_MARGIN_START_DP)
+                bottomMargin = dp(RESUME_HINT_MARGIN_BOTTOM_DP)
+            }
+        )
+        resumeHintView = hint
+        resumeHintPositionText = positionText
+        return hint
+    }
+
+    private fun updateResumeHintPosition(animate: Boolean) {
+        val hint = resumeHintView ?: return
+        val targetTranslationY = if (controller?.isFullyVisible() == true) {
+            -dp(RESUME_HINT_CONTROLLER_OFFSET_DP).toFloat()
+        } else {
+            0f
+        }
+        if (animate && hint.visibility == VISIBLE) {
+            hint.animate()
+                .translationY(targetTranslationY)
+                .setDuration(RESUME_HINT_ANIMATION_MS)
+                .setInterpolator(DecelerateInterpolator())
+                .start()
+        } else {
+            hint.animate().cancel()
+            hint.translationY = targetTranslationY
+        }
+    }
+
+    private fun dp(value: Int): Int {
+        return (value * resources.displayMetrics.density + 0.5f).toInt()
     }
 
     fun showHideMirrorButton(show: Boolean) {
@@ -2274,6 +2378,7 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     fun destroy() {
+        hideResumeHint()
         controller?.clearVideoSettingChangeListener()
         val currentPlayer = player
         currentPlayer?.removeListener(componentListener)

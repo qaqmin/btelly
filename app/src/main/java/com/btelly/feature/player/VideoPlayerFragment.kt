@@ -506,7 +506,9 @@ class VideoPlayerFragment : Fragment() {
             activity = requireActivity() as androidx.appcompat.app.AppCompatActivity,
             playerProvider = { player },
             onCancelResume = { viewModel.cancelResumeProgress() },
-            onClearResumeHint = { viewModel.clearResumeHint() }
+            onClearResumeHint = { viewModel.clearResumeHint() },
+            onShowResumeHint = { text -> playerView.showResumeHint(text) },
+            onHideResumeHint = { playerView.hideResumeHint() }
         )
     }
 
@@ -782,6 +784,30 @@ class VideoPlayerFragment : Fragment() {
         )
     }
 
+    private fun resolvePlaybackStartSeekPosition(
+        playbackRequest: VideoPlayerViewModel.PlaybackRequest,
+        currentPlayer: Player
+    ): Long {
+        val requestedSeekMs = playbackRequest.seekPositionMs.coerceAtLeast(0L)
+        if (!playbackRequest.reuseSameSource || requestedSeekMs <= 0L) {
+            return requestedSeekMs
+        }
+        val durationMs = currentPlayer.duration.takeIf { it > 0L && it != C.TIME_UNSET }
+            ?: return requestedSeekMs
+        val resolution = PlaybackStartSeekResolver.resolve(
+            requestedSeekMs = requestedSeekMs,
+            durationMs = durationMs,
+            reuseSameSource = true
+        )
+        if (resolution.nearEndReset) {
+            AppLog.w(
+                TAG,
+                "warm_reuse_seek_clamped reason=near_end requested=$requestedSeekMs duration=$durationMs"
+            )
+        }
+        return resolution.positionMs
+    }
+
     private fun setupObservers() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewModel.playbackRequest.collect { request ->
@@ -795,9 +821,10 @@ class VideoPlayerFragment : Fragment() {
                     playerView.removeControllerHideCallbacks()
                 }
                 progressCoordinator.reset()
+                val startSeekPositionMs = resolvePlaybackStartSeekPosition(playbackRequest, currentPlayer)
                 if (!playbackRequest.replaceInPlace) {
                     playerView.getController()?.hideImmediately()
-                    playerView.prepareForPlaybackTransition(playbackRequest.seekPositionMs)
+                    playerView.prepareForPlaybackTransition(startSeekPositionMs)
                     viewModel.resetPlaybackProgress()
                     latestPlaybackPositionMs = 0L
                     latestPlaybackDurationMs = playbackRequest.durationMs.coerceAtLeast(0L)
@@ -824,19 +851,19 @@ class VideoPlayerFragment : Fragment() {
                             traceId = activeStartupTraceId,
                             startElapsedMs = activeStartupTraceStartElapsedMs,
                             step = "warm_reuse_prepare",
-                            message = "seek=${playbackRequest.seekPositionMs}"
+                            message = "seek=$startSeekPositionMs"
                         )
                         currentPlayer.prepare()
-                        currentPlayer.seekTo(playbackRequest.seekPositionMs)
+                        currentPlayer.seekTo(startSeekPositionMs)
                         currentPlayer.playWhenReady = playbackRequest.playWhenReady
                     } else {
                         currentPlayer.stop()
-                        currentPlayer.setMediaSource(playbackRequest.mediaSource, playbackRequest.seekPositionMs)
+                        currentPlayer.setMediaSource(playbackRequest.mediaSource, startSeekPositionMs)
                         PlaybackStartupTrace.log(
                             traceId = activeStartupTraceId,
                             startElapsedMs = activeStartupTraceStartElapsedMs,
                             step = "media_source_set",
-                            message = "intentId=${playbackRequest.playbackIntentId} seek=${playbackRequest.seekPositionMs}"
+                            message = "intentId=${playbackRequest.playbackIntentId} seek=$startSeekPositionMs"
                         )
                         currentPlayer.prepare()
                         PlaybackStartupTrace.log(
@@ -851,7 +878,7 @@ class VideoPlayerFragment : Fragment() {
                     suppressPlaybackEnvironmentSync = false
                 }
                 playerView.awaitDouyinPageTransitionFirstFrame()
-                playerView.syncDanmakuPosition(playbackRequest.seekPositionMs, forceSeek = true)
+                playerView.syncDanmakuPosition(startSeekPositionMs, forceSeek = true)
                 syncPlaybackEnvironment()
                 scheduleDouyinPreloadAfterPlaybackRequest(playbackRequest)
             }
@@ -908,8 +935,7 @@ class VideoPlayerFragment : Fragment() {
 
                 launch {
                     viewModel.resumeHint.collect { hint ->
-                        // Toast 已在 ViewModel 中直接显示，仅消费 hint
-                        if (hint != null) viewModel.clearResumeHint()
+                        resumeHintController.onHintChanged(hint)
                     }
                 }
 

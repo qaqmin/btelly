@@ -2,7 +2,6 @@ package com.btelly.feature.player
 
 import android.os.Handler
 import android.os.Looper
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -14,7 +13,9 @@ class VideoPlayerResumeHintController(
     private val activity: AppCompatActivity,
     private val playerProvider: () -> Player?,
     private val onCancelResume: () -> Unit,
-    private val onClearResumeHint: () -> Unit
+    private val onClearResumeHint: () -> Unit,
+    private val onShowResumeHint: (timeText: String) -> Unit,
+    private val onHideResumeHint: () -> Unit
 ) {
 
     companion object {
@@ -26,9 +27,9 @@ class VideoPlayerResumeHintController(
 
     private val handler = Handler(Looper.getMainLooper())
     private var resumeHintRunnable: Runnable? = null
+    private var hideHintRunnable: Runnable? = null
     private var resumeHintStartTimeMs: Long = 0L
     private var resumeHintTargetPositionMs: Long = 0L
-    private var resumeHintToast: Toast? = null
     private var isResumeHintCancelled: Boolean = false
     private var isResumeHintActive: Boolean = false
     private var lastTraceSignature: String? = null
@@ -40,6 +41,7 @@ class VideoPlayerResumeHintController(
         }
         clearPendingUi(markCancelled = true)
         onCancelResume()
+        playerProvider()?.seekTo(0L)
         return true
     }
 
@@ -56,13 +58,14 @@ class VideoPlayerResumeHintController(
         lastTraceSignature = null
         lastTraceTimestampMs = 0L
 
-        resumeHintToast?.cancel()
         val timeStr = formatTime(hint.targetPositionMs)
-        resumeHintToast = Toast.makeText(
-            activity,
-            activity.getString(R.string.tip_play_from_history, timeStr),
-            Toast.LENGTH_LONG
-        ).also { it.show() }
+        onShowResumeHint(activity.getString(R.string.tip_play_from_history, timeStr))
+        hideHintRunnable?.let(handler::removeCallbacks)
+        hideHintRunnable = Runnable {
+            isResumeHintActive = false
+            onHideResumeHint()
+        }
+        handler.postDelayed(hideHintRunnable!!, SEEK_DELAY_MS)
 
         scheduleResumeCheck(immediate = true)
     }
@@ -141,8 +144,9 @@ class VideoPlayerResumeHintController(
         lastTraceTimestampMs = 0L
         resumeHintRunnable?.let(handler::removeCallbacks)
         resumeHintRunnable = null
-        resumeHintToast?.cancel()
-        resumeHintToast = null
+        hideHintRunnable?.let(handler::removeCallbacks)
+        hideHintRunnable = null
+        onHideResumeHint()
     }
 
     private fun formatTime(timeMs: Long): String {
