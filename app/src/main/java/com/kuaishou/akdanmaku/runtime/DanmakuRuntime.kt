@@ -671,7 +671,15 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   }
 
   private fun syncPendingData(): Int {
-    val added = timelineWindow.syncPending(pendingAddItems, liveMode)
+    val config = context.config
+    val nowMs = context.timer.currentTimeMs
+    val added = timelineWindow.syncPending(
+      pending = pendingAddItems,
+      liveMode = liveMode,
+      nowMs = nowMs,
+      durationMs = config.durationMs,
+      rollingDurationMs = config.rollingDurationMs
+    )
     return added
   }
 

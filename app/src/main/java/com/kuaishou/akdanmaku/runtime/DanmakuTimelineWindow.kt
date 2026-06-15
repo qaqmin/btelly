@@ -8,6 +8,8 @@ package com.kuaishou.akdanmaku.runtime
 
 import kotlin.math.max
 
+private const val TRIM_SAFETY_MARGIN_MS = 2_000L
+
 internal class DanmakuTimelineWindow<T>(
   private val items: MutableList<T>,
   private val comparator: Comparator<T>,
@@ -22,7 +24,13 @@ internal class DanmakuTimelineWindow<T>(
     scanIndex = 0
   }
 
-  fun syncPending(pending: MutableList<T>, liveMode: Boolean): Int {
+  fun syncPending(
+    pending: MutableList<T>,
+    liveMode: Boolean,
+    nowMs: Long,
+    durationMs: Long,
+    rollingDurationMs: Long
+  ): Int {
     if (pending.isEmpty()) return 0
     val added = pending.size
     val batch = ArrayList(pending)
@@ -34,8 +42,26 @@ internal class DanmakuTimelineWindow<T>(
     }
     if (liveMode) {
       trimLiveHistory()
+    } else {
+      // VOD: slide the window so items already flown past won't accumulate.
+      trimExpiredByTime(nowMs, durationMs, rollingDurationMs)
     }
     return added
+  }
+
+  // Drop items that have permanently flown past the playback window.
+  // cutoff = now - max(duration, rolling) - safetyMargin. Only items before
+  // scanIndex (already scanned) are eligible, so un-enqueued items are kept.
+  private fun trimExpiredByTime(nowMs: Long, durationMs: Long, rollingDurationMs: Long) {
+    val span = max(durationMs, rollingDurationMs)
+    val cutoff = nowMs - span - TRIM_SAFETY_MARGIN_MS
+    var removeCount = lowerBound(cutoff)
+    if (removeCount <= 0) return
+    // Never trim past scanIndex: those items haven't been scanned yet.
+    removeCount = removeCount.coerceAtMost(scanIndex)
+    if (removeCount <= 0) return
+    items.subList(0, removeCount).clear()
+    scanIndex -= removeCount
   }
 
   fun reset(positionMs: Long, durationMs: Long, rollingDurationMs: Long) {
