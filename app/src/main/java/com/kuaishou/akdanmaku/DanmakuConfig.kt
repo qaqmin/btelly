@@ -122,6 +122,15 @@ data class DanmakuConfig(
   var overlapFraction: Float = 0f,
 
   /**
+   * 轨道拥堵时是否把被拒弹幕合并进已显示的同款弹幕（显示 ×N）。
+   *
+   * 该机制在弹幕入轨之后才修改内容/宽度，会破坏“入轨即锁定运动宽度”的假设，
+   * 导致合并体位置跳跃、与后续弹幕重叠，因此默认关闭。本项目改用入轨前的
+   * 预处理合并（DanmakuDuplicateMergePolicy），由“合并弹幕”开关控制。
+   */
+  var rejectedMergeEnabled: Boolean = false,
+
+  /**
    * 可见性标记，当可见性发生变化时更新
    */
   var visibilityGeneration: Int = 0,

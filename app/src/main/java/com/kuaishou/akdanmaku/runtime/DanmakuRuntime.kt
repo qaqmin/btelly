@@ -1693,6 +1693,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     private var sequence = 0L
 
     fun registerVisible(item: DanmakuItem, config: DanmakuConfig, nowMs: Long) {
+      if (!config.rejectedMergeEnabled) return
       if (!isMergeCandidate(item)) return
       prune(nowMs)
       val key = item.mergeKey()
@@ -1700,6 +1701,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     }
 
     fun tryMergeRejected(item: DanmakuItem, config: DanmakuConfig, nowMs: Long): Boolean {
+      if (!config.rejectedMergeEnabled) return false
       if (!isMergeCandidate(item)) return false
       prune(nowMs)
       val target = targets[item.mergeKey()] ?: return false
