@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>B站推荐页 API 文档</title>
+    <style>
+        :root {
+            --bg: #0f0f0f;
+            --card-bg: #1a1a2e;
+            --border: #2a2a4a;
+            --accent: #00a1d6;
+            --accent-light: #23ade5;
+            --text: #e0e0e0;
+            --text-dim: #999;
+            --text-bright: #fff;
+            --tag-bg: #2d2d5e;
+            --tag-green: #52c41a;
+            --tag-orange: #fa8c16;
+            --tag-red: #f5222d;
+            --tag-blue: #1890ff;
+            --tag-purple: #722ed1;
+            --code-bg: #16213e;
+            --table-header: #1e1e3a;
+            --table-stripe: #141428;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.7;
+            padding: 2rem;
+        }
+        .container { max-width: 1100px; margin: 0 auto; }
+        h1 {
+            color: var(--accent);
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            border-bottom: 2px solid var(--accent);
+            padding-bottom: 0.5rem;
+        }
+        .subtitle { color: var(--text-dim); margin-bottom: 2rem; font-size: 0.95rem; }
+        h2 {
+            color: var(--text-bright);
+            font-size: 1.4rem;
+            margin-top: 2.5rem;
+            margin-bottom: 1rem;
+            padding-left: 0.5rem;
+            border-left: 4px solid var(--accent);
+        }
+        h3 {
+            color: var(--accent-light);
+            font-size: 1.15rem;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .endpoint-box {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem 1.5rem;
+            margin-bottom: 1.5rem;
+            font-size: 1.1rem;
+        }
+        .method {
+            background: var(--accent);
+            color: #fff;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            flex-shrink: 0;
+        }
+        .method.post { background: var(--tag-orange); }
+        .url { color: var(--text-bright); font-family: 'Consolas', 'Fira Code', monospace; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+        th, td {
+            padding: 10px 14px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        th {
+            background: var(--table-header);
+            color: var(--accent-light);
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+        }
+        tr:nth-child(even) { background: var(--table-stripe); }
+        tr:hover { background: rgba(0, 161, 214, 0.08); }
+        code {
+            background: var(--code-bg);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', 'Fira Code', monospace;
+            font-size: 0.88em;
+            color: var(--accent-light);
+        }
+        .tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+        .tag-required { background: rgba(245, 34, 45, 0.2); color: var(--tag-red); }
+        .tag-optional { background: rgba(24, 144, 255, 0.15); color: var(--tag-blue); }
+        .tag-enum { background: rgba(114, 46, 209, 0.2); color: var(--tag-purple); }
+        .tag-auto { background: rgba(82, 196, 26, 0.15); color: var(--tag-green); }
+        .tag-string { background: rgba(250, 140, 22, 0.15); color: var(--tag-orange); }
+        .tag-int { background: rgba(24, 144, 255, 0.15); color: var(--tag-blue); }
+        .tag-long { background: rgba(114, 46, 209, 0.15); color: var(--tag-purple); }
+        .tag-bool { background: rgba(82, 196, 26, 0.15); color: var(--tag-green); }
+        .tag-object { background: rgba(0, 161, 214, 0.15); color: var(--accent); }
+        .tag-list { background: rgba(250, 140, 22, 0.15); color: var(--tag-orange); }
+        .note-box {
+            background: rgba(250, 140, 22, 0.08);
+            border: 1px solid rgba(250, 140, 22, 0.3);
+            border-radius: 6px;
+            padding: 1rem 1.25rem;
+            margin: 1rem 0;
+        }
+        .note-box.warn { background: rgba(245, 34, 45, 0.08); border-color: rgba(245, 34, 45, 0.3); }
+        .note-box.info { background: rgba(24, 144, 255, 0.08); border-color: rgba(24, 144, 255, 0.3); }
+        .note-box.tip { background: rgba(82, 196, 26, 0.08); border-color: rgba(82, 196, 26, 0.3); }
+        .note-title { font-weight: bold; margin-bottom: 0.3rem; }
+        .note-box.warn .note-title { color: var(--tag-red); }
+        .note-box.info .note-title { color: var(--tag-blue); }
+        .note-box.tip .note-title { color: var(--tag-green); }
+        ul, ol { padding-left: 1.5rem; margin: 0.5rem 0; }
+        li { margin-bottom: 0.35rem; }
+        .type-column { white-space: nowrap; }
+        .desc-column { min-width: 200px; }
+        .code-block {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 1rem;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Fira Code', monospace;
+            font-size: 0.88rem;
+            line-height: 1.5;
+            margin: 0.75rem 0;
+        }
+        .section-index { margin: 1.5rem 0; }
+        .section-index a {
+            color: var(--accent);
+            text-decoration: none;
+            margin-right: 1.5rem;
+        }
+        .section-index a:hover { text-decoration: underline; }
+        .json-key { color: var(--accent-light); }
+        .json-str { color: var(--tag-green); }
+        .json-num { color: var(--tag-orange); }
+        .json-bool { color: var(--tag-purple); }
+        .json-null { color: var(--text-dim); }
+    </style>
+</head>
+<body>
+<div class="container">
+
+<h1>B站推荐页 (Pegasus) API 文档</h1>
+<p class="subtitle">基于 B站 Android TV 客户端逆向分析 · 源码包: com.bilibili.pegasus · 更新日期: 2026-06-08</p>
+
+<div class="section-index">
+    <strong>目录：</strong>
+    <a href="#overview">概述</a>
+    <a href="#endpoint">API 端点</a>
+    <a href="#request">请求参数</a>
+    <a href="#response">响应结构</a>
+    <a href="#item-model">卡片数据模型</a>
+    <a href="#card-types">卡片类型</a>
+    <a href="#sub-models">子模型</a>
+    <a href="#auth">鉴权与签名</a>
+    <a href="#notes">注意事项</a>
+</div>
+
+<!-- ==================== 概述 ==================== -->
+<h2 id="overview">1. 概述</h2>
+<div class="card">
+    <p>B站推荐页使用内部代号 <strong>Pegasus（飞马）</strong> 的推荐系统。该系统负责首页的信息流推荐，根据用户的观看历史、兴趣偏好等数据，通过个性化推荐算法返回视频/直播/文章等内容卡片。</p>
+    <p style="margin-top: 0.5rem;">核心 API 端点为 <code>/x/v2/feed/index</code>，使用 <strong>GET</strong> 方法请求，Base URL 为 <code>https://app.bilibili.com</code>。</p>
+    <div class="note-box info">
+        <div class="note-title">ℹ️ 响应格式</div>
+        <p>API 响应为 JSON 格式，外层包裹 <code>GeneralResponse</code>（含 code / message / data），data 部分即 <code>PegasusFeedResponse</code>。</p>
+    </div>
+</div>
+
+<!-- ==================== API 端点 ==================== -->
+<h2 id="endpoint">2. API 端点</h2>
+
+<h3>2.1 推荐信息流（主接口）</h3>
+<div class="endpoint-box">
+    <span class="method">GET</span>
+    <span class="url">https://app.bilibili.com/x/v2/feed/index</span>
+</div>
+<div class="card">
+    <p>获取推荐信息流数据，支持下拉刷新、上拉加载更多、Tab 切换等场景。</p>
+    <p>返回类型：<code>GeneralResponse&lt;PegasusFeedResponse&gt;</code></p>
+</div>
+
+<h3>2.2 推荐 Tab 信息</h3>
+<div class="endpoint-box">
+    <span class="method">GET</span>
+    <span class="url">https://app.bilibili.com/x/v2/feed/index/tab</span>
+</div>
+<div class="card">
+    <p>获取推荐页顶部运营 Tab 配置。</p>
+    <table>
+        <tr><th>参数</th><th>类型</th><th>说明</th></tr>
+        <tr><td><code>tab_id</code></td><td>String</td><td>Tab 标识（可选）</td></tr>
+        <tr><td><code>id</code></td><td>String</td><td>运营 ID（可选）</td></tr>
+    </table>
+</div>
+
+<h3>2.3 负反馈接口</h3>
+<div class="endpoint-box">
+    <span class="method">GET</span>
+    <span class="url">https://app.bilibili.com/x/v2/feed/nf</span>
+</div>
+<div class="card">
+    <p>获取对某条推荐的"不感兴趣"反馈选项，用于展示负反馈弹窗。</p>
+    <table>
+        <tr><th>参数</th><th>类型</th><th>说明</th></tr>
+        <tr><td><code>goto</code></td><td>String</td><td>卡片跳转类型（如 av, live）</td></tr>
+        <tr><td><code>id</code></td><td>long</td><td>卡片 ID</td></tr>
+        <tr><td><code>up_id</code></td><td>long</td><td>UP主 ID</td></tr>
+        <tr><td><code>up_name</code></td><td>String</td><td>UP主名称</td></tr>
+        <tr><td><code>jumpgoto</code></td><td>String</td><td>跳转类型</td></tr>
+        <tr><td><code>video_mode</code></td><td>long</td><td>视频模式</td></tr>
+        <tr><td><code>column</code></td><td>long</td><td>列号</td></tr>
+        <tr><td><code>tname</code></td><td>String</td><td>分区名称</td></tr>
+        <tr><td><code>from</code></td><td>long</td><td>来源</td></tr>
+    </table>
+</div>
+
+<!-- ==================== 请求参数 ==================== -->
+<h2 id="request">3. 请求参数（主接口）</h2>
+
+<h3>3.1 接口显式参数</h3>
+<div class="card">
+    <table>
+        <tr>
+            <th>参数名</th>
+            <th>类型</th>
+            <th>必填</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td><code>window_size_type</code></td>
+            <td><span class="tag tag-int">int</span></td>
+            <td><span class="tag tag-required">必填</span></td>
+            <td>窗口尺寸类型，影响卡片排列方式。默认值 <code>1</code>，双列模式用 <code>2</code></td>
+        </tr>
+        <tr>
+            <td><code>raw_window_size_type</code></td>
+            <td><span class="tag tag-int">int</span></td>
+            <td><span class="tag tag-required">必填</span></td>
+            <td>原始窗口尺寸类型，与 window_size_type 类似，默认值 <code>1</code></td>
+        </tr>
+    </table>
+</div>
+
+<h3>3.2 请求拦截器自动注入的公共参数</h3>
+<div class="card">
+    <p>以下参数由 <code>DefaultRequestInterceptor</code> 和 Pegasus 专用拦截器 <code>com.bilibili.pegasus.utils.k</code> 自动添加，无需手动设置：</p>
+    <table>
+        <tr><th>参数名</th><th>类型</th><th>来源</th><th>说明</th></tr>
+        <tr><td><code>platform</code></td><td><span class="tag tag-string">String</span></td><td><span class="tag tag-auto">自动</span></td><td>平台标识，固定为 <code>"android"</code></td></tr>
+        <tr><td><code>mobi_app</code></td><td><span class="tag tag-string">String</span></td><td><span class="tag tag-auto">自动</span></td><td>APP 标识，由 BiliConfig 配置</td></tr>
+        <tr><td><code>appkey</code></td><td><span class="tag tag-string">String</span></td><td><span class="tag tag-auto">自动</span></td><td>应用密钥标识</td></tr>
+        <tr><td><code>build</code></td><td><span class="tag tag-string">String</span></td><td><span class="tag tag-auto">自动</span></td><td>APP 版本号（versionCode）</td></tr>
+        <tr><td><code>channel</code></td><td><span class="tag tag-string">String</span></td><td><span class="tag tag-auto">自动</span></td><td>安装渠道号</td></tr>
+        <tr><td><code>access_key</code></td><td><span class="tag tag-string">String</span></td><td><span class="tag tag-auto">自动</span></td><td>用户访问令牌（登录后自动填充）</td></tr>
+        <tr><td><code>c_locale</code></td><td><span class="tag tag-string">String</span></td><td><span class="tag tag-auto">自动</span></td><td>当前 App 语言地区设置</td></tr>
+        <tr><td><code>s_locale</code></td><td><span class="tag tag-string">String</span></td><td><span class="tag tag-auto">自动</span></td><td>系统语言地区设置</td></tr>
+        <tr><td><code>privacy_disagree_mode</code></td><td><span class="tag tag-string">String</span></td><td><span class="tag tag-auto">Pegasus专用</span></td><td>隐私不授权模式，固定为 <code>"1"</code></td></tr>
+        <tr><td><code>column</code></td><td><span class="tag tag-string">String</span></td><td><span class="tag tag-auto">Pegasus专用</span></td><td>列数配置，固定为 <code>"2"</code>（双列推荐）</td></tr>
+        <tr><td><code>network</code></td><td><span class="tag tag-string">String</span></td><td><span class="tag tag-auto">Pegasus专用</span></td><td>网络类型（如 wifi/4G/5G）</td></tr>
+        <tr><td><code>device_name</code></td><td><span class="tag tag-string">String</span></td><td><span class="tag tag-auto">Pegasus专用</span></td><td>设备型号（Build.MODEL）</td></tr>
+        <tr><td><code>sign</code></td><td><span class="tag tag-string">String</span></td><td><span class="tag tag-auto">签名</span></td><td>请求签名，由 LibBili.signQuery() 生成</td></tr>
+    </table>
+</div>
+
+<h3>3.3 Request Header（请求头）</h3>
+<div class="card">
+    <p>以下 Header 由 <code>DefaultRequestInterceptor.addHeader()</code> 自动注入：</p>
+    <table>
+        <tr><th>Header</th><th>说明</th></tr>
+        <tr><td><code>Display-ID</code></td><td>显示标识</td></tr>
+        <tr><td><code>Buvid</code></td><td>设备唯一标识（Bilibili Unique Visitor ID）</td></tr>
+        <tr><td><code>User-Agent</code></td><td>Bilibili APP 默认 UA</td></tr>
+        <tr><td><code>Device-ID</code></td><td>设备 ID（PhoneDeviceId）</td></tr>
+        <tr><td><code>fp_local</code></td><td>本地指纹</td></tr>
+        <tr><td><code>fp_remote</code></td><td>远程指纹</td></tr>
+        <tr><td><code>session_id</code></td><td>会话 ID</td></tr>
+        <tr><td><code>x-bili-locale-bin</code></td><td>本地化二进制数据</td></tr>
+        <tr><td><code>GuestId</code></td><td>游客 ID（未登录时使用）</td></tr>
+    </table>
+</div>
+
+<h3>3.4 请求参数模型 (RequestParam)</h3>
+<div class="card">
+    <p>内部请求参数模型 <code>RequestParam(C33007c)</code> 包含以下字段（经混淆还原）：</p>
+    <table>
+        <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+        <tr><td><code>idx</code></td><td><span class="tag tag-long">long</span></td><td>分页游标索引，首次请求为 0，后续使用上次响应中最后一条 item 的 idx 值</td></tr>
+        <tr><td><code>refresh</code></td><td><span class="tag tag-bool">boolean</span></td><td>是否为刷新请求（下拉刷新/Tab 点击等场景）</td></tr>
+        <tr><td><code>flush</code></td><td><span class="tag tag-enum">PegasusFlush</span></td><td>刷新类型枚举，见下方枚举值表</td></tr>
+        <tr><td><code>splashId</code></td><td><span class="tag tag-string">String?</span></td><td>闪屏广告 ID</td></tr>
+        <tr><td><code>splashIds</code></td><td><span class="tag tag-string">String?</span></td><td>多个闪屏 ID</td></tr>
+        <tr><td><code>splashCreativeId</code></td><td><span class="tag tag-long">long</span></td><td>闪屏创意 ID</td></tr>
+        <tr><td><code>interestInfo</code></td><td><span class="tag tag-object">Object?</span></td><td>兴趣选择信息（新用户选兴趣后使用）</td></tr>
+        <tr><td><code>queryBannerAction</code></td><td><span class="tag tag-object">Function?</span></td><td>查询 Banner 动作回调</td></tr>
+        <tr><td><code>cnyInfo</code></td><td><span class="tag tag-string">String?</span></td><td>春节活动信息</td></tr>
+        <tr><td><code>windowSizeType</code></td><td><span class="tag tag-int">int</span></td><td>窗口尺寸类型，默认 1</td></tr>
+        <tr><td><code>rawWindowSizeType</code></td><td><span class="tag tag-int">int</span></td><td>原始窗口尺寸类型，默认 1</td></tr>
+    </table>
+</div>
+
+<h3>3.5 PegasusFlush 刷新类型枚举</h3>
+<div class="card">
+    <table>
+        <tr><th>枚举值</th><th>数值</th><th>说明</th></tr>
+        <tr><td><code>NORMAL</code></td><td>0</td><td>正常加载（默认）</td></tr>
+        <tr><td><code>AUTO_BACK_FROM_BACKGROUND</code></td><td>1</td><td>从后台自动恢复</td></tr>
+        <tr><td><code>SWITCH_STYLE</code></td><td>2</td><td>切换样式</td></tr>
+        <tr><td><code>INTEREST</code></td><td>3</td><td>兴趣变更</td></tr>
+        <tr><td><code>SWITCH_PEGASUS_RECOMMEND_MODE</code></td><td>4</td><td>切换推荐模式</td></tr>
+        <tr><td><code>TAB_CLICK</code></td><td>5</td><td>点击 Tab 刷新</td></tr>
+        <tr><td><code>PULL_DOWN</code></td><td>6</td><td>下拉刷新</td></tr>
+        <tr><td><code>TOP_REFRESH_BUTTON_CLICK</code></td><td>7</td><td>点击顶部刷新按钮</td></tr>
+        <tr><td><code>PULL_UP</code></td><td>8</td><td>上拉加载更多</td></tr>
+        <tr><td><code>AUTO_BACK_FROM_OTHER_PAGE</code></td><td>9</td><td>从其他页面自动返回</td></tr>
+        <tr><td><code>SWITCH_RECOMMEND_MODE_FROM_SETTINGS</code></td><td>11</td><td>从设置切换推荐模式</td></tr>
+        <tr><td><code>SWITCH_RECOMMEND_MODE_FROM_GUIDANCE</code></td><td>12</td><td>从引导切换推荐模式</td></tr>
+        <tr><td><code>TAB_CLICK_WITH_OFFSET</code></td><td>14</td><td>带偏移量的 Tab 点击</td></tr>
+        <tr><td><code>TAB_DOUBLE_CLICK</code></td><td>15</td><td>双击 Tab 刷新</td></tr>
+        <tr><td><code>BOTTOM_REFRESH_BUTTON_CLICK</code></td><td>16</td><td>点击底部刷新按钮</td></tr>
+        <tr><td><code>VIDEO_MODE_CHANGE</code></td><td>17</td><td>视频模式变更</td></tr>
+        <tr><td><code>REFRESH_GUIDANCE</code></td><td>18</td><td>刷新引导</td></tr>
+        <tr><td><code>HOME_TAB_REFRESH_GUIDANCE</code></td><td>19</td><td>首页 Tab 刷新引导</td></tr>
+        <tr><td><code>AUTO_BACK_FROM_BEHAVIOR</code></td><td>20</td><td>行为触发自动返回</td></tr>
+        <tr><td><code>LOGIN_CHANGE</code></td><td>21</td><td>登录状态变更</td></tr>
+        <tr><td><code>FLUSH_TAB_SWITCH_COLUMN</code></td><td>22</td><td>Tab 切换列</td></tr>
+        <tr><td><code>FLUSH_ON_BACK_PRESS</code></td><td>23</td><td>返回键触发刷新</td></tr>
+    </table>
+</div>
+
+<!-- ==================== 响应结构 ==================== -->
+<h2 id="response">4. 响应结构</h2>
+
+<h3>4.1 外层响应 (GeneralResponse)</h3>
+<div class="code-block">{
+    "<span class="json-key">code</span>": <span class="json-num">0</span>,
+    "<span class="json-key">message</span>": "<span class="json-str">0</span>",
+    "<span class="json-key">ttl</span>": <span class="json-num">1</span>,
+    "<span class="json-key">data</span>": { <span class="text-dim">/* PegasusFeedResponse */</span> }
+}</div>
+
+<h3>4.2 PegasusFeedResponse</h3>
+<div class="card">
+    <table>
+        <tr><th>字段</th><th>JSON Key</th><th>类型</th><th>说明</th></tr>
+        <tr><td><code>items</code></td><td><code>"items"</code></td><td><span class="tag tag-list">List&lt;BasicIndexItem&gt;</span></td><td>推荐卡片列表，核心数据</td></tr>
+        <tr><td><code>config</code></td><td><code>"config"</code></td><td><span class="tag tag-object">Config?</span></td><td>页面配置信息</td></tr>
+        <tr><td><code>feedVer</code></td><td><code>"ver"</code></td><td><span class="tag tag-string">String?</span></td><td>Feed 版本标识，用于增量更新</td></tr>
+    </table>
+</div>
+
+<h3>4.3 Config（页面配置）</h3>
+<div class="card">
+    <table>
+        <tr><th>字段</th><th>JSON Key</th><th>类型</th><th>说明</th></tr>
+        <tr><td><code>bottomText</code></td><td><code>"bottom_text"</code></td><td><span class="tag tag-string">String?</span></td><td>底部文案</td></tr>
+        <tr><td><code>bottomTextCover</code></td><td><code>"bottom_text_cover"</code></td><td><span class="tag tag-string">String?</span></td><td>底部文案封面</td></tr>
+        <tr><td><code>bottomTextUrl</code></td><td><code>"bottom_text_url"</code></td><td><span class="tag tag-string">String?</span></td><td>底部文案跳转链接</td></tr>
+        <tr><td><code>itemName</code></td><td><code>"item_title"</code></td><td><span class="tag tag-string">String?</span></td><td>项目标题</td></tr>
+        <tr><td><code>userFeature</code></td><td><code>"user_feature"</code></td><td><span class="tag tag-string">String?</span></td><td>用户特征标识</td></tr>
+    </table>
+</div>
+
+<!-- ==================== 卡片数据模型 ==================== -->
+<h2 id="item-model">5. 卡片数据模型 (BasicIndexItem)</h2>
+<div class="card">
+    <p><code>BasicIndexItem</code> 是所有推荐卡片的基类，包含以下字段：</p>
+    <table>
+        <tr><th>字段</th><th>JSON Key</th><th>类型</th><th>说明</th></tr>
+        <tr><td><code>idx</code></td><td><code>"idx"</code></td><td><span class="tag tag-long">long</span></td><td>卡片唯一排序索引，用于分页游标</td></tr>
+        <tr><td><code>id</code></td><td><code>"id"</code></td><td><span class="tag tag-long">long</span></td><td>卡片 ID</td></tr>
+        <tr><td><code>title</code></td><td><code>"title"</code></td><td><span class="tag tag-string">String?</span></td><td>卡片标题</td></tr>
+        <tr><td><code>cover</code></td><td><code>"cover"</code></td><td><span class="tag tag-string">String?</span></td><td>封面图片 URL</td></tr>
+        <tr><td><code>uri</code></td><td><code>"uri"</code></td><td><span class="tag tag-string">String?</span></td><td>点击跳转 URI（bilibili://...）</td></tr>
+        <tr><td><code>param</code></td><td><code>"param"</code></td><td><span class="tag tag-string">String?</span></td><td>跳转参数（通常为 avid 或 epid）</td></tr>
+        <tr><td><code>goto</code></td><td><code>"goto"</code></td><td><span class="tag tag-string">String?</span></td><td>跳转目标类型：<code>av</code>(视频), <code>live</code>(直播), <code>bangumi</code>(番剧), <code>vertical_av</code>(竖屏视频), <code>ketang</code>(课堂)</td></tr>
+        <tr><td><code>cardGoto</code></td><td><code>"card_goto"</code></td><td><span class="tag tag-string">String?</span></td><td>卡片级跳转类型</td></tr>
+        <tr><td><code>cardType</code></td><td><code>"card_type"</code></td><td><span class="tag tag-string">String?</span></td><td>卡片展示类型标识</td></tr>
+        <tr><td><code>trackId</code></td><td><code>"track_id"</code></td><td><span class="tag tag-string">String?</span></td><td>推荐追踪 ID（用于曝光/点击上报）</td></tr>
+        <tr><td><code>fromType</code></td><td><code>"from_type"</code></td><td><span class="tag tag-string">String?</span></td><td>推荐来源类型</td></tr>
+        <tr><td><code>subtitle</code></td><td><code>"subtitle"</code></td><td><span class="tag tag-string">String?</span></td><td>副标题</td></tr>
+        <tr><td><code>args</code></td><td><code>"args"</code></td><td><span class="tag tag-object">Args?</span></td><td>附加参数对象</td></tr>
+        <tr><td><code>upArgs</code></td><td><code>"up_args"</code></td><td><span class="tag tag-object">UpArgs?</span></td><td>UP主参数对象</td></tr>
+        <tr><td><code>playerArgs</code></td><td><code>"player_args"</code></td><td><span class="tag tag-object">PlayerArgs?</span></td><td>播放器参数（含 avid/cid 等）</td></tr>
+        <tr><td><code>threePoint</code></td><td><code>"three_point_v2"</code></td><td><span class="tag tag-list">List&lt;ThreePointItem&gt;?</span></td><td>三点菜单操作项</td></tr>
+        <tr><td><code>threePointV3</code></td><td><code>"three_point_v3"</code></td><td><span class="tag tag-list">List&lt;ThreePointItem&gt;?</span></td><td>三点菜单 V3</td></tr>
+        <tr><td><code>threePointV4</code></td><td><code>"three_point_v4"</code></td><td><span class="tag tag-object">ThreePointV4Item?</span></td><td>三点菜单 V4</td></tr>
+        <tr><td><code>adInfo</code></td><td><code>"ad_info"</code></td><td><span class="tag tag-object">FeedAdInfo?</span></td><td>广告信息（仅广告卡片有值）</td></tr>
+        <tr><td><code>isAd</code></td><td><code>"is_ad"</code></td><td><span class="tag tag-bool">boolean</span></td><td>是否为广告卡片</td></tr>
+        <tr><td><code>isAdLoc</code></td><td><code>"is_ad_loc"</code></td><td><span class="tag tag-bool">boolean</span></td><td>是否为广告位</td></tr>
+        <tr><td><code>requestId</code></td><td><code>"request_id"</code></td><td><span class="tag tag-string">String?</span></td><td>请求 ID</td></tr>
+        <tr><td><code>creativeId</code></td><td><code>"creative_id"</code></td><td><span class="tag tag-long">long</span></td><td>创意 ID</td></tr>
+        <tr><td><code>materialId</code></td><td><code>"material_id"</code></td><td><span class="tag tag-long">long</span></td><td>素材 ID</td></tr>
+        <tr><td><code>userFeature</code></td><td><code>"user_feature"</code></td><td><span class="tag tag-string">String?</span></td><td>用户特征（推荐算法参数）</td></tr>
+        <tr><td><code>avFeature</code></td><td><code>"av_feature"</code></td><td><span class="tag tag-string">String?</span></td><td>稿件特征</td></tr>
+        <tr><td><code>dalaoFeature</code></td><td><code>"dalao_feature"</code></td><td><span class="tag tag-string">String?</span></td><td>大佬特征</td></tr>
+        <tr><td><code>translatedTitle</code></td><td><code>"translated_title"</code></td><td><span class="tag tag-string">String?</span></td><td>翻译后的标题</td></tr>
+        <tr><td><code>translatedStatus</code></td><td><code>"translated_status"</code></td><td><span class="tag tag-string">String?</span></td><td>翻译状态</td></tr>
+        <tr><td><code>squareCover</code></td><td><code>"square"</code></td><td><span class="tag tag-string">String?</span></td><td>方形封面 URL</td></tr>
+        <tr><td><code>clickUrl</code></td><td><code>"click_url"</code></td><td><span class="tag tag-string">String?</span></td><td>点击追踪 URL</td></tr>
+        <tr><td><code>showUrl</code></td><td><code>"show_url"</code></td><td><span class="tag tag-string">String?</span></td><td>展示追踪 URL</td></tr>
+        <tr><td><code>dislikeReportData</code></td><td><code>"dislike_report_data"</code></td><td><span class="tag tag-string">String?</span></td><td>负反馈上报数据</td></tr>
+        <tr><td><code>posRecUniqueId</code></td><td><code>"pos_rec_unique_id"</code></td><td><span class="tag tag-string">String?</span></td><td>位置推荐唯一 ID</td></tr>
+        <tr><td><code>zeroSignal</code></td><td><code>"zero_signal"</code></td><td><span class="tag tag-int">int</span></td><td>零信号标识</td></tr>
+        <tr><td><code>serverType</code></td><td><code>"server_type"</code></td><td><span class="tag tag-long">long</span></td><td>服务端类型</td></tr>
+        <tr><td><code>cardIndex</code></td><td><code>"card_index"</code></td><td><span class="tag tag-long">long</span></td><td>卡片索引</td></tr>
+        <tr><td><code>viewTypeString</code></td><td><code>"view_type"</code></td><td><span class="tag tag-string">String?</span></td><td>视图类型字符串</td></tr>
+    </table>
+</div>
+
+<!-- ==================== 卡片类型 ==================== -->
+<h2 id="card-types">6. 卡片子类型</h2>
+<div class="card">
+    <p><code>BasicIndexItem</code> 有多种子类型，通过 <code>cardType</code> 字段区分：</p>
+    <table>
+        <tr><th>子类型</th><th>说明</th><th>特有字段</th></tr>
+        <tr>
+            <td><code>SmallCoverItem</code></td>
+            <td>小封面卡片（最常见，单图+标题+描述）</td>
+            <td><code>coverLeftText1</code>, <code>desc</code>, <code>desc1</code>, <code>desc2</code>, <code>desc3</code>, <code>rcmdReason</code>(Tag), <code>coverBadgeStyle</code>, <code>descButton</code>, <code>resourceType</code>, <code>gameId</code></td>
+        </tr>
+        <tr>
+            <td><code>UpSmallCoverItem</code></td>
+            <td>带UP主头像的小封面卡片（关注推荐）</td>
+            <td><code>avatar</code>(Avatar), <code>desc</code>, <code>relation</code>(Relation), <code>recommendReasonStyle</code>, <code>officialIconV2</code></td>
+        </tr>
+        <tr>
+            <td><code>ThreePicV2/ThreeItemHV4Item</code></td>
+            <td>三图卡片（三张封面横排）</td>
+            <td><code>covers</code>(List), <code>desc1</code>, <code>desc2</code>, <code>topLeftTitle</code>, <code>moreText</code>, <code>moreUri</code></td>
+        </tr>
+        <tr>
+            <td><code>OnePicV2</code></td>
+            <td>大图单封面卡片</td>
+            <td><code>coverLeftText1/2/3</code>, <code>coverRightText</code>, <code>desc</code>, <code>coverGif</code>, <code>topRcmdReason</code>, <code>bottomRcmdReason</code>, <code>avatar</code>, <code>likeButton</code></td>
+        </tr>
+        <tr>
+            <td><code>RcmdMultiItem</code></td>
+            <td>推荐多卡片容器（横向滑动卡片组）</td>
+            <td><code>items</code>(List&lt;BasicIndexItem&gt;), <code>moreText</code>, <code>moreUri</code></td>
+        </tr>
+        <tr>
+            <td><code>EntranceItem</code></td>
+            <td>入口卡片（横向滑动入口组）</td>
+            <td><code>item</code>(List&lt;BasicIndexItem&gt;)</td>
+        </tr>
+        <tr>
+            <td><code>TopStickItem</code></td>
+            <td>置顶卡片</td>
+            <td><code>desc</code></td>
+        </tr>
+    </table>
+</div>
+
+<!-- ==================== 子模型 ==================== -->
+<h2 id="sub-models">7. 子模型详情</h2>
+
+<h3>7.1 Args（附加参数）</h3>
+<div class="card">
+    <table>
+        <tr><th>字段</th><th>JSON Key</th><th>类型</th><th>说明</th></tr>
+        <tr><td><code>aid</code></td><td><code>"aid"</code></td><td><span class="tag tag-long">long</span></td><td>稿件 AV ID</td></tr>
+        <tr><td><code>upId</code></td><td><code>"up_id"</code></td><td><span class="tag tag-long">long</span></td><td>UP主 MID</td></tr>
+        <tr><td><code>upName</code></td><td><code>"up_name"</code></td><td><span class="tag tag-string">String?</span></td><td>UP主名称</td></tr>
+        <tr><td><code>rid</code></td><td><code>"rid"</code></td><td><span class="tag tag-long">long</span></td><td>分区 ID</td></tr>
+        <tr><td><code>rname</code></td><td><code>"rname"</code></td><td><span class="tag tag-string">String?</span></td><td>分区名称</td></tr>
+        <tr><td><code>tid</code></td><td><code>"tid"</code></td><td><span class="tag tag-long">long</span></td><td>二级分区 ID</td></tr>
+        <tr><td><code>tname</code></td><td><code>"tname"</code></td><td><span class="tag tag-string">String?</span></td><td>二级分区名称</td></tr>
+        <tr><td><code>type</code></td><td><code>"type"</code></td><td><span class="tag tag-int">int</span></td><td>内容类型</td></tr>
+        <tr><td><code>isFollow</code></td><td><code>"is_follow"</code></td><td><span class="tag tag-int">int</span></td><td>是否关注了该UP主</td></tr>
+        <tr><td><code>online</code></td><td><code>"online"</code></td><td><span class="tag tag-long">long</span></td><td>在线人数</td></tr>
+        <tr><td><code>roomId</code></td><td><code>"room_id"</code></td><td><span class="tag tag-long">long</span></td><td>直播间 ID</td></tr>
+        <tr><td><code>convergeType</code></td><td><code>"converge_type"</code></td><td><span class="tag tag-int">int</span></td><td>聚合类型</td></tr>
+        <tr><td><code>trackId</code></td><td><code>"track_id"</code></td><td><span class="tag tag-string">String?</span></td><td>追踪 ID</td></tr>
+        <tr><td><code>state</code></td><td><code>"state"</code></td><td><span class="tag tag-string">String?</span></td><td>状态</td></tr>
+    </table>
+</div>
+
+<h3>7.2 UpArgs（UP主参数）</h3>
+<div class="card">
+    <table>
+        <tr><th>字段</th><th>JSON Key</th><th>类型</th><th>说明</th></tr>
+        <tr><td><code>upId</code></td><td><code>"up_id"</code></td><td><span class="tag tag-long">long</span></td><td>UP主 ID</td></tr>
+        <tr><td><code>upName</code></td><td><code>"up_name"</code></td><td><span class="tag tag-string">String?</span></td><td>UP主名称</td></tr>
+        <tr><td><code>upFace</code></td><td><code>"up_face"</code></td><td><span class="tag tag-string">String?</span></td><td>UP主头像 URL</td></tr>
+        <tr><td><code>selected</code></td><td><code>"selected"</code></td><td><span class="tag tag-int">int</span></td><td>是否选中/关注</td></tr>
+    </table>
+</div>
+
+<h3>7.3 Avatar（头像信息）</h3>
+<div class="card">
+    <table>
+        <tr><th>字段</th><th>JSON Key</th><th>类型</th><th>说明</th></tr>
+        <tr><td><code>mid</code></td><td><code>"up_id"</code></td><td><span class="tag tag-long">long</span></td><td>用户 MID</td></tr>
+        <tr><td><code>cover</code></td><td><code>"cover"</code></td><td><span class="tag tag-string">String?</span></td><td>头像图片 URL</td></tr>
+        <tr><td><code>text</code></td><td><code>"text"</code></td><td><span class="tag tag-string">String?</span></td><td>头像旁文字</td></tr>
+        <tr><td><code>uri</code></td><td><code>"uri"</code></td><td><span class="tag tag-string">String?</span></td><td>跳转 URI</td></tr>
+        <tr><td><code>type</code></td><td><code>"type"</code></td><td><span class="tag tag-int">int</span></td><td>类型</td></tr>
+        <tr><td><code>event</code></td><td><code>"event"</code></td><td><span class="tag tag-string">String?</span></td><td>事件上报标识</td></tr>
+        <tr><td><code>eventV2</code></td><td><code>"event_v2"</code></td><td><span class="tag tag-string">String?</span></td><td>事件上报标识 V2</td></tr>
+    </table>
+</div>
+
+<h3>7.4 Tag（标签/推荐理由样式）</h3>
+<div class="card">
+    <table>
+        <tr><th>字段</th><th>JSON Key</th><th>类型</th><th>说明</th></tr>
+        <tr><td><code>text</code></td><td><code>"text"</code></td><td><span class="tag tag-string">String?</span></td><td>标签文字</td></tr>
+        <tr><td><code>textColor</code></td><td><code>"text_color"</code></td><td><span class="tag tag-string">String?</span></td><td>文字颜色（亮色模式）</td></tr>
+        <tr><td><code>textColorNight</code></td><td><code>"text_color_night"</code></td><td><span class="tag tag-string">String?</span></td><td>文字颜色（暗色模式）</td></tr>
+        <tr><td><code>bgColor</code></td><td><code>"bg_color"</code></td><td><span class="tag tag-string">String?</span></td><td>背景颜色</td></tr>
+        <tr><td><code>bgColorNight</code></td><td><code>"bg_color_night"</code></td><td><span class="tag tag-string">String?</span></td><td>暗色模式背景颜色</td></tr>
+        <tr><td><code>borderColor</code></td><td><code>"border_color"</code></td><td><span class="tag tag-string">String?</span></td><td>边框颜色</td></tr>
+        <tr><td><code>iconUrl</code></td><td><code>"icon_url"</code></td><td><span class="tag tag-string">String?</span></td><td>图标 URL</td></tr>
+        <tr><td><code>iconNightUrl</code></td><td><code>"icon_night_url"</code></td><td><span class="tag tag-string">String?</span></td><td>暗色模式图标 URL</td></tr>
+        <tr><td><code>iconBgUrl</code></td><td><code>"icon_bg_url"</code></td><td><span class="tag tag-string">String?</span></td><td>图标背景 URL</td></tr>
+        <tr><td><code>bgStyle</code></td><td><code>"bg_style"</code></td><td><span class="tag tag-int">int</span></td><td>背景样式</td></tr>
+        <tr><td><code>uri</code></td><td><code>"uri"</code></td><td><span class="tag tag-string">String?</span></td><td>跳转 URI</td></tr>
+        <tr><td><code>event</code></td><td><code>"event"</code></td><td><span class="tag tag-string">String?</span></td><td>事件上报</td></tr>
+        <tr><td><code>eventV2</code></td><td><code>"event_v2"</code></td><td><span class="tag tag-string">String?</span></td><td>事件上报 V2</td></tr>
+        <tr><td><code>leftIconType</code></td><td><code>"left_icon_type"</code></td><td><span class="tag tag-string">String?</span></td><td>左侧图标类型（如 "liveIcon"）</td></tr>
+        <tr><td><code>rightIconType</code></td><td><code>"right_icon_type"</code></td><td><span class="tag tag-int">int</span></td><td>右侧图标类型</td></tr>
+    </table>
+</div>
+
+<h3>7.5 Relation（关注关系）</h3>
+<div class="card">
+    <table>
+        <tr><th>字段</th><th>JSON Key</th><th>类型</th><th>说明</th></tr>
+        <tr><td><code>userFollowUp</code></td><td><code>"is_follow"</code></td><td><span class="tag tag-int">int</span></td><td>当前用户是否关注了该UP主（1=是）</td></tr>
+        <tr><td><code>upFollowUser</code></td><td><code>"is_followed"</code></td><td><span class="tag tag-int">int</span></td><td>该UP主是否被关注（1=是）</td></tr>
+    </table>
+</div>
+
+<h3>7.6 DescButton（描述按钮）</h3>
+<div class="card">
+    <table>
+        <tr><th>字段</th><th>JSON Key</th><th>类型</th><th>说明</th></tr>
+        <tr><td><code>text</code></td><td><code>"text"</code></td><td><span class="tag tag-string">String?</span></td><td>按钮文字</td></tr>
+        <tr><td><code>param</code></td><td><code>"param"</code></td><td><span class="tag tag-string">String?</span></td><td>按钮参数</td></tr>
+        <tr><td><code>uri</code></td><td><code>"uri"</code></td><td><span class="tag tag-string">String?</span></td><td>跳转 URI</td></tr>
+        <tr><td><code>event</code></td><td><code>"event"</code></td><td><span class="tag tag-string">String?</span></td><td>事件上报</td></tr>
+        <tr><td><code>type</code></td><td><code>"type"</code></td><td><span class="tag tag-int">int</span></td><td>按钮类型</td></tr>
+        <tr><td><code>selected</code></td><td><code>"selected"</code></td><td><span class="tag tag-int">int</span></td><td>是否选中</td></tr>
+        <tr><td><code>isFollow</code></td><td>—</td><td><span class="tag tag-int">int</span></td><td>是否关注</td></tr>
+        <tr><td><code>isFollowed</code></td><td>—</td><td><span class="tag tag-int">int</span></td><td>是否被关注</td></tr>
+    </table>
+</div>
+
+<h3>7.7 CoverTopLeftBadge（封面左上角徽标）</h3>
+<div class="card">
+    <table>
+        <tr><th>字段</th><th>JSON Key</th><th>类型</th><th>说明</th></tr>
+        <tr><td><code>iconUrl</code></td><td><code>"icon_url"</code></td><td><span class="tag tag-string">String?</span></td><td>图标 URL</td></tr>
+        <tr><td><code>iconNightUrl</code></td><td><code>"icon_night_url"</code></td><td><span class="tag tag-string">String?</span></td><td>暗色模式图标</td></tr>
+        <tr><td><code>iconWidth</code></td><td><code>"icon_width"</code></td><td><span class="tag tag-int">int</span></td><td>图标宽度</td></tr>
+        <tr><td><code>iconHeight</code></td><td><code>"icon_height"</code></td><td><span class="tag tag-int">int</span></td><td>图标高度</td></tr>
+    </table>
+</div>
+
+<h3>7.8 RecommendReasonStyle（推荐理由样式）</h3>
+<div class="card">
+    <table>
+        <tr><th>字段</th><th>JSON Key</th><th>类型</th><th>说明</th></tr>
+        <tr><td><code>text</code></td><td><code>"text"</code></td><td><span class="tag tag-string">String?</span></td><td>推荐理由文字</td></tr>
+        <tr><td><code>textColor</code></td><td><code>"text_color"</code></td><td><span class="tag tag-string">String?</span></td><td>文字颜色</td></tr>
+        <tr><td><code>textColorNight</code></td><td><code>"text_color_night"</code></td><td><span class="tag tag-string">String?</span></td><td>暗色模式文字颜色</td></tr>
+    </table>
+</div>
+
+<!-- ==================== 鉴权与签名 ==================== -->
+<h2 id="auth">8. 鉴权与签名</h2>
+<div class="card">
+    <h3>8.1 签名机制</h3>
+    <p>所有请求需经过 <code>LibBili.signQuery()</code> 签名。签名流程：</p>
+    <ol>
+        <li>收集所有请求参数（URL Query + 公共参数 + 拦截器注入参数）</li>
+        <li>按 Key 字母序排列参数</li>
+        <li>调用 <code>LibBili.signQuery(map)</code> 生成签名</li>
+        <li>签名结果附加在 URL 的 <code>sign</code> 参数中</li>
+    </ol>
+
+    <h3>8.2 鉴权方式</h3>
+    <ul>
+        <li><strong>登录状态</strong>：通过 <code>access_key</code> 参数传递用户令牌</li>
+        <li><strong>游客访问</strong>：无 access_key 时使用 <code>GuestId</code> Header</li>
+        <li><strong>设备标识</strong>：通过 <code>Buvid</code> Header 和 <code>Device-ID</code> Header 标识设备</li>
+    </ul>
+
+    <div class="note-box warn">
+        <div class="note-title">⚠️ 签名算法</div>
+        <p><code>LibBili.signQuery()</code> 是 native 方法（SO 库实现），签名算法涉及到 appkey/appsecret，不同客户端版本使用不同的密钥。逆向时需要从 <code>libbili.so</code> 中提取签名逻辑。</p>
+    </div>
+</div>
+
+<!-- ==================== 注意事项 ==================== -->
+<h2 id="notes">9. 注意事项</h2>
+
+<div class="card">
+    <div class="note-box warn">
+        <div class="note-title">⚠️ 风控与封禁</div>
+        <p>B站对 API 调用有严格的风控机制。异常调用模式（高频请求、缺少必要 Header、签名错误等）可能触发风控，导致 IP 封禁或账号限制。</p>
+    </div>
+
+    <div class="note-box info">
+        <div class="note-title">ℹ️ 分页机制</div>
+        <p>推荐信息流使用 <strong>游标分页</strong>（而非页码分页）。首次请求 <code>idx=0</code>，后续请求使用上次响应中最后一条 item 的 <code>idx</code> 值。通过 <code>ver</code> 字段实现 Feed 版本追踪。</p>
+    </div>
+
+    <div class="note-box tip">
+        <div class="note-title">✅ 推荐追踪</div>
+        <p>每个 item 的 <code>trackId</code> 字段用于推荐效果追踪。点击/曝光上报时必须携带此字段，否则推荐质量会下降。</p>
+    </div>
+
+    <h3 style="margin-top: 1.5rem;">关键注意点汇总</h3>
+    <table>
+        <tr><th>关注点</th><th>说明</th></tr>
+        <tr>
+            <td><strong>请求签名</strong></td>
+            <td>必须正确实现 <code>LibBili.signQuery()</code> 签名，缺少签名或签名错误会被拒绝</td>
+        </tr>
+        <tr>
+            <td><strong>设备标识</strong></td>
+            <td><code>Buvid</code>、<code>Device-ID</code>、<code>fp_local</code>、<code>fp_remote</code> 等设备指纹缺一不可</td>
+        </tr>
+        <tr>
+            <td><strong>User-Agent</strong></td>
+            <td>必须使用 Bilibili APP 的标准 UA 格式，异常 UA 可能被拦截</td>
+        </tr>
+        <tr>
+            <td><strong>游标分页</strong></td>
+            <td>使用 <code>idx</code> 游标分页，不要使用 offset/limit 模式</td>
+        </tr>
+        <tr>
+            <td><strong>广告卡片</strong></td>
+            <td>响应中可能包含广告卡片（<code>is_ad=true</code>），需根据业务需要过滤或展示</td>
+        </tr>
+        <tr>
+            <td><strong>卡片类型多样</strong></td>
+            <td>响应中 items 可包含多种 cardType，需根据 <code>card_type</code> 字段分发到不同的渲染逻辑</td>
+        </tr>
+        <tr>
+            <td><strong>暗色模式</strong></td>
+            <td>颜色相关字段通常提供日间/夜间两套值（如 <code>text_color</code> / <code>text_color_night</code>）</td>
+        </tr>
+        <tr>
+            <td><strong>刷新类型</strong></td>
+            <td>不同刷新场景（下拉/Tab切换/上拉加载）使用不同的 <code>flush</code> 值，影响推荐策略</td>
+        </tr>
+        <tr>
+            <td><strong>负反馈机制</strong></td>
+            <td>提供 <code>/x/v2/feed/nf</code> 接口获取负反馈选项，对推荐系统优化很重要</td>
+        </tr>
+        <tr>
+            <td><strong>Protobuf 并存</strong></td>
+            <td>部分新版接口使用 Protobuf 格式（<code>com.bapis.bilibili.app.card.v1</code>），与 JSON 格式并存</td>
+        </tr>
+        <tr>
+            <td><strong>API 版本</strong></td>
+            <td>本文档基于特定版本的 TV 客户端分析，B站 API 可能随时变更</td>
+        </tr>
+    </table>
+</div>
+
+<h3>10. 响应示例</h3>
+<div class="card">
+    <div class="code-block">{
+    "<span class="json-key">code</span>": <span class="json-num">0</span>,
+    "<span class="json-key">message</span>": "<span class="json-str">0</span>",
+    "<span class="json-key">data</span>": {
+        "<span class="json-key">ver</span>": "<span class="json-str">7.0</span>",
+        "<span class="json-key">config</span>": {
+            "<span class="json-key">bottom_text</span>": "<span class="json-str">已为你推荐新内容</span>",
+            "<span class="json-key">user_feature</span>": "<span class="json-str">...</span>"
+        },
+        "<span class="json-key">items</span>": [
+            {
+                "<span class="json-key">idx</span>": <span class="json-num">1234567890</span>,
+                "<span class="json-key">id</span>": <span class="json-num">987654321</span>,
+                "<span class="json-key">card_type</span>": "<span class="json-str">small_cover_v2</span>",
+                "<span class="json-key">card_goto</span>": "<span class="json-str">av</span>",
+                "<span class="json-key">goto</span>": "<span class="json-str">av</span>",
+                "<span class="json-key">param</span>": "<span class="json-str">170001</span>",
+                "<span class="json-key">uri</span>": "<span class="json-str">bilibili://video/170001</span>",
+                "<span class="json-key">title</span>": "<span class="json-str">视频标题示例</span>",
+                "<span class="json-key">cover</span>": "<span class="json-str">http://i0.hdslb.com/...</span>",
+                "<span class="json-key">track_id</span>": "<span class="json-str">web:pgc:xxx</span>",
+                "<span class="json-key">from_type</span>": "<span class="json-str">rcmd</span>",
+                "<span class="json-key">args</span>": {
+                    "<span class="json-key">aid</span>": <span class="json-num">170001</span>,
+                    "<span class="json-key">up_id</span>": <span class="json-num">12345</span>,
+                    "<span class="json-key">up_name</span>": "<span class="json-str">UP主名</span>",
+                    "<span class="json-key">rid</span>": <span class="json-num">3</span>,
+                    "<span class="json-key">rname</span>": "<span class="json-str">音乐</span>",
+                    "<span class="json-key">tid</span>": <span class="json-num">30</span>,
+                    "<span class="json-key">tname</span>": "<span class="json-str">VOCALOID·UTAU</span>"
+                },
+                "<span class="json-key">cover_left_text_1</span>": "<span class="json-str">12:30</span>",
+                "<span class="json-key">desc</span>": "<span class="json-str">UP主名 · 1.2万播放</span>",
+                "<span class="json-key">rcmd_reason_style</span>": {
+                    "<span class="json-key">text</span>": "<span class="json-str">关注UP主更新</span>"
+                }
+            }
+        ]
+    }
+}</div>
+</div>
+
+<footer style="margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 0.85rem;">
+    <p>本文档基于 B站 Android TV 客户端（com.bilibili.pegasus 包）逆向分析生成，仅供学习研究参考。</p>
+    <p>源码位置: <code>.trae/bili/out/jadx/sources/com/bilibili/pegasus/</code></p>
+</footer>
+
+</div>
+</body>
+</html>
