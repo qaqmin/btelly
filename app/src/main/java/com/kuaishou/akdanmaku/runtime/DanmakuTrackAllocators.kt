@@ -54,7 +54,7 @@ internal class RollingTrackAllocator {
     refreshMaxBottom(height, config)
     val placement = placements[item.data.danmakuId] ?: run {
       val rollingDurationMs = config.rollingDurationMs
-      val newRow = findOrCreateRow(
+      val allocation = findOrCreateRow(
         item = item,
         nowMs = nowMs,
         width = width,
@@ -63,8 +63,9 @@ internal class RollingTrackAllocator {
         allowOverlap = config.allowOverlap,
         overlapFraction = config.overlapFraction
       ) ?: return false
+      val newRow = allocation.row
       if (item.rollingStartTimeMs == ROLLING_START_TIME_UNSET) {
-        item.rollingStartTimeMs = item.timePosition
+        item.rollingStartTimeMs = allocation.startTimeMs
       }
       if (item.rollingMotionWidth <= 0f) {
         item.rollingMotionWidth = item.drawState.width
@@ -114,7 +115,7 @@ internal class RollingTrackAllocator {
     rollingDurationMs: Long,
     allowOverlap: Boolean,
     overlapFraction: Float
-  ): Row? {
+  ): RowAllocation? {
     val itemHeight = item.drawState.height.toInt().coerceAtLeast(1)
     val nextStartTime = item.predictedRollingStartTime(nowMs)
     val nextWidth = item.drawState.width
@@ -131,14 +132,19 @@ internal class RollingTrackAllocator {
           durationMs = rollingDurationMs,
           overlapFraction = overlapFraction
         )) {
-        return row
+        return RowAllocation(row, nextStartTime)
       }
     }
 
     val nextTop = if (rows.isEmpty()) 0 else rows.last().bottom + margin
     if (nextTop + itemHeight > maxBottom) return null
-    return Row(nextTop, itemHeight).also { rows.add(it) }
+    return Row(nextTop, itemHeight).also { rows.add(it) }.let { RowAllocation(it, nextStartTime) }
   }
+
+  private class RowAllocation(
+    val row: Row,
+    val startTimeMs: Long
+  )
 
   private class Row(val top: Int, val height: Int) {
     private var head: RollingPlacement? = null
