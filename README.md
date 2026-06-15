@@ -1,65 +1,55 @@
 # BTelly
 
-📺 一个专为 Android TV 设计的第三方 Bilibili 客户端应用,像素级对齐上游实现。
+📺 一个专为 Android TV 设计的第三方 Bilibili 客户端，像素级对齐上游实现。
 
 ## ✨ 主要功能
 
-- 🎬 **视频播放** - 支持番剧、电影、电视剧、UGC 视频等多种内容类型
-- 📡 **直播观看** - 支持直播内容播放和实时弹幕
-- 📺 **CCTV直播** - 支持央视 1-17 套，遥控器上下切台
-- 💬 **弹幕引擎** - 集成 AkDanmaku 高性能弹幕引擎，支持智能防挡（人物区域自动遮罩）
-- ✈️ **空降助手** - 自动跳过恰饭等片段时间，进度条分段着色提示
-- 🎮 **互动视频** - 支持互动视频选择分支
-- 📱 **抖音模式** - 播放页上下滑动切换推荐视频
-- 🪞 **画面镜像** - 播放器支持画面左右镜像翻转
-- 🔍 **内容浏览** - 首页推荐、动态关注、分区浏览、追番追剧、历史记录、稍后观看、收藏夹
-- 📱 **交互优化** - 专为 TV 遥控器优化的导航交互，支持全键盘搜索
-- 🎨 **多分辨率适配** - 支持从 480p 到 4K 多种屏幕分辨率，优先硬件解码
+- 🎬 **视频播放** - 番剧、电影、电视剧、UGC 视频
+- 📡 **直播 & CCTV** - 直播弹幕；央视 1-17 套遥控器上下切台
+- 💬 **弹幕引擎** - AkDanmaku 高性能引擎，支持人物区域智能防挡
+- 🎮 **互动视频 / 抖音模式** - 互动分支选择；上下滑动切换推荐
+- 👶 **青少年模式** - 家长控制的内容过滤
+- 🖱️ **长按快捷操作** - 视频卡片长按唤起快捷菜单
 - 📲 **扫码登录** - TV 端扫码快速登录
 
 ## 🛠️ 技术栈
 
-- **语言**: Kotlin 2.1.0
-- **架构**: MVVM + Koin 3.5.3 依赖注入
-- **异步**: Kotlin Coroutines 1.10.2 + Flow + LiveData
-- **网络**: Retrofit 2.9.0 + OkHttp 4.12.0 + Gson（热路径使用 BiliClient 轻量网络层，零反射 JSON 解析）
-- **播放器**: Media3 1.9.3 (ExoPlayer)，CCTV 使用 WebView 播放
-- **图片加载**: 自实现轻量 ImageLoader（复用 OkHttp DNS/协议配置，独立图片连接池）
-- **弹幕**: 快手 AkDanmaku 引擎 
-- **数据存储**: DataStore Preferences 1.1.4
-- **UI**: AndroidX (Fragment 1.8.6, Lifecycle 2.8.7, RecyclerView 1.4.0)
-- **最低版本**: Android 6.0 (API 23)
-- **目标版本**: Android 15 (API 35)
+- **Kotlin 2.1.0** · MVVM + Koin 依赖注入
+- **Coroutines + Flow + LiveData** 异步
+- **Retrofit + OkHttp + Gson** 网络层
+- **Media3 (ExoPlayer)** 视频播放（CCTV 走 WebView）
+- **AkDanmaku** 弹幕引擎
+- **DataStore Preferences** 数据存储
+- **AndroidX** UI 组件
+- **minSdk 23 (Android 6.0)** / **targetSdk 35 (Android 15)**
 
+## 📷 APP 截图
 
-## APP 截图
-APP主界面
+主界面
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/b746a1dd-8243-4378-a1ea-c023460323b7" />
-播放主界面和弹幕
+
+播放 & 弹幕
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/4a0199e0-64a0-4762-9d45-8ec2ff58524a" />
+
 屏蔽功能
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/cae6be14-85cb-41e0-bfee-098214ffbb43" />
-
 
 ## 🙏 感谢
 
 - [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect) - B 站 API 收集整理
-- [上游实现](https://github.com/xiaye13579/BBLL) - 优秀的页面设计和操作逻辑，本项目绝大部分页面和操作逻辑都是抄袭 上游实现🥰
-- [PiliPlus](https://github.com/bggRGjQaUbCoE/PiliPlus) - 部分关键功能参考了 Piliplus 的逻辑
-- [BiliPai](https://github.com/jay3-yy/BiliPai) - 部分关键功能参考了 BiliPai 的逻辑
-- [Blbl](https://github.com/cat3399/blbl?tab=readme-ov-file) - 参考部分功能参考了 Blbl 的逻辑
+- [BBLL](https://github.com/xiaye13579/BBLL) - 绝大部分页面和操作逻辑参考自 BBLL 🥰
+- [PiliPlus](https://github.com/bggRGjQaUbCoE/PiliPlus) / [BiliPai](https://github.com/jay3-yy/BiliPai) / [Blbl](https://github.com/cat3399/blbl) - 部分关键功能参考
 - 其它开源第三方 B 站客户端
 
 ## ⚠️ 免责声明
 
-- 不得利用本项目进行任何非法活动
-- 不得干扰 B 站的正常运营
-- 不得传播恶意软件或病毒
-
-### 🚫 禁止行为
-
-- 🚫 禁止在官方平台（b 站）及官方账号区域（如 b 站微博评论区）宣传本项目
-- 🚫 禁止在微信公众号平台宣传本项目
-- 🚫 禁止利用本项目牟利，本项目无任何盈利行为，第三方盈利与本项目无关
+- 📚 **用途**：本项目仅供学习交流与技术研究，不得用于任何非法活动或干扰 B 站正常运营
+- ©️ **版权**：所有视频、弹幕、图片、文字等内容版权归 Bilibili 及原创作者所有，本项目不存储任何上述内容，仅作播放呈现
+- ™️ **商标**：「Bilibili」「B 站」及相关 Logo、形象均为上海宽娱数码科技有限公司的商标，本项目与之无任何关联
+- 🔒 **隐私**：本项目不收集、不上传任何用户数据；登录凭据保存在本地，不上传至任何第三方服务器
+- 🚫 **无担保**：本项目「按现状」提供，不保证功能可用、稳定或持续更新，因使用本项目产生的任何直接或间接损失，作者不承担责任
+- 🚫 **禁止宣传**：不得在 B 站、官方账号区域（含微博评论区）及微信公众号宣传本项目
+- 🚫 **禁止牟利**：不得利用本项目牟利；本项目无任何盈利，第三方盈利与本项目无关
+- 📮 **侵权联系**：若本项目侵犯了您的合法权益，请联系作者，确认后将在第一时间处理或下架
 
 > 💡 代码由 Codex 和 [智谱 AI](https://bigmodel.cn/) 编写，如有问题请联系 [OpenAI](https://openai.com/) 或 [智谱](https://bigmodel.cn/) 😤

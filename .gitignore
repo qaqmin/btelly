@@ -106,6 +106,5 @@ app/src/main/res/values-watch/styles.xml
 .claude/
 *.pid
 *.seed
-CLAUDE.md
 AGENTS.md
 app/debug/output-metadata.json
