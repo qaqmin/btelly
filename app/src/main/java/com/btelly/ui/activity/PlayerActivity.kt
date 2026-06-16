@@ -264,6 +264,17 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     private lateinit var slimTimelineRenderer: SlimTimelineRenderer
     private val sessionCoordinator = PlayerSessionCoordinator()
     private var resumePlaybackWhenStarted: Boolean = false
+    /**
+     * 前台恢复（onStart）的起点时间戳，配合首帧渲染统计切后台回来后的黑屏时长。
+     * 0 表示当前不在"等待恢复首帧"状态。
+     */
+    private var surfaceRecoverStartMs: Long = 0L
+    /**
+     * 标记 onResume 是否紧随 onStart（正常的前台进入/后台返回）。
+     * onStart 已做 surface 恢复，紧随的 onResume 应跳过自愈，避免重复 seekTo。
+     * 仅在 onPause→onResume（如系统弹窗返回、未走 onStop）的独立 onResume 里触发自愈。
+     */
+    private var resumedFromStart: Boolean = false
     private var startupTrace: StartupTrace? = null
     private var startupTraceSequence: Int = 0
     private var suppressPlaybackEnvironmentSync: Boolean = false
@@ -487,7 +498,10 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            resumePlaybackWhenStarted = playWhenReady
+            // 不在此同步 resumePlaybackWhenStarted：该字段语义是"切到后台前的播放意图"，
+            // 仅由 onStop 快照写入、onStart 读取恢复。若在此实时覆盖，onStop 里
+            // player.playWhenReady=false 会触发本回调把它改成 false，导致回到前台后
+            // 弹幕和播放都不恢复（实测切后台回来弹幕消失）。
             syncPlaybackEnvironment()
         }
     }
@@ -806,6 +820,13 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         playerView.setPlayer(player)
         playerView.setRenderEventListener(object : MyPlayerView.RenderEventListener {
             override fun onRenderedFirstFrame() {
+                // 统计切后台回来后的黑屏时长（onStart 到首帧渲染）。
+                val recoverStart = surfaceRecoverStartMs
+                if (recoverStart > 0L) {
+                    surfaceRecoverStartMs = 0L
+                    val blackMs = SystemClock.elapsedRealtime() - recoverStart
+                    AppLog.i("SurfaceLifecycle", "first_frame_after_resume blackMs=$blackMs")
+                }
                 val trace = playerPerfTrace
                 if (trace != null) {
                     trace.firstFrameMs = System.currentTimeMillis()
@@ -1341,16 +1362,23 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
 
     override fun onStart() {
         super.onStart()
-        // 重新绑定 video surface，恢复视频解码器
+        val t0 = SystemClock.elapsedRealtime()
+        val stateBefore = player?.playbackState
+        // 重新绑定 video surface：setVideoSurfaceView 会让 video renderer 在下次 doSomeWork
+        // 重建解码器并 attach（仅一次）。不再单独 enableVideoTrack + seekTo：那会触发解码器
+        // 被重建两次（实测恢复黑屏多 ~270ms）。onStop 已不再 disable video track。
         playerView.reattachVideoSurface()
-        player?.let(::enableVideoTrack)
-        // 视频轨道重新启用后 seekTo 当前位置，强制解码器重建
-        // 避免某些设备上 surface 变更后解码器无法恢复输出导致画面冻结
+        // seekTo 当前位置作为兜底：某些设备上 surface 变更后解码器虽重建但不出新帧，
+        // seek 一次逼它重出（此处 renderer 未被 reset，不会二次重建解码器）。
         player?.let { p ->
             if (p.playbackState == Player.STATE_READY || p.playbackState == Player.STATE_BUFFERING) {
                 p.seekTo(p.currentPosition)
             }
         }
+        // 记录前台恢复起点，配合 onRenderedFirstFrame 统计黑屏时长。
+        surfaceRecoverStartMs = t0
+        AppLog.i("SurfaceLifecycle", "onStart resumeIntent=$resumePlaybackWhenStarted stateBefore=$stateBefore elapsed=${SystemClock.elapsedRealtime() - t0}ms")
+        resumedFromStart = true
         resumePlaybackIfNeeded()
         if (resumePlaybackWhenStarted) {
             playerView.resumeDanmaku()
@@ -1363,6 +1391,20 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         }
         playerView.removeCallbacks(resumePlaybackRunnable)
         playerView.postDelayed(resumePlaybackRunnable, 250L)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // onStart 一定会先于 onResume 执行，且 onStart 里已做 surface 恢复，
+        // 这里跳过紧随 onStart 的那次 onResume，避免重复 seekTo。
+        if (resumedFromStart) {
+            resumedFromStart = false
+            return
+        }
+        // 仅 onPause→onResume（如系统弹窗返回）而未走 onStop→onStart 的场景：
+        // Surface 可能被系统静默销毁重建，解码器输出悬空导致画面冻结/黑屏。
+        // 重新绑定 Surface + seekTo 当前位置逼解码器重出新帧。
+        playerView.recoverVideoRenderIfNeeded(reason = "on_resume_after_pause")
     }
 
     override fun onStop() {
@@ -1378,15 +1420,11 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         player?.playWhenReady = false
         playerView.stopDanmaku()
         stopProgressUpdates()
-        // 提前释放视频解码器，避免后台持有硬件解码器资源
+        // 提前释放视频解码器，避免后台持有硬件解码器资源。
+        // detachVideoSurface (clearVideoSurfaceView) 本身就会释放 video decoder，
+        // 无需再 disable video track：disable 后恢复时 enableVideoTrack + seekTo
+        // 会触发解码器被重建两次（实测多花 ~270ms），恢复黑屏更久。
         playerView.detachVideoSurface()
-        // 禁用视频轨道以彻底释放硬件解码器
-        player?.let { p ->
-            p.trackSelectionParameters = p.trackSelectionParameters
-                .buildUpon()
-                .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
-                .build()
-        }
         syncPlaybackEnvironment()
     }
 
