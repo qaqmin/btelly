@@ -265,6 +265,18 @@ class MyPlayerView @JvmOverloads constructor(
     private var swipeSeekStartPositionMs = 0L
     private var swipeSeekTargetPositionMs = 0L
     private var hasRenderedFirstFrame = false
+
+    /**
+     * 后台主动 detach 标志位。
+     * detachVideoSurface() 置 true（onStop 走的路径），reattachVideoSurface() 清 false。
+     * 区分两种 Surface 失效场景：
+     * - 后台 detach：player 已主动 clearVideoSurface，恢复交给 onStart 里的 reattach+seekTo，无需自愈。
+     * - 前台静默失效（系统弹窗返回 / 投影仪焦点切换）：没走到 onStop，Surface 被系统销毁重建，
+     *   代码没人感知，解码器输出到了死掉的 Surface，导致画面冻结、音频弹幕继续。
+     *   此时靠 Activity.onResume 调 recoverVideoRenderIfNeeded 自愈，强制重绑 Surface + seekTo 逼解码器重出帧。
+     */
+    private var surfaceDetachedForBackground = false
+
     private var persistentBottomProgressEnabled = false
     private var uiCoordinator: com.btelly.feature.player.PlaybackUiCoordinator? = null
 
@@ -484,6 +496,7 @@ class MyPlayerView @JvmOverloads constructor(
             frame.addView(surfaceView, 0)
         }
     }
+
 
     private fun setupDouyinPreviewLayer() {
         if (douyinPreviewLayer != null) return
@@ -2356,6 +2369,7 @@ class MyPlayerView @JvmOverloads constructor(
      */
     fun detachVideoSurface() {
         val currentPlayer = player ?: return
+        surfaceDetachedForBackground = true
         when (val surfaceView = videoSurfaceView) {
             is SurfaceView -> currentPlayer.clearVideoSurfaceView(surfaceView)
             is TextureView -> currentPlayer.clearVideoTextureView(surfaceView)
@@ -2369,11 +2383,42 @@ class MyPlayerView @JvmOverloads constructor(
      */
     fun reattachVideoSurface() {
         val currentPlayer = player ?: return
+        surfaceDetachedForBackground = false
         when (val surfaceView = videoSurfaceView) {
             is SurfaceView -> currentPlayer.setVideoSurfaceView(surfaceView)
             is TextureView -> currentPlayer.setVideoTextureView(surfaceView)
         }
         // 后台回前台：重置 jank EMA，防止脏数据触发自动关 mask
+        dmMaskController.onResume()
+    }
+
+    /**
+     * 前台 Surface 静默失效后的自愈，供 Activity.onResume 调用。
+     *
+     * 触发场景：投影仪/TV 盒子弹出系统弹窗（权限框、悬浮通知等）再返回，
+     * 这类弹窗通常只触发 Activity 的 onPause/onResume，不会走 onStop/onStart，
+     * 因此 onStart 里那套"reattach + seekTo 重建解码器"的恢复逻辑不会执行。
+     * 而此时底层 Surface 可能已被系统销毁重建，解码器仍向旧（已死）的 Surface 输出，
+     * 表现为：画面冻结/黑屏，但音频和弹幕继续，点暂停/播放画面也不动。
+     *
+     * 这里重新绑定 Surface 并 seekTo 当前位置，逼解码器丢弃向死 Surface 的输出、重出新帧，
+     * 与 onStart 的恢复手段一致。只在"前台、且 player 未主动 detach"时执行，避免和后台路径冲突。
+     *
+     * 不通过注册额外 SurfaceHolder.Callback 实现：在部分机型（如 gracelte/API28）上，
+     * 自定义 callback 与 SurfaceView 内部 updateSurface 回调竞态会导致
+     * "Exception configuring surface" NPE，反而让首帧无法输出（实测黑屏）。
+     * onResume 时机晚于 SurfaceView 完成配置，无此竞态。
+     */
+    fun recoverVideoRenderIfNeeded(reason: String) {
+        if (surfaceDetachedForBackground) return
+        val currentPlayer = player ?: return
+        val surfaceView = videoSurfaceView as? SurfaceView ?: return
+        AppLog.w("SurfaceLifecycle", "recoverVideoRenderIfNeeded reason=$reason state=${currentPlayer.playbackState} pos=${currentPlayer.currentPosition}")
+        currentPlayer.setVideoSurfaceView(surfaceView)
+        val state = currentPlayer.playbackState
+        if (state == Player.STATE_READY || state == Player.STATE_BUFFERING) {
+            currentPlayer.seekTo(currentPlayer.currentPosition)
+        }
         dmMaskController.onResume()
     }
 
