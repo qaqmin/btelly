@@ -25,16 +25,12 @@ class VideoPlayerEpisodeCatalogBuilder(
 
         // Check ugcSeason (合集) FIRST: if the video belongs to a collection,
         // show all videos in the collection rather than just the current video's pages.
+        // 展开到「分P」粒度：一个稿件若含多P，则每个P各自成为列表中的一项，
+        // 这样合集列表能看到 P1/P2/P3，自动播放也能按 P 顺序连播而不是跳到下一个子合集。
         val ugcEpisodes = view.ugcSeason?.sections
             .orEmpty()
             .flatMap { it.episodes.orEmpty() }
-            .mergedByArchive()
-            .mapIndexed { index, episode ->
-                episode.toPlayableEpisode(
-                    index = index,
-                    fallbackView = view
-                )
-            }
+            .flatMap { episode -> episode.expandPages() }
 
         if (ugcEpisodes.isNotEmpty()) {
             return ugcEpisodes
@@ -146,57 +142,56 @@ class VideoPlayerEpisodeCatalogBuilder(
         )
     }
 
-    private fun com.btelly.model.video.detail.UgcEpisode.toPlayableEpisode(
-        index: Int,
-        fallbackView: com.btelly.model.video.detail.VideoView
-    ): VideoPlayerViewModel.PlayableEpisode {
-        val displayPart = pageInfo?.part
-            ?.takeIf { it.isNotBlank() }
-            ?: pages.orEmpty().firstOrNull()?.part?.takeIf { it.isNotBlank() }
+    private fun UgcEpisode.expandPages(): List<VideoPlayerViewModel.PlayableEpisode> {
+        // 收集该稿件的所有分P：优先用 pages，其次用 pageInfo，最后退回稿件自身。
+        val candidatePages = pages.orEmpty().ifEmpty { pageInfo?.let { listOf(it) }.orEmpty() }
         val archiveTitle = arc?.title?.takeIf { it.isNotBlank() }
             ?: title.takeIf { it.isNotBlank() }
-            ?: displayPart
-            ?: "P${displayPage.takeIf { it > 0 } ?: index + 1}"
-        val pageCount = pages.orEmpty().size.takeIf { it > 1 }
-            ?: arc?.pages.orEmpty().size.takeIf { it > 1 }
-        return VideoPlayerViewModel.PlayableEpisode(
-            cid = displayCid,
-            title = archiveTitle,
-            panelTitle = archiveTitle,
-            subtitle = pageCount?.let { "共 ${it} P" }.orEmpty(),
-            cover = displayCover.ifBlank { fallbackView.pic },
-            aid = displayAid,
-            bvid = displayBvid,
-            source = VideoPlayerViewModel.EpisodeCatalogSource.UGC_SEASON
-        )
-    }
+            ?: candidatePages.firstOrNull()?.part?.takeIf { it.isNotBlank() }
+        val archiveAid = displayAid
+        val archiveBvid = displayBvid
+        val archiveCover = displayCover
 
-    private fun List<UgcEpisode>.mergedByArchive(): List<UgcEpisode> {
-        if (size <= 1) return this
-        // TV selection treats one archive as one item even when Bilibili exposes its pages separately.
-        val merged = LinkedHashMap<String, UgcEpisode>()
-        forEachIndexed { index, episode ->
-            val key = episode.archiveKey(index)
-            val existing = merged[key]
-            if (existing == null || episode.preferredOver(existing)) {
-                merged[key] = episode
+        // 单P（或拿不到分P信息）：维持"一个稿件一项"的形态，标题用稿件名。
+        if (candidatePages.size <= 1) {
+            val page = candidatePages.firstOrNull()
+            val cid = page?.cid?.takeIf { it > 0L } ?: displayCid
+            val fallbackTitle = archiveTitle ?: "P1"
+            return listOf(
+                VideoPlayerViewModel.PlayableEpisode(
+                    cid = cid,
+                    title = fallbackTitle,
+                    panelTitle = fallbackTitle,
+                    subtitle = "",
+                    cover = archiveCover,
+                    aid = archiveAid,
+                    bvid = archiveBvid,
+                    source = VideoPlayerViewModel.EpisodeCatalogSource.UGC_SEASON
+                )
+            )
+        }
+
+        // 多P：每个分P一项，标题带上 P 编号，方便在合集列表里辨认。
+        return candidatePages.mapIndexed { index, page ->
+            val pageNo = page.page.takeIf { it > 0 } ?: (index + 1)
+            val partTitle = page.part?.takeIf { it.isNotBlank() }
+            val baseName = archiveTitle ?: partTitle ?: "P$pageNo"
+            val displayTitle = when {
+                // 分P标题已自带"P"前缀（如"P2 xxx"）就不重复加
+                partTitle != null && baseName == partTitle -> "$baseName"
+                else -> "$baseName · P$pageNo"
             }
+            VideoPlayerViewModel.PlayableEpisode(
+                cid = page.cid.takeIf { it > 0L } ?: displayCid,
+                title = displayTitle,
+                panelTitle = displayTitle,
+                subtitle = "共 ${candidatePages.size} P",
+                cover = archiveCover,
+                aid = archiveAid,
+                bvid = archiveBvid,
+                source = VideoPlayerViewModel.EpisodeCatalogSource.UGC_SEASON
+            )
         }
-        return merged.values.toList()
-    }
-
-    private fun UgcEpisode.archiveKey(index: Int): String {
-        return when {
-            displayBvid.isNotBlank() -> "bvid:$displayBvid"
-            displayAid > 0L -> "aid:$displayAid"
-            else -> "episode:$index"
-        }
-    }
-
-    private fun UgcEpisode.preferredOver(other: UgcEpisode): Boolean {
-        val page = displayPage.takeIf { it > 0 } ?: Int.MAX_VALUE
-        val otherPage = other.displayPage.takeIf { it > 0 } ?: Int.MAX_VALUE
-        return page < otherPage
     }
 
     private fun EpisodeModel.toPlayableEpisode(
