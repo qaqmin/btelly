@@ -1,12 +1,11 @@
 package com.btelly.feature.settings
 
 import android.graphics.Color
-import android.net.Uri
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -59,17 +58,13 @@ class DebugLogFragment : BaseFragment<FragmentDebugLogBinding>() {
     private var filterButtons: List<AppCompatTextView> = emptyList()
     private var refreshJob: Job? = null
 
-    private val folderPicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) exportLogs(uri)
-    }
-
     override fun getViewBinding(inflater: LayoutInflater, container: ViewGroup?): FragmentDebugLogBinding {
         return FragmentDebugLogBinding.inflate(inflater, container, false)
     }
 
     override fun initView() {
         binding.buttonBack.setOnClickListener { navigateBackFromUi() }
-        binding.buttonExport.setOnClickListener { folderPicker.launch(null) }
+        binding.buttonExport.setOnClickListener { exportLogs() }
 
         adapter = DebugLogAdapter()
         val layoutManager = object : LinearLayoutManager(requireContext()) {
@@ -193,7 +188,7 @@ class DebugLogFragment : BaseFragment<FragmentDebugLogBinding>() {
         }
     }
 
-    private fun exportLogs(folderUri: Uri) {
+    private fun exportLogs() {
         scope.launch {
             runCatching {
                 val fileName = "btelly_log_${
@@ -217,20 +212,21 @@ class DebugLogFragment : BaseFragment<FragmentDebugLogBinding>() {
                         sb.append(crashLog)
                     }
 
-                    val resolver = requireContext().contentResolver
-                    resolver.takePersistableUriPermission(
-                        folderUri, android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                    )
-                    val fileUri = android.provider.DocumentsContract.createDocument(
-                        resolver, folderUri, "text/plain", fileName
-                    ) ?: throw IllegalStateException("无法创建文件")
-                    resolver.openOutputStream(fileUri)?.use { os ->
-                        os.write(sb.toString().toByteArray(Charsets.UTF_8))
+                    // 直接写 App 私有目录下的 logs 文件夹，无需 SAF 选目录、无需权限。
+                    val logsDir = java.io.File(requireContext().getExternalFilesDir(null), "logs").apply {
+                        if (!exists()) mkdirs()
                     }
-                    fileName
+                    val file = java.io.File(logsDir, fileName)
+                    file.writeText(sb.toString(), Charsets.UTF_8)
+                    file.absolutePath
                 }
-            }.onSuccess { name ->
-                Toast.makeText(requireContext(), "已导出: $name", Toast.LENGTH_LONG).show()
+            }.onSuccess { path ->
+                AppLog.i("DebugLog", "exportLogs ok path=$path")
+                AlertDialog.Builder(requireContext())
+                    .setTitle("导出成功")
+                    .setMessage("日志已保存到：\n$path\n\n可用文件管理器进入该路径查看，或用 adb pull 取出。")
+                    .setPositiveButton("知道了", null)
+                    .show()
             }.onFailure { e ->
                 Toast.makeText(requireContext(), "导出失败: ${e.message}", Toast.LENGTH_LONG).show()
             }
