@@ -6,6 +6,12 @@ on:
     paths:
       - app/build.gradle.kts
   workflow_dispatch:
+    inputs:
+      force_build:
+        description: '强制完整构建并发布（跳过版本检查）'
+        required: false
+        default: 'true'
+        type: boolean
 
 jobs:
   build:
@@ -44,7 +50,16 @@ jobs:
       - name: Check if version changed
         id: check_version
         run: |
-          # 检查上一个commit中的版本号
+          FORCE_BUILD="${{ github.event.inputs.force_build }}"
+
+          # 手动触发且 force_build=true：直接打包，跳过版本检查
+          if [ "$FORCE_BUILD" = "true" ]; then
+            echo "手动触发强制打包，跳过版本检查"
+            echo "VERSION_CHANGED=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # 自动触发：检查上一个commit中的版本号
           git checkout HEAD~1 -- app/build.gradle.kts
           OLD_VERSION_CODE=$(grep -A 10 "defaultConfig" app/build.gradle.kts | grep "versionCode" | sed 's/.*versionCode = \(.*\)/\1/')
           OLD_VERSION_NAME=$(grep -A 10 "defaultConfig" app/build.gradle.kts | grep "versionName" | sed 's/.*versionName = "\(.*\)".*/\1/')
@@ -99,13 +114,15 @@ jobs:
 
       - name: Create GitHub Release
         if: steps.check_version.outputs.VERSION_CHANGED == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.get_version.outputs.VERSION_NAME }}
-          name: v${{ steps.get_version.outputs.VERSION_NAME }}
-          body: ${{ steps.changelog.outputs.CHANGELOG }}
-          files: app/build/outputs/renamed_apk/release/BTelly-v${{ steps.get_version.outputs.VERSION_NAME }}-release.apk
-          draft: false
-          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.get_version.outputs.VERSION_NAME }}"
+          # 若已存在同名 release/tag，先删除（强覆盖），不存在则忽略
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          # 将 changelog 写入临时文件，避免 shell 对换行/特殊字符的处理
+          printf '%s\n' "${{ steps.changelog.outputs.CHANGELOG }}" > release_notes.txt
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file release_notes.txt \
+            app/build/outputs/renamed_apk/release/BTelly-v${{ steps.get_version.outputs.VERSION_NAME }}-release.apk
