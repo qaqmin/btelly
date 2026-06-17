@@ -2,6 +2,10 @@
 /.trae/
 /.vscode/
 /.idea/
+# Eclipse / jdtls / Buildship 私有配置（含 .classpath / .project / .settings/）
+**/.settings/
+.classpath
+.project
 *.iml
 *.iws
 *.ipr
@@ -37,10 +41,7 @@ captures/
 /temp/*
 
 # ========== Graphify 本地缓存 ==========
-graphify-out/cache/
-graphify-out/manifest.json
-graphify-out/.graphify_python
-graphify-out/.graphify_root
+graphify-out/
 
 # ========== 密钥 & 签名 ==========
 *.jks
