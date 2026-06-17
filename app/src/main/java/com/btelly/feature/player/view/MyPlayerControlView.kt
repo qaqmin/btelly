@@ -704,6 +704,8 @@ class MyPlayerControlView @JvmOverloads constructor(
 
     private fun dispatchPlayPause(p: Player) {
         val state = p.playbackState
+        // [DEBUG] 诊断小米电视确定键播放/暂停失效问题，定位后删除
+        AppLog.d("DpadCenter", "dispatchPlayPause state=$state playWhenReady=${p.playWhenReady}")
         if (state == Player.STATE_IDLE || state == Player.STATE_ENDED || !p.playWhenReady) {
             dispatchPlay(p)
         } else {
@@ -770,9 +772,14 @@ class MyPlayerControlView @JvmOverloads constructor(
     }
 
     fun focusButtonByKeyDown(event: KeyEvent) {
+        // [DEBUG] 诊断小米电视确定键播放/暂停失效问题，定位后删除
+        AppLog.d("DpadCenter", "focusButtonByKeyDown code=${event.keyCode} action=${event.action} btnPlayVis=${buttonPlay.visibility == VISIBLE}")
         focusCoordinator.focusButtonByKeyDown(
             event = event,
-            onPlayPauseClick = { buttonPlay.performClick() },
+            onPlayPauseClick = {
+                AppLog.d("DpadCenter", "onPlayPauseClick -> performClick")
+                buttonPlay.performClick()
+            },
             onRewind = { player?.let { dispatchRewind(it) } },
             onFastForward = { player?.let { dispatchFastForward(it) } }
         )

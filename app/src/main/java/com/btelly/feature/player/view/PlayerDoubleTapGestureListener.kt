@@ -53,6 +53,8 @@ internal class PlayerDoubleTapGestureListener(
     }
 
     override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+        // [DEBUG] 诊断小米电视确定键播放/暂停失效问题，定位后删除
+        android.util.Log.d("DpadCenter", "onSingleTapConfirmed isDoubleTapping=$isDoubleTapping")
         if (isDoubleTapping) return true
         return rootView.performClick()
     }

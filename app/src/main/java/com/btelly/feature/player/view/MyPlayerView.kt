@@ -1044,6 +1044,10 @@ class MyPlayerView @JvmOverloads constructor(
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val isBackKey = event.keyCode == KeyEvent.KEYCODE_BACK
+        // [DEBUG] 诊断小米电视确定键播放/暂停失效问题，定位后删除
+        if (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER) {
+            AppLog.d("DpadCenter", "dispatchKeyEvent code=${event.keyCode} action=${event.action} repeat=${event.repeatCount} ctrlVisible=${controller?.isFullyVisible()} player=${player != null}")
+        }
         if (player == null) return super.dispatchKeyEvent(event)
         if (controller == null && event.action == KeyEvent.ACTION_DOWN && !isBackKey) {
             ensureController("key")
@@ -1198,8 +1202,12 @@ class MyPlayerView @JvmOverloads constructor(
                     if (handleDouyinNavigationKey(event)) {
                         return true
                     }
+                    // [DEBUG] 诊断小米电视确定键播放/暂停失效问题，定位后删除
+                    val dtDouble = gestureListener.isDoubleTapping
+                    AppLog.d("DpadCenter", "!ctrlVisible branch code=${event.keyCode} dtDouble=$dtDouble")
                     if (!gestureListener.handleKeyDown(event) && !gestureListener.isDoubleTapping) {
                         maybeShowController(true)
+                        AppLog.d("DpadCenter", "calling focusButtonByKeyDown code=${event.keyCode}")
                         controller?.focusButtonByKeyDown(event)
                     }
                 }
@@ -1852,6 +1860,8 @@ class MyPlayerView @JvmOverloads constructor(
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // [DEBUG] 诊断小米电视确定键播放/暂停失效问题，定位后删除
+        AppLog.d("DpadCenter", "onTouchEvent action=${event.action} src=${event.source}")
         if (isDouyinDragging && handleDouyinSwipeTouch(event)) {
             return true
         }
@@ -1875,6 +1885,8 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     override fun performClick(): Boolean {
+        // [DEBUG] 诊断小米电视确定键播放/暂停失效问题，定位后删除
+        AppLog.d("DpadCenter", "performClick -> toggleControllerVisibility")
         toggleControllerVisibility()
         return super.performClick()
     }
