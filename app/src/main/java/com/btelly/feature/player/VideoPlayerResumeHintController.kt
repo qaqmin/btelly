@@ -19,7 +19,7 @@ class VideoPlayerResumeHintController(
 ) {
 
     companion object {
-        private const val SEEK_DELAY_MS = 3_000L
+        private const val SEEK_DELAY_MS = 2_000L
         private const val READY_TIMEOUT_MS = 30_000L
         private const val POLL_INTERVAL_MS = 50L
         private const val TRACE_THROTTLE_MS = 500L
@@ -123,7 +123,7 @@ class VideoPlayerResumeHintController(
             }
             onClearResumeHint()
             // setMediaSource(source, seekPositionMs) already starts the player at the
-            // resume position.  Seeking again after the 3 s toast window causes a backward
+            // resume position.  Seeking again after the 2 s toast window causes a backward
             // jump + re-buffer; when the audio CDN is fast but the video CDN is slow this
             // re-buffer introduces a persistent A/V offset.  Only seek when the player has
             // drifted far from the target (e.g. the initial start-position was not applied).
