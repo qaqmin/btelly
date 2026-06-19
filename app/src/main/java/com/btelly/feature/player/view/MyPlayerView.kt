@@ -1207,8 +1207,20 @@ class MyPlayerView @JvmOverloads constructor(
                     AppLog.d("DpadCenter", "!ctrlVisible branch code=${event.keyCode} dtDouble=$dtDouble")
                     if (!gestureListener.handleKeyDown(event) && !gestureListener.isDoubleTapping) {
                         maybeShowController(true)
-                        AppLog.d("DpadCenter", "calling focusButtonByKeyDown code=${event.keyCode}")
-                        controller?.focusButtonByKeyDown(event)
+                        // OK/Enter 键：直接切换播放/暂停。
+                        // 不走 focusButtonByKeyDown 的 performClick 路径——部分
+                        // Android 9 ROM（小米电视）在控制器刚淡入、Button 未完成
+                        // 布局/获焦时会丢弃 performClick，导致首次按确定键只弹出
+                        // 播控栏却无法暂停/播放。其它方向键仍走 focus 路由显示焦点。
+                        if (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                            event.keyCode == KeyEvent.KEYCODE_ENTER
+                        ) {
+                            AppLog.d("DpadCenter", "calling togglePlayPauseFromKey code=${event.keyCode}")
+                            controller?.togglePlayPauseFromKey()
+                        } else {
+                            AppLog.d("DpadCenter", "calling focusButtonByKeyDown code=${event.keyCode}")
+                            controller?.focusButtonByKeyDown(event)
+                        }
                     }
                 }
                 return true

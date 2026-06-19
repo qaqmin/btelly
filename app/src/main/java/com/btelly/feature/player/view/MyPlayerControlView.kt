@@ -713,6 +713,19 @@ class MyPlayerControlView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * 切换播放/暂停，不依赖 buttonPlay 的可见性或焦点状态。
+     *
+     * 背景：部分 Android 9 ROM（如小米电视）在控制器刚开始淡入、Button 尚未完成
+     * 布局/获取焦点时，调用 buttonPlay.performClick() 会被框架丢弃，导致第一次
+     * 按确定键只弹出播控栏却无法暂停/播放。这里直接走与 OnClickListener 完全
+     * 一致的逻辑（重置隐藏定时器 + dispatchPlayPause），规避 performClick 的时序问题。
+     */
+    fun togglePlayPauseFromKey() {
+        resetHideCallbacks()
+        player?.let { p -> dispatchPlayPause(p) }
+    }
+
     private fun dispatchFastForward(p: Player) {
         if (p.playbackState == Player.STATE_ENDED) {
             return
