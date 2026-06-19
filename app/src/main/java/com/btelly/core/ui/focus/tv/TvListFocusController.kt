@@ -373,6 +373,19 @@ class TvListFocusController(
             logD("restoreCapturedAnchor: resolvedPos=NO_POSITION, return false")
             return false
         }
+        // 焦点已落在列表外部一个可见、可聚焦的 View 上（典型场景：侧边栏功能按钮），
+        // 说明用户正停留在侧边栏，不应把焦点拉回视频列表。从播放器返回的焦点恢复路径
+        // 走 MainActivity.restoreFocusAfterOverlayPop，不依赖此处，故跳过是安全的。
+        val focused = recyclerView.rootView?.findFocus()
+        if (focused != null &&
+            !isDescendantOf(focused, recyclerView) &&
+            focused.isAttachedToWindow &&
+            focused.isShown &&
+            focused.isFocusable
+        ) {
+            logD("restoreCapturedAnchor: skip — focus already on outside view ${describeView(focused)}")
+            return false
+        }
         val result = focusPosition(position, anchor.offsetTop, "returnRestore", allowOutsideFocus = true)
         logD("restoreCapturedAnchor: focusPosition result=$result")
         return result

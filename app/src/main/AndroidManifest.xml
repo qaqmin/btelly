@@ -81,6 +81,15 @@
             android:theme="@style/Theme.BTelly"
             tools:ignore="DiscouragedApi" />
 
+        <!-- TV 直播（Marmot 引擎，WebView + tv-web 脚本） -->
+        <activity
+            android:name=".ui.activity.MarmotLiveActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode"
+            android:theme="@style/Theme.BTelly"
+            tools:ignore="DiscouragedApi" />
+
         <activity
             android:name=".ui.activity.GaiaVgateActivity"
             android:exported="false"

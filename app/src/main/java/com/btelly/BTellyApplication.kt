@@ -40,11 +40,38 @@ class BTellyApplication : Application() {
         lateinit var instance: BTellyApplication
             private set
     }
+
+    /**
+     * Android P+ WebView 数据目录隔离（对标参考 `MyApplication.initPieWebView`）。
+     * 非 主进程使用 WebView 时设置独立数据目录后缀，避免数据目录冲突崩溃。
+     */
+    private fun initPieWebViewDataDir() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            val processName = currentProcessName()
+            val pkgName = packageName
+            // 仅对非主进程设置后缀（主进程用默认目录）
+            if (processName != null && processName != pkgName) {
+                android.webkit.WebView.setDataDirectorySuffix(processName.substringAfterLast(":"))
+                AppLog.i(TAG, "WebView 数据目录隔离: process=$processName")
+            }
+        }
+    }
+
+    private fun currentProcessName(): String? {
+        return try {
+            val pid = android.os.Process.myPid()
+            val am = getSystemService(android.app.ActivityManager::class.java)
+            am.runningAppProcesses?.firstOrNull { it.pid == pid }?.processName
+        } catch (e: Throwable) { null }
+    }
     
     override fun onCreate() {
         val startMs = SystemClock.elapsedRealtime()
         super.onCreate()
         instance = this
+        // Android P+ WebView 数据目录隔离（对标参考 MyApplication.initPieWebView）：
+        // 多进程使用 WebView 时数据目录冲突会导致 X5/系统 WebView 初始化崩溃。
+        initPieWebViewDataDir()
         AppLog.init(this)
         AppLog.i(TAG, "STARTUP T0 app.onCreate start")
         AppLog.i(TAG, "STARTUP T1 app.onCreate end minimal elapsed=${SystemClock.elapsedRealtime() - startMs}ms")

@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/marmot_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/black"
+    android:clickable="true"
+    android:focusable="true">
+
+    <!-- WebView 容器：直播页面在此渲染 -->
+    <FrameLayout
+        android:id="@+id/webview_wrapper"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/black" />
+
+    <!-- 全屏视频容器（部分直播页 onShowCustomView 用） -->
+    <FrameLayout
+        android:id="@+id/fullscreen_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/black"
+        android:visibility="gone" />
+
+    <!-- 加载进度 -->
+    <ProgressBar
+        android:id="@+id/progress_bar"
+        android:layout_width="@dimen/px100"
+        android:layout_height="@dimen/px100"
+        android:layout_gravity="center"
+        android:visibility="gone" />
+
+    <!-- 当前频道名提示（切台时短暂显示） -->
+    <TextView
+        android:id="@+id/live_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@drawable/transparent_black_bg"
+        android:paddingStart="@dimen/px35"
+        android:paddingTop="@dimen/px20"
+        android:paddingEnd="@dimen/px35"
+        android:paddingBottom="@dimen/px20"
+        android:textColor="@android:color/white"
+        android:textSize="@dimen/px35"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
+    <!-- 频道列表浮层（对标参考 menu_dual_column：左分组140dp + 右频道300dp + 空白关闭区） -->
+    <LinearLayout
+        android:id="@+id/menu_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#00000000"
+        android:clickable="true"
+        android:focusable="true"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <!-- 左侧：分组列表（央视/卫视/地方台...）FocusLockRecyclerView 防焦点溢出 -->
+        <com.btelly.core.ui.focus.FocusLockRecyclerView
+            android:id="@+id/group_list"
+            android:layout_width="140dp"
+            android:layout_height="match_parent"
+            android:background="#CC000000"
+            android:clipToPadding="false"
+            android:descendantFocusability="afterDescendants"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:overScrollMode="never"
+            android:padding="8dp" />
+
+        <!-- 右侧：频道列表 -->
+        <com.btelly.core.ui.focus.FocusLockRecyclerView
+            android:id="@+id/channel_list"
+            android:layout_width="300dp"
+            android:layout_height="match_parent"
+            android:background="#AA000000"
+            android:clipToPadding="false"
+            android:descendantFocusability="afterDescendants"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:overScrollMode="never"
+            android:padding="8dp" />
+
+        <!-- 右侧空白区：点击关闭菜单 -->
+        <FrameLayout
+            android:id="@+id/menu_blank_area"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="#00000000"
+            android:clickable="true" />
+    </LinearLayout>
+
+    <!-- 画质选择浮层（菜单键弹出，横向列表） -->
+    <LinearLayout
+        android:id="@+id/quality_container"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="@dimen/px80"
+        android:background="#F0222222"
+        android:orientation="horizontal"
+        android:padding="@dimen/px20"
+        android:visibility="gone">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/quality_list"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+    </LinearLayout>
+
+</FrameLayout>

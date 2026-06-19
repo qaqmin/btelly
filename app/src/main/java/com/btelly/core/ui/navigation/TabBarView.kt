@@ -138,6 +138,10 @@ class TabBarView @JvmOverloads constructor(
     }
 
     fun selectTab(index: Int) {
+        com.btelly.core.common.log.AppLog.d(
+            "FocusTrace",
+            "selectTab index=$index currentSelectedIndex=$currentSelectedIndex"
+        )
         if (index < 0 || index >= tabButtons.size) return
         if (index == 1 && buttonCategory.visibility == GONE) return
         if (index == 3 && buttonLive.visibility == GONE) return

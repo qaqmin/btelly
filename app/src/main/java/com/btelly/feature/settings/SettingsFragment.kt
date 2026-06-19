@@ -60,6 +60,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         const val CATEGORY_PLAY = 1
         const val CATEGORY_DM = 2
         const val CATEGORY_DEVICE = 3
+        const val CATEGORY_TV = 4
 
         private const val DEVICE_POSITION_VERSION = 0
         private const val DEVICE_POSITION_CHECK_UPDATE = 1
@@ -109,7 +110,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val KEY_DOUYIN_MODE = "douyin_mode"
         private const val KEY_RESUME_PLAYBACK = "resume_playback"
         private const val KEY_SPONSOR_BLOCK_ENABLED = "sponsor_block_enabled"
-        private const val COMMON_POSITION_RISK_CONTROL = 8
+        private const val COMMON_POSITION_RISK_CONTROL = 7
         private val DM_SMART_FILTER_OPTIONS = arrayOf("关", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10")
 
         private val HOME_START_PAGE_OPTIONS = arrayOf("推荐", "热门", "番剧", "影视", "动态")
@@ -118,6 +119,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
     private lateinit var commonSettings: MutableList<SettingModel>
     private lateinit var playerSettings: MutableList<SettingModel>
     private lateinit var dmSettings: MutableList<SettingModel>
+    private lateinit var tvSettings: MutableList<SettingModel>
     private val deviceSettings = mutableListOf<SettingModel>()
     private val appSettings: AppSettingsDataStore by inject()
     private val cookieManager: CookieManager by inject()
@@ -184,13 +186,18 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.image_quality), "中尺寸"),
             SettingModel(getString(R.string.theme), "黑色"),
             SettingModel(getString(R.string.live_entry), "关"),
-            SettingModel(getString(R.string.cctv_live), "关"),
             SettingModel(getString(R.string.minor_protection), "开"),
             SettingModel(getString(R.string.risk_control_verify), "无"),
             SettingModel(getString(R.string.show_video_detail_page), "关"),
             SettingModel(getString(R.string.give_coin_number), "2"),
             SettingModel(getString(R.string.ipv4_only), "开"),
             SettingModel(getString(R.string.douyin_mode), "关")
+        )
+
+        // 电视直播分类：CCTV 直播开关（从通用设置迁移）+ X5 内核替换
+        tvSettings = mutableListOf(
+            SettingModel(getString(R.string.cctv_live), "关"),
+            SettingModel("X5内核替换", "未安装")
         )
 
         playerSettings = mutableListOf(
@@ -259,6 +266,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         binding.buttonSettingPlay.setOnClickListener { showCategory(CATEGORY_PLAY) }
         binding.buttonSettingDm.setOnClickListener { showCategory(CATEGORY_DM) }
         binding.buttonSettingDevice.setOnClickListener { showCategory(CATEGORY_DEVICE) }
+        binding.buttonSettingTv.setOnClickListener { showCategory(CATEGORY_TV) }
     }
 
     private fun showCategory(category: Int) {
@@ -283,6 +291,9 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             CATEGORY_DEVICE -> {
                 showListCategory(deviceSettings, animate)
             }
+            CATEGORY_TV -> {
+                showListCategory(tvSettings, animate)
+            }
         }
     }
 
@@ -291,11 +302,13 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         binding.buttonSettingPlay.isSelected = category == CATEGORY_PLAY
         binding.buttonSettingDm.isSelected = category == CATEGORY_DM
         binding.buttonSettingDevice.isSelected = category == CATEGORY_DEVICE
+        binding.buttonSettingTv.isSelected = category == CATEGORY_TV
         val buttons = listOf(
             binding.buttonSettingCommon,
             binding.buttonSettingPlay,
             binding.buttonSettingDm,
-            binding.buttonSettingDevice
+            binding.buttonSettingDevice,
+            binding.buttonSettingTv
         )
         buttons.forEach { button ->
             val selected = button.isSelected
@@ -314,7 +327,154 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             CATEGORY_PLAY -> handlePlayerSettingClick(position, item)
             CATEGORY_DM -> handleDmSettingClick(position, item)
             CATEGORY_DEVICE -> handleDeviceSettingClick(position)
+            CATEGORY_TV -> handleTvSettingClick(position)
         }
+    }
+
+    /** 电视直播分类点击处理：CCTV 开关 + X5 内核替换。 */
+    private fun handleTvSettingClick(position: Int) {
+        when (position) {
+            // 0: CCTV 直播开关
+            0 -> toggleSetting(tvSettings, 0, KEY_CCTV_LIVE_ENTRY) { value ->
+                appSettings.putStringAsync(KEY_CCTV_LIVE_ENTRY, value)
+                val activity = activity as? MainActivity
+                activity?.applyCctvLiveEntryVisibility()
+            }
+            // 1: X5 内核替换（华为云下载安装）
+            1 -> startXdDownload()
+        }
+    }
+
+    /** 触发 X5 TBS 内核下载安装（复刻 APP 升级同款下载弹窗）。 */
+    @android.annotation.SuppressLint("InflateParams")
+    private fun startXdDownload() {
+        val activity = activity ?: return
+        val x5 = com.btelly.feature.marmot.x5.X5TbsDownloader
+
+        // 已加载或已安装 → 无需重复操作
+        if (x5.isX5Loaded(activity) || x5.isInstalled(activity)) {
+            Toast.makeText(activity, "X5 内核已安装", Toast.LENGTH_SHORT).show()
+            return
+        }
+        // 正在处理 → 提示等待
+        if (x5.isBusy()) {
+            Toast.makeText(activity, "正在处理中，请稍候...", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // —— 复刻 APP 升级下载弹窗（AppCompatDialog + ProgressBar + 进度文字 + 取消按钮）——
+        val px40 = resources.getDimensionPixelSize(R.dimen.px40)
+        val px35 = resources.getDimensionPixelSize(R.dimen.px35)
+        val px20 = resources.getDimensionPixelSize(R.dimen.px20)
+        val px18 = resources.getDimensionPixelSize(R.dimen.px18)
+        val px14 = resources.getDimensionPixelSize(R.dimen.px14)
+        val textColor = resources.getColor(R.color.textColor, null)
+
+        val dialog = androidx.appcompat.app.AppCompatDialog(requireContext(), R.style.DialogTheme)
+        dialog.setCancelable(false)
+        dialog.setCanceledOnTouchOutside(false)
+        val root = android.widget.LinearLayout(requireContext()).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.dialog_background)
+        }
+        val titleView = android.widget.TextView(requireContext()).apply {
+            text = "正在下载 X5 内核"
+            setTextColor(textColor); textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(px40, px35, px40, px20) }
+        }
+        root.addView(titleView)
+        root.addView(android.view.View(requireContext()).apply {
+            setBackgroundColor(0x1FFFFFFF)
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                resources.getDimensionPixelSize(R.dimen.px2)
+            ).apply { setMargins(px18, 0, px18, 0) }
+        })
+        val progressBar = android.widget.ProgressBar(requireContext(), null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100; progress = 0
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                resources.getDimensionPixelSize(R.dimen.px20)
+            ).apply { setMargins(px40, px20, px40, 0) }
+        }
+        root.addView(progressBar)
+        val progressText = android.widget.TextView(requireContext()).apply {
+            text = "连接中…"
+            setTextColor(textColor); textSize = 11f
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(px40, px14, px40, 0) }
+        }
+        root.addView(progressText)
+        val cancelButton = android.widget.TextView(requireContext()).apply {
+            text = "取消"; setTextColor(textColor); textSize = 12f
+            setPadding(resources.getDimensionPixelSize(R.dimen.px16), px14, resources.getDimensionPixelSize(R.dimen.px16), px14)
+            isClickable = true; isFocusable = true
+            setBackgroundResource(R.drawable.bg_dialog_button)
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(px18, px20, px18, px18); gravity = android.view.Gravity.END }
+        }
+        root.addView(cancelButton)
+        dialog.setContentView(root)
+        dialog.show()
+        dialog.window?.setLayout(resources.getDimensionPixelSize(R.dimen.px800), ViewGroup.LayoutParams.WRAP_CONTENT)
+
+        updateX5StatusItem("下载中...")
+
+        // 启动下载（X5TbsDownloader 回调已切主线程）
+        x5.download(activity, object : com.btelly.feature.marmot.x5.X5TbsDownloader.Callback {
+            override fun onProgress(hint: String) {
+                if (!isAdded) return
+                progressText.text = hint
+                // 解析百分比更新进度条
+                Regex("(\\d+)%").find(hint)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { p ->
+                    progressBar.isIndeterminate = false
+                    progressBar.progress = p
+                }
+                updateX5StatusItem(hint)
+            }
+            override fun onComplete(success: Boolean, message: String) {
+                if (!isAdded) return
+                dialog.dismiss()
+                Toast.makeText(activity, message, Toast.LENGTH_SHORT).show()
+                updateX5StatusItem(if (success) "✓ 已安装（重启中）" else "安装失败，点击重试")
+            }
+        })
+
+        cancelButton.setOnClickListener {
+            dialog.dismiss()
+            updateX5StatusItem("已取消")
+        }
+    }
+
+    /** 更新 X5 设置项的子标题（显示状态/进度）。 */
+    private fun updateX5StatusItem(status: String) {
+        tvSettings.getOrNull(1)?.let { item ->
+            item.info = status
+            if (view != null && currentCategory == CATEGORY_TV) {
+                binding.recyclerViewSetting.adapter?.notifyItemChanged(1)
+            }
+        }
+    }
+
+    /** 恢复 X5 设置项状态（进设置页时刷新）。 */
+    private fun updateX5Status() {
+        val activity = activity ?: return
+        val x5 = com.btelly.feature.marmot.x5.X5TbsDownloader
+        // 已安装 → 直播用 X5（installLocalTbsCore 成功后直接 new X5 WebView，不查 canLoadX5）
+        val status = when {
+            x5.isInstalled(activity) -> "✓ 已安装（直播用 X5 内核）"
+            x5.isDownloaded(activity) -> "已下载，点击安装"
+            else -> "未安装"
+        }
+        updateX5StatusItem(status)
     }
 
     private fun handleCommonSettingClick(position: Int, @Suppress("UNUSED_PARAMETER") item: SettingModel) {
@@ -329,34 +489,29 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
                 val activity = activity as? MainActivity
                 activity?.applyLiveEntryVisibility()
             }
-            6 -> toggleSetting(commonSettings, 6, KEY_CCTV_LIVE_ENTRY) { value ->
-                appSettings.putStringAsync(KEY_CCTV_LIVE_ENTRY, value)
-                val activity = activity as? MainActivity
-                activity?.applyCctvLiveEntryVisibility()
-            }
-            7 -> {
-                val setting = commonSettings.getOrNull(7) ?: return
+            6 -> {
+                val setting = commonSettings.getOrNull(6) ?: return
                 if (setting.info == "开") {
                     showMinorProtectionVerifyDialog {
-                        toggleSetting(commonSettings, 7, KEY_MINOR_PROTECTION) { value ->
+                        toggleSetting(commonSettings, 6, KEY_MINOR_PROTECTION) { value ->
                             appSettings.putStringAsync(KEY_MINOR_PROTECTION, value)
                             val activity = activity as? MainActivity
                             activity?.applyCategoryEntryVisibility()
                         }
                     }
                 } else {
-                    toggleSetting(commonSettings, 7, KEY_MINOR_PROTECTION) { value ->
+                    toggleSetting(commonSettings, 6, KEY_MINOR_PROTECTION) { value ->
                         appSettings.putStringAsync(KEY_MINOR_PROTECTION, value)
                         val activity = activity as? MainActivity
                         activity?.applyCategoryEntryVisibility()
                     }
                 }
             }
-            COMMON_POSITION_RISK_CONTROL -> showRiskControlDialog()
-            9 -> toggleSetting(commonSettings, 9, KEY_SHOW_VIDEO_DETAIL)
-            10 -> showCommonChoiceDialog(position, KEY_GIVE_COIN_NUMBER, arrayOf("1", "2"))
-            11 -> toggleSetting(commonSettings, 11, KEY_IPV4_ONLY)
-            12 -> toggleSetting(commonSettings, 12, KEY_DOUYIN_MODE)
+            7 -> showRiskControlDialog()
+            8 -> toggleSetting(commonSettings, 8, KEY_SHOW_VIDEO_DETAIL)
+            9 -> showCommonChoiceDialog(position, KEY_GIVE_COIN_NUMBER, arrayOf("1", "2"))
+            10 -> toggleSetting(commonSettings, 10, KEY_IPV4_ONLY)
+            11 -> toggleSetting(commonSettings, 11, KEY_DOUYIN_MODE)
             commonSettings.lastIndex - 1 -> {
                 val newValue = if (AppLog.isEnabled) "关" else "开"
                 AppLog.setEnabled(newValue == "开")
@@ -809,13 +964,16 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         val theme = appSettings.getCachedInt("theme", 1)
         commonSettings[4].info = theme.toThemeName()
         applySavedValue(commonSettings, 5, KEY_LIVE_ENTRY)
-        applySavedValue(commonSettings, 6, KEY_CCTV_LIVE_ENTRY)
-        applySavedValue(commonSettings, 7, KEY_MINOR_PROTECTION)
+        applySavedValue(commonSettings, 6, KEY_MINOR_PROTECTION)
         updateRiskControlStatus()
-        applySavedValue(commonSettings, 9, KEY_SHOW_VIDEO_DETAIL)
-        applySavedValue(commonSettings, 10, KEY_GIVE_COIN_NUMBER)
-        applySavedValue(commonSettings, 11, KEY_IPV4_ONLY)
-        applySavedValue(commonSettings, 12, KEY_DOUYIN_MODE)
+        applySavedValue(commonSettings, 8, KEY_SHOW_VIDEO_DETAIL)
+        applySavedValue(commonSettings, 9, KEY_GIVE_COIN_NUMBER)
+        applySavedValue(commonSettings, 10, KEY_IPV4_ONLY)
+        applySavedValue(commonSettings, 11, KEY_DOUYIN_MODE)
+
+        // 电视直播分类：CCTV 开关（从通用设置迁移过来）
+        applySavedValue(tvSettings, 0, KEY_CCTV_LIVE_ENTRY)
+        updateX5Status()
 
         applySavedValue(playerSettings, 0, KEY_DEFAULT_VIDEO_QUALITY)
         applySavedValue(playerSettings, 1, KEY_DEFAULT_AUDIO_TRACK)
@@ -1046,6 +1204,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             CATEGORY_COMMON -> target === commonSettings
             CATEGORY_PLAY -> target === playerSettings
             CATEGORY_DM -> target === dmSettings
+            CATEGORY_TV -> target === tvSettings
             else -> false
         }
     }

@@ -247,6 +247,9 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-dash:1.9.3")
     implementation("androidx.media3:media3-exoplayer-hls:1.9.3")
 
+    // 腾讯 TBS X5 WebView 内核（TV 直播可选内核）。版本取自参考反编译 tbs APP（SDK_VERSION_CODE 44286 / 4.3.0.386）。
+    implementation("com.tencent.tbs:tbssdk:44286")
+
     // GIF 支持（仅用于本地 animated drawable，~200KB）
     implementation("pl.droidsonroids.gif:android-gif-drawable:1.2.29")
 
@@ -270,7 +273,7 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.1.5")
 }
 
 

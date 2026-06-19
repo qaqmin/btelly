@@ -174,7 +174,10 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
     override fun onResume() {
         super.onResume()
         if (tvFocusController?.restoreCapturedAnchor() != true) {
-            tvFocusController?.ensureValidFocus("resume", allowWhenFocusOutside = true)
+            // allowWhenFocusOutside=false：焦点已落在列表外的可见可聚焦 View（如侧边栏功能按钮）
+            // 时不再抢回焦点。焦点为 null/detached/hidden 时 ensureValidFocus 内部仍会恢复。
+            // 从播放器返回的焦点恢复由 MainActivity.restoreFocusAfterOverlayPop 负责。
+            tvFocusController?.ensureValidFocus("resume", allowWhenFocusOutside = false)
         }
     }
 

@@ -182,6 +182,14 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         val t0 = SystemClock.elapsedRealtime()
         initFragments()
         binding.myTabView.setOnTabClickListener(this)
+        binding.root.viewTreeObserver.addOnGlobalFocusChangeListener { old, new ->
+            AppLog.d(
+                "FocusTrace",
+                "globalFocusChange: old=${old?.javaClass?.simpleName}#${old?.id} " +
+                    "new=${new?.javaClass?.simpleName}#${new?.id} " +
+                    "inTabBar=${new?.let { isInsideTabBar(it) } ?: false}"
+            )
+        }
         applyBackgroundImage()
         applyCategoryEntryVisibility()
         applyLiveEntryVisibility()
@@ -373,9 +381,27 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
 
         currentFragmentIndex = index
         mainNavigationViewModel.onTabSelected(index)
+        AppLog.d("FocusTrace", "showFragment done index=$index focusedAfter=${currentFocus?.javaClass?.simpleName}#${currentFocus?.id}")
+    }
+
+    private fun isInsideTabBar(view: View): Boolean {
+        var current: View? = view
+        while (current != null) {
+            if (current === binding.myTabView) return true
+            current = current.parent as? View
+        }
+        return false
     }
 
     override fun onTabSelected(index: Int) {
+        AppLog.d("FocusTrace", "onTabSelected index=$index focusedBefore=${currentFocus?.javaClass?.simpleName}#${currentFocus?.id}")
+        // CCTV 直播 tab：直接进 Marmot 播放器，不加载频道列表 Fragment（对标参考 StartActivity→LiveActivity）
+        if (index == CCTV_TAB_INDEX) {
+            com.btelly.ui.activity.MarmotLiveActivity.start(this)
+            // 焦点留在 TV 直播按钮（直播返回后焦点仍在该按钮）
+            binding.myTabView.focusCurrentTab()
+            return
+        }
         if (supportFragmentManager.backStackEntryCount > 0) {
             focusRestoreAnchors.clear()
             supportFragmentManager.popBackStackImmediate(null, FragmentManager.POP_BACK_STACK_INCLUSIVE)
@@ -385,7 +411,13 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     }
 
     override fun onTabReselected(index: Int) {
-        // 侧边栏按钮再次点击，不触发刷新，避免抢走焦点
+        AppLog.d("FocusTrace", "onTabReselected index=$index focusedBefore=${currentFocus?.javaClass?.simpleName}#${currentFocus?.id}")
+        // CCTV 直播 tab 再次点击：重新进入直播（Tab 4 不持有 Fragment，reselect 也要能进直播）
+        if (index == CCTV_TAB_INDEX) {
+            com.btelly.ui.activity.MarmotLiveActivity.start(this)
+            return
+        }
+        // 其他侧边栏按钮再次点击，不触发刷新，避免抢走焦点
     }
 
     override fun onTabNavigateRight(index: Int): Boolean {
