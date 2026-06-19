@@ -2108,7 +2108,26 @@ class MyPlayerView @JvmOverloads constructor(
             return
         }
 
+        // 首次开镜像：SurfaceView -> TextureView 热切换。
+        // 直接 new TextureView 并 setVideoTextureView 会让解码器同时持有旧 SurfaceView 的输出引用，
+        // 在 Amlogic 硬解（OMX.amlogic.hevc.decoder.awesome2）上触发解码器半死状态：
+        // 持续 audio_underrun / video_dropped / BUFFERING↔READY 振荡，直到切下一个视频重建解码器才恢复。
+        // 这里照搬 onStart 的恢复手段：先 clearVideoSurfaceView 干净解绑 -> 移除旧 SurfaceView ->
+        // 建新 TextureView -> 绑定后 seekTo(pos) 逼解码器重出帧，规避半死状态。
         val frame = contentFrame ?: return
+        val pos = currentPlayer.currentPosition.coerceAtLeast(0L)
+        val wasPlaying = currentPlayer.isPlaying
+        val stateBefore = currentPlayer.playbackState
+        AppLog.i(
+            "PlayerViewMirror",
+            "mirror=true switch SurfaceView->TextureView pos=${pos}ms state=$stateBefore playing=$wasPlaying"
+        )
+
+        currentPlayer.clearVideoSurfaceView(currentSurface)
+        if (currentSurface.parent === frame) {
+            frame.removeView(currentSurface)
+        }
+
         val textureView = TextureView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
             isOpaque = true
@@ -2120,13 +2139,19 @@ class MyPlayerView @JvmOverloads constructor(
                 videoSurfaceView = textureView
                 textureView.scaleX = -1f
                 currentPlayer.setVideoTextureView(textureView)
-                textureView.post {
-                    if (currentSurface.parent === frame && videoSurfaceView === textureView) {
-                        frame.removeView(currentSurface)
-                    }
+                // seek 到原位置逼解码器丢弃向旧 Surface 的悬空输出、重出新帧，
+                // 对齐 PlayerActivity.onStart 的 surface 变更恢复手段。
+                if (stateBefore == Player.STATE_READY || stateBefore == Player.STATE_BUFFERING) {
+                    currentPlayer.seekTo(pos)
+                }
+                if (wasPlaying) {
+                    currentPlayer.playWhenReady = true
+                }
+                // 出帧后再归位 Z 序，避免切换瞬间弹幕层被新 surface 盖住。
+                observeNextFirstFrame {
                     restoreOverlayZOrder()
                 }
-                AppLog.i("PlayerViewMirror", "mirror=true surface=TextureView created")
+                AppLog.i("PlayerViewMirror", "mirror=true surface=TextureView created bound seekTo=${pos}ms")
             }
 
             override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) = Unit
@@ -2436,9 +2461,15 @@ class MyPlayerView @JvmOverloads constructor(
     fun recoverVideoRenderIfNeeded(reason: String) {
         if (surfaceDetachedForBackground) return
         val currentPlayer = player ?: return
-        val surfaceView = videoSurfaceView as? SurfaceView ?: return
-        AppLog.w("SurfaceLifecycle", "recoverVideoRenderIfNeeded reason=$reason state=${currentPlayer.playbackState} pos=${currentPlayer.currentPosition}")
-        currentPlayer.setVideoSurfaceView(surfaceView)
+        // 同时支持 SurfaceView 和 TextureView：镜像开启后 videoSurfaceView 会变成 TextureView，
+        // 此时若发生前台 Surface 静默失效也需要重绑 + seekTo 自愈。
+        val surfaceView = videoSurfaceView ?: return
+        AppLog.w("SurfaceLifecycle", "recoverVideoRenderIfNeeded reason=$reason surface=${surfaceView.javaClass.simpleName} state=${currentPlayer.playbackState} pos=${currentPlayer.currentPosition}")
+        when (surfaceView) {
+            is SurfaceView -> currentPlayer.setVideoSurfaceView(surfaceView)
+            is TextureView -> currentPlayer.setVideoTextureView(surfaceView)
+            else -> return
+        }
         val state = currentPlayer.playbackState
         if (state == Player.STATE_READY || state == Player.STATE_BUFFERING) {
             currentPlayer.seekTo(currentPlayer.currentPosition)

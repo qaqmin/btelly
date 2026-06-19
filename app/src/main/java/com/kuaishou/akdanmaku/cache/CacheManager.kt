@@ -245,14 +245,17 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
     val priority: Int
   )
 
-  private inner class CacheHandler(looper: Looper) : Handler(looper) {
-    private val pendingTasks = PriorityQueue<CacheTask> { left, right ->
-      if (left.priority != right.priority) {
-        left.priority.compareTo(right.priority)
-      } else {
-        left.sequence.compareTo(right.sequence)
-      }
-    }
+    private inner class CacheHandler(looper: Looper) : Handler(looper) {
+        // 必须用双参构造器 PriorityQueue(initialCapacity, Comparator)。
+        // 单参 PriorityQueue(Comparator) 是 Android 7.0 (API 24) 才加入的，
+        // 而 minSdk=23，在乐视 TV (Android 6.0) 上会在 warmUp() 抛 NoSuchMethodError 直接崩溃。
+        private val pendingTasks = PriorityQueue<CacheTask>(11, Comparator { left: CacheTask, right: CacheTask ->
+            if (left.priority != right.priority) {
+                left.priority.compareTo(right.priority)
+            } else {
+                left.sequence.compareTo(right.sequence)
+            }
+        })
     private var sequence = 0L
     private var dispatching = false
     private var renderSignPending = false
