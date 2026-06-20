@@ -102,7 +102,11 @@ object AppLog {
                     append(stackTrace)
                     append("\n")
                 }
-                crashLogFile.writeText(content)
+                // 写入 UTF-8 BOM，避免 Windows 记事本等编辑器无 BOM 时误判为 GBK 导致中文乱码
+                crashLogFile.outputStream().buffered().use { out ->
+                    out.write(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()))
+                    out.write(content.toByteArray(Charsets.UTF_8))
+                }
             }
             defaultHandler.uncaughtException(thread, throwable)
         }

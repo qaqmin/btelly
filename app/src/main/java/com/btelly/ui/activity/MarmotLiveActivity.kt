@@ -199,13 +199,17 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
         // 协程：云端更新 + 加载频道 + 播放首个频道
         CoroutineScope(Dispatchers.Main).launch {
             // 1. 云端更新 tv-web（静默失败，用内置种子兜底）
-            withContext(Dispatchers.IO) {
+            val updated = withContext(Dispatchers.IO) {
                 runCatching { MarmotCloudUpdate.checkAndUpdateRes(this@MarmotLiveActivity) }
-                    .onFailure { Log.w(TAG, "云端更新失败: ${it.message}") }
+                    .onFailure { AppLog.e(TAG, "云端更新异常: ${it.javaClass.simpleName}: ${it.message}", it) }
+                    .getOrDefault(false)
             }
+            AppLog.i(TAG, "initData: 云端更新结果=$updated")
             // 2. 加载频道表
             val loaded = withContext(Dispatchers.IO) { MarmotLiveData.load(this@MarmotLiveActivity) }
+            AppLog.i(TAG, "initData: 频道表加载结果=$loaded")
             if (!loaded) {
+                AppLog.e(TAG, "initData: 频道数据加载失败，请检查网络/明文流量权限/filesDir 是否损坏")
                 Toast.makeText(this@MarmotLiveActivity, "频道数据加载失败", Toast.LENGTH_SHORT).show()
                 return@launch
             }

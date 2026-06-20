@@ -217,7 +217,11 @@ class DebugLogFragment : BaseFragment<FragmentDebugLogBinding>() {
                         if (!exists()) mkdirs()
                     }
                     val file = java.io.File(logsDir, fileName)
-                    file.writeText(sb.toString(), Charsets.UTF_8)
+                    // 写入 UTF-8 BOM，避免 Windows 记事本等编辑器因无 BOM 误判为 GBK 导致中文乱码
+                    file.outputStream().buffered().use { out ->
+                        out.write(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()))
+                        out.write(sb.toString().toByteArray(Charsets.UTF_8))
+                    }
                     file.absolutePath
                 }
             }.onSuccess { path ->
