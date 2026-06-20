@@ -210,6 +210,7 @@ class WebEngine(
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun configSystemSettings(s: WebSettings) {
         s.javaScriptEnabled = true
         s.domStorageEnabled = true
@@ -231,6 +232,7 @@ class WebEngine(
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun configX5Settings(s: com.tencent.smtt.sdk.WebSettings) {
         s.javaScriptEnabled = true
         s.domStorageEnabled = true

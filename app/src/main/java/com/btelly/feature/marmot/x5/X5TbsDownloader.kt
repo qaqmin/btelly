@@ -207,6 +207,7 @@ object X5TbsDownloader {
      * 安装 X5 内核（对标参考 `installX5WithListener`）。
      * `QbSdk.installLocalTbsCore` + `TbsListener`，成功（code 200）3 秒重启。
      */
+    @Suppress("DEPRECATION")
     fun install(context: Context, callback: Callback) {
         isDownloading = true
         val file = getTbsFile(context)
@@ -293,6 +294,7 @@ object X5TbsDownloader {
     }
 
     /** 检查 X5 是否已加载（对标参考 `x5Ok`）。 */
+    @Suppress("DEPRECATION")
     fun isX5Loaded(context: Context): Boolean = try {
         QbSdk.canLoadX5(context)
     } catch (t: Throwable) {

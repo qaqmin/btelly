@@ -644,6 +644,7 @@ class CctvPlayerActivity : BaseActivity<ActivityCctvPlayerBinding>() {
     private fun isControllerButtonFocused(): Boolean =
         binding.buttonQuality.isFocused || binding.buttonRefresh.isFocused
 
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun onBackPressed() {
         if (binding.controller.visibility == View.VISIBLE || binding.textError.visibility == View.VISIBLE) {
             finish()

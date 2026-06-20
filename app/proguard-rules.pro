@@ -100,3 +100,20 @@
 
 -keep class okio.** { *; }
 -dontwarn okio.**
+
+# 腾讯 X5 / TBS 内核
+# dalvik.system.VMStack 为 Android 运行时隐藏类，不在 compile SDK 中，TBS 的 DexLoader 在运行时通过反射调用
+-dontwarn dalvik.system.VMStack
+# X5 内核核心 API（com.tencent.smtt.*）通过反射加载，不能被混淆或裁剪
+-keep class com.tencent.smtt.** { *; }
+-keep interface com.tencent.smtt.** { *; }
+# TBS 下载/加载入口
+-keep class com.tencent.tbs.** { *; }
+-keep interface com.tencent.tbs.** { *; }
+# X5 附属动态加载类（含 DexLoader 等内部实现）
+-keep class com.tencent.smtt.export.external.** { *; }
+-keep class com.tencent.smtt.sdk.** { *; }
+-keep class com.tencent.smtt.utils.** { *; }
+# X5 运行时依赖的隐藏类
+-dontwarn com.tencent.smtt.**
+-dontwarn com.tencent.tbs.**

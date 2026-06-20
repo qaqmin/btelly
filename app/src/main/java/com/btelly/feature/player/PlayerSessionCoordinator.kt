@@ -199,7 +199,7 @@ class PlayerSessionCoordinator {
 
     private fun pollNextAllowedQueuedVideo(): VideoModel? {
         while (launchQueue.isNotEmpty()) {
-            val video = launchQueue.pollFirst()
+            val video = launchQueue.pollFirst() ?: continue
             if (isAllowedVideo(video)) return video
         }
         return null
