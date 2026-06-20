@@ -160,6 +160,15 @@ class VideoPlayerViewModel(
             selectionSnapshot: VideoPlayerStreamResolver.SelectionSnapshot
         ) {
             trimExpiredCachedPlaybacks()
+            // 诊断：写入缓存时记录 uri，定位是否"写入即串台"（原因B）
+            // 与读出时的 zero_overhead_reuse_hit.cacheUri 对照
+            val putUri = runCatching {
+                mediaSource.mediaItem.localConfiguration?.uri?.toString()
+            }.getOrNull()?.substringAfterLast('/')
+            AppLog.w(
+                TAG,
+                "putCachedPlayback bvid=$bvid cid=$cid uri=$putUri sizeBefore=${cachedPlaybacks.size}"
+            )
             cachedPlaybacks[cachePlaybackKey(bvid, cid)] = CachedPlayback(
                 bvid = bvid,
                 cid = cid,
@@ -1701,12 +1710,31 @@ class VideoPlayerViewModel(
 
             // ── Zero-overhead reuse: same bvid+cid, player still has MediaSource ──
             val cachedPlayback = getCachedPlayback(initialIdentity!!.bvid, initialIdentity.cid)
-            if (cachedPlayback != null) {
+            // 双重确认：VM 缓存命中只是"我有这个视频的复用快照"，不代表 player 实例当前
+            // 挂的就是它（VM 缓存容量 2，player 单例只能挂 1 个，退出看别的视频后 player
+            // 已被覆盖）。必须向 PlayerInstancePool 查询 player 实际挂载状态——它是唯一的
+            // 事实源。不一致则放弃暖路径，fall through 到下方 cachedPlayInfo 分支重建源。
+            val playerHasSameSource = PlayerInstancePool.isAttachedSource(
+                initialIdentity.bvid, initialIdentity.cid
+            )
+            if (cachedPlayback != null && playerHasSameSource) {
+                // 诊断：对照"请求身份"与"VM 缓存命中内容"，防止跨视频串台。
+                val cachedUri = runCatching {
+                    cachedPlayback.mediaSource.mediaItem.localConfiguration?.uri?.toString()
+                }.getOrNull()
+                AppLog.w(
+                    TAG,
+                    "zero_overhead_reuse_hit reqBvid=${initialIdentity.bvid} reqCid=${initialIdentity.cid} " +
+                        "cacheBvid=${cachedPlayback.bvid} cacheCid=${cachedPlayback.cid} " +
+                        "cacheUri=${cachedUri?.substringAfterLast('/')}"
+                )
                 PlaybackStartupTrace.log(
                     traceId = currentStartupTraceId,
                     startElapsedMs = currentStartupTraceStartElapsedMs,
                     step = "zero_overhead_reuse",
-                    message = "bvid=${initialIdentity.bvid} cid=${initialIdentity.cid}"
+                    message = "bvid=${initialIdentity.bvid} cid=${initialIdentity.cid} " +
+                        "cacheBvid=${cachedPlayback.bvid} cacheCid=${cachedPlayback.cid} " +
+                        "cacheUri=${cachedUri?.substringAfterLast('/')}"
                 )
                 applySelectionSnapshot(cachedPlayback.selectionSnapshot)
                 currentPlayInfo = cachedPlayback.playInfo
@@ -1774,6 +1802,23 @@ class VideoPlayerViewModel(
                 return@coroutineScope
             }
             // ── End zero-overhead reuse ──────────────────────────────
+
+            // 诊断：VM 缓存命中但 player 挂载的不是同一视频，放弃暖路径。
+            // 会 fall through 到下方 cachedPlayInfo 分支重建 MediaSource（省 getPlayUrl）。
+            if (cachedPlayback != null && !playerHasSameSource) {
+                AppLog.w(
+                    TAG,
+                    "zero_overhead_reuse_skip reason=player_source_mismatch " +
+                        "reqBvid=${initialIdentity.bvid} reqCid=${initialIdentity.cid} " +
+                        "(VM 缓存命中但 player 挂的是别的视频，降级走 setMediaSource 冷路径)"
+                )
+                PlaybackStartupTrace.log(
+                    traceId = currentStartupTraceId,
+                    startElapsedMs = currentStartupTraceStartElapsedMs,
+                    step = "zero_overhead_reuse_skip",
+                    message = "reason=player_source_mismatch bvid=${initialIdentity.bvid} cid=${initialIdentity.cid}"
+                )
+            }
 
             val cachedPlayInfo = initialIdentity!!.bvid!!.let { bvid ->
                 VideoPlayerPlayInfoCache.get(bvid = bvid, cid = initialIdentity.cid)

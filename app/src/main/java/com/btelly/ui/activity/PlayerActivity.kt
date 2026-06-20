@@ -1075,11 +1075,25 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                     if (playbackRequest.reuseSameSource) {
                         // 暖路径：MediaSource 仍挂载在 player 上，跳过 setMediaSource()
                         // player 被 stop() 过（STATE_IDLE），需 prepare() 重新起播
+                        // 诊断：记录 player 实例当前实际挂载的 MediaItem uri，
+                        // 对照请求 bvid/cid 与 VM 缓存命中 uri，定位是否串台。
+                        val playerUri = runCatching {
+                            currentPlayer.currentMediaItem
+                                ?.localConfiguration?.uri?.toString()
+                        }.getOrNull()
+                        AppLog.w(
+                            TAG,
+                            "warm_reuse_player_state reqBvid=${playbackRequest.bvid} reqCid=${playbackRequest.cid} " +
+                                "playerUri=${playerUri?.substringAfterLast('/')} " +
+                                "playerMediaCount=${currentPlayer.mediaItemCount}"
+                        )
                         PlaybackStartupTrace.log(
                             traceId = activeStartupTraceId,
                             startElapsedMs = activeStartupTraceStartElapsedMs,
                             step = "warm_reuse_prepare",
-                            message = "seek=$startSeekPositionMs"
+                            message = "seek=$startSeekPositionMs reqBvid=${playbackRequest.bvid} " +
+                                "reqCid=${playbackRequest.cid} playerUri=${playerUri?.substringAfterLast('/')} " +
+                                "playerMediaCount=${currentPlayer.mediaItemCount}"
                         )
                         currentPlayer.prepare()
                         currentPlayer.seekTo(startSeekPositionMs)
@@ -1088,11 +1102,25 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                         // 冷路径：不同视频，完整重建管线
                         currentPlayer.stop()
                         currentPlayer.setMediaSource(playbackRequest.mediaSource, startSeekPositionMs)
+                        // 记录 player 实际挂载的源，供后续 zero_overhead_reuse 查询，
+                        // 避免"VM 缓存命中但 player 挂的是别的视频"导致串台。
+                        PlayerInstancePool.rememberAttachedSource(playbackRequest.bvid, playbackRequest.cid)
+                        // 诊断对照基准：冷路径实际 set 的 uri，与暖路径 playerUri 对照
+                        val coldSetUri = runCatching {
+                            playbackRequest.mediaSource.mediaItem.localConfiguration?.uri?.toString()
+                        }.getOrNull()
+                        AppLog.w(
+                            TAG,
+                            "cold_media_source_set reqBvid=${playbackRequest.bvid} reqCid=${playbackRequest.cid} " +
+                                "setUri=${coldSetUri?.substringAfterLast('/')}"
+                        )
                         PlaybackStartupTrace.log(
                             traceId = activeStartupTraceId,
                             startElapsedMs = activeStartupTraceStartElapsedMs,
                             step = "media_source_set",
-                            message = "intentId=${playbackRequest.playbackIntentId} seek=$startSeekPositionMs"
+                            message = "intentId=${playbackRequest.playbackIntentId} seek=$startSeekPositionMs " +
+                                "reqBvid=${playbackRequest.bvid} reqCid=${playbackRequest.cid} " +
+                                "setUri=${coldSetUri?.substringAfterLast('/')}"
                         )
                         currentPlayer.prepare()
                         PlaybackStartupTrace.log(

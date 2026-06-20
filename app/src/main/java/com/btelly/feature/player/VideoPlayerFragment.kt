@@ -859,6 +859,9 @@ class VideoPlayerFragment : Fragment() {
                     } else {
                         currentPlayer.stop()
                         currentPlayer.setMediaSource(playbackRequest.mediaSource, startSeekPositionMs)
+                        // 记录 player 实际挂载的源，供后续 zero_overhead_reuse 查询，
+                        // 避免"VM 缓存命中但 player 挂的是别的视频"导致串台。
+                        PlayerInstancePool.rememberAttachedSource(playbackRequest.bvid, playbackRequest.cid)
                         PlaybackStartupTrace.log(
                             traceId = activeStartupTraceId,
                             startElapsedMs = activeStartupTraceStartElapsedMs,

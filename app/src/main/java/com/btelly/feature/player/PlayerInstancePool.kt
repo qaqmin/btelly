@@ -47,6 +47,41 @@ object PlayerInstancePool {
     @Volatile
     private var codecPrewarmStarted = false
 
+    /**
+     * player 当前实际挂载的 MediaSource 标识（"bvid#cid"）。
+     *
+     * 这是 zero_overhead_reuse 判定"player 上是否真是这个视频"的**唯一事实源**。
+     * VM 缓存按 bvid+cid 存（容量 2），但 player 单例只能挂 1 个 MediaSource——
+     * 两套键空间基数不同。VM 命中缓存不代表 player 上挂的就是同一视频
+     * （退出→看别的→退出→看回原来的，player 已被覆盖）。此处显式记录挂载状态，
+     * 供 VM 在走暖路径前查询，消除"VM 在无 player 状态信息下决策"的缺陷。
+     *
+     * 由 setMediaSource 的调用方通过 [rememberAttachedSource] 记录，
+     * 由所有"清除 MediaItems 或销毁 player"的路径清空。softDetach 不清空
+     * （其语义本就是保留 MediaSource 供热重播）。
+     */
+    private var attachedSourceKey: String? = null
+
+    /**
+     * 查询 player 当前挂载的 MediaSource 是否与请求的 bvid+cid 一致。
+     * zero_overhead_reuse 走暖路径前必须调用此方法确认。
+     */
+    @Synchronized
+    fun isAttachedSource(bvid: String?, cid: Long): Boolean {
+        return attachedSourceKey != null && attachedSourceKey == sourceKey(bvid, cid)
+    }
+
+    /**
+     * setMediaSource 成功挂载后，由调用方记录。
+     * 仅在冷路径（player.setMediaSource(...)）调用，暖路径跳过 setMediaSource 故不调用。
+     */
+    @Synchronized
+    fun rememberAttachedSource(bvid: String?, cid: Long) {
+        attachedSourceKey = sourceKey(bvid, cid)
+    }
+
+    private fun sourceKey(bvid: String?, cid: Long): String = "${bvid.orEmpty()}#$cid"
+
     @Synchronized
     fun prewarm(context: Context) {
         prewarmCodecSupport()
@@ -103,6 +138,8 @@ object PlayerInstancePool {
         player.clearMediaItems()
         player.stop()
         player.playbackParameters = PlaybackParameters(1f)
+        // MediaItems 被清除，挂载状态归零。
+        attachedSourceKey = null
     }
 
     @Synchronized
@@ -122,6 +159,8 @@ object PlayerInstancePool {
         cachedPlayer?.let(PlayerAudioNormalizer::release)
         cachedPlayer?.release()
         cachedPlayer = null
+        // player 销毁，挂载状态归零。
+        attachedSourceKey = null
     }
 
     @Synchronized
@@ -133,6 +172,8 @@ object PlayerInstancePool {
                 cachedPlayer?.let(PlayerAudioNormalizer::release)
                 cachedPlayer?.release()
                 cachedPlayer = null
+                // player 销毁，挂载状态归零。
+                attachedSourceKey = null
                 pendingReleaseRunnable = null
             }
         }
