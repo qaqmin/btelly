@@ -182,7 +182,9 @@ class LivePlayerFragment : Fragment() {
             .build()
             .also {
                 PlayerPlaybackPolicy.apply(it)
-                PlayerAudioNormalizer.attach(it)
+                if (com.btelly.feature.player.settings.PlayerSettingsStore.load(requireContext()).audioNormalize) {
+                    PlayerAudioNormalizer.attach(it)
+                }
                 it.addListener(playerListener)
             }
         binding.playerView.setPlayer(player)

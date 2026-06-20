@@ -31,7 +31,10 @@ data class PlayerSettings(
     val fastSeekSeconds: Int = 10,
     val resumePlayback: Boolean = true,
     val sponsorBlockEnabled: Boolean = false,
-    val sponsorBlockAutoSkip: Boolean = true
+    val sponsorBlockAutoSkip: Boolean = true,
+    // 音量均衡：挂载 DynamicsProcessing 限制器 + LoudnessEnhancer。默认关闭——
+    // 这些系统音效在大量电视盒子上驱动实现有 bug，会引入失真（电音）。
+    val audioNormalize: Boolean = false
 )
 
 private object VideoQualityDefaults {
@@ -65,6 +68,7 @@ object PlayerSettingsStore {
     private const val KEY_RESUME_PLAYBACK = "resume_playback"
     private const val KEY_SPONSOR_BLOCK_ENABLED = "sponsor_block_enabled"
     private const val KEY_SPONSOR_BLOCK_AUTO_SKIP = "sponsor_block_auto_skip"
+    private const val KEY_AUDIO_NORMALIZE = "audio_normalize"
 
     fun load(context: Context): PlayerSettings {
         fun readSetting(key: String): String? = appSettings.getCachedString(key)
@@ -104,6 +108,8 @@ object PlayerSettingsStore {
             append(readSetting(KEY_SPONSOR_BLOCK_ENABLED).orEmpty())
             append("|")
             append(readSetting(KEY_SPONSOR_BLOCK_AUTO_SKIP).orEmpty())
+            append("|")
+            append(readSetting(KEY_AUDIO_NORMALIZE).orEmpty())
         }
         if (snapshot == lastSettingsSnapshot) {
             return cachedSettings!!
@@ -183,6 +189,10 @@ object PlayerSettingsStore {
             sponsorBlockAutoSkip = parseToggle(
                 readSetting(KEY_SPONSOR_BLOCK_AUTO_SKIP),
                 defaultValue = true
+            ),
+            audioNormalize = parseToggle(
+                readSetting(KEY_AUDIO_NORMALIZE),
+                defaultValue = false
             )
         )
         cachedSettings = settings

@@ -15,6 +15,7 @@ import androidx.media3.exoplayer.audio.AudioTrackAudioOutputProvider
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioTrackBufferSizeProvider
 import com.btelly.core.common.media.VideoCodecSupport
+import com.btelly.feature.player.settings.PlayerSettingsStore
 
 @UnstableApi
 object PlayerInstancePool {
@@ -162,7 +163,12 @@ object PlayerInstancePool {
             .setLoadControl(loadControl)
             .build()
             .also(PlayerPlaybackPolicy::apply)
-            .also(PlayerAudioNormalizer::attach)
+            .also {
+                // 音量均衡默认关闭：DynamicsProcessing/LoudnessEnhancer 在部分 TV 设备上会引入失真（电音）。
+                if (PlayerSettingsStore.load(context).audioNormalize) {
+                    PlayerAudioNormalizer.attach(it)
+                }
+            }
     }
 
     fun createRenderersFactory(context: Context): DefaultRenderersFactory {
