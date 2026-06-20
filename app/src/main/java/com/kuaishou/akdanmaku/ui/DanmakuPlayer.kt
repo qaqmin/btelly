@@ -95,7 +95,6 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
   }
   private val actionThread by lazy  { HandlerThread("ActionThread").apply { start() } }
   private val actionHandler by lazy { ActionHandler(actionThread.looper) }
-  private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
   private val frameCallback by lazy { FrameCallback() }
 
   private var currentDisplayerWidth = 0
@@ -137,36 +136,44 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
   }
 
   private fun postFrameCallback() {
+    // Choreographer 绑定到调用线程的 Looper。这里从 updateFrame 在 ActionThread 调用,
+    // 直接在 ActionThread 的 Looper 上挂 vsync 回调,不再中转到主线程——避免主线程消息队列
+    // 拥塞时回调晚挂载导致漏帧(弹幕一顿一顿的根因)。
     if (!started || isReleased || !actionThread.isAlive) {
       return
     }
-    runOnMainThread {
-      if (!started || isReleased || !actionThread.isAlive) {
-        return@runOnMainThread
-      }
-      if (frameCallbackScheduled) {
-        return@runOnMainThread
-      }
-      frameCallbackScheduled = true
-      Choreographer.getInstance().postFrameCallback(frameCallback)
+    if (Looper.myLooper() !== actionThread.looper) {
+      // 兜底:若从其它线程调用,转回 ActionThread 执行(保证 Choreographer ThreadLocal 一致)。
+      actionHandler.post { postFrameCallback() }
+      return
     }
+    if (frameCallbackScheduled) {
+      return
+    }
+    frameCallbackScheduled = true
+    Choreographer.getInstance().postFrameCallback(frameCallback)
   }
 
   private fun removeFrameCallback() {
-    runOnMainThread {
-      runCatching {
-        Choreographer.getInstance().removeFrameCallback(frameCallback)
+    // 必须在 ActionThread 上移除(和挂载是同一个 Choreographer 实例)。
+    if (Looper.myLooper() !== actionThread.looper) {
+      if (actionThread.isAlive) {
+        actionHandler.post { removeFrameCallbackInternal() }
       }
-      frameCallbackScheduled = false
+      return
     }
+    removeFrameCallbackInternal()
   }
 
-  private fun runOnMainThread(action: () -> Unit) {
-    if (Looper.myLooper() == Looper.getMainLooper()) {
-      action()
-    } else {
-      mainHandler.post(action)
+  /**
+   * 在 ActionThread 上执行的 Choreographer 回调移除(无线程判断)。
+   * 供 [removeFrameCallback] 和 [release] 的 postAtFrontOfQueue 任务复用。
+   */
+  private fun removeFrameCallbackInternal() {
+    runCatching {
+      Choreographer.getInstance().removeFrameCallback(frameCallback)
     }
+    frameCallbackScheduled = false
   }
 
   private fun updateFrame(deltaTimeSeconds: Float? = null) {
@@ -350,8 +357,10 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     started = false
     val releaseLatch = CountDownLatch(1)
     if (actionThread.isAlive) {
-      removeFrameCallback()
+      // Choreographer 回调必须在 ActionThread 上移除(和挂载是同一个实例)。
+      // 把它和消息清理一起放到 postAtFrontOfQueue,保证在 ActionThread 退出前执行。
       actionHandler.postAtFrontOfQueue {
+        removeFrameCallbackInternal()
         actionHandler.removeMessages(MSG_FRAME_UPDATE)
         actionHandler.removeCallbacksAndMessages(null)
         releaseLatch.countDown()
@@ -359,10 +368,6 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
       releaseLatch.await(RELEASE_LATCH_TIMEOUT_MS, TimeUnit.MILLISECONDS)
     } else {
       actionHandler.removeCallbacksAndMessages(null)
-    }
-    runCatching {
-      // Best-effort cleanup when release() is called on main thread.
-      removeFrameCallback()
     }
     actionThread.quitSafely()
     actionThread.join(50L)
@@ -544,9 +549,11 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
   private inner class FrameCallback : Choreographer.FrameCallback {
 
     override fun doFrame(frameTimeNanos: Long) {
+      // doFrame 现在跑在 ActionThread 的 Choreographer 上(不再中转主线程),
+      // 可直接驱动 updateFrame,省掉一次跨线程消息投递——降低帧驱动延迟。
       frameCallbackScheduled = false
       actionHandler.removeMessages(MSG_FRAME_UPDATE)
-      actionHandler.sendEmptyMessage(MSG_FRAME_UPDATE)
+      updateFrame(null)
     }
   }
 }

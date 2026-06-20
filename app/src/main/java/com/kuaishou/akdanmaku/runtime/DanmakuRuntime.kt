@@ -80,6 +80,10 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   @Volatile private var lastDrawLockReleasedAt = 0L
   private var lastDrawStallLogAtMs = 0L
   private var lastZeroFrameLogAtMs = 0L
+  // 卡顿期 now 跳变检测:记录上一拍 now 和滚动平均的单帧间隔,
+  // removeExpired 据此跳过滚动弹幕的 timeout 移除,避免还在屏幕中段的弹幕被误杀。
+  private var lastUpdateTimeMs = 0L
+  private var smoothedFrameDeltaMs = 16L
   private val timelineAnchor = DanmakuTimelineAnchor()
   private var frameReuseGeneration = 0
   private val frameReuseInvalidationCounts = IntArray(REUSE_INVALIDATE_REASON_COUNT)
@@ -314,6 +318,13 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
 
     val config = context.config
     val now = context.timer.currentTimeMs
+    // 计算本帧 now 的增量,维护滚动平均,供 removeExpired 检测卡顿期跳变。
+    val frameDeltaMs = if (lastUpdateTimeMs > 0L) (now - lastUpdateTimeMs).coerceAtLeast(0L) else smoothedFrameDeltaMs
+    if (lastUpdateTimeMs > 0L && frameDeltaMs in 1L..200L) {
+      // 指数移动平均,忽略异常跳变(>200ms 不参与平均,避免卡顿把基准拉高)
+      smoothedFrameDeltaMs = (smoothedFrameDeltaMs * 0.8 + frameDeltaMs * 0.2).toLong().coerceAtLeast(1L)
+    }
+    lastUpdateTimeMs = now
     checkpoint = SystemClock.elapsedRealtime()
     val timelineReset = resetForTimelineJumpIfNeeded(now, config)
     val timelineResetMs = SystemClock.elapsedRealtime() - checkpoint
@@ -353,7 +364,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     val generationMs = SystemClock.elapsedRealtime() - checkpoint
 
     checkpoint = SystemClock.elapsedRealtime()
-    val expiredItems = removeExpired(now, config)
+    val expiredItems = removeExpired(now, config, frameDeltaMs)
     val expireMs = SystemClock.elapsedRealtime() - checkpoint
     checkpoint = SystemClock.elapsedRealtime()
     incrementalActiveStates.clear()
@@ -842,9 +853,12 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     return null
   }
 
-  private fun removeExpired(now: Long, config: DanmakuConfig): Int {
+  private fun removeExpired(now: Long, config: DanmakuConfig, frameDeltaMs: Long): Int {
     val iterator = activeStates.iterator()
     var expired = 0
+    // 卡顿期 now 单帧跳变(本帧 delta 远超滚动平均):这一拍跳过滚动弹幕的 timeout 移除,
+    // 等下一拍 now 稳定再判——避免还在屏幕中段的滚动弹幕被误杀(滚动到一半消失)。
+    val skipRollingExpiry = frameDeltaMs > smoothedFrameDeltaMs * 3 && smoothedFrameDeltaMs > 0L
     while (iterator.hasNext()) {
       val state = iterator.next()
       val item = state.item
@@ -852,6 +866,11 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         config.rollingDurationMs
       } else {
         config.durationMs
+      }
+      val isRolling = item.data.mode == DanmakuItemData.DANMAKU_MODE_ROLLING
+      if (skipRollingExpiry && isRolling) {
+        // 滚动弹幕在卡顿跳变帧保留,下一拍再判
+        continue
       }
       if (!item.isHolding && item.isRuntimeTimeout(now)) {
         stateById.remove(item.data.danmakuId)

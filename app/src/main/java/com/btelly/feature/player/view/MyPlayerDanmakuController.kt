@@ -57,6 +57,9 @@ class MyPlayerDanmakuController(
         private const val DRIFT_TOLERANCE_HIGH_SPEED_MS = 800L
         private const val DRIFT_TOLERANCE_NORMAL_MS = 2000L
         private const val DRIFT_SOFT_CORRECTION = 0.05f
+        // hard seek 去抖:连续 N 拍 drift 超阈值才真正 syncTimerTo,
+        // 避免卡顿期偶发偏差反复重置时钟导致弹幕重入队(重复出现)。
+        private const val DRIFT_HARD_SEEK_DEBOUNCE = 3
         private const val COLORFUL_VIP_GRADIENT = 0xEA61
         private const val SEEK_DEDUP_WINDOW_MS = 300L
         private const val SEEK_DEDUP_POSITION_TOLERANCE_MS = 80L
@@ -163,6 +166,7 @@ class MyPlayerDanmakuController(
     private var prepareGeneration: Long = 0L
     private var currentPlaybackSpeed: Float = 1f
     private var appliedTimerFactor: Float = 1f
+    private var consecutiveHardSeekCount = 0
     private var wasBufferingWhilePlaying: Boolean = false
     private var lastResumeRealtimeMs: Long = 0L
     private var lastFirstFrameRealtimeMs: Long = 0L
@@ -931,8 +935,7 @@ class MyPlayerDanmakuController(
 
     private fun List<DmModel>.prepareDanmakuItems(
         allowVipColorful: Boolean,
-        stage: String,
-        startIndex: Long
+        stage: String
     ): List<DanmakuItemData> {
         val filtered = BiliDanmakuFilterPolicy.apply(
             items = this,
@@ -945,9 +948,8 @@ class MyPlayerDanmakuController(
         } else {
             filtered
         }
-        return preparedSource
-            .mapIndexedNotNull { index, item ->
-            item.toDanmakuItemData(startIndex + index, allowVipColorful)
+        return preparedSource.mapNotNull { item ->
+            item.toDanmakuItemData(allowVipColorful)
         }
     }
 
@@ -1225,14 +1227,29 @@ class MyPlayerDanmakuController(
         val baseFactor = currentPlaybackSpeed
         when {
             absDrift > hardThreshold -> {
-                ensureTimerFactor(player, baseFactor)
-                player.syncTimerTo(videoPos)
+                consecutiveHardSeekCount++
+                if (consecutiveHardSeekCount >= DRIFT_HARD_SEEK_DEBOUNCE) {
+                    // 持续多拍 drift 超阈值,确认是真实偏差而非卡顿抖动,执行 hard seek。
+                    ensureTimerFactor(player, baseFactor)
+                    player.syncTimerTo(videoPos)
+                    consecutiveHardSeekCount = 0
+                } else {
+                    // 未达去抖阈值:先用软纠正过渡,给卡顿恢复留时间,避免频繁重置时钟。
+                    val correction = if (signedDrift > 0) {
+                        1f - DRIFT_SOFT_CORRECTION
+                    } else {
+                        1f + DRIFT_SOFT_CORRECTION
+                    }
+                    ensureTimerFactor(player, baseFactor * correction)
+                }
             }
             absDrift > DRIFT_SOFT_SYNC_LIMIT_MS -> {
                 // 软同步处理不了的中等偏差，继续观察一拍即可（下次 tick 会重新评估）。
+                consecutiveHardSeekCount = 0
                 ensureTimerFactor(player, baseFactor)
             }
             absDrift > DRIFT_NEUTRAL_TOLERANCE_MS -> {
+                consecutiveHardSeekCount = 0
                 val correction = if (signedDrift > 0) {
                     1f - DRIFT_SOFT_CORRECTION
                 } else {
@@ -1241,6 +1258,7 @@ class MyPlayerDanmakuController(
                 ensureTimerFactor(player, baseFactor * correction)
             }
             else -> {
+                consecutiveHardSeekCount = 0
                 ensureTimerFactor(player, baseFactor)
             }
         }
@@ -1257,6 +1275,7 @@ class MyPlayerDanmakuController(
         driftSyncJob?.cancel()
         driftSyncJob = null
         appliedTimerFactor = currentPlaybackSpeed
+        consecutiveHardSeekCount = 0
     }
 
     private fun releasePlayer() {
@@ -1511,8 +1530,7 @@ class MyPlayerDanmakuController(
         }
         val preparedData = rawWindowData.prepareDanmakuItems(
             allowVipColorful = allowVipColorful,
-            stage = stage,
-            startIndex = range.startIndex.toLong()
+            stage = stage
         )
         logWindowIdStats(stage, rawWindowData, preparedData)
         val coveredUntilMs = when {
@@ -1560,8 +1578,7 @@ class MyPlayerDanmakuController(
         }
         val preparedData = rawWindowData.prepareDanmakuItems(
             allowVipColorful = allowVipColorful,
-            stage = stage,
-            startIndex = range.startIndex.toLong()
+            stage = stage
         )
         logWindowIdStats(stage, rawWindowData, preparedData)
         return PreparedWindow(
@@ -1627,10 +1644,13 @@ class MyPlayerDanmakuController(
         return lo
     }
 
-    private fun DmModel.toDanmakuItemData(index: Long, allowVipColorful: Boolean): DanmakuItemData? {
+    private fun DmModel.toDanmakuItemData(allowVipColorful: Boolean): DanmakuItemData? {
         val renderContent = toRenderableContent() ?: return null
         return DanmakuItemData(
-            danmakuId = index + 1L,
+            // 用全局稳定 id 而非窗口内 index:同一条原始弹幕在任何窗口切片里 id 恒定,
+            // 引擎 stateById 才能正确去重,避免窗口刷新时同一条弹幕因 startIndex 变化
+            // 得到不同 id 而被当成两条(导致"两条相同弹幕在不同轨道一起滚动")。
+            danmakuId = stableDanmakuId(),
             position = progress.toLong().coerceAtLeast(0L),
             content = renderContent,
             mode = mode.toDanmakuMode(),
@@ -1640,6 +1660,17 @@ class MyPlayerDanmakuController(
             renderFlags = resolveRenderFlags(allowVipColorful),
             vipGradientStyle = resolveVipGradientStyle(allowVipColorful)
         )
+    }
+
+    /**
+     * 弹幕的全局稳定标识,不依赖窗口切片偏移。
+     * - 优先用 B 站服务端 danmaku id(全局唯一,跨窗口恒定)
+     * - id<=0(缺失)时兜底:progress + 内容 hash(同一时间点同一内容视为同一条)
+     * 冲突时引擎 stateById 会丢弃后入队的——丢一条远好过两条重叠双轨。
+     */
+    private fun DmModel.stableDanmakuId(): Long {
+        if (id > 0L) return id
+        return (progress.toLong() shl 32) xor content.hashCode().toLong()
     }
 
     private fun logWindowIdStats(
