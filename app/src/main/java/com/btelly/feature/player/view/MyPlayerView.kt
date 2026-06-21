@@ -241,10 +241,10 @@ class MyPlayerView @JvmOverloads constructor(
         it.playerPositionProvider = { player?.currentPosition ?: 0L }
     }
 
-    // 轻量弹幕引擎（性能优先模式）。useLiteEngine=false 时为 null，走原 AkDanmaku。
+    // 性能优先弹幕引擎（弹幕引擎）。useLiteEngine=false 时为 null，走原 AkDanmaku。
     private var useLiteEngine = false
-    private var liteDanmakuView: LiteDanmakuView? = null
-    private var liteDanmakuController: LiteDanmakuController? = null
+    private var liteDanmakuView: com.btelly.feature.player.danmaku.DanmakuView? = null
+    private var liteDanmakuController: com.btelly.feature.player.danmaku.DanmakuCoreController? = null
 
     private var uiFrameMonitorStarted = false
     private var lastUiFrameTimeNs = 0L
@@ -2629,7 +2629,7 @@ class MyPlayerView @JvmOverloads constructor(
         useLiteEngine = lite
         if (lite) {
             if (liteDanmakuController == null) {
-                val view = LiteDanmakuView(context).apply {
+                val view = com.btelly.feature.player.danmaku.DanmakuView(context).apply {
                     layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
                     isClickable = false
                     isFocusable = false
@@ -2638,7 +2638,7 @@ class MyPlayerView @JvmOverloads constructor(
                 addView(view)
                 view.translationZ = 1f
                 liteDanmakuView = view
-                liteDanmakuController = LiteDanmakuController(context) { liteDanmakuView }.also {
+                liteDanmakuController = com.btelly.feature.player.danmaku.DanmakuCoreController(context) { liteDanmakuView }.also {
                     it.playerPositionProvider = { player?.currentPosition ?: 0L }
                 }
             }
