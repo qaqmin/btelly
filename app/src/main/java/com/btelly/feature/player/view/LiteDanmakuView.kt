@@ -41,7 +41,6 @@ class LiteDanmakuView @JvmOverloads constructor(
         private const val MAX_PENDING = 260
         private const val MAX_PENDING_RETRY = 1
         private const val MAX_PENDING_PER_FRAME = 48
-        private const val MAX_SPAWN_PER_FRAME = 24
     }
 
     private object Mode {
@@ -100,8 +99,6 @@ class LiteDanmakuView @JvmOverloads constructor(
     )
     private val pendingQueue = ArrayDeque<PendingSpawn>()
 
-    /** seek 后重建模式：限制每帧入轨数量，避免一帧涌入大量弹幕重叠 */
-    private var rebuildSpawnBudget = 0
     /** seek 重建期间禁用 pending 重试（对齐 上游实现 rebuildScene(allowPending=false)），失败直接丢弃 */
     private var rebuildActive = false
 
@@ -110,7 +107,7 @@ class LiteDanmakuView @JvmOverloads constructor(
 
     // 播放时钟
     private var basePositionMs = 0L
-    private var baseRealtimeMs = 0L
+    private var baseRealtimeMs = -1L   // -1 = 未初始化（初值 0 会与 elapsedRealtime 算出几百万 ms 的 now）
     private var isPlaying = false
     private var playbackSpeed = 1f
 
@@ -180,23 +177,51 @@ class LiteDanmakuView @JvmOverloads constructor(
     }
 
     /**
-     * seek 后清理：清掉所有弹幕的 lane 绑定和 startTime，让它们在新位置重新分配。
-     * 不清 items 数据（弹幕列表不变）。
+     * seek 后**同步重建**场景（对齐 上游实现 rebuildScene）。
+     *
+     * 清掉所有 lane 绑定后，立即把当前播放窗口内（now - 2*duration 到 now）的所有弹幕
+     * 按时间顺序逐条入轨：碰撞通过的入轨（startTime=now，从右边缘重生），失败的直接丢弃
+     * （不进 pending，对齐 上游实现 allowPending=false）。
+     *
+     * 必须一次性同步完成，不能分帧——分帧会导致跨帧弹幕 startTime 接近但又不完全相同，
+     * 碰撞检测在跨帧间失效，反而造成重叠。
      */
     fun seekReset() {
+        val now = currentPlaybackPositionMs().coerceAtLeast(0L)
+        // 1. 清空所有 lane 绑定 + 分配状态
         for (i in laneScroll.indices) laneScroll[i] = null
         for (i in laneTop.indices) laneTop[i] = null
         for (i in laneBottom.indices) laneBottom[i] = null
         assignedIds.clear()
         pendingQueue.clear()
+        rebuildActive = false
         items.forEach {
             it.lane = -1
             it.actualStartMs = Long.MIN_VALUE
         }
-        // seek 后重建：限制每帧入轨数量 + 禁用 pending 重试
-        // （对齐 上游实现 rebuildScene: allowPending=false，入不了的弹幕直接丢弃，避免 seek 后大量重叠）
-        rebuildSpawnBudget = MAX_SPAWN_PER_FRAME
-        rebuildActive = true
+        // 2. 同步重建：窗口内弹幕全部尝试入轨（碰撞失败丢弃，不进 pending）
+        updateLaneConfigIfNeeded()
+        if (width > 0 && height > 0 && configuredLaneCount > 0 && items.isNotEmpty()) {
+            val w = width.toFloat()
+            val windowStart = now - durationMs * 2
+            val startIdx = lowerBound(windowStart)
+            var i = startIdx
+            while (i < items.size) {
+                val item = items[i]
+                if (item.positionMs > now) break
+                if (item.positionMs >= windowStart) {
+                    if (item.mode == Mode.TOP || item.mode == Mode.BOTTOM) {
+                        tryAdmitFixed(item, now)
+                    } else {
+                        // 重建期间不入 pending（tryAdmitScroll 内部用 rebuildActive 判断）
+                        rebuildActive = true
+                        tryAdmitScroll(item, now, w)
+                        rebuildActive = false
+                    }
+                }
+                i++
+            }
+        }
         invalidate()
     }
 
@@ -208,13 +233,6 @@ class LiteDanmakuView @JvmOverloads constructor(
         if (!enabled || items.isEmpty() || width <= 0 || height <= 0) return
         val startedAtMs = SystemClock.elapsedRealtime()
         val now = currentPlaybackPositionMs()
-
-        // 每帧恢复入轨预算（seek 后重建模式持续到积压弹幕入轨完）
-        if (rebuildSpawnBudget < MAX_SPAWN_PER_FRAME) {
-            rebuildSpawnBudget = MAX_SPAWN_PER_FRAME
-        }
-        // 重建完成判定放在帧末尾（见下方）——必须在 drawRolling 处理完本帧所有可见弹幕之后，
-        // 否则会在第一帧 drawRolling 之前就把 rebuildActive 清掉，失去"drop-on-fail"语义。
 
         updateLaneConfigIfNeeded()
         if (configuredLaneCount <= 0) return
@@ -247,11 +265,6 @@ class LiteDanmakuView @JvmOverloads constructor(
         processPending(now, w, maxBottom)
         // 回收超时绑定
         recycleExpiredLanes(now)
-        // 重建完成判定（帧末）：本帧所有可见弹幕都已尝试入轨，若 pending 已清空说明重建完成，
-        // 退出 rebuildActive 让后续正常 pending 重试恢复。
-        if (rebuildActive && pendingQueue.isEmpty()) {
-            rebuildActive = false
-        }
 
         val costMs = SystemClock.elapsedRealtime() - startedAtMs
         recordPerf(costMs, drawn, now)
@@ -262,16 +275,13 @@ class LiteDanmakuView @JvmOverloads constructor(
     private fun drawRolling(canvas: Canvas, item: RollingItem, now: Long, screenWidth: Float): Boolean {
         // 已滚完
         if (item.actualStartMs != Long.MIN_VALUE && now > item.actualStartMs + item.itemDurationMs) return false
-        // 首次分配轨道
+        // 首次分配轨道（碰撞检测会自然限制每帧入轨量，不需要节流）
         if (item.lane < 0) {
-            // seek 后重建模式：限制每帧入轨数量
-            if (rebuildSpawnBudget <= 0) return false
             if (!tryAdmitScroll(item, now, screenWidth)) {
                 enqueuePending(item, now)
                 perfTrackRejected++
                 return false
             }
-            rebuildSpawnBudget--
         }
         val y = laneTopY[item.lane]
         val x = scrollX(screenWidth, now, item.actualStartMs, item.pxPerMs)
@@ -534,7 +544,9 @@ class LiteDanmakuView @JvmOverloads constructor(
     // ---- 工具 ----
 
     private fun currentPlaybackPositionMs(): Long {
-        if (!isPlaying) return basePositionMs
+        // 时钟未初始化（baseRealtimeMs 还是 -1）时不要按 elapsedRealtime 推算——
+        // 否则 now 会算成几百万 ms（设备启动以来的毫秒数），所有弹幕被当成"已到点"一次性塞进来 → 大量重叠。
+        if (baseRealtimeMs < 0L || !isPlaying) return basePositionMs
         val elapsedMs = SystemClock.elapsedRealtime() - baseRealtimeMs
         return (basePositionMs + elapsedMs * playbackSpeed).toLong().coerceAtLeast(0L)
     }
