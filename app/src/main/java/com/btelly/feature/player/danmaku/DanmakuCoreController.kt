@@ -31,7 +31,15 @@ class DanmakuCoreController(
 
     companion object {
         private const val TAG = "BTellyDmCtrl"
+        /**
+         * B站弹幕基准字号：绝大多数弹幕的 fontSize=18（大字弹幕是 25，但占比极小）。
+         * 对齐 AkDanmaku 的 clamp(biliFontSize, 12, 25) —— 用 18 作代表值。
+         */
+        private const val BILI_BASE_FONT_SIZE = 18f
     }
+
+    /** 屏幕密度，用于对齐 AkDanmaku 字号公式。 */
+    private val density: Float = context.resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
 
     var playerPositionProvider: (() -> Long)? = null
 
@@ -85,10 +93,14 @@ class DanmakuCoreController(
         if (lastSnapshot == snapshot) return
         lastSnapshot = snapshot
         currentConfig = buildConfig(snapshot)
-        // 配置变化通过 configProvider 在下一帧 onDraw 自动喂给引擎，无需显式调 updateConfig。
-        // 但确保 view 可见性跟随 enabled
         viewProvider()?.visibility = if (snapshot.enabled) android.view.View.VISIBLE else android.view.View.GONE
-        // 字号变化需重新预处理（宽高变了，但 弹幕引擎自己 measure，无需重算 item）
+        // 弹幕引擎的 DanmakuConfig 不含 allowTop/allowBottom/mergeDuplicate——这些靠数据层
+        // (BiliDanmakuFilterPolicy + DanmakuDuplicateMergePolicy)在注入前过滤。
+        // 所以这些设置变化后必须重新预处理已有数据并重新注入，否则开关不生效。
+        // （APP设置-弹幕设置生效是因为它走的是同样的 setData→applyDataToView 路径，会重新过滤。）
+        if (rawItems.isNotEmpty()) {
+            applyDataToView()
+        }
     }
 
     fun updatePlaybackSpeed(@Suppress("UNUSED_PARAMETER") speed: Float) {
@@ -207,16 +219,28 @@ class DanmakuCoreController(
     private fun viewHasData(): Boolean = rawItems.isNotEmpty()
 
     private fun buildConfig(snapshot: MyPlayerDanmakuController.SettingsSnapshot): DanmakuConfig {
+        // 字号对齐 AkDanmaku SimpleRenderer.updatePaint 公式：
+        //   AkDanmaku textSizePx = clamp(biliFontSize, 12, 25) × (density - 0.6) × textSizeScale
+        // 弹幕引擎内部 textSizePx = sp(textSizeSp) = textSizeSp × density
+        // 反推: textSizeSp = AkDanmakuPx / density
+        val textSizeScale = snapshot.textSize.toDmTextScale()
+        val akDanmakuPx = BILI_BASE_FONT_SIZE * (density - 0.6f).coerceAtLeast(0.4f) * textSizeScale
+        val textSizeSp = (akDanmakuPx / density).coerceAtLeast(1f)
+
+        // 描边对齐 AkDanmaku resolveStrokeWidth（FONT_BORDER_DEFAULT 模式）：
+        //   strokeWidth = (textSizePx × 0.09).coerceIn(1.5, 3)
+        val strokeWidthPx = (akDanmakuPx * 0.09f).coerceIn(1.5f, 3f).toInt()
+
         return DanmakuConfig(
             enabled = snapshot.enabled,
             opacity = snapshot.alpha.coerceIn(0.1f, 1f),
-            textSizeSp = snapshot.textSize.toDmTextSizeSp(),
-            fontWeight = DanmakuFontWeight.Normal, // 默认非粗体（与 AkDanmaku 默认一致）
-            strokeWidthPx = 4, // 描边像素（引擎 outlinePadPx = max(1, strokeWidthPx/2)，4px 描边清晰）
+            textSizeSp = textSizeSp,
+            fontWeight = DanmakuFontWeight.Normal, // AkDanmaku 默认 config.bold=false → Typeface.DEFAULT
+            strokeWidthPx = strokeWidthPx,
             speedLevel = snapshot.speed.toDmSpeedLevel(),
             area = snapshot.screenArea.toDmArea(),
             laneDensity = DanmakuLaneDensity.Standard,
-            showHighLikeIcon = false, // stub 版不支持高赞图标
+            showHighLikeIcon = false,
         )
     }
 
@@ -253,19 +277,18 @@ class DanmakuCoreController(
     }
 
     /**
-     * 设置面板 textSize(30-55) → 弹幕引擎 textSizeSp。
+     * 设置面板 textSize(30-55) → textSizeScale。
      *
-     * 弹幕引擎内部: textSizePx = sp(textSizeSp) = textSizeSp × density。
-     * 我们的 textSize 30-55 对应 scale 0.55-2.8，映射到 14-26 sp 范围（B站标准字号区间）。
+     * 完全对齐 MyPlayerDanmakuController.toDanmakuTextScale 的映射表，
+     * 保证两引擎同一档位产生相同比例的字号。
      */
-    private fun Int.toDmTextSizeSp(): Float {
-        // textSize 39（标准）→ 18sp，两端线性拉伸
-        val scale = when (this) {
-            in 30..39 -> 14f + (this - 30) * 0.4f   // 30→14sp, 39→17.6sp
-            in 40..55 -> 18f + (this - 40) * 0.5f   // 40→18sp, 55→25.5sp
-            else -> 18f
-        }
-        return scale
+    private fun Int.toDmTextScale(): Float = when (this) {
+        30 -> 0.55f; 31 -> 0.6f; 32 -> 0.65f; 33 -> 0.7f; 34 -> 0.75f
+        35 -> 0.8f; 36 -> 0.85f; 37 -> 0.9f; 38 -> 0.95f; 39 -> 1.0f
+        40 -> 1.14f; 41 -> 1.3f; 42 -> 1.4f; 43 -> 1.5f; 44 -> 1.6f
+        45 -> 1.7f; 46 -> 1.8f; 47 -> 2.0f; 48 -> 2.1f; 49 -> 2.2f
+        50 -> 2.3f; 51 -> 2.4f; 52 -> 2.5f; 53 -> 2.6f; 54 -> 2.7f; 55 -> 2.8f
+        else -> 1.14f
     }
 
     /** speed(1-9) → 引擎 speedLevel(1-10)。直接对应，9 以上不动（不使用 level 10）。 */
