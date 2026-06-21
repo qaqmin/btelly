@@ -241,6 +241,11 @@ class MyPlayerView @JvmOverloads constructor(
         it.playerPositionProvider = { player?.currentPosition ?: 0L }
     }
 
+    // 轻量弹幕引擎（性能优先模式）。useLiteEngine=false 时为 null，走原 AkDanmaku。
+    private var useLiteEngine = false
+    private var liteDanmakuView: LiteDanmakuView? = null
+    private var liteDanmakuController: LiteDanmakuController? = null
+
     private var uiFrameMonitorStarted = false
     private var lastUiFrameTimeNs = 0L
     private val uiFrameCallback = object : Choreographer.FrameCallback {
@@ -360,8 +365,12 @@ class MyPlayerView @JvmOverloads constructor(
             if (events.contains(Player.EVENT_PLAYBACK_PARAMETERS_CHANGED)) {
                 val speed = player.playbackParameters.speed
                 settingView?.setCurrentSpeed(speed)
-                danmakuController.updatePlaybackSpeed(speed)
-                specialDanmakuController.updatePlaybackSpeed(speed)
+                if (useLiteEngine) {
+                    liteDanmakuController?.updatePlaybackSpeed(speed)
+                } else {
+                    danmakuController.updatePlaybackSpeed(speed)
+                    specialDanmakuController.updatePlaybackSpeed(speed)
+                }
                 dmMaskController.onPlayerClockChanged(speed, player.currentPosition.coerceAtLeast(0L))
             }
         }
@@ -377,7 +386,11 @@ class MyPlayerView @JvmOverloads constructor(
             updateErrorMessage()
             updateControllerVisibility()
             updatePauseIndicator()
-            danmakuController.notifyPlaybackStateChanged(playbackState, player?.playWhenReady == true)
+            if (useLiteEngine) {
+                liteDanmakuController?.notifyPlaybackStateChanged(playbackState, player?.playWhenReady == true)
+            } else {
+                danmakuController.notifyPlaybackStateChanged(playbackState, player?.playWhenReady == true)
+            }
             // mask 控制器需要知道 player 是否真的在解码、可以输出新帧。
             // STATE_READY 后立即同步当前播放器 clock，贴齐参考 onPlayerClockChanged。
             dmMaskController.setPlaybackReady(playbackState == Player.STATE_READY)
@@ -392,7 +405,11 @@ class MyPlayerView @JvmOverloads constructor(
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            danmakuController.notifyIsPlayingChanged(isPlaying)
+            if (useLiteEngine) {
+                liteDanmakuController?.notifyIsPlayingChanged(isPlaying)
+            } else {
+                danmakuController.notifyIsPlayingChanged(isPlaying)
+            }
             // 进入/退出播放态时立即推一次播放器 clock，和官方 onPlayerClockChanged 时机对齐。
             player?.let {
                 dmMaskController.onPlayerClockChanged(
@@ -428,7 +445,11 @@ class MyPlayerView @JvmOverloads constructor(
         override fun onRenderedFirstFrame() {
             hasRenderedFirstFrame = true
             suppressControllerShowUntilFirstFrame = false
-            danmakuController.notifyPlaybackFirstFrame()
+            if (useLiteEngine) {
+                liteDanmakuController?.notifyPlaybackFirstFrame()
+            } else {
+                danmakuController.notifyPlaybackFirstFrame()
+            }
             handler.removeCallbacks(shutterTimeoutRunnable)
             updateBuffering()
             shutterView?.animate()?.cancel()
@@ -565,8 +586,12 @@ class MyPlayerView @JvmOverloads constructor(
                     if (settingView?.getDmEnable() != enabled) {
                         settingView?.dmEnableClick()
                     }
-                    danmakuController.setEnabled(enabled)
-                    specialDanmakuController.setEnabled(enabled)
+                    if (useLiteEngine) {
+                        liteDanmakuController?.setEnabled(enabled)
+                    } else {
+                        danmakuController.setEnabled(enabled)
+                        specialDanmakuController.setEnabled(enabled)
+                    }
                 }
             })
             newController.setOnSeekCommitListener { positionMs ->
@@ -641,13 +666,21 @@ class MyPlayerView @JvmOverloads constructor(
 
             override fun onDmEnableChange(enabled: Boolean) {
                 controller?.dmEnableButtonChange(enabled)
-                danmakuController.setEnabled(enabled)
+                if (useLiteEngine) {
+                    liteDanmakuController?.setEnabled(enabled)
+                } else {
+                    danmakuController.setEnabled(enabled)
+                }
             }
 
             override fun onPlaybackSpeedChange(speed: Float) {
                 player?.playbackParameters = PlaybackParameters(speed)
-                danmakuController.updatePlaybackSpeed(speed)
-                specialDanmakuController.updatePlaybackSpeed(speed)
+                if (useLiteEngine) {
+                    liteDanmakuController?.updatePlaybackSpeed(speed)
+                } else {
+                    danmakuController.updatePlaybackSpeed(speed)
+                    specialDanmakuController.updatePlaybackSpeed(speed)
+                }
             }
 
             override fun onDmAlpha(alpha: Float) {
@@ -817,8 +850,12 @@ class MyPlayerView @JvmOverloads constructor(
         closeShutter()
         handler.removeCallbacks(bufferingIndicatorRunnable)
         bufferingView?.visibility = GONE
-        danmakuController.resetForPlaybackStart(startPositionMs)
-        specialDanmakuController.resetForPlaybackStart(startPositionMs)
+        if (useLiteEngine) {
+            liteDanmakuController?.resetForPlaybackStart(startPositionMs)
+        } else {
+            danmakuController.resetForPlaybackStart(startPositionMs)
+            specialDanmakuController.resetForPlaybackStart(startPositionMs)
+        }
         releaseDmMask()
     }
 
@@ -2033,8 +2070,12 @@ class MyPlayerView @JvmOverloads constructor(
     fun setPlaySpeed(speed: Float) {
         player?.playbackParameters = PlaybackParameters(speed)
         settingView?.setCurrentSpeed(speed)
-        danmakuController.updatePlaybackSpeed(speed)
-        specialDanmakuController.updatePlaybackSpeed(speed)
+        if (useLiteEngine) {
+            liteDanmakuController?.updatePlaybackSpeed(speed)
+        } else {
+            danmakuController.updatePlaybackSpeed(speed)
+            specialDanmakuController.updatePlaybackSpeed(speed)
+        }
     }
 
     fun setAfterPlayMode(mode: com.btelly.feature.player.settings.AfterPlayMode) {
@@ -2489,8 +2530,15 @@ class MyPlayerView @JvmOverloads constructor(
         controller?.removeVisibilityListener(controllerComponentListener)
         handler.removeCallbacksAndMessages(null)
         stopUiFrameMonitor()
-        danmakuController.release()
-        specialDanmakuController.release()
+        if (useLiteEngine) {
+            liteDanmakuController?.release()
+            liteDanmakuView?.let { removeView(it) }
+            liteDanmakuView = null
+            liteDanmakuController = null
+        } else {
+            danmakuController.release()
+            specialDanmakuController.release()
+        }
         dmMaskController.dispose()
         maskRetryScope.cancel()
     }
@@ -2570,6 +2618,37 @@ class MyPlayerView @JvmOverloads constructor(
         controller?.setSponsorDuration(durationMs)
     }
 
+    /**
+     * 切换弹幕引擎模式。必须在 setData 之前、播放器 setup 时调用。
+     * - lite=false：功能优先（原 AkDanmaku 全功能：防挡/渐变/特殊弹幕）
+     * - lite=true：性能优先（轻量引擎：纯色滚动，无防挡/渐变/特殊；直播不支持）
+     * 原系统不删除，用 GONE 屏蔽；切换需重新进入播放。
+     */
+    fun setDanmakuEngineMode(lite: Boolean) {
+        if (useLiteEngine == lite && liteDanmakuController != null) return
+        useLiteEngine = lite
+        if (lite) {
+            if (liteDanmakuController == null) {
+                val view = LiteDanmakuView(context).apply {
+                    layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+                    isClickable = false
+                    isFocusable = false
+                }
+                // 加到 dmkMaskHost 之前（视频之上，控制器之下），用 translationZ 保证层级
+                addView(view)
+                view.translationZ = 1f
+                liteDanmakuView = view
+                liteDanmakuController = LiteDanmakuController(context) { liteDanmakuView }.also {
+                    it.playerPositionProvider = { player?.currentPosition ?: 0L }
+                }
+            }
+            // 屏蔽原系统（含原 DanmakuView + 特殊弹幕 + 防挡蒙版）
+            dmkMaskHost?.visibility = GONE
+        } else {
+            dmkMaskHost?.visibility = VISIBLE
+        }
+    }
+
     fun setDanmakuData(
         data: List<DmModel>,
         filterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY,
@@ -2577,25 +2656,41 @@ class MyPlayerView @JvmOverloads constructor(
         startupTraceStartElapsedMs: Long = 0L
     ) {
         syncDanmakuSettings()
-        danmakuController.setData(data, filterContext, startupTraceId, startupTraceStartElapsedMs)
+        if (useLiteEngine) {
+            liteDanmakuController?.setData(data, filterContext, startupTraceId, startupTraceStartElapsedMs)
+        } else {
+            danmakuController.setData(data, filterContext, startupTraceId, startupTraceStartElapsedMs)
+        }
     }
 
     fun setSpecialDanmakuData(data: List<SpecialDanmakuModel>) {
-        specialDanmakuController.setData(data)
+        if (!useLiteEngine) {
+            specialDanmakuController.setData(data)
+        }
+        // 轻量引擎不支持特殊弹幕，忽略
     }
 
     fun appendDanmakuData(
         data: List<DmModel>,
         filterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY
     ) {
-        danmakuController.appendData(data, filterContext)
+        if (useLiteEngine) {
+            liteDanmakuController?.appendData(data, filterContext)
+        } else {
+            danmakuController.appendData(data, filterContext)
+        }
     }
 
     fun startLiveDanmaku() {
+        if (useLiteEngine) {
+            com.btelly.core.common.log.AppLog.w("LiteDmCtrl", "轻量引擎不支持直播弹幕，请切换为功能优先")
+            return
+        }
         danmakuController.startLive()
     }
 
     fun addLiveDanmaku(dm: DmModel) {
+        if (useLiteEngine) return // 轻量引擎不支持直播，已在 startLiveDanmaku 提示
         danmakuController.addLiveDanmaku(dm)
     }
 
@@ -2603,26 +2698,46 @@ class MyPlayerView @JvmOverloads constructor(
         if ((settingView?.getDmEnable() ?: enabled) != enabled) {
             settingView?.dmEnableClick()
         }
-        danmakuController.setEnabled(enabled)
-        specialDanmakuController.setEnabled(enabled)
+        if (useLiteEngine) {
+            liteDanmakuController?.setEnabled(enabled)
+        } else {
+            danmakuController.setEnabled(enabled)
+            specialDanmakuController.setEnabled(enabled)
+        }
     }
 
     fun pauseDanmaku() {
-        danmakuController.pause()
-        specialDanmakuController.pause()
+        if (useLiteEngine) {
+            liteDanmakuController?.pause()
+        } else {
+            danmakuController.pause()
+            specialDanmakuController.pause()
+        }
     }
 
     fun resumeDanmaku() {
-        danmakuController.resume()
-        specialDanmakuController.resume()
+        if (useLiteEngine) {
+            liteDanmakuController?.resume()
+        } else {
+            danmakuController.resume()
+            specialDanmakuController.resume()
+        }
     }
 
     fun stopDanmaku() {
-        danmakuController.stop()
-        specialDanmakuController.stop()
+        if (useLiteEngine) {
+            liteDanmakuController?.stop()
+        } else {
+            danmakuController.stop()
+            specialDanmakuController.stop()
+        }
     }
 
     fun syncDanmakuPosition(positionMs: Long, forceSeek: Boolean = false) {
+        if (useLiteEngine) {
+            liteDanmakuController?.syncPosition(positionMs, forceSeek)
+            return
+        }
         danmakuController.syncPosition(positionMs, forceSeek)
         specialDanmakuController.syncPosition(positionMs, forceSeek)
         // 注入 providers 到 host layout（如果尚未注入）
@@ -2771,8 +2886,12 @@ class MyPlayerView @JvmOverloads constructor(
 
     private fun syncDanmakuSettings() {
         val snapshot = buildDanmakuSettingsSnapshot()
-        danmakuController.applySettings(snapshot)
-        specialDanmakuController.applySettings(snapshot)
+        if (useLiteEngine) {
+            liteDanmakuController?.applySettings(snapshot)
+        } else {
+            danmakuController.applySettings(snapshot)
+            specialDanmakuController.applySettings(snapshot)
+        }
     }
 
     // Keep the mapping from setting panel state to danmaku config in one place.

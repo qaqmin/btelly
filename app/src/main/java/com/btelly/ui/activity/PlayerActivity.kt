@@ -1919,6 +1919,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         playerView.showHideFfRe(settings.showRewindFastForward)
         textSubtitle.setTextSize(TypedValue.COMPLEX_UNIT_PX, settings.subtitleTextSizePx.toFloat())
         playerView.setAfterPlayMode(settings.afterPlayMode)
+        // 弹幕引擎模式：性能优先(轻量) vs 功能优先(AkDanmaku)。需在 setData 前注入。
+        playerView.setDanmakuEngineMode(settings.danmakuLiteEngine)
         renderDebugState()
         updateEpisodeNavigationVisibility()
         updateDanmakuSwitchVisibility()
