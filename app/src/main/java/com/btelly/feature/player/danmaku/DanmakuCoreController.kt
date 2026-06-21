@@ -118,7 +118,13 @@ class DanmakuCoreController(
 
     @Suppress("UNUSED_PARAMETER")
     fun notifyPlaybackFirstFrame() {
-        // 首帧后无需特殊处理，positionProvider 会自动跟上
+        // 首帧渲染是镜像切换/surface 重建后恢复弹幕的关键时机。
+        // 此时 isPlaying 可能还是 false（READY/onIsPlayingChanged 尚未回调），
+        // 主动 invalidate 触发一次 onDraw，让引擎有机会重启渲染循环；
+        // 同时兜底设 isPlaying=true（首帧出来说明解码器已就绪，弹幕应跟随播放）。
+        val wasPlaying = isPlaying
+        if (!wasPlaying) isPlaying = true
+        viewProvider()?.invalidate()
     }
 
     fun setEnabled(enabled: Boolean) {
