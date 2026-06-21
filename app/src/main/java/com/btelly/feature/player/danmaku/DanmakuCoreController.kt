@@ -43,6 +43,11 @@ class DanmakuCoreController(
     @Volatile
     private var currentConfig: DanmakuConfig = defaultConfig()
 
+    // isPlaying 状态：用 volatile 字段而不是每次替换 lambda，
+    // 避免 notifyPlaybackStateChanged 和 notifyIsPlayingChanged 的事件顺序竞争导致状态错乱。
+    @Volatile
+    private var isPlaying = false
+
     init {
         installProviders()
     }
@@ -50,7 +55,7 @@ class DanmakuCoreController(
     private fun installProviders() {
         val view = viewProvider() ?: return
         view.setPositionProvider { playerPositionProvider?.invoke()?.coerceAtLeast(0L) ?: 0L }
-        view.setIsPlayingProvider { false } // 由 notifyIsPlayingChanged 实时更新
+        view.setIsPlayingProvider { isPlaying }
         view.setPlaybackSpeedProvider { 1f } // 引擎内部按播放速度算 duration，这里固定 1
         view.setConfigProvider { currentConfig }
     }
@@ -91,11 +96,24 @@ class DanmakuCoreController(
     }
 
     fun notifyPlaybackStateChanged(@Suppress("UNUSED_PARAMETER") playbackState: Int, playWhenReady: Boolean) {
-        viewProvider()?.setIsPlayingProvider { playWhenReady }
+        // playWhenReady 作为 isPlaying 的候选值之一（buffering 时 isPlaying=false 会由
+        // notifyIsPlayingChanged 覆盖），用 volatile 字段避免事件顺序竞争。
+        val wasPlaying = isPlaying
+        isPlaying = playWhenReady
+        // isPlaying 从 false→true 时必须主动 invalidate，否则引擎 Choreographer 已停，
+        // 没有 onDraw 触发就不会重启渲染循环 → 弹幕卡住/消失。
+        if (!wasPlaying && playWhenReady) {
+            viewProvider()?.invalidate()
+        }
     }
 
     fun notifyIsPlayingChanged(playing: Boolean) {
-        viewProvider()?.setIsPlayingProvider { playing }
+        // onIsPlayingChanged 是 ExoPlayer 对"实际解码播放中"的权威信号，优先级高于 playWhenReady。
+        val wasPlaying = isPlaying
+        isPlaying = playing
+        if (!wasPlaying && playing) {
+            viewProvider()?.invalidate()
+        }
     }
 
     @Suppress("UNUSED_PARAMETER")
@@ -109,18 +127,18 @@ class DanmakuCoreController(
     }
 
     fun pause() {
-        viewProvider()?.setIsPlayingProvider { false }
+        isPlaying = false
     }
 
     fun resume() {
-        viewProvider()?.setIsPlayingProvider { true }
+        val wasPlaying = isPlaying
+        isPlaying = true
+        if (!wasPlaying) viewProvider()?.invalidate()
     }
 
     fun stop() {
-        viewProvider()?.let {
-            it.setIsPlayingProvider { false }
-            it.setDanmakus(emptyList())
-        }
+        isPlaying = false
+        viewProvider()?.setDanmakus(emptyList())
         rawItems = emptyList()
     }
 
