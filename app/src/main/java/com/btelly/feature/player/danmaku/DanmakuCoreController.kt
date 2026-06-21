@@ -32,10 +32,11 @@ class DanmakuCoreController(
     companion object {
         private const val TAG = "BTellyDmCtrl"
         /**
-         * B站弹幕基准字号：绝大多数弹幕的 fontSize=18（大字弹幕是 25，但占比极小）。
-         * 对齐 AkDanmaku 的 clamp(biliFontSize, 12, 25) —— 用 18 作代表值。
+         * B站弹幕基准字号。protobuf 协议(DmProtoParser)默认 fontSize=25，绝大多数弹幕都是这个值。
+         * 对齐 AkDanmaku 的 clamp(biliFontSize, 12, 25) —— 弹幕引擎是全局字号（不读 per-item），
+         * 用 25 作基准值才能和 AkDanmaku 视觉一致。
          */
-        private const val BILI_BASE_FONT_SIZE = 18f
+        private const val BILI_BASE_FONT_SIZE = 25f
     }
 
     /** 屏幕密度，用于对齐 AkDanmaku 字号公式。 */
