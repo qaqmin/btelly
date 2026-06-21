@@ -105,6 +105,31 @@ internal class RuntimeFrame {
     return dropped
   }
 
+  /**
+   * 移除 commands 中所有 danmakuId 命中 [ids] 的命令,返回移除条数。
+   *
+   * 用于 tryAppendPromotedCommands 追加前剔除残留的同 id 旧命令:
+   * seek/replace 后 stateById 被清空但 frame.commands 可能仍持有上一帧的旧命令,
+   * 若不剔除,promote 追加会在同一帧出现两条相同 danmakuId 的命令(用户看到的"两条相同弹幕分上下轨道")。
+   */
+  fun removeCommandsByDanmakuIds(ids: Set<Long>): Int {
+    if (ids.isEmpty() || commands.size == 0) return 0
+    val oldFixedCommandStart = fixedCommandStartIndex
+    var keptRolling = 0
+    var dropped = 0
+    commands.retainIndexed { index, item ->
+      val keep = item.data.danmakuId !in ids
+      if (keep && index < oldFixedCommandStart) {
+        keptRolling++
+      } else if (!keep) {
+        dropped++
+      }
+      keep
+    }
+    fixedCommandStartIndex = keptRolling.coerceIn(0, commands.size)
+    return dropped
+  }
+
   fun markTransition(nowMs: Long) {
     transitionStartedAtMs = nowMs
   }

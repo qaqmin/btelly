@@ -59,6 +59,9 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   private val statePool = ArrayList<ActiveItemState>(256)
   private val incrementalActiveStates = ArrayList<ActiveItemState>(32)
   private val incrementalCommandBuffer = CommandBuffer(32)
+  // 本次 promote 的弹幕 danmakuId 集合,append 前用于剔除 frame.commands 中的同 id 残留命令。
+  // seek/replace 后 stateById 被清空,promote 可能命中上一帧遗留的同 id 命令,导致同一弹幕双轨。
+  private val incrementalDanmakuIds = HashSet<Long>(32)
 
   private val trackLayout = DanmakuTrackLayout()
   private val rejectedMergeController = RuntimeRejectedMergeController()
@@ -80,6 +83,8 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   @Volatile private var lastDrawLockReleasedAt = 0L
   private var lastDrawStallLogAtMs = 0L
   private var lastZeroFrameLogAtMs = 0L
+  private var lastFrameDanmakuSummaryAtMs = 0L
+  private var lastDanmakuExpiryLogAtMs = 0L
   // 卡顿期 now 跳变检测:记录上一拍 now 和滚动平均的单帧间隔,
   // removeExpired 据此跳过滚动弹幕的 timeout 移除,避免还在屏幕中段的弹幕被误杀。
   private var lastUpdateTimeMs = 0L
@@ -368,6 +373,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     val expireMs = SystemClock.elapsedRealtime() - checkpoint
     checkpoint = SystemClock.elapsedRealtime()
     incrementalActiveStates.clear()
+    incrementalDanmakuIds.clear()
     val enqueuedActiveItems = enqueueDueItems(now, config)
     val enqueueMs = SystemClock.elapsedRealtime() - checkpoint
     checkpoint = SystemClock.elapsedRealtime()
@@ -879,6 +885,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         iterator.remove()
         recycleState(state)
         expired++
+        logDanmakuExpiry(item, now)
       }
     }
     return expired
@@ -1167,6 +1174,39 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         droppedItems = dropped
       )
     }
+    // 追加前剔除 frame.commands 中与本次 promote 同 id 的残留命令。
+    // seek/replace 会清空 stateById 但 frame.commands 可能仍持有上一帧的同 id 命令,
+    // 若不剔除,promote 追加后同一弹幕会在一帧里出现两条 command(用户看到的"两条相同弹幕分上下轨道同时前进")。
+    if (currentFrame.commands.size > 0) {
+      incrementalDanmakuIds.clear()
+      for (state in incrementalActiveStates) {
+        incrementalDanmakuIds.add(state.item.data.danmakuId)
+      }
+      val removedDuplicates = currentFrame.removeCommandsByDanmakuIds(incrementalDanmakuIds)
+      incrementalDanmakuIds.clear()
+      if (removedDuplicates > 0) {
+        invalidateFrameReuse(REUSE_INVALIDATE_DROP_REJECTED)
+        // 输出被重复 promote 的弹幕详情,定位为何会被重新 promote(timeout 后未清 sortedItems? seek 重置 scanIndex?)
+        val detail = StringBuilder()
+        var detailCount = 0
+        for (state in incrementalActiveStates) {
+          if (detailCount >= 4) break
+          val it = state.item
+          if (detail.isNotEmpty()) detail.append(" | ")
+          detail.append("id=${it.data.danmakuId} pos=${it.data.position} mode=${it.data.mode} ")
+          detail.append("top=${it.drawState.positionY.toInt()} rollingStart=${it.rollingStartTimeMs} ")
+          detail.append("\"${it.data.content.take(10)}\"")
+          detailCount++
+        }
+        Log.w(
+          DanmakuEngine.TAG,
+          "[Runtime] duplicate command dedup removed=$removedDuplicates " +
+            "appending=$appended fixedAppending=$fixedAppended active=${activeStates.size} " +
+            "commands=${currentFrame.commands.size} now=${now}ms " +
+            "promoteDetail=$detail"
+        )
+      }
+    }
     currentFrame.appendRollingCommands(incrementalCommandBuffer)
     currentFrame.appendFixedCommands(incrementalFixedCommandBuffer)
     incrementalCommandBuffer.clear()
@@ -1375,6 +1415,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     newFrame.commands.addAll(newFrame.fixedCommands)
     newFrame.fixedCommands.clear()
     if (profileDetails) fixedMergeMs = SystemClock.elapsedRealtime() - fixedMergeStartedAt
+    logBuiltFrameDanmakuSummary(newFrame, now)
     val cost = SystemClock.elapsedRealtime() - startedAt
     markFrameReuseState(newFrame, config)
     clearFrameReuseInvalidationReason()
@@ -1686,6 +1727,85 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       }
     }
     return "topDist unique=${counts.size} maxSame=$maxSameTop rolling=$rollingCount fixed=$fixedCount sample=$sample"
+  }
+
+  /**
+   * 诊断日志:输出全量重建帧里每条 command 的 danmakuId/content/轨道/Y坐标。
+   * 同时检测两类重复:
+   *  1. 同 danmakuId 出现多次(引擎层 frame 残留重复)——本修复目标
+   *  2. 不同 danmakuId 但同内容同轨道(B 站原始数据就有多条,需上层 DanmakuDuplicateMergePolicy 合并)
+   * 限频 FRAME_DANMAKU_SUMMARY_INTERVAL_MS 避免刷屏。
+   */
+  private fun logBuiltFrameDanmakuSummary(frame: RuntimeFrame, nowMs: Long) {
+    val commandCount = frame.commands.size
+    if (commandCount <= 0) return
+    val elapsed = SystemClock.elapsedRealtime()
+    if (elapsed - lastFrameDanmakuSummaryAtMs < FRAME_DANMAKU_SUMMARY_INTERVAL_MS) return
+    lastFrameDanmakuSummaryAtMs = elapsed
+    val fixedStart = frame.fixedCommandStartIndex
+    val idCounts = HashMap<Long, Int>(commandCount)
+    // key = (content, top轨道) 用于发现"同内容同轨道不同 id"的多条
+    val contentTrackCounts = HashMap<String, Int>(commandCount)
+    val detail = StringBuilder()
+    val detailLimit = 12
+    for (index in 0 until commandCount) {
+      val item = frame.commands.itemAt(index)
+      val data = item.data
+      val id = data.danmakuId
+      idCounts[id] = (idCounts[id] ?: 0) + 1
+      val isFixed = index >= fixedStart
+      val trackKey = (if (isFixed) "fixed" else "roll") + "|" + frame.commands.topAt(index).toInt()
+      val contentTrackKey = data.content + "|" + trackKey
+      contentTrackCounts[contentTrackKey] = (contentTrackCounts[contentTrackKey] ?: 0) + 1
+      if (index < detailLimit) {
+        if (detail.isNotEmpty()) detail.append(" | ")
+        detail.append("[")
+        detail.append(if (isFixed) "F" else "R")
+        detail.append(" id=")
+        detail.append(id)
+        detail.append(" top=")
+        detail.append(frame.commands.topAt(index).toInt())
+        detail.append(" pos=")
+        detail.append(data.position)
+        detail.append(" \"")
+        detail.append(data.content.take(12))
+        detail.append("\"]")
+      }
+    }
+    val dupIdCount = idCounts.count { it.value > 1 }
+    val maxDupId = idCounts.maxOfOrNull { it.value } ?: 1
+    val dupContentTrackCount = contentTrackCounts.count { it.value > 1 }
+    val maxDupContentTrack = contentTrackCounts.maxOfOrNull { it.value } ?: 1
+    // 有任何重复就打 W,否则低频打 I 便于对照屏幕。
+    val hasDup = dupIdCount > 0 || dupContentTrackCount > 0
+    val level = if (hasDup) 'W' else 'I'
+    val msg = "[Frame] danmaku summary now=${nowMs}ms count=$commandCount " +
+      "dupId=$dupIdCount maxDupId=$maxDupId " +
+      "dupContentTrack=$dupContentTrackCount maxDupContentTrack=$maxDupContentTrack " +
+      "detail=$detail"
+    if (hasDup) {
+      Log.w(DanmakuEngine.TAG, msg)
+    } else {
+      Log.i(DanmakuEngine.TAG, msg)
+    }
+  }
+
+  /**
+   * 诊断日志:记录滚动弹幕因 timeout 被 removeExpired 移除。
+   * 用于对照"被移除的弹幕"与"随后被重新 promote 的弹幕"是否同一条——
+   * 若是,说明 sortedItems 在移除后仍被 scanIndex 回扫重新 enqueue(根因待定)。
+   */
+  private fun logDanmakuExpiry(item: DanmakuItem, nowMs: Long) {
+    val elapsed = SystemClock.elapsedRealtime()
+    if (elapsed - lastDanmakuExpiryLogAtMs < DANMAKU_EXPIRY_LOG_INTERVAL_MS) return
+    lastDanmakuExpiryLogAtMs = elapsed
+    Log.i(
+      DanmakuEngine.TAG,
+      "[Runtime] danmaku expired removed now=${nowMs}ms id=${item.data.danmakuId} " +
+        "pos=${item.data.position} mode=${item.data.mode} " +
+        "rollingStart=${item.rollingStartTimeMs} duration=${item.duration} " +
+        "\"${item.data.content.take(12)}\""
+    )
   }
 
   private fun dispatchShown(item: DanmakuItem, config: DanmakuConfig) {
@@ -2227,6 +2347,8 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     private const val FRAME_CACHE_RELEASE_DELAY_MS = 48L
     private const val FRAME_STALL_LOG_INTERVAL_MS = 1_000L
     private const val DRAW_STALL_LOG_INTERVAL_MS = 1_000L
+    private const val FRAME_DANMAKU_SUMMARY_INTERVAL_MS = 2_000L
+    private const val DANMAKU_EXPIRY_LOG_INTERVAL_MS = 1_000L
     private const val MIN_ENQUEUE_PER_FRAME = 4
     private const val ENQUEUE_BUDGET_MS = 2L
     private const val CACHE_PRIORITY_VISIBLE = 0

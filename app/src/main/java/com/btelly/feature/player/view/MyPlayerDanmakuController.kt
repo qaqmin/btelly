@@ -815,14 +815,14 @@ class MyPlayerDanmakuController(
             generation = generation
         )
         if (danmakuPositionMs > 0L) {
-            seekPlayerTo(
-                player = player,
-                targetPositionMs = danmakuPositionMs,
-                currentTimeMs = player.getCurrentTimeMs(),
-                forceSeek = true,
-                reason = "replace",
-                bypassDedup = true
-            )
+            // 与 initPlayer 同理:replace 已全量重建引擎,这里只用轻量 timer 校准,
+            // 避免 seekTo 的 resetRuntimeWindow 清空 stateById 后引发 promote 命中残留 command。
+            player.syncTimerTo(danmakuPositionMs)
+            lastSeekPositionMs = danmakuPositionMs
+            lastSeekRealtimeMs = SystemClock.elapsedRealtime()
+            if (isDanmakuPaused) {
+                player.pause()
+            }
         }
         PlaybackStartupTrace.log(
             traceId = startupTraceId,
@@ -909,14 +909,16 @@ class MyPlayerDanmakuController(
                 }
             }
             if (!shouldDeferInitialData && danmakuPositionMs > 0L) {
-                seekPlayerTo(
-                    player = player,
-                    targetPositionMs = danmakuPositionMs,
-                    currentTimeMs = null,
-                    forceSeek = true,
-                    reason = "init",
-                    bypassDedup = true
-                )
+                // replacePlayerWindowData 已通过 clearData() 全量重建引擎(sortedItems/stateById/frame),
+                // 此处仅需把播放指针移到目标位置。用 syncTimerTo 轻量校准,避免 runtime.seekTo 再次
+                // resetRuntimeWindow 清空刚由 replaceData 建立的状态(会制造"数据在、去重表空、frame 残留"
+                // 的危险窗口,下游 promote 可能命中上一帧遗留的同 id 命令导致弹幕双轨)。
+                player.syncTimerTo(danmakuPositionMs)
+                lastSeekPositionMs = danmakuPositionMs
+                lastSeekRealtimeMs = SystemClock.elapsedRealtime()
+                if (isDanmakuPaused) {
+                    player.pause()
+                }
             }
             startPreparedPlayerIfNeeded(player)
         }
@@ -1071,7 +1073,9 @@ class MyPlayerDanmakuController(
                         data = preparedWindow.data,
                         reason = reason,
                         generation = generation,
-                        keepLastFrame = force
+                        // 不保留 transition frame:seek(keepLastFrame 已在 seekPlayerTo 用 clearData 全清)
+                        // 与普通 replace 都应从干净状态重建,避免旧位置弹幕残留导致重叠。
+                        keepLastFrame = false
                     )
                 } else {
                     appendPlayerWindowData(
@@ -1334,13 +1338,12 @@ class MyPlayerDanmakuController(
             return
         }
         if (forceSeek && !bypassDedup && !isActiveWindowFreshFor(targetPositionMs)) {
-            // 目标位置若无弹幕数据（目标分段尚未加载到位），不清空引擎，避免引擎进入
-            // 空数据 transition 后无新帧可绘制而长时间卡死（active=0）。
-            // 保留当前帧作为 transition 继续显示，待数据 appendData 后由下一次窗口刷新补上。
-            if (danmakuTimeline.data.hasDataAround(targetPositionMs)) {
-                player.clearDataKeepingLastFrame()
-                clearActiveWindowState()
-            }
+            // seek 是位置跳变:无论目标位置是否已有弹幕数据,都必须清空引擎(含 transition frame),
+            // 避免旧位置的弹幕在新位置作为 transition 继续滚动导致"旧弹幕飞过屏幕与新弹幕重叠"。
+            // 原实现仅在 hasDataAround 时清空,跨分段 seek(目标数据未到)会保留旧 frame,
+            // 造成旧弹幕残留显示。无数据时清空不会"卡死":scheduleActiveWindowRefresh 会在数据到达后补帧。
+            player.clearData()
+            clearActiveWindowState()
             scheduleActiveWindowRefresh(
                 positionMs = targetPositionMs,
                 force = true,
@@ -1678,7 +1681,9 @@ class MyPlayerDanmakuController(
         rawWindowData: List<DmModel>,
         preparedData: List<DanmakuItemData>
     ) {
-        if (rawWindowData.size < INITIAL_WINDOW_MAX_ITEMS && preparedData.size < INITIAL_WINDOW_MAX_ITEMS) {
+        // 阈值降到 1:只要有数据就诊断。原阈值 INITIAL_WINDOW_MAX_ITEMS(144) 过高,
+        // 小窗口(如 rawWindow=5)的 id 冲突会静默,而重复弹幕往往首帧就暴露。
+        if (rawWindowData.size < 1 && preparedData.size < 1) {
             return
         }
         val serviceIds = rawWindowData.asSequence().map { it.id }.filter { it > 0L }.toList()
