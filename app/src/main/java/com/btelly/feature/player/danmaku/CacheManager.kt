@@ -225,7 +225,10 @@ internal class CacheManager(
 
         val danmaku = item.data
         val rgb = danmaku.color and 0xFFFFFF
-        stroke.color = (0xCC shl 24) or 0x000000
+        // 描边色用老版本逻辑（对齐 AkDanmaku SimpleRenderer）：亮字配黑描边，暗字配白描边。
+        // Bitmap 烘焙时用完全不透明（alpha 255），整体透明度由 drawTextDirect/drawBitmap 时按
+        // opacityAlpha 统一施加。
+        stroke.color = resolveStandardStrokeColor(rgb, opacityAlpha = 255)
         fill.color = (0xFF shl 24) or rgb
 
         // Placeholder colors (alpha is applied at draw-time; keep opaque-ish here).

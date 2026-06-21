@@ -1209,8 +1209,8 @@ internal class DanmakuEngine(
         val drawStrokeEnabled = strokeWidthPx > 0.01f
         val rgb = item.data.color and 0xFFFFFF
         if (drawStrokeEnabled) {
-            val strokeAlpha = ((opacityAlpha * 0xCC) / 255).coerceIn(0, 255)
-            drawStroke.color = (strokeAlpha shl 24) or 0x000000
+            // 描边色用老版本逻辑：亮字配黑描边，暗字配白描边（对齐 AkDanmaku SimpleRenderer）。
+            drawStroke.color = resolveStandardStrokeColor(rgb, opacityAlpha)
         }
         drawFill.color = (opacityAlpha shl 24) or rgb
 
