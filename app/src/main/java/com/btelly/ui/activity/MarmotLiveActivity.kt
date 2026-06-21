@@ -19,7 +19,9 @@ import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
+import com.btelly.feature.marmot.quality.CctvQualityProvider
+import com.btelly.feature.marmot.quality.LiveQualityProvider
+import com.btelly.feature.marmot.quality.MarmotQualityProvider
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.base.BaseActivity
 import com.btelly.databinding.ActivityMarmotLiveBinding
@@ -63,6 +65,18 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
         fun start(context: Context) {
             context.startActivity(Intent(context, MarmotLiveActivity::class.java))
         }
+
+        /** CCTV 官方直播播放器脚本（createLivePlayer 来源）。 */
+        private val CCTV_PLAYER_SCRIPTS = listOf(
+            "https://r.img.cctvpic.com/photoAlbum/templet/js/jquery-1.7.2.min.js",
+            "https://js.player.cntv.cn/creator/swfobject.js",
+            "https://js.player.cntv.cn/creator/liveplayer.js"
+        )
+
+        /** 从 url 提取 CCTV 频道 id：`https://tv.cctv.com/live/cctv13/` → `cctv13`；非 CCTV 返回 null。 */
+        fun extractCctvChannelId(url: String): String? =
+            Regex("""tv\.cctv\.com/live/([a-zA-Z0-9]+)""", RegexOption.IGNORE_CASE)
+                .find(url)?.groupValues?.getOrNull(1)
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -82,6 +96,8 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
     private var videoQualityData: String? = null
     /** 已自动应用最高画质的频道 URL（避免重复执行）。 */
     private var lastQualityAppliedUrl: String? = null
+    /** CCTV 画质 Provider（写死 4 档，createLivePlayer 的 br 参数来源）。 */
+    private val cctvQualityProvider = CctvQualityProvider { playCurrent() }
     /** 两次返回退出计时（对标 PlayerActivity.setupBackHandler）。 */
     private var exitTime: Long = 0
     private val exitInterval = 2000L
@@ -215,13 +231,38 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
                 return@launch
             }
             provinces.clear()
-            provinces.addAll(MarmotLiveData.getLives())
-            // 3. 恢复上次观看频道：优先按保存的 URL 反查，查不到才回退首个频道 0_0
+            // 方案 C（CCTV 优先）：只保留能用 createLivePlayer 播放的 CCTV 频道
+            // （url 含 tv.cctv.com/live/）。省台/央视频等暂不显示（后续逐站点维护再加）。
+            val allLives = MarmotLiveData.getLives()
+            var cctvIndex = 0
+            for (live in allLives) {
+                // 筛选该分组下 url 是 tv.cctv.com/live/ 的频道，重建 Vod 的导航索引
+                val cctvVods = live.vods.filter { extractCctvChannelId(it.url) != null }
+                if (cctvVods.isEmpty()) continue
+                // 构造只含 CCTV 频道的分组副本（重新编 tagIndex/detailIndex）
+                val filteredLive = Live(tag = live.tag, name = live.name, index = cctvIndex,
+                    vods = cctvVods.toMutableList())
+                cctvVods.forEachIndexed { j, vod ->
+                    vod.tagIndex = cctvIndex
+                    vod.detailIndex = j
+                    vod.key = "${cctvIndex}_$j"
+                }
+                provinces.add(filteredLive)
+                cctvIndex++
+            }
+            AppLog.i(TAG, "initData: CCTV 频道过滤后 ${provinces.size} 个分组，" +
+                "${provinces.sumOf { it.vods.size }} 个频道")
+            if (provinces.isEmpty()) {
+                Toast.makeText(this@MarmotLiveActivity, "无 CCTV 频道数据", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            // 3. 恢复上次观看频道：优先按保存的 URL 反查（必须是 CCTV 频道），否则回退首个 CCTV 频道
             val lastUrl = appSettings.getCachedString(KEY_LAST_CHANNEL_URL, null)
-            currentVod = if (!lastUrl.isNullOrEmpty()) {
-                MarmotLiveData.getByUrl(lastUrl) ?: MarmotLiveData.getByKey("0_0")
+            currentVod = if (!lastUrl.isNullOrEmpty() && extractCctvChannelId(lastUrl) != null) {
+                provinces.flatMap { it.vods }.firstOrNull { it.url == lastUrl }
+                    ?: provinces.first().vods.first()
             } else {
-                MarmotLiveData.getByKey("0_0")
+                provinces.first().vods.first()
             }
             if (currentVod == null) {
                 Toast.makeText(this@MarmotLiveActivity, "无频道数据", Toast.LENGTH_SHORT).show()
@@ -236,10 +277,91 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
     private fun playCurrent() {
         val vod = currentVod ?: return
         mainHandler.removeCallbacks(switchChannelRunnable)
-        webEngine?.loadUrl(vod.url)
+        // CCTV 直播频道（tv.cctv.com/live/）：用 createLivePlayer 干净 HTML 播放（画质可切，对标 v1.5.8）；
+        // 其它频道：维持原 Marmot 方式（加载完整页面 + tv.user.js 劫持）。
+        val channelId = extractCctvChannelId(vod.url)
+        if (channelId != null) {
+            val baseUrl = "https://tv.cctv.com/live/$channelId/m/" +
+                "#${com.btelly.feature.marmot.web.MarmotSystemWebViewClient.BTELLY_CCTV_NATIVE_MARKER}"
+            val html = buildCctvPlayerHtml(channelId, cctvQualityProvider.current.br)
+            AppLog.i(TAG, "playCurrent: CCTV 原生播放 channelId=$channelId quality=${cctvQualityProvider.current.label}")
+            webEngine?.loadDataWithBaseURL(baseUrl, html)
+        } else {
+            AppLog.i(TAG, "playCurrent: Marmot 模式 url=${vod.url}")
+            webEngine?.loadUrl(vod.url)
+        }
         showLiveName(vod.name)
         // 记录上次观看频道（IO 写入，不阻塞）
         appSettings.putStringAsync(KEY_LAST_CHANNEL_URL, vod.url)
+    }
+
+    /**
+     * 构造 CCTV 直播播放 HTML（对标 v1.5.8 `CctvPlayerActivity.buildPlayerHtml`）。
+     *
+     * 加载 CCTV 官方 liveplayer.js，调 `createLivePlayer({t: channelId, br: 画质})` 初始化播放器。
+     * [br] 参数直接指定画质码率（1080/720/540/360），切画质 = 改 br 重建（真正切流，区别于 hzChoose 的 click 假切）。
+     */
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun buildCctvPlayerHtml(channelId: String, br: String): String {
+        val scriptTags = CCTV_PLAYER_SCRIPTS.joinToString("\n") { url ->
+            """              <script src="$url"></script>"""
+        }
+        return """
+            <!doctype html>
+            <html>
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+              <title>BTelly $channelId</title>
+              <style>
+                html,body,#player{width:100%;height:100%;margin:0;padding:0;background:#000;overflow:hidden;}
+                #player{position:fixed;left:0;top:0;z-index:1;}
+                video,canvas,object,embed,iframe{
+                  position:fixed!important;left:0!important;top:0!important;
+                  width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;
+                  object-fit:contain!important;background:#000!important;
+                }
+              </style>
+$scriptTags
+            </head>
+            <body>
+              <div id="player"></div>
+              <script>
+                (function() {
+                  var channel = '$channelId';
+                  function size() {
+                    return {
+                      w: Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0, 1280),
+                      h: Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0, 720)
+                    };
+                  }
+                  function start() {
+                    if (typeof createLivePlayer !== 'function') {
+                      console.log('btelly cctv wait createLivePlayer');
+                      setTimeout(start, 300);
+                      return;
+                    }
+                    var s = size();
+                    var playerParas = {
+                      divId: 'player', w: s.w, h: s.h, t: channel,
+                      isAutoPlay: 'true', ruleVisible: 'false', br: '$br',
+                      posterImg: '', isLive4k: 'false', isHttps: 'true', wmode: 'opaque',
+                      hasBarrage: 'false', playerType: 'hw', webFullScreenOn: 'false',
+                      isLeftBottom: 'false', jumpToApp: 'false', others: ''
+                    };
+                    console.log('btelly cctv createLivePlayer ' + channel + ' ' + s.w + 'x' + s.h + ' br=$br');
+                    createLivePlayer(playerParas);
+                  }
+                  window.addEventListener('resize', function() {
+                    var v = document.getElementsByTagName('video')[0];
+                    if (v) { v.play && v.play().catch(function(){}); }
+                  });
+                  start();
+                })();
+              </script>
+            </body>
+            </html>
+        """.trimIndent()
     }
 
     /** 短暂显示频道名（2 秒后清除）。 */
@@ -326,30 +448,63 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
         binding.qualityContainer.setOnClickListener { hideQualityMenu() }
     }
 
-    /** 显示画质选择浮层。 */
+    /**
+     * 显示画质选择浮层。
+     *
+     * 按当前频道 url 路由到对应的 [LiveQualityProvider]（方案 C：逐播放源维护画质）：
+     * - CCTV（tv.cctv.com/live/）→ [CctvQualityProvider]（写死 4 档，createLivePlayer br 重建）
+     * - 其它源 → 沿用 Marmot 方式（页面上报的 videoQualityData + hzChoose 脚本）
+     *
+     * 菜单 UI（横向列表 + 当前项高亮 + 焦点定位）对所有源统一，只有「可用画质/当前项/切换动作」三件事按源不同。
+     */
     private fun showQualityMenu() {
-        val items = parseQualityData(videoQualityData)
-        AppLog.i(TAG, "showQualityMenu: 解析到 ${items.size} 项画质")
+        val provider = resolveQualityProvider()
+        val items = provider.availableQualities()
+        AppLog.i(TAG, "showQualityMenu: provider=${provider.javaClass.simpleName} 画质 ${items.size} 项")
         if (items.isEmpty()) {
-            AppLog.w(TAG, "showQualityMenu: videoQualityData=${videoQualityData?.take(120)}")
             Toast.makeText(this, "当前频道暂无画质选项", Toast.LENGTH_SHORT).show()
             return
         }
+        val currentIdx = provider.currentQualityIndex(items)
         isQualityMenuShowing = true
         binding.qualityContainer.visibility = View.VISIBLE
         binding.qualityList.adapter = QualityAdapter(items) { item ->
-            // 执行画质切换脚本
-            item.action?.takeIf { it.trim().isNotEmpty() }?.let { action ->
-                AppLog.i(TAG, "画质切换：执行 '${item.name}' action=${action.take(80)}")
-                webEngine?.evaluateJavascript(action)
-            } ?: AppLog.w(TAG, "画质切换：项 '${item.name}' 的 action 为空，无法切换")
+            val switched = provider.switchTo(item) { AppLog.i(TAG, "画质切换：${item.name}") }
+            if (!switched) {
+                AppLog.w(TAG, "画质切换：${item.name} 无效或与当前相同")
+            }
             hideQualityMenu()
         }
-        // 焦点定位到第一项：先让 RecyclerView 获取焦点，布局完成后聚焦首项
+        // 焦点稳定定位到当前画质项：setAdapter 后 itemView 尚未布局，单次 post 可能落空，
+        // 用 OnGlobalLayoutListener 等布局真正完成后再 scrollToPosition + requestFocus。
         binding.qualityList.requestFocus()
-        binding.qualityList.post {
-            binding.qualityList.layoutManager?.findViewByPosition(0)?.requestFocus()
-                ?: binding.qualityList.requestFocus()
+        binding.qualityList.viewTreeObserver.addOnGlobalLayoutListener(
+            object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+                override fun onGlobalLayout() {
+                    binding.qualityList.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                    if (!isQualityMenuShowing) return // 菜单已关闭，不抢焦点
+                    binding.qualityList.scrollToPosition(currentIdx)
+                    binding.qualityList.post {
+                        binding.qualityList.layoutManager?.findViewByPosition(currentIdx)?.requestFocus()
+                            ?: binding.qualityList.requestFocus()
+                    }
+                }
+            }
+        )
+    }
+
+    /**
+     * 按当前频道 url 解析画质 Provider。
+     * 新增播放源时在此加一个分支（url 域名匹配 → 对应 Provider）。
+     */
+    private fun resolveQualityProvider(): LiveQualityProvider {
+        val url = currentVod?.url
+        if (url != null && extractCctvChannelId(url) != null) {
+            return cctvQualityProvider
+        }
+        // 兜底：Marmot 方式（页面上报的 videoQualityData + action 脚本）
+        return MarmotQualityProvider({ videoQualityData }) { action ->
+            webEngine?.evaluateJavascript(action)
         }
     }
 
@@ -366,37 +521,17 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
         val url = currentVod?.url ?: return
         // 同一频道已应用过，跳过（切台后 URL 变化才会重新应用）
         if (url == lastQualityAppliedUrl) return
-        val items = parseQualityData(rawData)
+        // 只对非 CCTV 源（Marmot 方式）自动应用最高画质；CCTV 源 createLivePlayer 已按 br 初始化
+        if (extractCctvChannelId(url) != null) return
+        val provider = resolveQualityProvider()
+        val items = provider.availableQualities()
         if (items.isEmpty()) return
         // 第一项通常是最高画质
         val best = items[0]
-        best.action?.takeIf { it.trim().isNotEmpty() }?.let { action ->
+        provider.switchTo(best) {
             AppLog.i(TAG, "自动切换最高画质: ${best.name}")
             Log.i(TAG, "自动切换最高画质: ${best.name}")
-            webEngine?.evaluateJavascript(action)
             lastQualityAppliedUrl = url
-        }
-    }
-
-    /** 解析画质数据（对标参考 `LiveActivity.A()`，支持数组或对象嵌套）。 */
-    private fun parseQualityData(raw: String?): List<HzItem> {
-        if (raw.isNullOrBlank()) return emptyList()
-        return try {
-            val trimmed = raw.trim()
-            if (trimmed.startsWith("[")) {
-                gson.fromJson(trimmed, object : TypeToken<List<HzItem>>() {}.type) ?: emptyList()
-            } else {
-                val obj = com.google.gson.JsonParser.parseString(trimmed).asJsonObject
-                val qualities = obj.getAsJsonArray("qualities")
-                    ?: obj.getAsJsonObject("data")?.getAsJsonArray("qualities")
-                    ?: obj.getAsJsonObject("data")?.getAsJsonArray("items")
-                if (qualities != null) {
-                    gson.fromJson(qualities, object : TypeToken<List<HzItem>>() {}.type) ?: emptyList()
-                } else listOf(gson.fromJson(trimmed, HzItem::class.java))
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "解析画质数据失败: ${t.message}")
-            emptyList()
         }
     }
 
@@ -411,14 +546,35 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
     // ==================== 按键交互 ====================
 
     /**
-     * 四向切台（对标参考 `LiveActivity.goNext`）。
-     * 调 [MarmotLiveData.liveNext] 算下一频道 key，延迟 1s 加载防抖。
+     * 四向切台（基于过滤后的 provinces 做 D-pad 上下左右环形切台，延迟 1s 加载防抖）。
      */
     private fun goNext(direction: String): Boolean {
-        val vod = currentVod ?: MarmotLiveData.getByKey("0_0").also { currentVod = it }
-        if (vod == null) return false
-        val key = MarmotLiveData.liveNext(vod.tagIndex, vod.detailIndex, direction)
-        val next = MarmotLiveData.getByKey(key) ?: return false
+        if (provinces.isEmpty()) return false
+        val vod = currentVod ?: provinces.first().vods.firstOrNull()?.also { currentVod = it } ?: return false
+        // 基于过滤后的 provinces 做 D-pad 四向环形切台（不再用 MarmotLiveData 的全量导航 map）
+        val tagIdx = vod.tagIndex.coerceIn(0, provinces.lastIndex)
+        val detailIdx = vod.detailIndex.coerceIn(0, provinces[tagIdx].vods.lastIndex)
+        val next: Vod = when (direction) {
+            "up" -> {
+                val group = provinces[tagIdx].vods
+                val ni = if (detailIdx == 0) group.lastIndex else detailIdx - 1
+                group[ni]
+            }
+            "down" -> {
+                val group = provinces[tagIdx].vods
+                val ni = if (detailIdx == group.lastIndex) 0 else detailIdx + 1
+                group[ni]
+            }
+            "left" -> {
+                val ng = if (tagIdx == 0) provinces.lastIndex else tagIdx - 1
+                provinces[ng].vods.first()
+            }
+            "right" -> {
+                val ng = if (tagIdx == provinces.lastIndex) 0 else tagIdx + 1
+                provinces[ng].vods.first()
+            }
+            else -> return false
+        }
         currentVod = next
         showLiveName(next.name)
         // 延迟 1s 加载（参考 handler.sendMessageDelayed），避免快速连按多次加载
@@ -456,9 +612,24 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
         }
         if (isQualityMenuShowing) {
             when (keyCode) {
-                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_MENU -> {
                     AppLog.i(TAG, "画质菜单关闭: keyCode=$keyCode")
                     hideQualityMenu(); return true
+                }
+                // 确认键：若焦点在画质项上则触发其点击（执行切换）再关闭；
+                // 否则仅关闭。不能把确认键一并拦截——否则 TV 上选画质永远不触发切换。
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                    val focused = currentFocus
+                    val inList = focused != null &&
+                        generateSequence(focused.parent) { it.parent }.contains(binding.qualityList)
+                    if (inList) {
+                        AppLog.i(TAG, "画质确认：点击项 ${(focused as? android.widget.TextView)?.text}")
+                        focused?.performClick()
+                    } else {
+                        AppLog.w(TAG, "画质确认：未命中画质项，焦点=$focused，仅关闭")
+                    }
+                    hideQualityMenu()
+                    return true
                 }
             }
             return super.dispatchKeyEvent(event)

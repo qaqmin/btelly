@@ -62,6 +62,8 @@ class MarmotX5WebViewClient(
 
     private fun injectLiveScripts(view: WebView, url: String) {
         if (url.contains("tv-web")) return
+        // CCTV 原生播放页（createLivePlayer 自构 HTML）：不注入 tv.user.js，避免与 CCTV 播放器脚本冲突
+        if (url.contains(MarmotSystemWebViewClient.BTELLY_CCTV_NATIVE_MARKER)) return
         val script = MarmotLiveData.readFileWithFallback(context, "tv-web/js/tv.user.js")
         if (script.isBlank()) {
             Log.w(TAG, "tv.user.js 为空，跳过注入")

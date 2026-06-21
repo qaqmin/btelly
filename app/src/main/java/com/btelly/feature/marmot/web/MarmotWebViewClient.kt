@@ -39,6 +39,8 @@ class MarmotSystemWebViewClient(
     companion object {
         private const val TAG = "MarmotWebViewClient"
         private const val UTF8 = "utf-8"
+        /** CCTV 原生播放页（createLivePlayer 自构 HTML）的 baseUrl 标记，用于跳过 tv.user.js 注入。 */
+        const val BTELLY_CCTV_NATIVE_MARKER = "btelly-cctv-native"
     }
 
     /** 独立 client（直播 API 请求不注入 B 站 header）。 */
@@ -80,6 +82,8 @@ class MarmotSystemWebViewClient(
      */
     private fun injectLiveScripts(view: WebView, url: String) {
         if (url.contains("tv-web")) return
+        // CCTV 原生播放页（createLivePlayer 自构 HTML）：不注入 tv.user.js，避免与 CCTV 播放器脚本冲突
+        if (url.contains(BTELLY_CCTV_NATIVE_MARKER)) return
         val script = MarmotLiveData.readFileWithFallback(context, "tv-web/js/tv.user.js")
         if (script.isBlank()) {
             Log.w(TAG, "tv.user.js 为空，跳过注入")

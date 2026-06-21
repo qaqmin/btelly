@@ -71,6 +71,16 @@ class WebEngine(
         }
     }
 
+    /** 加载自构 HTML（CCTV createLivePlayer 方式用）。系统/X5 共用。 */
+    fun loadDataWithBaseURL(baseUrl: String, html: String) {
+        if (usingX5) {
+            (view as com.tencent.smtt.sdk.WebView)
+                .loadDataWithBaseURL(baseUrl, html, "text/html", "UTF-8", null)
+        } else {
+            (view as android.webkit.WebView).loadDataWithBaseURL(baseUrl, html, "text/html", "UTF-8", null)
+        }
+    }
+
     fun evaluateJavascript(js: String) {
         if (usingX5) {
             (view as com.tencent.smtt.sdk.WebView).evaluateJavascript(js, null)
@@ -263,7 +273,9 @@ class WebEngine(
         private val onPageLoaded: (String) -> Unit
     ) : android.webkit.WebChromeClient() {
         override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
-            Log.d(TAG, "webConsole ${consoleMessage?.messageLevel()} ${consoleMessage?.message()}")
+            val msg = "webConsole ${consoleMessage?.messageLevel()} ${consoleMessage?.message()}"
+            Log.d(TAG, msg)
+            com.btelly.core.common.log.AppLog.d(TAG, msg)
             return true
         }
         override fun onShowCustomView(view: android.view.View, callback: android.webkit.WebChromeClient.CustomViewCallback) {
@@ -282,7 +294,9 @@ class WebEngine(
         private val onPageLoaded: (String) -> Unit
     ) : com.tencent.smtt.sdk.WebChromeClient() {
         override fun onConsoleMessage(consoleMessage: com.tencent.smtt.export.external.interfaces.ConsoleMessage?): Boolean {
-            Log.d(TAG, "x5Console ${consoleMessage?.messageLevel()} ${consoleMessage?.message()}")
+            val msg = "x5Console ${consoleMessage?.messageLevel()} ${consoleMessage?.message()}"
+            Log.d(TAG, msg)
+            com.btelly.core.common.log.AppLog.d(TAG, msg)
             return true
         }
         override fun onShowCustomView(view: android.view.View, callback: com.tencent.smtt.export.external.interfaces.IX5WebChromeClient.CustomViewCallback) {

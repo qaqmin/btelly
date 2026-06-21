@@ -30,8 +30,8 @@ class QualityAdapter(
     override fun onBindViewHolder(holder: VH, position: Int) {
         val item = items[position]
         holder.text.text = item.name
-        // 当前画质高亮
-        holder.text.isSelected = (item.current == true)
+        // 当前画质高亮（isCurrent 由页面上报，state_selected 对应 bg_menu_button 高亮项）
+        holder.text.isSelected = (item.isCurrent == true)
         holder.text.setOnClickListener { onClick(item) }
         holder.text.setOnFocusChangeListener { v, hasFocus ->
             v.alpha = if (hasFocus) 1.0f else 0.6f
