@@ -13,13 +13,6 @@
             <corners android:radius="@dimen/px15" />
         </shape>
     </item>
-    <!-- 当前画质高亮（对标 utao selectedHzIndex 项画 ●），用半透明主题色区分 -->
-    <item android:state_selected="true">
-        <shape>
-            <solid android:color="?attr/colorPrimary" />
-            <corners android:radius="@dimen/px15" />
-        </shape>
-    </item>
     <item>
         <shape>
             <solid android:color="@android:color/transparent" />

@@ -82,8 +82,6 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
     private var videoQualityData: String? = null
     /** 已自动应用最高画质的频道 URL（避免重复执行）。 */
     private var lastQualityAppliedUrl: String? = null
-    /** 本会话用户在画质菜单选中的索引（对标 utao selectedHzIndex）。切台时重置为 -1。 */
-    private var currentSelectedQualityIndex: Int = -1
     /** 两次返回退出计时（对标 PlayerActivity.setupBackHandler）。 */
     private var exitTime: Long = 0
     private val exitInterval = 2000L
@@ -242,8 +240,6 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
         showLiveName(vod.name)
         // 记录上次观看频道（IO 写入，不阻塞）
         appSettings.putStringAsync(KEY_LAST_CHANNEL_URL, vod.url)
-        // 切台：重置画质状态，新频道由页面重新上报 videoQuality 后再决定高亮/自动最高画质
-        currentSelectedQualityIndex = -1
     }
 
     /** 短暂显示频道名（2 秒后清除）。 */
@@ -332,7 +328,6 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
 
     /** 显示画质选择浮层。 */
     private fun showQualityMenu() {
-        // 每次打开都重新解析（对标 utao：收到 videoQuality 即刷新菜单，不依赖陈旧缓存）
         val items = parseQualityData(videoQualityData)
         AppLog.i(TAG, "showQualityMenu: 解析到 ${items.size} 项画质")
         if (items.isEmpty()) {
@@ -342,35 +337,18 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
         }
         isQualityMenuShowing = true
         binding.qualityContainer.visibility = View.VISIBLE
-        // 当前画质索引（对标 utao findCurrentHzIndex）：
-        // 1) 优先取页面上报的 isCurrent；2) 否则取本会话用户上次选择；3) 都没有则第 0 项。
-        val currentIdx = items.indexOfFirst { it.isCurrent == true }
-            .takeIf { it >= 0 }
-            ?: currentSelectedQualityIndex
-            .takeIf { it in items.indices }
-            ?: 0
-        AppLog.i(TAG, "showQualityMenu: 当前画质高亮 index=$currentIdx name=${items.getOrNull(currentIdx)?.name}")
-        val adapter = QualityAdapter(items) { item ->
+        binding.qualityList.adapter = QualityAdapter(items) { item ->
             // 执行画质切换脚本
-            val action = item.action
-            val clickedIdx = items.indexOf(item)
-            if (action.isNullOrBlank()) {
-                AppLog.w(TAG, "画质切换：项 '${item.name}' 的 action 为空，无法切换")
-            } else {
+            item.action?.takeIf { it.trim().isNotEmpty() }?.let { action ->
                 AppLog.i(TAG, "画质切换：执行 '${item.name}' action=${action.take(80)}")
                 webEngine?.evaluateJavascript(action)
-                // 记录本会话用户选择，下次打开菜单沿用（对标 utao selectedHzIndex 更新）
-                currentSelectedQualityIndex = clickedIdx
-            }
+            } ?: AppLog.w(TAG, "画质切换：项 '${item.name}' 的 action 为空，无法切换")
             hideQualityMenu()
         }
-        adapter.currentSelectedIndex = currentIdx
-        binding.qualityList.adapter = adapter
-        // 焦点定位到当前画质项（对标 utao menuList.C(0).requestFocus）：先 RecyclerView 拿焦点，
-        // 布局完成后聚焦到当前项，让用户从"当前画质"开始上下选。
+        // 焦点定位到第一项：先让 RecyclerView 获取焦点，布局完成后聚焦首项
         binding.qualityList.requestFocus()
         binding.qualityList.post {
-            binding.qualityList.layoutManager?.findViewByPosition(currentIdx)?.requestFocus()
+            binding.qualityList.layoutManager?.findViewByPosition(0)?.requestFocus()
                 ?: binding.qualityList.requestFocus()
         }
     }
@@ -397,8 +375,6 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
             Log.i(TAG, "自动切换最高画质: ${best.name}")
             webEngine?.evaluateJavascript(action)
             lastQualityAppliedUrl = url
-            // 自动切到第一项后，当前画质高亮也应指向它
-            currentSelectedQualityIndex = 0
         }
     }
 
@@ -480,21 +456,9 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
         }
         if (isQualityMenuShowing) {
             when (keyCode) {
-                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_MENU -> { hideQualityMenu(); return true }
-                // 确认键：若焦点在画质项上则触发其点击（执行切换脚本）再关闭；
-                // 否则（焦点在容器空白）仅关闭。原来把确认键也一并拦截隐藏，导致 TV 上选画质不生效。
-                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                    val focused = currentFocus
-                    val inQualityList = focused != null &&
-                        generateSequence(focused.parent) { it.parent }.contains(binding.qualityList)
-                    if (inQualityList) {
-                        AppLog.i(TAG, "画质切换：点击项 ${(focused as? android.widget.TextView)?.text}")
-                        focused?.performClick()
-                    } else {
-                        AppLog.w(TAG, "画质切换：确认键未命中画质项，焦点=$focused，仅关闭菜单")
-                    }
-                    hideQualityMenu()
-                    return true
+                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                    AppLog.i(TAG, "画质菜单关闭: keyCode=$keyCode")
+                    hideQualityMenu(); return true
                 }
             }
             return super.dispatchKeyEvent(event)
