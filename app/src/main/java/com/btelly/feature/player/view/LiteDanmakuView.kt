@@ -522,13 +522,19 @@ class LiteDanmakuView @JvmOverloads constructor(
         fillPaint.color = item.color or 0xFF000000.toInt()
         fillPaint.alpha = alpha255
         fillPaint.style = Paint.Style.FILL
+        // fakeBoldText 让笔画更饱满，弥补直接 canvas 绘制（非 Bitmap 缓存）时笔画偏细的视觉问题。
+        // AkDanmaku 走离屏 Bitmap 缓存 + displayMetrics 缩放，等效有加粗效果；直接绘制需手动补。
+        fillPaint.isFakeBoldText = true
 
         strokePaint.isAntiAlias = true
         strokePaint.textSize = item.textSizePx
         strokePaint.color = strokeColorFor(item.color)
         strokePaint.alpha = alpha255
         strokePaint.style = Paint.Style.STROKE
-        strokePaint.strokeWidth = (item.textSizePx * 0.09f).coerceIn(1.5f, 3f)
+        // 描边宽度按字号比例，不设上限（对齐 AkDanmaku SimpleRenderer.resolveStrokeWidth，
+        // 但去掉 coerceIn 上限——4K TV 字号大时 3px 上限显得过细）。
+        // 普通模式 0.09，加粗模式 0.12（对齐 AkDanmaku FONT_BORDER_HEAVY）。
+        strokePaint.strokeWidth = (item.textSizePx * 0.105f).coerceAtLeast(1.8f)
 
         val baseline = topY - fillPaint.ascent() + CANVAS_PAD * 0.5f
         canvas.drawText(item.content, x, baseline, strokePaint)
