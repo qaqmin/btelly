@@ -7,5 +7,7 @@ data class LiveDUrlModel(
     @SerializedName("url")
     val url: String = "",
     @SerializedName("order")
-    val order: Int = 0
+    val order: Int = 0,
+    @SerializedName("cdn_name")
+    val cdnName: String = ""
 ) : Serializable

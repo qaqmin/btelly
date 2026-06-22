@@ -337,7 +337,7 @@ class LiveRepository(
         )
         val urls = candidates
             .mapIndexed { index, candidate ->
-                LiveDUrlModel(url = candidate.url, order = index + 1)
+                LiveDUrlModel(url = candidate.url, order = index + 1, cdnName = candidate.cdnName)
             }
             .distinctBy { it.url }
         val currentQn = candidates.firstOrNull()?.currentQn
@@ -387,6 +387,7 @@ class LiveRepository(
                         }
                         candidates += LiveStreamCandidate(
                             url = url,
+                            cdnName = extractCdnName(host),
                             currentQn = currentQn,
                             priority = streamPriority(protocolName, formatName, codecName, extra),
                             index = (((streamIndex * 10) + formatIndex) * 10 + codecIndex) * 10 + urlIndex
@@ -640,6 +641,18 @@ class LiveRepository(
         return host.trimEnd('/') + ensureLeadingSlash(baseUrl) + extra
     }
 
+    /**
+     * 从 url_info.host 抽取 CDN 标识。
+     * 示例：https://cn-gotcha01.bilivideo.com:443 → cn-gotcha01
+     * 兜底：解析失败时返回完整 host 字符串，绝不返回空。
+     */
+    private fun extractCdnName(host: String): String {
+        val noScheme = host.substringAfter("://")
+        val noPort = noScheme.substringBefore(':')
+        val firstLabel = noPort.substringBefore('.')
+        return firstLabel.ifBlank { host }
+    }
+
     private fun ensureLeadingSlash(value: String): String {
         return if (value.startsWith("/")) value else "/$value"
     }
@@ -712,6 +725,7 @@ class LiveRepository(
 
     private data class LiveStreamCandidate(
         val url: String,
+        val cdnName: String,
         val currentQn: Int,
         val priority: Int,
         val index: Int
