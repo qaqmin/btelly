@@ -3,6 +3,7 @@ package com.btelly.feature.player.view
 import android.content.Context
 import com.btelly.R
 import com.btelly.feature.player.settings.AfterPlayMode
+import com.btelly.feature.player.LiveLineInfo
 import com.btelly.feature.player.LiveQualityInfo
 import com.btelly.model.dm.DmScreenArea
 import com.btelly.model.subtitle.SubtitleInfoModel
@@ -41,7 +42,9 @@ internal class MyPlayerSettingMenuBuilder(
         val screenMirrorEnabled: Boolean = false,
         val afterPlayMode: AfterPlayMode = AfterPlayMode.NEXT_EPISODE,
         val liveQualities: List<LiveQualityInfo> = emptyList(),
-        val currentLiveQualityQn: Int? = null
+        val currentLiveQualityQn: Int? = null,
+        val liveLines: List<LiveLineInfo> = emptyList(),
+        val currentLiveLineIndex: Int = 0
     )
 
     data class DmChoiceMenu(
@@ -220,6 +223,21 @@ internal class MyPlayerSettingMenuBuilder(
                 id = index,
                 title = quality.desc,
                 checked = quality.qn == state.currentLiveQualityQn,
+                showArrow = false
+            )
+        }
+        return rows
+    }
+
+    fun buildLiveLineMenu(state: PanelState): List<PlayerSettingRow> {
+        val rows = mutableListOf<PlayerSettingRow>(
+            PlayerSettingRow.Header(title = context.getString(R.string.live_line))
+        )
+        rows += state.liveLines.mapIndexed { index, line ->
+            PlayerSettingRow.Item(
+                id = index,
+                title = line.name,
+                checked = index == state.currentLiveLineIndex,
                 showArrow = false
             )
         }
