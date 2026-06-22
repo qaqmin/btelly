@@ -14,5 +14,6 @@ interface OnPlayerSettingChange {
     fun onAspectRatioChange(ratio: Int)
     fun onScreenMirrorChange(enabled: Boolean) {}
     fun onLiveQualityChange(qn: Int) {}
+    fun onLiveLineChange(index: Int) {}
     fun onAfterPlayModeChange(mode: AfterPlayMode) {}
 }
