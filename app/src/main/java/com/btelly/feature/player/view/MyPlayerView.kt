@@ -55,6 +55,7 @@ import com.btelly.model.video.quality.VideoCodecEnum
 import com.btelly.model.video.quality.VideoQuality
 import com.btelly.core.common.ext.getDanmakuSmartFilterLevel
 import com.btelly.core.common.ext.isAdvancedDanmakuEnabled
+import com.btelly.feature.player.LiveLineInfo
 import com.btelly.feature.player.LiveQualityInfo
 import com.btelly.feature.player.PlaybackStartupTrace
 import com.btelly.feature.player.DanmakuFilterContext
@@ -170,6 +171,7 @@ class MyPlayerView @JvmOverloads constructor(
     private var pendingSubtitleButtonVisible: Boolean? = null
     private var pendingLiveSettingButtonVisible: Boolean? = null
     private var pendingRefreshButtonVisible: Boolean? = null
+    private var pendingLineButtonVisible: Boolean? = null
     private var pendingTimeBarVisible: Boolean? = null
     private var pendingTimeTextVisible: Boolean? = null
     private var pendingSettingButtonVisible: Boolean? = null
@@ -639,6 +641,7 @@ class MyPlayerView @JvmOverloads constructor(
         pendingSubtitleButtonVisible?.let(target::showHideSubtitleButton)
         pendingLiveSettingButtonVisible?.let(target::showHideLiveSettingButton)
         pendingRefreshButtonVisible?.let(target::showHideRefreshButton)
+        pendingLineButtonVisible?.let(target::showHideLineButton)
         pendingTimeBarVisible?.let(target::showHideTimeBar)
         pendingTimeTextVisible?.let(target::showHideTimeText)
         pendingSettingButtonVisible?.let(target::showSettingButton)
@@ -2047,6 +2050,19 @@ class MyPlayerView @JvmOverloads constructor(
         settingView?.showLiveQualityMenu()
     }
 
+    fun setLiveLines(lines: List<LiveLineInfo>, selectedIndex: Int) {
+        settingView?.setLiveLines(lines, selectedIndex)
+    }
+
+    fun selectLiveLine(index: Int) {
+        settingView?.selectLiveLine(index)
+    }
+
+    fun showLiveLineMenu() {
+        controller?.rememberCurrentFocusTarget()
+        settingView?.showLiveLineMenu()
+    }
+
     fun setAudiosSelect(qualities: List<AudioQuality>) {
         settingView?.setAudioQualities(qualities)
     }
@@ -2406,6 +2422,11 @@ class MyPlayerView @JvmOverloads constructor(
     fun showHideRefreshButton(show: Boolean) {
         pendingRefreshButtonVisible = show
         controller?.showHideRefreshButton(show)
+    }
+
+    fun showHideLineButton(show: Boolean) {
+        pendingLineButtonVisible = show
+        controller?.showHideLineButton(show)
     }
 
     fun showHideTimeBar(show: Boolean) {
