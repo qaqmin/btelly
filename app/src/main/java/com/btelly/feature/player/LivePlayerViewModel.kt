@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.btelly.core.common.log.AppLog
 import com.btelly.feature.player.danmaku.LiveDanmakuManager
 import com.btelly.model.dm.DmModel
+import com.btelly.model.live.LiveDUrlModel
 import com.btelly.repository.LiveRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -43,6 +44,12 @@ class LivePlayerViewModel(
     private val _selectedQuality = MutableStateFlow<LiveQualityInfo?>(null)
     val selectedQuality: StateFlow<LiveQualityInfo?> = _selectedQuality.asStateFlow()
 
+    private val _lines = MutableStateFlow<List<LiveLineInfo>>(emptyList())
+    val lines: StateFlow<List<LiveLineInfo>> = _lines.asStateFlow()
+
+    private val _selectedLineIndex = MutableStateFlow(0)
+    val selectedLineIndex: StateFlow<Int> = _selectedLineIndex.asStateFlow()
+
     private val _liveDuration = MutableStateFlow("")
     val liveDuration: StateFlow<String> = _liveDuration.asStateFlow()
 
@@ -77,7 +84,7 @@ class LivePlayerViewModel(
                 onSuccess = { data ->
                     val durl = data.durl
                     if (!durl.isNullOrEmpty()) {
-                        _playUrl.value = durl[0].url
+                        applyLines(durl)
 
                         AppLog.d(TAG, "loadLiveStream: liveTime=${data.liveTime} title=${data.roomTitle} anchor=${data.anchorName} qualities=${data.qualityDescription?.size}")
                         _roomTitle.value = data.roomTitle ?: ""
@@ -178,15 +185,27 @@ class LivePlayerViewModel(
         }
     }
 
+    /** 把 durl 列表刷新到 lines，重置选中为 0，并同步 _playUrl。 */
+    private fun applyLines(durl: List<LiveDUrlModel>?) {
+        val mapped = durl.orEmpty().mapIndexed { idx, item ->
+            LiveLineInfo(
+                index = idx,
+                name = item.cdnName.ifBlank { "线路${idx + 1}" },
+                url = item.url
+            )
+        }
+        _lines.value = mapped
+        _selectedLineIndex.value = 0
+        mapped.firstOrNull()?.let { _playUrl.value = it.url }
+    }
+
     fun switchQuality(qn: Int) {
         if (currentRoomId > 0) {
             viewModelScope.launch {
                 repository.getLivePlayInfo(currentRoomId, qn).fold(
                     onSuccess = { data ->
                         _selectedQuality.value = _qualities.value.firstOrNull { it.qn == qn }
-                        data.durl?.firstOrNull()?.let { durl ->
-                            _playUrl.value = durl.url
-                        }
+                        applyLines(data.durl)
                     },
                     onFailure = { e ->
                         _error.value = e.message ?: "切换画质失败"
@@ -196,14 +215,20 @@ class LivePlayerViewModel(
         }
     }
 
+    fun switchLine(index: Int) {
+        val lines = _lines.value
+        if (index !in lines.indices) return
+        if (index == _selectedLineIndex.value) return
+        _selectedLineIndex.value = index
+        _playUrl.value = lines[index].url
+    }
+
     fun refreshLiveStream(roomId: Long) {
         viewModelScope.launch {
             _error.value = null
             repository.getLivePlayInfo(roomId).fold(
                 onSuccess = { data ->
-                    data.durl?.firstOrNull()?.let { durl ->
-                        _playUrl.value = durl.url
-                    }
+                    applyLines(data.durl)
                     _refreshEvent.trySend("刷新成功")
                 },
                 onFailure = { e ->
@@ -220,9 +245,7 @@ class LivePlayerViewModel(
             _isLoading.value = true
             repository.getLivePlayInfo(roomId, qn ?: 0).fold(
                 onSuccess = { data ->
-                    data.durl?.firstOrNull()?.let { durl ->
-                        _playUrl.value = durl.url
-                    }
+                    applyLines(data.durl)
                 },
                 onFailure = { e ->
                     _error.value = e.message ?: "重试失败"
@@ -245,4 +268,10 @@ class LivePlayerViewModel(
 data class LiveQualityInfo(
     val qn: Int,
     val desc: String
+)
+
+data class LiveLineInfo(
+    val index: Int,
+    val name: String,
+    val url: String
 )
