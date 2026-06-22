@@ -204,9 +204,14 @@ class LivePlayerFragment : Fragment() {
         binding.playerView.showHideTimeText(false)
         binding.playerView.showHideRefreshButton(true)
         binding.playerView.showHideMirrorButton(true)
+        binding.playerView.showHideLineButton(false)
         binding.playerView.setOnVideoSettingChangeListener(object : com.btelly.feature.player.view.OnVideoSettingChangeListener {
             override fun onLiveSettings() {
                 binding.playerView.showLiveQualityMenu()
+            }
+
+            override fun onLiveLineSettings() {
+                binding.playerView.showLiveLineMenu()
             }
 
             override fun onRefresh() {
@@ -233,6 +238,10 @@ class LivePlayerFragment : Fragment() {
             override fun onAspectRatioChange(ratio: Int) {}
             override fun onLiveQualityChange(qn: Int) {
                 viewModel.switchQuality(qn)
+            }
+
+            override fun onLiveLineChange(index: Int) {
+                viewModel.switchLine(index)
             }
         })
 
@@ -274,6 +283,19 @@ class LivePlayerFragment : Fragment() {
                     player?.prepare()
                     player?.playWhenReady = true
                 }
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.lines.collect { lines ->
+                binding.playerView.setLiveLines(lines, viewModel.selectedLineIndex.value)
+                binding.playerView.showHideLineButton(lines.size >= 2)
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.selectedLineIndex.collect { idx ->
+                binding.playerView.selectLiveLine(idx)
             }
         }
 
