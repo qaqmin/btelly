@@ -26,6 +26,7 @@ internal class PlayerControlFocusCoordinator(
     private val buttonRepeat: View,
     private val buttonLiveSettings: View,
     private val buttonRefresh: View,
+    private val buttonLine: View,
     private val buttonClose: View,
     private val timeBar: View,
     private val bottomBar: ViewGroup
@@ -48,6 +49,7 @@ internal class PlayerControlFocusCoordinator(
         REPEAT,
         LIVE_SETTINGS,
         REFRESH,
+        LINE,
         CLOSE,
         TIME_BAR
     }
@@ -225,6 +227,7 @@ internal class PlayerControlFocusCoordinator(
             buttonRepeat.isFocused -> FocusTarget.REPEAT
             buttonLiveSettings.isFocused -> FocusTarget.LIVE_SETTINGS
             buttonRefresh.isFocused -> FocusTarget.REFRESH
+            buttonLine.isFocused -> FocusTarget.LINE
             buttonClose.isFocused -> FocusTarget.CLOSE
             else -> FocusTarget.PLAY_PAUSE
         }
@@ -248,6 +251,7 @@ internal class PlayerControlFocusCoordinator(
             FocusTarget.REPEAT -> requestViewOrFallback(buttonRepeat)
             FocusTarget.LIVE_SETTINGS -> requestViewOrFallback(buttonLiveSettings)
             FocusTarget.REFRESH -> requestViewOrFallback(buttonRefresh)
+            FocusTarget.LINE -> requestViewOrFallback(buttonLine)
             FocusTarget.CLOSE -> requestViewOrFallback(buttonClose)
             FocusTarget.TIME_BAR -> requestViewOrFallback(timeBar, requireEnabled = true)
         }
@@ -270,6 +274,7 @@ internal class PlayerControlFocusCoordinator(
             buttonRepeat.isFocused ||
             buttonLiveSettings.isFocused ||
             buttonRefresh.isFocused ||
+            buttonLine.isFocused ||
             buttonClose.isFocused
     }
 

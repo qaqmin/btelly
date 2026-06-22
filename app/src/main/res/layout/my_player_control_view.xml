@@ -269,6 +269,18 @@
                     android:src="@drawable/ic_order_all_play"
                     android:contentDescription="@string/play_order"/>
                 <com.btelly.feature.player.view.PlayerControlButton
+                    android:id="@+id/button_line"
+                    android:background="@drawable/cell_background"
+                    android:padding="11dp"
+                    android:focusable="true"
+                    android:visibility="gone"
+                    android:clickable="true"
+                    android:nextFocusUp="@id/exo_progress"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:src="@drawable/ic_line_switch"
+                    android:contentDescription="@string/live_line"/>
+                <com.btelly.feature.player.view.PlayerControlButton
                     android:id="@+id/button_live_settings"
                     android:background="@drawable/cell_background"
                     android:padding="11dp"

@@ -96,6 +96,7 @@ class MyPlayerControlView @JvmOverloads constructor(
     private lateinit var buttonRepeat: ImageView
     private lateinit var buttonLiveSettings: ImageView
     private lateinit var buttonRefresh: ImageView
+    private lateinit var buttonLine: ImageView
     private lateinit var buttonClose: ImageView
     private lateinit var textLiveDuration: TextView
     private lateinit var loadingProgressBar: ProgressBar
@@ -191,6 +192,7 @@ class MyPlayerControlView @JvmOverloads constructor(
         buttonRepeat = findViewById(R.id.button_repeat)
         buttonLiveSettings = findViewById(R.id.button_live_settings)
         buttonRefresh = findViewById(R.id.button_refresh)
+        buttonLine = findViewById(R.id.button_line)
         buttonClose = findViewById(R.id.button_close)
         textLiveDuration = findViewById(R.id.text_live_duration)
         loadingProgressBar = findViewById(R.id.loading_progress_bar)
@@ -218,6 +220,7 @@ class MyPlayerControlView @JvmOverloads constructor(
             buttonRepeat = buttonRepeat,
             buttonLiveSettings = buttonLiveSettings,
             buttonRefresh = buttonRefresh,
+            buttonLine = buttonLine,
             buttonClose = buttonClose,
             timeBar = timeBar,
             bottomBar = bottomBar
@@ -242,6 +245,7 @@ class MyPlayerControlView @JvmOverloads constructor(
             buttonRepeat,
             buttonLiveSettings,
             buttonRefresh,
+            buttonLine,
             buttonClose,
             timeBar
         )
@@ -333,6 +337,11 @@ class MyPlayerControlView @JvmOverloads constructor(
         buttonLiveSettings.setOnClickListener {
             removeHideCallbacks()
             onVideoSettingChangeListener?.onLiveSettings()
+        }
+
+        buttonLine.setOnClickListener {
+            removeHideCallbacks()
+            onVideoSettingChangeListener?.onLiveLineSettings()
         }
 
         buttonRefresh.setOnClickListener {
@@ -601,6 +610,10 @@ class MyPlayerControlView @JvmOverloads constructor(
         logLiveUi("showHideRefreshButton: show=$show, before vis=${buttonRefresh.visibility}")
         setButtonVisibility(buttonRefresh, show)
         logLiveUi("showHideRefreshButton: after vis=${buttonRefresh.visibility}")
+    }
+
+    fun showHideLineButton(show: Boolean) {
+        setButtonVisibility(buttonLine, show)
     }
 
     fun showHideTimeBar(show: Boolean) {
@@ -909,6 +922,7 @@ class MyPlayerControlView @JvmOverloads constructor(
             buttonRepeat,
             buttonLiveSettings,
             buttonRefresh,
+            buttonLine,
             buttonClose
         ).forEach { button ->
             controlViewLayoutManager.setShowButton(button, button.visibility == VISIBLE)
