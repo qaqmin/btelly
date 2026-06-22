@@ -42,6 +42,14 @@
 # SponsorBlock / 空降助手
 -keep class com.btelly.feature.player.sponsor.** { *; }
 
+# TV 直播（marmot）：CloudConfig/CloudRes/MarmotModels/HzItem 由 Gson 反射解析，
+# 字段名/构造器被 R8 优化掉会导致 fromJson 静默置 null（曾引发「频道数据加载失败」：
+# DataWrapper.data 与 CloudConfig.res 都解析为 null）。必须保留类、字段、构造器。
+-keep class com.btelly.feature.marmot.domain.** { *; }
+-keepclassmembers class com.btelly.feature.marmot.domain.** {
+    <init>(...);
+}
+
 # Koin DI
 -keep class com.btelly.di.** { *; }
 -keep class com.btelly.repository.** { *; }

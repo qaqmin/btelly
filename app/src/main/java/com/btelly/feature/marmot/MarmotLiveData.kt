@@ -123,7 +123,9 @@ object MarmotLiveData {
             val wrapper: DataWrapper<Live> = gson.fromJson(json, type)
             val list = wrapper.data
             if (list.isNullOrEmpty()) {
-                AppLog.w(TAG, "parseTvTable($source): data 为空（json 长度=${json.length}）")
+                // data 为空但未抛异常：典型是 Gson 反射不到字段（R8 keep 缺失），JSON 本身可能合法。
+                // 打印 json 前缀以便区分「文件损坏」与「反射置 null」。
+                AppLog.w(TAG, "parseTvTable($source): data 为空（json 长度=${json.length} 前 80 字符=${json.take(80)}）")
                 null
             } else {
                 AppLog.i(TAG, "parseTvTable($source): 解析成功 ${list.size} 个分组")

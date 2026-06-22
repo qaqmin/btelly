@@ -55,7 +55,9 @@ object MarmotCloudUpdate {
                 return null
             }
             gson.fromJson(body, CloudConfig::class.java).also {
-                AppLog.i(TAG, "getConfig: 解析成功 res.version=${it?.res?.version} update=${it?.res?.update}")
+                // res 为 null 但 body 非空 → 典型 R8 keep 缺失导致 Gson 反射置 null（非网络问题）。
+                // 打印 body 前缀用于区分「云端未返回 res」与「反射失败」。
+                AppLog.i(TAG, "getConfig: 解析结果 res.version=${it?.res?.version} update=${it?.res?.update}（body 前 120 字符=${body.take(120)}）")
             }
         } catch (t: Throwable) {
             // 常见：Cleartext HTTP traffic not permitted / UnknownHost / SocketTimeout / SSLHandshake
