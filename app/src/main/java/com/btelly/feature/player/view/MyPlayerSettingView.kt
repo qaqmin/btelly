@@ -17,6 +17,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
 import com.btelly.core.common.log.AppLog
 import com.btelly.feature.player.settings.AfterPlayMode
+import com.btelly.feature.player.LiveLineInfo
 import com.btelly.feature.player.LiveQualityInfo
 import com.btelly.model.dm.DmScreenArea
 import com.btelly.model.subtitle.SubtitleInfoModel
@@ -73,6 +74,7 @@ class MyPlayerSettingView @JvmOverloads constructor(
         internal const val ITEM_ASPECT_RATIO = 6
         internal const val ITEM_DM_SETTING = 7
         internal const val ITEM_LIVE_QUALITY = 8
+        internal const val ITEM_LIVE_LINE = 11
         internal const val ITEM_SCREEN_MIRROR = 9
         internal const val ITEM_DM_ENABLE = 101
         internal const val ITEM_DM_ALPHA = 102
@@ -177,6 +179,11 @@ class MyPlayerSettingView @JvmOverloads constructor(
             }
 
             adapter.currentMenuKey == ITEM_LIVE_QUALITY -> {
+                showHide(false)
+                true
+            }
+
+            adapter.currentMenuKey == ITEM_LIVE_LINE -> {
                 showHide(false)
                 true
             }
@@ -383,6 +390,48 @@ class MyPlayerSettingView @JvmOverloads constructor(
         showSubMenu(ITEM_LIVE_QUALITY, menuBuilder.buildLiveQualityMenu(panelState))
     }
 
+    fun setLiveLines(lines: List<LiveLineInfo>, selectedIndex: Int) {
+        updateState { state ->
+            val nextIndex = if (selectedIndex !in lines.indices) 0 else selectedIndex
+            state.copy(liveLines = lines, currentLiveLineIndex = nextIndex)
+        }
+        refreshCurrentMenu()
+    }
+
+    fun selectLiveLine(index: Int) {
+        updateState { it.copy(currentLiveLineIndex = index) }
+        refreshCurrentMenu()
+    }
+
+    fun showLiveLineMenu() {
+        if (panelState.liveLines.isEmpty()) return
+        if (!isShowing()) {
+            visibility = VISIBLE
+            menuLevel = LEVEL_SUB
+            updateBackIcon()
+            showLiveLineSubMenu()
+            translationX = panelWidthPx.toFloat()
+            alpha = 0f
+            animate()
+                .translationX(0f)
+                .alpha(1f)
+                .setDuration(PANEL_ANIMATION_DURATION_MS)
+                .setListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        requestMenuFocus()
+                        onVisibilityStateChanged?.invoke(true)
+                    }
+                })
+                .start()
+        } else {
+            showLiveLineSubMenu()
+        }
+    }
+
+    private fun showLiveLineSubMenu() {
+        showSubMenu(ITEM_LIVE_LINE, menuBuilder.buildLiveLineMenu(panelState))
+    }
+
     fun dmEnableClick() {
         updateState { it.copy(dmEnabled = !it.dmEnabled) }
         onPlayerSettingInnerChange?.onDmEnableChange(panelState.dmEnabled)
@@ -527,6 +576,12 @@ class MyPlayerSettingView @JvmOverloads constructor(
                 val selected = panelState.liveQualities[itemId]
                 updateState { it.copy(currentLiveQualityQn = selected.qn) }
                 onPlayerSettingChange?.onLiveQualityChange(selected.qn)
+                showHide(false)
+            }
+
+            adapter.currentMenuKey == ITEM_LIVE_LINE && itemId in panelState.liveLines.indices -> {
+                updateState { it.copy(currentLiveLineIndex = itemId) }
+                onPlayerSettingChange?.onLiveLineChange(itemId)
                 showHide(false)
             }
         }
@@ -756,6 +811,11 @@ class MyPlayerSettingView @JvmOverloads constructor(
                     menuBuilder.buildLiveQualityMenu(panelState),
                     animateTransition = false
                 )
+                ITEM_LIVE_LINE -> showSubMenu(
+                    ITEM_LIVE_LINE,
+                    menuBuilder.buildLiveLineMenu(panelState),
+                    animateTransition = false
+                )
             }
 
             LEVEL_DM -> showDmOptionSubMenu(adapter.currentMenuKey, animateTransition = false)
@@ -787,6 +847,7 @@ class MyPlayerSettingView @JvmOverloads constructor(
                 ITEM_ASPECT_RATIO -> menuBuilder.buildScreenRatioMenu(panelState)
                 ITEM_DM_SETTING -> menuBuilder.buildDmSettingMenu(panelState)
                 ITEM_LIVE_QUALITY -> menuBuilder.buildLiveQualityMenu(panelState)
+                ITEM_LIVE_LINE -> menuBuilder.buildLiveLineMenu(panelState)
                 else -> null
             }
             LEVEL_DM -> {
