@@ -14,7 +14,6 @@ import org.koin.mp.KoinPlatform
 object FileCacheManager {
 
     private const val KEY_CACHE_LIMIT = "cache_limit"
-    private const val DEFAULT_CACHE_SIZE: Long = 50L * 1024L * 1024L
     private const val CACHE_SIZE_200_MB: Long = 200L * 1024L * 1024L
     private const val CACHE_SIZE_500_MB: Long = 500L * 1024L * 1024L
     private const val CACHE_SIZE_1_GB: Long = 1024L * 1024L * 1024L
@@ -121,12 +120,15 @@ object FileCacheManager {
 
     private fun writeFile(key: String, data: ByteArray) {
         val file = keyToFile(key)
+        // 写入前记录旧文件大小，覆盖写入时用于准确扣减 totalSize。
+        // 必须在 writeBytes 之前读取，否则拿到的是新长度。
+        val oldSize = if (file.isFile) file.length() else 0L
         try {
             file.writeBytes(data)
         } catch (e: Exception) {
             AppLog.e("FileCacheManager", "writeFile failed: key=$key", e)
         }
-        registerFile(file)
+        registerFile(file, oldSize)
     }
 
     private fun readFile(key: String): ByteArray? {
@@ -155,16 +157,9 @@ object FileCacheManager {
         }
     }
 
-    private fun registerFile(file: File) {
+    private fun registerFile(file: File, oldSize: Long) {
         val length = file.length()
         synchronized(fileMap) {
-            // 如果是覆盖写入，先减去旧文件大小
-            val oldSize = if (fileMap.containsKey(file)) {
-                file.length()
-            } else {
-                0L
-            }
-
             val maxCacheSize = resolveMaxCacheSize()
             // 淘汰直到总大小不超限，每次最多移除一个最旧条目
             while (maxCacheSize != Long.MAX_VALUE && totalSize.get() + length - oldSize > maxCacheSize) {
@@ -260,7 +255,7 @@ object FileCacheManager {
             "200 MB" -> CACHE_SIZE_200_MB
             "500 MB" -> CACHE_SIZE_500_MB
             "1 GB" -> CACHE_SIZE_1_GB
-            else -> DEFAULT_CACHE_SIZE
+            else -> CACHE_SIZE_200_MB
         }
     }
 }

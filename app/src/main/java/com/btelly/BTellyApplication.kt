@@ -2,6 +2,7 @@ package com.btelly
 
 import android.app.Application
 import android.os.SystemClock
+import com.btelly.core.common.cache.FileCacheManager
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.core.lifecycle.AppBackgroundMonitor
@@ -102,6 +103,10 @@ class BTellyApplication : Application() {
             // 登录态只需要设置缓存、Cookie 和持久化用户资料，不需要先构造 OkHttp/Retrofit。
             trace("initSettingsBlocking", startMs) { initSettingsBlocking(reason) }
             trace("initNetworkSession", startMs) { initNetworkSession() }
+            // 设置缓存已同步就绪：后台扫描缓存目录并按当前上限 trim 一次。
+            // 既能收敛旧版 totalSize 计数 bug 遗留的超额，也避免后续 Fragment 首次访问时
+            // 才支付扫描成本。init() 内部是 Thread.start() fire-and-forget，不阻塞启动。
+            trace("initFileCache", startMs) { initFileCache() }
             trace("initImageSettings", startMs) { ImageLoader.prewarmSettings() }
             sessionRuntimeReady.set(true)
             AppLog.i(TAG, "STARTUP sessionRuntimeInit end reason=$reason elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
@@ -141,6 +146,10 @@ class BTellyApplication : Application() {
 
     private fun initSettingsBlocking(reason: String) {
         KoinPlatform.getKoin().get<AppSettingsDataStore>().initCacheBlocking(reason)
+    }
+
+    private fun initFileCache() {
+        FileCacheManager.init()
     }
     
     private fun initKoin() {
