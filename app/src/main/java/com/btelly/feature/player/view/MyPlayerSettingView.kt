@@ -56,6 +56,7 @@ class MyPlayerSettingView @JvmOverloads constructor(
         internal const val KEY_DM_ALLOW_BOTTOM = "dm_allow_bottom"
         internal const val KEY_DM_MERGE_DUPLICATE = "dm_merge_duplicate"
         internal const val KEY_DM_SMART_SHIELD = "dm_smart_shield"
+        internal const val KEY_DM_TRACK_SPACING = "dm_track_spacing"
 
         private const val LEVEL_MAIN = 1
         private const val LEVEL_SUB = 2
@@ -447,6 +448,7 @@ class MyPlayerSettingView @JvmOverloads constructor(
     fun getDmAllowBottom(): Boolean = panelState.dmAllowBottom
     fun getDmMergeDuplicate(): Boolean = panelState.dmMergeDuplicate
     fun getDmSmartShield(): Boolean = panelState.dmSmartShield
+    fun getDmTrackSpacingPref(): String = preferenceStore.getTrackSpacingPref()
 
     fun setScreenMirrorEnabled(enabled: Boolean) {
         updateState { state ->

@@ -106,7 +106,8 @@ internal class DanmakuContext(val renderer: DanmakuRenderer) {
     }
     if (current.screenPart != next.screenPart ||
       current.allowOverlap != next.allowOverlap ||
-      current.overlapFraction != next.overlapFraction) {
+      current.overlapFraction != next.overlapFraction ||
+      current.trackSpacingFactor != next.trackSpacingFactor) {
       next.updateLayout()
       next.updateVisibility()
       next.updateRetainer()

@@ -280,8 +280,11 @@ internal class DanmakuEngine(
             actionPaint.textSize = textSizePx
             actionPaint.getFontMetrics(actionFontMetrics)
             val textBoxHeight = (actionFontMetrics.descent - actionFontMetrics.ascent) + outlinePad * 2f
-            val baseLaneHeight = max(18f, textBoxHeight * 1.15f)
-            val laneHeight = max(textBoxHeight, baseLaneHeight * cfg.laneDensity.laneHeightFactor)
+            // 统一行高倍率：laneHeight = textBoxHeight × factor，factor 来自 DanmakuTrackSpacing。
+            // 与 akdanmaku（margin = itemHeight × (factor-1)）共用同一语义，两套引擎视觉间距一致。
+            // factor<1 时 laneHeight<textBoxHeight，吃掉 fontMetrics 度量留白使同屏容纳更多行；
+            // 下限 0.65×textBoxHeight 保证相邻 lane 字形不重叠。
+            val laneHeight = (textBoxHeight * cfg.trackSpacing.factor).coerceAtLeast(textBoxHeight * 0.65f)
             val usableHeight = (availableHeight * cfg.area.coerceIn(0f, 1f)).toInt().coerceAtLeast(0)
             val laneCount = max(1, (usableHeight / laneHeight).toInt())
             val maxYTop = (topInset + usableHeight - textBoxHeight).toFloat().coerceAtLeast(topInset.toFloat())

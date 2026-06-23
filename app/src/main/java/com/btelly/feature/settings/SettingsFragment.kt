@@ -34,6 +34,8 @@ import com.btelly.core.common.cache.FileCacheManager
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.ui.navigation.navigateBackFromUi
+import com.btelly.feature.player.PlayerInstancePool
+import com.btelly.feature.player.VideoPlayerViewModel
 import com.btelly.feature.player.cache.PlayerMediaCache
 import com.btelly.feature.player.settings.PlayerSettingsStore
 import com.btelly.feature.player.sponsor.SponsorBlockRepository
@@ -98,6 +100,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val KEY_DM_TEXT_SIZE = "dm_text_size"
         private const val KEY_DM_SCREEN_AREA = "dm_area"
         private const val KEY_DM_SPEED = "dm_speed"
+        private const val KEY_DM_TRACK_SPACING = "dm_track_spacing"
         private const val KEY_DM_ALLOW_TOP = "dm_allow_top"
         private const val KEY_DM_ALLOW_BOTTOM = "dm_allow_bottom"
         private const val KEY_DM_FILTER_WEIGHT = "dm_filter_weight"
@@ -184,7 +187,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
     private fun initSettings() {
         commonSettings = mutableListOf(
             SettingModel(getString(R.string.clear_cache), "0.0kb"),
-            SettingModel(getString(R.string.cache_limit), "1 GB"),
+            SettingModel(getString(R.string.cache_limit), "200 MB"),
             SettingModel(getString(R.string.default_start_page), "热门"),
             SettingModel(getString(R.string.image_quality), "中尺寸"),
             SettingModel(getString(R.string.theme), "黑色"),
@@ -226,6 +229,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.dm_text_size), "40"),
             SettingModel(getString(R.string.dm_screen_area), "1/2"),
             SettingModel(getString(R.string.dm_speed), "4"),
+            SettingModel(getString(R.string.dm_track_spacing), "标准"),
             SettingModel(getString(R.string.dm_allow_top), "关"),
             SettingModel(getString(R.string.dm_allow_bottom), "关"),
             SettingModel(getString(R.string.dm_filter_weight), "关"),
@@ -560,27 +564,28 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             2 -> showDmChoiceDialog(position, KEY_DM_TEXT_SIZE, Array(26) { (30 + it).toString() })
             3 -> showDmChoiceDialog(position, KEY_DM_SCREEN_AREA, arrayOf("1/8", "1/6", "1/4", "1/2", "3/4", "全屏"))
             4 -> showDmChoiceDialog(position, KEY_DM_SPEED, arrayOf("1", "2", "3", "4", "5", "6", "7", "8", "9"))
-            5 -> toggleSetting(dmSettings, 5, KEY_DM_ALLOW_TOP) { value ->
+            5 -> showDmChoiceDialog(position, KEY_DM_TRACK_SPACING, arrayOf("紧凑", "标准", "宽松", "特宽"))
+            6 -> toggleSetting(dmSettings, 6, KEY_DM_ALLOW_TOP) { value ->
                 appSettings.putStringAsync(KEY_DM_ALLOW_TOP, value)
             }
-            6 -> toggleSetting(dmSettings, 6, KEY_DM_ALLOW_BOTTOM) { value ->
+            7 -> toggleSetting(dmSettings, 7, KEY_DM_ALLOW_BOTTOM) { value ->
                 appSettings.putStringAsync(KEY_DM_ALLOW_BOTTOM, value)
             }
-            7 -> showDmChoiceDialog(position, KEY_DM_FILTER_WEIGHT, DM_SMART_FILTER_OPTIONS)
-            8 -> toggleSetting(dmSettings, 8, KEY_DM_ALLOW_VIP_COLORFUL_DM) { value ->
+            8 -> showDmChoiceDialog(position, KEY_DM_FILTER_WEIGHT, DM_SMART_FILTER_OPTIONS)
+            9 -> toggleSetting(dmSettings, 9, KEY_DM_ALLOW_VIP_COLORFUL_DM) { value ->
                 appSettings.putStringAsync(KEY_DM_ALLOW_VIP_COLORFUL_DM, value)
             }
-            9 -> toggleSetting(dmSettings, 9, KEY_DM_SHOW_ADVANCED) { value ->
+            10 -> toggleSetting(dmSettings, 10, KEY_DM_SHOW_ADVANCED) { value ->
                 appSettings.putStringAsync(KEY_DM_SHOW_ADVANCED, value)
             }
-            10 -> toggleSetting(dmSettings, 10, KEY_DM_MERGE_DUPLICATE) { value ->
+            11 -> toggleSetting(dmSettings, 11, KEY_DM_MERGE_DUPLICATE) { value ->
                 appSettings.putStringAsync(KEY_DM_MERGE_DUPLICATE, value)
             }
-            11 -> toggleSetting(dmSettings, 11, KEY_DM_SMART_SHIELD) { value ->
+            12 -> toggleSetting(dmSettings, 12, KEY_DM_SMART_SHIELD) { value ->
                 appSettings.putStringAsync(KEY_DM_SMART_SHIELD, value)
             }
-            12 -> toggleSetting(dmSettings, 12, KEY_SHOW_DM_SWITCH)
-            13 -> toggleDanmakuEngine()
+            13 -> toggleSetting(dmSettings, 13, KEY_SHOW_DM_SWITCH)
+            14 -> toggleDanmakuEngine()
         }
     }
 
@@ -868,6 +873,12 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         try {
             val context = requireContext()
             PlayerMediaCache.clear(context)
+            // 关键：播放缓存被 release 后，VideoPlayerViewModel 缓存的 MediaSource
+            // 仍攥着已失效的 SimpleCache 引用，player 上挂的旧源同理。
+            // 必须同步失效这两处，否则 2 分钟内重播同一视频会走暖路径 prepare()
+            // 旧源，触发 SimpleCache.getContentMetadata checkState 崩溃。
+            VideoPlayerViewModel.clearCachedPlayback()
+            PlayerInstancePool.clearAttachedSource()
             FileCacheManager.clear()
             runCatching { ImageLoader.clearMemory(context) }
             ImageLoader.clearDiskCache(context)
@@ -1002,19 +1013,20 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         applySavedValue(dmSettings, 2, KEY_DM_TEXT_SIZE)
         applySavedValue(dmSettings, 3, KEY_DM_SCREEN_AREA)
         applySavedValue(dmSettings, 4, KEY_DM_SPEED)
-        applySavedValue(dmSettings, 5, KEY_DM_ALLOW_TOP)
-        applySavedValue(dmSettings, 6, KEY_DM_ALLOW_BOTTOM)
-        dmSettings[7].info = normalizeDanmakuSmartFilterValue(
-            appSettings.getCachedString(KEY_DM_FILTER_WEIGHT) ?: dmSettings[7].info
+        applySavedValue(dmSettings, 5, KEY_DM_TRACK_SPACING)
+        applySavedValue(dmSettings, 6, KEY_DM_ALLOW_TOP)
+        applySavedValue(dmSettings, 7, KEY_DM_ALLOW_BOTTOM)
+        dmSettings[8].info = normalizeDanmakuSmartFilterValue(
+            appSettings.getCachedString(KEY_DM_FILTER_WEIGHT) ?: dmSettings[8].info
         )
-        applySavedValue(dmSettings, 8, KEY_DM_ALLOW_VIP_COLORFUL_DM)
-        applySavedValue(dmSettings, 9, KEY_DM_SHOW_ADVANCED)
-        applySavedValue(dmSettings, 10, KEY_DM_MERGE_DUPLICATE)
-        applySavedValue(dmSettings, 11, KEY_DM_SMART_SHIELD)
-        applySavedValue(dmSettings, 12, KEY_SHOW_DM_SWITCH)
-        // 弹幕引擎（index 13）：存"开/关"，显示"性能优先/功能优先"
+        applySavedValue(dmSettings, 9, KEY_DM_ALLOW_VIP_COLORFUL_DM)
+        applySavedValue(dmSettings, 10, KEY_DM_SHOW_ADVANCED)
+        applySavedValue(dmSettings, 11, KEY_DM_MERGE_DUPLICATE)
+        applySavedValue(dmSettings, 12, KEY_DM_SMART_SHIELD)
+        applySavedValue(dmSettings, 13, KEY_SHOW_DM_SWITCH)
+        // 弹幕引擎（index 14）：存"开/关"，显示"性能优先/功能优先"
         appSettings.getCachedString(KEY_DANMAKU_LITE_ENGINE)?.let { saved ->
-            dmSettings.getOrNull(13)?.info = if (saved == "开") "性能优先" else "功能优先"
+            dmSettings.getOrNull(14)?.info = if (saved == "开") "性能优先" else "功能优先"
         }
     }
 
@@ -1287,13 +1299,13 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
     }
 
     private fun toggleDanmakuEngine() {
-        val setting = dmSettings.getOrNull(13) ?: return
+        val setting = dmSettings.getOrNull(14) ?: return
         showChoiceDialog(
             title = setting.title,
             currentValue = setting.info,
             options = arrayOf("功能优先", "性能优先")
         ) { value ->
-            updateSetting(dmSettings, 13, value)
+            updateSetting(dmSettings, 14, value)
             // 存"开/关"格式与其它 toggle 一致；性能优先=开，功能优先=关
             val lite = value == "性能优先"
             appSettings.putStringAsync(KEY_DANMAKU_LITE_ENGINE, if (lite) "开" else "关")

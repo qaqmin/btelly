@@ -58,7 +58,7 @@ internal class RollingTrackAllocator {
         item = item,
         nowMs = nowMs,
         width = width,
-        margin = margin,
+        config = config,
         rollingDurationMs = rollingDurationMs,
         allowOverlap = config.allowOverlap,
         overlapFraction = config.overlapFraction
@@ -111,12 +111,19 @@ internal class RollingTrackAllocator {
     item: DanmakuItem,
     nowMs: Long,
     width: Int,
-    margin: Int,
+    config: DanmakuConfig,
     rollingDurationMs: Long,
     allowOverlap: Boolean,
     overlapFraction: Float
   ): RowAllocation? {
     val itemHeight = item.drawState.height.toInt().coerceAtLeast(1)
+    // 统一行高倍率：行间空白 = 弹幕高度 × (factor - 1)，与 lite 引擎语义一致。
+    // factor<1 时 trackGap 为负，允许下一行压进上一行的 fontMetrics 度量留白（字形不重叠），
+    // 吃掉约 (itemHeight - 字形高) 的内部留白，使同屏容纳更多行。
+    // 下限 -itemHeight*0.35：约等于两侧度量留白之和的一半，保证字形绝不重叠。
+    val trackGap = (itemHeight.toFloat() * (config.trackSpacingFactor - 1f))
+      .coerceIn(-itemHeight * 0.35f, itemHeight * 2f)
+      .toInt()
     val nextStartTime = item.predictedRollingStartTime(nowMs)
     val nextWidth = item.drawState.width
     for (row in rows) {
@@ -136,7 +143,7 @@ internal class RollingTrackAllocator {
       }
     }
 
-    val nextTop = if (rows.isEmpty()) 0 else rows.last().bottom + margin
+    val nextTop = if (rows.isEmpty()) 0 else rows.last().bottom + trackGap
     if (nextTop + itemHeight > maxBottom) return null
     return Row(nextTop, itemHeight).also { rows.add(it) }.let { RowAllocation(it, nextStartTime) }
   }
@@ -322,7 +329,7 @@ internal class FixedTrackAllocator(private val fromBottom: Boolean) {
     val maxBottom = (height * config.screenPart).toInt()
     refreshMaxBottom(height, config)
     val placement = placements[item.data.danmakuId] ?: run {
-      val newRow = findOrCreateRow(item, nowMs, margin, config, maxBottom) ?: return false
+      val newRow = findOrCreateRow(item, nowMs, config, maxBottom) ?: return false
       val newPlacement = FixedPlacement(
         item = item,
         row = newRow,
@@ -376,11 +383,15 @@ internal class FixedTrackAllocator(private val fromBottom: Boolean) {
   private fun findOrCreateRow(
     item: DanmakuItem,
     nowMs: Long,
-    margin: Int,
     config: DanmakuConfig,
     maxBottom: Int
   ): Row? {
     val itemHeight = item.drawState.height.toInt().coerceAtLeast(1)
+    // 统一行高倍率：行间空白 = 弹幕高度 × (factor - 1)，与 lite 引擎 + RollingTrackAllocator 一致。
+    // factor<1 时 trackGap 为负，吃掉 fontMetrics 度量留白，同屏容纳更多行（字形不重叠）。
+    val trackGap = (itemHeight.toFloat() * (config.trackSpacingFactor - 1f))
+      .coerceIn(-itemHeight * 0.35f, itemHeight * 2f)
+      .toInt()
     for (row in rows) {
       val current = row.placement
       if (current == null || current.isTimeout(nowMs)) {
@@ -389,10 +400,10 @@ internal class FixedTrackAllocator(private val fromBottom: Boolean) {
     }
     val top = if (fromBottom) {
       val previousTop = rows.lastOrNull()?.top ?: maxBottom
-      previousTop - itemHeight - margin
+      previousTop - itemHeight - trackGap
     } else {
       val previousBottom = rows.lastOrNull()?.bottom ?: 0
-      previousBottom + margin
+      previousBottom + trackGap
     }
     if (top < 0 || top + itemHeight > maxBottom) return null
     return Row(top, itemHeight).also { rows.add(it) }

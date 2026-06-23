@@ -242,6 +242,7 @@ class DanmakuCoreController(
             area = snapshot.screenArea.toDmArea(),
             laneDensity = DanmakuLaneDensity.Standard,
             showHighLikeIcon = false,
+            trackSpacing = DanmakuTrackSpacing.fromPrefValue(snapshot.trackSpacing),
         )
     }
 
@@ -256,6 +257,7 @@ class DanmakuCoreController(
             area = 0.5f,
             laneDensity = DanmakuLaneDensity.Standard,
             showHighLikeIcon = false,
+            trackSpacing = DanmakuTrackSpacing.DEFAULT,
         )
 
     /** 归并两条按 progress 升序的弹幕时间线。 */

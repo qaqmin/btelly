@@ -8,6 +8,9 @@ private const val LANE_DENSITY_DENSE = "dense"
 private const val FONT_WEIGHT_NORMAL = "normal"
 private const val FONT_WEIGHT_BOLD = "bold"
 
+/**
+ * 旧轨道密度枚举（保留向后兼容，不再参与行高计算）。新逻辑统一使用 [DanmakuTrackSpacing]。
+ */
 enum class DanmakuLaneDensity(
     val prefValue: String,
     val laneHeightFactor: Float,
@@ -24,6 +27,54 @@ enum class DanmakuLaneDensity(
                 LANE_DENSITY_DENSE -> Dense
                 else -> Standard
             }
+    }
+}
+
+/**
+ * 弹幕行间距档位。两套引擎（akdanmaku 功能优先 + lite 性能优先）共用同一 [factor]
+ * 作为行高倍率，统一算法：行间空白 = 度量高度 × (factor - 1)。
+ *
+ * factor 基准为 fontMetrics 度量高度（descent-ascent，含字体设计留白），故：
+ * - factor = 1.0 → 度量层零空白（但字形间仍有 fontMetrics 内部留白，视觉略松）
+ * - factor < 1.0 → 吃掉度量留白，字形贴近（紧凑档）
+ * - factor > 1.0 → 行间额外留白
+ *
+ * factor 下限由 allocator 的 coerceIn(-itemHeight*0.35, ...) 兜底，保证字形绝不重叠。
+ */
+enum class DanmakuTrackSpacing(
+    val prefValue: String,
+    /** 设置页显示名。 */
+    val displayName: String,
+    /** 行高倍率。laneHeight = textBoxHeight × factor；akdanmaku margin = itemHeight × (factor - 1)。 */
+    val factor: Float,
+) {
+    Compact("compact", "紧凑", 0.80f),
+    Standard("standard", "标准", 0.95f),
+    Loose("loose", "宽松", 1.10f),
+    ExtraLoose("extra_loose", "特宽", 1.30f);
+
+    companion object {
+        val DEFAULT: DanmakuTrackSpacing = Standard
+
+        fun fromPrefValue(value: String?): DanmakuTrackSpacing {
+            if (value.isNullOrBlank()) return DEFAULT
+            return when (value.trim()) {
+                Compact.prefValue -> Compact
+                Loose.prefValue -> Loose
+                ExtraLoose.prefValue -> ExtraLoose
+                Standard.prefValue -> Standard
+                // 兼容用户可见的显示名回写
+                Compact.displayName -> Compact
+                Loose.displayName -> Loose
+                ExtraLoose.displayName -> ExtraLoose
+                Standard.displayName -> Standard
+                else -> DEFAULT
+            }
+        }
+
+        /** 显示名 → prefValue，供设置页选择后存盘用。 */
+        fun prefValueFromDisplayName(displayName: String): String =
+            values().firstOrNull { it.displayName == displayName }?.prefValue ?: DEFAULT.prefValue
     }
 }
 
@@ -54,6 +105,7 @@ data class DanmakuConfig(
     val area: Float,
     val laneDensity: DanmakuLaneDensity,
     val showHighLikeIcon: Boolean,
+    val trackSpacing: DanmakuTrackSpacing = DanmakuTrackSpacing.DEFAULT,
 )
 
 data class DanmakuSessionSettings(
@@ -74,6 +126,7 @@ data class DanmakuSessionSettings(
     val allowBottom: Boolean = true,
     val allowColor: Boolean = true,
     val allowSpecial: Boolean = true,
+    val trackSpacing: DanmakuTrackSpacing = DanmakuTrackSpacing.DEFAULT,
 ) {
     fun toConfig(): DanmakuConfig =
         DanmakuConfig(
@@ -86,5 +139,6 @@ data class DanmakuSessionSettings(
             area = area,
             laneDensity = laneDensity,
             showHighLikeIcon = showHighLikeIcon,
+            trackSpacing = trackSpacing,
         )
 }

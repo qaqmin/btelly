@@ -87,6 +87,15 @@ data class DanmakuConfig(
   var screenPart: Float = 1f,
 
   /**
+   * 弹幕行间距倍率（行高模型）。统一算法：行间空白 = 弹幕高度 × (trackSpacingFactor - 1)。
+   * - 1.0f = 零间距（最密）
+   * - 1.10f = 标准档（默认，对应 lite 引擎的 DanmakuTrackSpacing.Standard）
+   * - 1.25f / 1.45f = 宽松 / 特宽
+   * 与 lite 引擎（feature/player/danmaku）共用同一语义，详见 DanmakuTrackSpacing。
+   */
+  var trackSpacingFactor: Float = DEFAULT_TRACK_SPACING_FACTOR,
+
+  /**
    * 弹幕显示的透明度（不会影响选中的）
    */
   var alpha: Float = 1f,
@@ -237,6 +246,11 @@ data class DanmakuConfig(
     const val MAX_RELEASE_PER_DRAIN = 48
 
     const val DEFAULT_DURATION = 3800L
+
+    /**
+     * 默认弹幕行间距倍率，对应 DanmakuTrackSpacing.Standard（1.10f）。
+     */
+    const val DEFAULT_TRACK_SPACING_FACTOR = 1.10f
 
     const val FONT_BORDER_DEFAULT = 0
     const val FONT_BORDER_HEAVY = 1

@@ -13,7 +13,9 @@ class DanmakuTimelineWindowTest {
     val pending = arrayListOf(item(3, 300), item(1, 100), item(2, 200))
     val window = window(items, liveHistoryMax = 10)
 
-    assertEquals(3, window.syncPending(pending, liveMode = false))
+    // nowMs/durationMs=0：cutoff 落在所有 item 之前，且 scanIndex=0 兜底，不裁剪；
+    // 测试聚焦在乱序 pending 被排序入列的行为。
+    assertEquals(3, window.syncPending(pending, liveMode = false, nowMs = 0, durationMs = 0, rollingDurationMs = 0))
 
     assertEquals(emptyList<TestItem>(), pending)
     assertEquals(listOf(100L, 200L, 300L), items.map { it.positionMs })
@@ -70,7 +72,8 @@ class DanmakuTimelineWindowTest {
     val pending = arrayListOf(item(1, 1_000), item(2, 2_000), item(3, 3_000))
     val window = window(items, liveHistoryMax = 2)
 
-    window.syncPending(pending, liveMode = true)
+    // liveMode=true 走 trimLiveHistory，忽略 nowMs/durationMs/rollingDurationMs（传 0 即可）。
+    window.syncPending(pending, liveMode = true, nowMs = 0, durationMs = 0, rollingDurationMs = 0)
 
     assertEquals(listOf(2_000L, 3_000L), items.map { it.positionMs })
     assertEquals(0, window.scanIndex)
@@ -84,7 +87,7 @@ class DanmakuTimelineWindowTest {
     repeat(2_000) { index ->
       firstBatch.add(item(index.toLong(), index.toLong()))
     }
-    window.syncPending(firstBatch, liveMode = true)
+    window.syncPending(firstBatch, liveMode = true, nowMs = 0, durationMs = 0, rollingDurationMs = 0)
     window.reset(positionMs = 1_500, durationMs = 0, rollingDurationMs = 0)
 
     val secondBatch = ArrayList<TestItem>(2_000)
@@ -93,7 +96,7 @@ class DanmakuTimelineWindowTest {
       secondBatch.add(item(index.toLong(), index.toLong()))
     }
 
-    window.syncPending(secondBatch, liveMode = true)
+    window.syncPending(secondBatch, liveMode = true, nowMs = 0, durationMs = 0, rollingDurationMs = 0)
 
     assertEquals(2_000, items.size)
     assertEquals(2_000L, items.first().positionMs)

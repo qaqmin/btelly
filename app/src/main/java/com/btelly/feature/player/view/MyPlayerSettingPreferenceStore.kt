@@ -2,6 +2,7 @@ package com.btelly.feature.player.view
 
 import android.content.Context
 import com.btelly.core.common.settings.AppSettingsDataStore
+import com.btelly.feature.player.danmaku.DanmakuTrackSpacing
 import com.btelly.model.dm.DmScreenArea
 import org.koin.mp.KoinPlatform
 
@@ -10,6 +11,13 @@ internal class MyPlayerSettingPreferenceStore(
 ) {
 
     private val appSettings: AppSettingsDataStore get() = KoinPlatform.getKoin().get()
+
+    /**
+     * 读取全局弹幕行间距设置（prefValue，如 "standard"）。仅在 APP设置-弹幕设置中可调，
+     * 不在播放器内面板暴露，故独立于 [loadDanmakuState] 的 PanelState 通道。
+     */
+    fun getTrackSpacingPref(): String =
+        appSettings.getCachedString(MyPlayerSettingView.KEY_DM_TRACK_SPACING) ?: DanmakuTrackSpacing.DEFAULT.prefValue
 
     fun loadDanmakuState(
         state: MyPlayerSettingMenuBuilder.PanelState

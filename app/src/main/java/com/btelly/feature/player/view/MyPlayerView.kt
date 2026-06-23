@@ -2927,7 +2927,8 @@ class MyPlayerView @JvmOverloads constructor(
             allowTop = settingView?.getDmAllowTop() ?: true,
             allowBottom = settingView?.getDmAllowBottom() ?: true,
             smartFilterLevel = getDanmakuSmartFilterLevel(),
-            mergeDuplicate = settingView?.getDmMergeDuplicate() ?: true
+            mergeDuplicate = settingView?.getDmMergeDuplicate() ?: true,
+            trackSpacing = settingView?.getDmTrackSpacingPref() ?: "standard"
         )
     }
 
