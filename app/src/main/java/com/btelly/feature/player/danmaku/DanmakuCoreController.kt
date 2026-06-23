@@ -236,7 +236,9 @@ class DanmakuCoreController(
             enabled = snapshot.enabled,
             opacity = snapshot.alpha.coerceIn(0.1f, 1f),
             textSizeSp = textSizeSp,
-            fontWeight = DanmakuFontWeight.Normal, // AkDanmaku 默认 config.bold=false → Typeface.DEFAULT
+            // 对齐 akdanmaku：DanmakuConfig.bold 默认 true → Typeface.DEFAULT_BOLD。
+            // （原注释误写为"bold=false"，与 DanmakuConfig.kt:106 实际默认值矛盾，已修正。）
+            fontWeight = DanmakuFontWeight.Bold,
             strokeWidthPx = strokeWidthPx,
             speedLevel = snapshot.speed.toDmSpeedLevel(),
             area = snapshot.screenArea.toDmArea(),
@@ -251,7 +253,7 @@ class DanmakuCoreController(
             enabled = true,
             opacity = 1f,
             textSizeSp = 18f,
-            fontWeight = DanmakuFontWeight.Normal,
+            fontWeight = DanmakuFontWeight.Bold,
             strokeWidthPx = 4,
             speedLevel = 5,
             area = 0.5f,

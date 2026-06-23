@@ -139,6 +139,12 @@ open class SimpleRenderer : DanmakuRenderer {
     config: DanmakuConfig
   ) {
     updatePaint(item, displayer, config)
+    // fallback 直绘路径（cache miss）也必须施加 config.alpha，与 cache 命中路径
+    // （DanmakuRuntime.drawPaint.alpha = config.alpha*255）对齐，否则调低透明度时
+    // cache miss 的弹幕会显示满透明度，与 cache 命中的弹幕视觉不一致。
+    val alphaScale = (config.alpha * 255).toInt().coerceIn(0, 255)
+    textPaint.alpha = alphaScale
+    strokePaint.alpha = alphaScale
     val danmakuItemData = item.data
     val x = CANVAS_PADDING * 0.5f
     val y = CANVAS_PADDING * 0.5f - textPaint.ascent()

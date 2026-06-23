@@ -1800,6 +1800,7 @@ class MyPlayerDanmakuController(
             1 -> 12000L
             2 -> 10200L
             3 -> 8400L
+            4 -> 6000L
             5 -> 6000L
             6 -> 4800L
             7 -> 3840L

@@ -79,12 +79,15 @@ internal class CacheManager(
     // Cache draw tools (cache thread only).
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.DEFAULT_BOLD
-        isSubpixelText = true
+        // 对齐 akdanmaku SimpleRenderer + DanmakuEngine.drawFill：不开 subpixel，
+        // 避免 TV/OLED 上纯色文字边缘 RGB 子像素分离导致整体发灰。
     }
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.DEFAULT_BOLD
         style = Paint.Style.STROKE
-        isSubpixelText = true
+        // 对齐 akdanmaku：ROUND 连接，拐角不尖刺，保留更多彩色像素。
+        strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.ROUND
     }
     private val fontMetrics = Paint.FontMetrics()
     private val emotePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFilterBitmap = true }
@@ -207,7 +210,8 @@ internal class CacheManager(
         stroke.strokeWidth = strokeWidth
 
         fill.getFontMetrics(fontMetrics)
-        val textHeightPx = (fontMetrics.descent - fontMetrics.ascent).coerceAtLeast(1f)
+        // 度量高度对齐 akdanmaku 与 DanmakuEngine.act()：descent - ascent + leading。
+        val textHeightPx = (fontMetrics.descent - fontMetrics.ascent + fontMetrics.leading).coerceAtLeast(1f)
         val boxHeight = ceil(textHeightPx + outlinePad * 2f).toInt().coerceAtLeast(1)
         val boxWidth = ceil(req.textWidthPx.coerceAtLeast(outlinePad * 2f)).toInt().coerceAtLeast(1)
 

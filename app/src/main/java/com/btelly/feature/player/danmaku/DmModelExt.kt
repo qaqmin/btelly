@@ -17,11 +17,15 @@ fun DmModel.toDanmaku(): Danmaku? {
     // mode 7/9 是高级/脚本弹幕，弹幕引擎不支持，过滤掉
     if (mode == 7 || mode == 9) return null
     if (content.contains("def text", ignoreCase = true)) return null
+    // color 规范化：B 站协议 color=0 表示默认白色，这里统一转成 0xFFFFFF，
+    // 对齐 akdanmaku 的 toDanmakuColor()（color==0 → Color.WHITE）。
+    // 否则引擎会把 0 当黑色渲染（见 DanmakuEngine.drawFill.color = rgb or alpha）。
+    val normalizedColor = if (color == 0) 0xFFFFFF else color
     return Danmaku(
         timeMs = progress.coerceIn(0, Int.MAX_VALUE),
         mode = mode,
         text = content,
-        color = color,
+        color = normalizedColor,
         fontSize = fontSize,
         weight = weight,
         midHash = midHash.takeIf { it.isNotBlank() },

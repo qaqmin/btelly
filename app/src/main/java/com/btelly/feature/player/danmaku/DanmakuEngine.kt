@@ -153,16 +153,20 @@ internal class DanmakuEngine(
     private val drawFontMetrics = Paint.FontMetrics()
     private val drawFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.DEFAULT_BOLD
-        isSubpixelText = true
+        // 对齐 akdanmaku SimpleRenderer：不开 subpixel（TV/OLED 上会把纯色文字边缘拆成 RGB 子像素，
+        // 整体观感发灰、颜色不饱满），仅抗锯齿。
     }
     private val drawStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.DEFAULT_BOLD
         style = Paint.Style.STROKE
-        isSubpixelText = true
+        // 对齐 akdanmaku SimpleRenderer：ROUND 连接比默认 MITER 更圆滑，拐角不生成尖刺，
+        // 占用文字面积更小，彩色像素保留更多；关闭 subpixel 同 drawFill。
+        strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.ROUND
     }
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        // Smooth-first by default for TVs (may be adjusted by overload strategies later).
-        isFilterBitmap = true
+        // 对齐 akdanmaku drawPaint：关闭 isFilterBitmap，避免 drawBitmap 双线性滤波糊化烘焙好的
+        // 锐利文字边缘（边缘被混合稀释 → 颜色发浅/不饱满）。弹幕 bitmap 按整数像素 1:1 绘制，无需滤波。
     }
     private val emotePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFilterBitmap = true }
     private val emotePlaceholderFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
@@ -279,7 +283,9 @@ internal class DanmakuEngine(
 
             actionPaint.textSize = textSizePx
             actionPaint.getFontMetrics(actionFontMetrics)
-            val textBoxHeight = (actionFontMetrics.descent - actionFontMetrics.ascent) + outlinePad * 2f
+            // 度量高度对齐 akdanmaku SimpleRenderer.getCacheHeight：descent - ascent + leading。
+            // leading 对 CJK 字体通常为 0，但西文/混排时可能有值，补上保证两套引擎行高基准一致。
+            val textBoxHeight = (actionFontMetrics.descent - actionFontMetrics.ascent + actionFontMetrics.leading) + outlinePad * 2f
             // 统一行高倍率：laneHeight = textBoxHeight × factor，factor 来自 DanmakuTrackSpacing。
             // 与 akdanmaku（margin = itemHeight × (factor-1)）共用同一语义，两套引擎视觉间距一致。
             // factor<1 时 laneHeight<textBoxHeight，吃掉 fontMetrics 度量留白使同屏容纳更多行；
@@ -1211,11 +1217,15 @@ internal class DanmakuEngine(
 
         val drawStrokeEnabled = strokeWidthPx > 0.01f
         val rgb = item.data.color and 0xFFFFFF
+        // 对齐 cache 烘焙路径（CacheManager:232-233）与 akdanmaku：paint.color 用满透明度
+        // （描边用 baseAlpha 230/210，填充用 0xFF），draw 时统一用 paint.alpha 施加整体 opacity。
+        // 这样直绘 fallback 与 cache 命中视觉一致，且调透明度时整体淡化、不会文字描边各褪各的。
         if (drawStrokeEnabled) {
-            // 描边色用老版本逻辑：亮字配黑描边，暗字配白描边（对齐 AkDanmaku SimpleRenderer）。
-            drawStroke.color = resolveStandardStrokeColor(rgb, opacityAlpha)
+            drawStroke.color = resolveStandardStrokeColor(rgb, 255)
+            drawStroke.alpha = opacityAlpha
         }
-        drawFill.color = (opacityAlpha shl 24) or rgb
+        drawFill.color = (0xFF shl 24) or rgb
+        drawFill.alpha = opacityAlpha
 
         val textX = x + outlinePad
         val baseline = yTop + baselineOffset
@@ -1313,17 +1323,19 @@ internal class DanmakuEngine(
     }
 
     private fun speedMultiplier(level: Int): Float =
+        // 对齐 akdanmaku toDanmakuDurationMs 各档时长：multiplier = 6000 / akMs。
+        // （akdanmaku 档位 1→12000ms ... 9→2160ms，缺 4 档补 6000ms 对齐 level 4/5。）
         when (min(10, max(1, level))) {
-            1 -> 0.6f
-            2 -> 0.8f
-            3 -> 0.9f
-            4 -> 1.0f
-            5 -> 1.2f
-            6 -> 1.4f
-            7 -> 1.6f
-            8 -> 1.9f
-            9 -> 2.2f
-            else -> 2.6f
+            1 -> 0.50f   // 6000/12000
+            2 -> 0.588f  // 6000/10200
+            3 -> 0.714f  // 6000/8400
+            4 -> 1.0f    // 6000/6000（akdanmaku 原 else 回退，此处显式对齐）
+            5 -> 1.0f    // 6000/6000
+            6 -> 1.25f   // 6000/4800
+            7 -> 1.5625f // 6000/3840
+            8 -> 2.0f    // 6000/3000
+            9 -> 2.778f  // 6000/2160
+            else -> 2.778f
         }
 
     private companion object {
