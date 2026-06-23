@@ -142,6 +142,22 @@ object PlayerInstancePool {
         attachedSourceKey = null
     }
 
+    /**
+     * 清空挂载状态标记，但不释放 player 实例。
+     *
+     * 用于播放缓存被外部主动释放（如设置页"清除缓存"）后，强制下一次播放走冷路径
+     * （setMediaSource 重建），避免暖复用仍读到已 release 的 SimpleCache：
+     *   clearCache → PlayerMediaCache.clear() release 了 CacheDataSource 引用的 SimpleCache，
+     *   但 VideoPlayerViewModel.cachedPlaybacks 里的 MediaSource 还攥着旧引用，
+     *   暖路径 prepare() 旧 MediaSource 会触发 SimpleCache.getContentMetadata 的
+     *   checkState(contentIndex != null) 崩溃。把 attachedSourceKey 归零后，
+     *   isAttachedSource() 返回 false → zero_overhead_reuse 降级，重建源即安全。
+     */
+    @Synchronized
+    fun clearAttachedSource() {
+        attachedSourceKey = null
+    }
+
     @Synchronized
     fun detach(player: ExoPlayer?, allowReuse: Boolean) {
         if (player == null || player !== cachedPlayer) return
