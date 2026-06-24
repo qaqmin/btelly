@@ -299,6 +299,11 @@ class MyPlayerView @JvmOverloads constructor(
     private var tapCommitRunnable: Runnable? = null
     private val tapCommitDelayMs = 500L
 
+    // OK/Enter 在控制器隐藏时的 DOWN 由自定义路径切换了播放/暂停，
+    // 必须吞掉对应的 ACTION_UP，否则 UP 落到刚获焦的 buttonPlay 上会被框架
+    // 默认行为 performClick 再次切换，导致一次按下切换两次、互相抵消（小米电视复现）。
+    private var consumedOkKeyUp = false
+
     // --- Timebar-focused seek state (fixed 10s step, interval decreases with hold time) ---
     private var timebarSeekActive = false
     private var timebarSeekForward = true
@@ -1088,6 +1093,24 @@ class MyPlayerView @JvmOverloads constructor(
         if (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER) {
             AppLog.d("DpadCenter", "dispatchKeyEvent code=${event.keyCode} action=${event.action} repeat=${event.repeatCount} ctrlVisible=${controller?.isFullyVisible()} player=${player != null}")
         }
+        // 吞掉"控制器隐藏时 DOWN 已切换播放/暂停"对应的 ACTION_UP。
+        // 否则 UP 落到刚获焦的 buttonPlay 上，框架默认行为 performClick 会二次切换，
+        // 与 DOWN 抵消 → 表现为按确定键无反应（小米电视首次按下必现）。
+        if (consumedOkKeyUp &&
+            event.action == KeyEvent.ACTION_UP &&
+            (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)
+        ) {
+            AppLog.d("DpadCenter", "consume ACTION_UP code=${event.keyCode} (DOWN already toggled)")
+            consumedOkKeyUp = false
+            return true
+        }
+        if (event.action == KeyEvent.ACTION_DOWN &&
+            event.keyCode != KeyEvent.KEYCODE_DPAD_CENTER &&
+            event.keyCode != KeyEvent.KEYCODE_ENTER
+        ) {
+            // 其它键的 DOWN：清除可能残留的标记，避免误吞后续不相关的 UP
+            consumedOkKeyUp = false
+        }
         if (player == null) return super.dispatchKeyEvent(event)
         if (controller == null && event.action == KeyEvent.ACTION_DOWN && !isBackKey) {
             ensureController("key")
@@ -1257,6 +1280,8 @@ class MyPlayerView @JvmOverloads constructor(
                         ) {
                             AppLog.d("DpadCenter", "calling togglePlayPauseFromKey code=${event.keyCode}")
                             controller?.togglePlayPauseFromKey()
+                            // DOWN 已切换，标记吞掉对应 UP，防止 UP 触发 buttonPlay.performClick 二次切换
+                            consumedOkKeyUp = true
                         } else {
                             AppLog.d("DpadCenter", "calling focusButtonByKeyDown code=${event.keyCode}")
                             controller?.focusButtonByKeyDown(event)
