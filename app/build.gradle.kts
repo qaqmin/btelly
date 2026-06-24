@@ -53,8 +53,8 @@ android {
         applicationId = "com.btelly"
         minSdk = 23
         targetSdk = 35
-        versionCode = 62
-        versionName = "1.6.2"
+        versionCode = 63
+        versionName = "1.6.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
