@@ -57,7 +57,8 @@ object ContentFilter {
         "暴力",
         "猎奇",
         "獵奇",
-        "ryona"
+        "ryona",
+        "鬼畜"
     )
 
     private val EXPLICIT_BLOCKED_KEYWORDS = setOf(
@@ -132,6 +133,8 @@ object ContentFilter {
         "人妻",
         "熟女",
         "制服",
+        "女仆",
+        "女僕",
         "女仆装",
         "女僕裝",
         "短裙",
@@ -140,8 +143,20 @@ object ContentFilter {
         "抹胸",
         "丝袜",
         "絲襪",
+        "油丝",
+        "油襪",
+        "亮丝",
+        "亮絲",
         "黑丝",
         "黑絲",
+        "嘿丝",
+        "嘿絲",
+        "老丝",
+        "老絲",
+        "库里丝",
+        "庫裡絲",
+        "裤里丝",
+        "褲裡絲",
         "白丝",
         "白絲",
         "灰丝",
@@ -150,6 +165,18 @@ object ContentFilter {
         "紫絲",
         "肉丝",
         "肉絲",
+        "红丝",
+        "紅絲",
+        "蓝丝",
+        "藍絲",
+        "咖丝",
+        "咖絲",
+        "网丝",
+        "網絲",
+        "蕾丝",
+        "蕾絲",
+        "渔网",
+        "漁網",
         "过膝袜",
         "過膝襪",
         "连裤袜",
@@ -160,15 +187,36 @@ object ContentFilter {
         "網襪",
         "白袜",
         "白襪",
+        "连体",
+        "連體",
         "油亮",
         "丝足",
         "絲足",
+        "丝腿",
+        "絲腿",
+        "丝控",
+        "絲控",
+        "丝模",
+        "絲模",
+        "丝妹",
+        "絲妹",
+        "丝里丝",
+        "絲裡絲",
         "裸足",
         "玉足",
         "足控",
         "恋足",
         "戀足",
         "美足",
+        // 擦边UP称呼套路
+        "丝姐",
+        "絲姐",
+        // jio 谐音绕过（丝jio/脚jio/足jio，足控擦边常用）
+        "jio",
+        "丝jio",
+        "絲jio",
+        "足jio",
+        "脚jio",
         "巨乳",
         "乳摇",
         "乳搖",
@@ -205,6 +253,11 @@ object ContentFilter {
         "绅士视频",
         "紳士視頻",
         "紳士影片",
+        // 美女/擦边（语义确定，全维度生效）
+        "写真",
+        "寫真",
+        "辣妹",
+        "私房照",
         "过审",
         "過審",
         "R18",
@@ -226,6 +279,8 @@ object ContentFilter {
         "擦邊球",
         "打擦边",
         "打擦邊",
+        // 裸"福利"：擦边视频标题常作"每日福利/深夜福利/福利局"，原仅组合集，提升为直命中
+        "福利",
         "福利放送",
         "粉丝福利",
         "粉絲福利",
@@ -254,6 +309,12 @@ object ContentFilter {
         "艷舞",
         "抖胸舞",
         "扭胯舞",
+        // 裸词提升为直命中：擦边标题常作"钢管/热舞/辣舞"，原仅组合集，单独出现也拦截
+        "热舞",
+        "熱舞",
+        "辣舞",
+        "钢管",
+        "鋼管",
         "lap dance",
         "lapdance",
         "pole dance",
@@ -276,7 +337,51 @@ object ContentFilter {
         "怪談",
         "细思极恐",
         "細思極恐",
-        "SCP"
+        "SCP",
+        // 美女/擦边话术（仅标题/搜索，不进 EXPLICIT 避免大面积误伤）
+        "颜值",
+        "顏值",
+        "好身材",
+        "微胖",
+        "美腿",
+        "锁骨",
+        "鎖骨",
+        "养眼",
+        "養眼",
+        "女友视角",
+        "女友視角",
+        "嫩模",
+        "私房",
+        "宅舞",
+        "福利姬",
+        "御姐音",
+        "萝莉音",
+        "蘿莉音",
+        "妹妹音",
+        // 恐怖讲解套路话术（单看任一即可判定）
+        "胆小勿入",
+        "膽小勿入",
+        "慎入",
+        "吓哭",
+        "嚇哭",
+        "吓尿",
+        "吓坏",
+        "嚇壞",
+        "吓死",
+        "嚇死",
+        "头皮发麻",
+        "頭皮發麻",
+        "背后发凉",
+        "背後發涼",
+        "背脊发凉",
+        "背脊發涼",
+        "童年阴影",
+        "童年陰影",
+        "深夜勿看",
+        "半夜别看",
+        "半夜別看",
+        "别在深夜看",
+        "別在深夜看"
     )
 
     private val DESC_BLOCKED_KEYWORDS = EXPLICIT_BLOCKED_KEYWORDS + setOf(
@@ -323,7 +428,34 @@ object ContentFilter {
         "竖屏舞蹈",
         "豎屏舞蹈",
         "竖屏热舞",
-        "豎屏熱舞"
+        "豎屏熱舞",
+        // "丝"单字：单独不拦截（避免误伤螺丝/粉丝/丝瓜），仅与风险词同现时拦截（丝性感/丝写真/丝诱惑）
+        "丝",
+        "絲",
+        // 擦边主体词
+        "cosplay",
+        "cos",
+        "翻跳",
+        "翻跳舞",
+        "cover",
+        "穿搭",
+        "jk制服",
+        // 解说/速看主体词
+        "一口气看完",
+        "一口氣看完",
+        "一口气",
+        "一口氣",
+        "解说",
+        "解說",
+        "讲解",
+        "講解",
+        "解析",
+        "速看",
+        "混剪",
+        "盘点",
+        "盤點",
+        "深度解读",
+        "深度解讀"
     )
 
     private val CONTEXTUAL_RISK_KEYWORDS = setOf(
@@ -331,8 +463,6 @@ object ContentFilter {
         "擦邊",
         "福利",
         "福利放送",
-        "粉丝福利",
-        "粉絲福利",
         "性感",
         "诱惑",
         "誘惑",
@@ -358,7 +488,30 @@ object ContentFilter {
         "懂的都懂",
         "秒懂",
         "虎狼之词",
-        "虎狼之詞"
+        "虎狼之詞",
+        // 恐怖氛围风险词（"鬼/血"等宽泛单字也纳入，但仅在主体词同时命中时生效，靠组合判断规避误伤）
+        "鬼",
+        "血",
+        "女鬼",
+        "恶鬼",
+        "惡鬼",
+        "鬼片",
+        "撞鬼",
+        "见鬼",
+        "見鬼",
+        "丧尸",
+        "喪屍",
+        "丧尸片",
+        "喪屍片",
+        "尸体",
+        "屍體",
+        "阴森",
+        "陰森",
+        "诡异",
+        "詭異",
+        "邪门",
+        "邪門",
+        "吓人"
     )
 
     private val LIVE_BLOCKED_AREAS = setOf(
@@ -366,7 +519,9 @@ object ContentFilter {
         "ASMR",
         "颜值",
         "顏值",
-        "助眠"
+        "助眠",
+        "唱聊",
+        "舞蹈"
     )
 
     private val LIVE_BLOCKED_PARENT_AREAS = emptySet<String>()
@@ -638,10 +793,12 @@ object ContentFilter {
 
     fun isSearchItemBlocked(context: Context, item: SearchItemModel): Boolean {
         val authorName = item.author.ifBlank { item.uname }
+        // 用 decodedTitle 而非原始 title：B 站搜索结果标题带 <em class="keyword"> 高亮标签，
+        // 会把关键词拆开或混入标签字符，导致子串匹配失效；decodedTitle 已是去标签的纯文本，与显示一致。
         return isVideoBlocked(
             context = context,
             typeName = "",
-            title = item.title,
+            title = item.decodedTitle,
             desc = item.desc,
             authorName = authorName,
             aid = item.aid,
@@ -665,19 +822,41 @@ object ContentFilter {
 
     private fun shouldBlockTitle(titleLower: String): Boolean {
         if (titleLower.isEmpty()) return false
-        if (containsAny(titleLower, TITLE_BLOCKED_KEYWORDS_LOWER)) return true
-        return containsContextualRiskFast(titleLower)
+        // 归一化后再匹配：让"丝 袜""ｓｅｘｙ""胆小 勿入"等变体失效。
+        // 仅做安全的字符变换（去空白/全角转半角/小写），不做拼音谐音模糊匹配，避免误伤。
+        val normalized = normalizeForMatch(titleLower)
+        if (containsAny(normalized, TITLE_BLOCKED_KEYWORDS_LOWER)) return true
+        return containsContextualRiskFast(normalized)
     }
 
     private fun shouldBlockDesc(descLower: String): Boolean {
         if (descLower.isEmpty()) return false
-        if (containsAny(descLower, DESC_BLOCKED_KEYWORDS_LOWER)) return true
-        return containsContextualRiskFast(descLower)
+        val normalized = normalizeForMatch(descLower)
+        if (containsAny(normalized, DESC_BLOCKED_KEYWORDS_LOWER)) return true
+        return containsContextualRiskFast(normalized)
     }
 
     private fun containsContextualRiskFast(valueLower: String): Boolean {
         return containsAny(valueLower, CONTEXTUAL_SUBJECT_KEYWORDS_LOWER) &&
             containsAny(valueLower, CONTEXTUAL_RISK_KEYWORDS_LOWER)
+    }
+
+    /**
+     * 安全区归一化：去所有空白、全角空格、全角字符转半角、统一小写。
+     * 故意不做拼音/谐音/形近/编辑距离等模糊变换，避免大面积误伤正常内容。
+     * 作用：击穿"美 女""ｓｅｘｙ""胆小 勿入"这类插空格/全角的绕过变体。
+     */
+    private fun normalizeForMatch(value: String): String {
+        if (value.isEmpty()) return value
+        val sb = StringBuilder(value.length)
+        for (c in value) {
+            when {
+                c.isWhitespace() || c.code == 0x3000 -> Unit // 去普通空白与全角空格
+                c.code in 0xFF01..0xFF5E -> sb.append((c.code - 0xFEE0).toChar()) // 全角→半角
+                else -> sb.append(c.lowercaseChar())
+            }
+        }
+        return sb.toString()
     }
 
     private fun containsAny(valueLower: String, keywordsLower: Collection<String>): Boolean {

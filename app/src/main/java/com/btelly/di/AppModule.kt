@@ -27,6 +27,7 @@ import com.btelly.feature.home.HotViewModel
 import com.btelly.feature.home.HotFeedRepository
 import com.btelly.feature.home.HomeLaneFeedRepository
 import com.btelly.feature.home.HomeLaneViewModel
+import com.btelly.feature.home.RecommendDislikeFeedback
 import com.btelly.feature.home.RecommendFeedRepository
 import com.btelly.feature.home.RecommendViewModel
 import com.btelly.feature.live.LiveListViewModel
@@ -87,8 +88,9 @@ val repositoryModule = module {
 
 @OptIn(UnstableApi::class)
 val viewModelModule = module {
-    viewModel { RecommendViewModel(get(), androidContext()) }
-    viewModel { HotViewModel(get(), androidContext()) }
+    single { RecommendDislikeFeedback(get(), get()) }
+    viewModel { RecommendViewModel(get(), get(), androidContext()) }
+    viewModel { HotViewModel(get(), get(), androidContext()) }
     viewModel { (type: Int) -> HomeLaneViewModel(type, get()) }
     viewModel { MainNavigationViewModel(get()) }
     viewModel { VideoPlayerViewModel(get(), get(), get(), get(), get(), get(), get(named("noCookie")), androidContext(), get()) }

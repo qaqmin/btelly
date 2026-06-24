@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 
 class HotViewModel(
     private val repository: HotFeedRepository,
+    private val dislikeFeedback: RecommendDislikeFeedback,
     context: Context
 ) : ViewModel(), VideoFeedViewModel {
 
@@ -103,6 +104,16 @@ class HotViewModel(
     }
 
     private suspend fun List<VideoModel>.filterForDisplay(): List<VideoModel> {
-        return ContentFilter.filterVideos(appContext, this@filterForDisplay)
+        val original = this@filterForDisplay
+        val kept = ContentFilter.filterVideos(appContext, original)
+        // 闭环：被本地过滤掉的视频异步反馈 dislike，让 B 站算法减少同类推送
+        if (kept.size < original.size) {
+            val blockedKeys = kept.asSequence()
+                .mapNotNull { it.bvid.takeIf(String::isNotBlank) }
+                .toMutableSet()
+            val blocked = original.filter { v -> v.bvid.isBlank() || v.bvid !in blockedKeys }
+            if (blocked.isNotEmpty()) dislikeFeedback.feedbackBlocked(blocked)
+        }
+        return kept
     }
 }

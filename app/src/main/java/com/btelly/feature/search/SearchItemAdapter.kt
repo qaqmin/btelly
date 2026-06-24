@@ -431,7 +431,7 @@ class SearchItemAdapter(
             item.aid > 0L -> "aid:${item.aid}"
             item.bvid.isNotBlank() -> "bvid:${item.bvid}"
             item.id > 0L -> "id:${item.id}"
-            else -> "title:${item.title}"
+            else -> "title:${item.decodedTitle}"
         }
     }
 
