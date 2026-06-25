@@ -1028,14 +1028,37 @@ object ImageLoader {
 
     // ---------- 网络 ----------
 
-    private fun fetchBytes(url: String): FetchedBytes {
+    // B 站图床的三个等价 CDN，同一 path 换 host 可取到同一张图。
+    private val BILI_CDN_HOSTS = listOf("i0.hdslb.com", "i1.hdslb.com", "i2.hdslb.com")
+
+    // 视为可换 host 重试的网络异常：证书/hostname 校验、连接拒绝、超时、域名解析、socket 等。
+    // SSLPeerUnverifiedException 是 SSLException 子类，列出仅为可读性。
+    private fun isRetryableNetworkError(t: Throwable): Boolean {
+        return t is javax.net.ssl.SSLException ||
+            t is javax.net.ssl.SSLPeerUnverifiedException ||
+            t is java.net.ConnectException ||
+            t is java.net.SocketTimeoutException ||
+            t is java.net.UnknownHostException ||
+            (t is java.io.IOException && t !is CancellationException)
+    }
+
+    // 仅对 i0/i1/i2.hdslb.com 的 https URL 换 host，返回除当前 host 外的候选（顺序随机化以分散压力）。
+    private fun alternateBiliCdnUrls(url: String): List<String> {
+        val currentHost = BILI_CDN_HOSTS.firstOrNull { url.startsWith("https://$it/", ignoreCase = true) }
+            ?: return emptyList()
+        val tail = url.substringAfter("https://$currentHost", "")
+        return (BILI_CDN_HOSTS - currentHost).shuffled().map { "https://$it$tail" }
+    }
+
+    // 单次请求，复用 header 构造与磁盘缓存命中判定。抛出的异常由外层 failover 决定是否重试。
+    private fun fetchBytesOnce(url: String, client: OkHttpClient): FetchedBytes {
         val requestBuilder = Request.Builder().url(url)
         if (isBilibiliImageUrl(url)) {
             requestBuilder
                 .header("Referer", "https://www.bilibili.com/")
                 .header("User-Agent", NetworkManager.getCurrentUserAgent())
         }
-        return imageOkHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+        return client.newCall(requestBuilder.build()).execute().use { response ->
             val body = response.body ?: throw IllegalStateException("Empty body for $url")
             FetchedBytes(
                 bytes = body.bytes(),
@@ -1044,17 +1067,55 @@ object ImageLoader {
         }
     }
 
+    private fun fetchBytes(url: String): FetchedBytes {
+        // B 站图床 CDN host 容错：某个节点（如 i0）证书/连接异常时自动换 i1/i2 重试。
+        val alternates = alternateBiliCdnUrls(url)
+        if (alternates.isEmpty()) return fetchBytesOnce(url, imageOkHttpClient)
+        var lastError: Throwable? = null
+        try {
+            return fetchBytesOnce(url, imageOkHttpClient)
+        } catch (t: Throwable) {
+            if (t is CancellationException) throw t
+            lastError = t
+            if (!isRetryableNetworkError(t)) throw t
+        }
+        for (alt in alternates) {
+            try {
+                val data = fetchBytesOnce(alt, imageOkHttpClient)
+                AppLog.i(TAG, "cover cdn_failover url=${url.takeLast(50)} alt_host=${alt.substringAfter("https://").substringBefore('/')}")
+                return data
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                lastError = t
+                if (!isRetryableNetworkError(t)) throw t
+            }
+        }
+        throw lastError ?: java.io.IOException("CDN failover exhausted for $url")
+    }
+
     private fun fetchBytesFast(url: String): ByteArray {
-        val requestBuilder = Request.Builder().url(url)
-        if (isBilibiliImageUrl(url)) {
-            requestBuilder
-                .header("Referer", "https://www.bilibili.com/")
-                .header("User-Agent", NetworkManager.getCurrentUserAgent())
+        val alternates = alternateBiliCdnUrls(url)
+        if (alternates.isEmpty()) return fetchBytesOnce(url, fastImageOkHttpClient).bytes
+        var lastError: Throwable? = null
+        try {
+            return fetchBytesOnce(url, fastImageOkHttpClient).bytes
+        } catch (t: Throwable) {
+            if (t is CancellationException) throw t
+            lastError = t
+            if (!isRetryableNetworkError(t)) throw t
         }
-        return fastImageOkHttpClient.newCall(requestBuilder.build()).execute().use { response ->
-            val body = response.body ?: throw IllegalStateException("Empty body for $url")
-            body.bytes()
+        for (alt in alternates) {
+            try {
+                val bytes = fetchBytesOnce(alt, fastImageOkHttpClient).bytes
+                AppLog.i(TAG, "cover cdn_failover url=${url.takeLast(50)} alt_host=${alt.substringAfter("https://").substringBefore('/')}")
+                return bytes
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                lastError = t
+                if (!isRetryableNetworkError(t)) throw t
+            }
         }
+        throw lastError ?: java.io.IOException("CDN failover exhausted for $url")
     }
 
     // ---------- 变换 ----------
