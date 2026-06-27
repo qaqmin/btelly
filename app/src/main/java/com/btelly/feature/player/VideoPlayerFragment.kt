@@ -62,6 +62,8 @@ import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
+import androidx.media3.common.Format
+import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.LoadEventInfo
 import androidx.media3.exoplayer.source.MediaLoadData
@@ -234,7 +236,16 @@ class VideoPlayerFragment : Fragment() {
             val trace = playerPerfTrace ?: return
             val now = System.currentTimeMillis()
             trace.videoDecoderInitMs = now
-            AppLog.i("VideoPlayerViewModel", "PLAYER_PERF [C] video decoder init ($decoderName) hw_init=${elapsedInitializationMs}ms +${now - trace.prepareMs}ms")
+            // 解码器分类：与 VideoCodecSupport.isHardwareDecoder 同款前缀逻辑，用于诊断是否落到软解。
+            // google/android 前缀为软解器，其余 c2./OMX. 视为硬解。
+            val hw = isHardwareDecoderName(decoderName)
+            AppLog.i(
+                "VideoPlayerViewModel",
+                "PLAYER_PERF [C] video decoder init ($decoderName hw=$hw) hw_init=${elapsedInitializationMs}ms +${now - trace.prepareMs}ms"
+            )
+            if (!hw) {
+                AppLog.w("PlaybackPerf", "video running on SOFTWARE decoder=$decoderName (may cause stutter)")
+            }
         }
 
         override fun onAudioDecoderInitialized(
@@ -246,6 +257,82 @@ class VideoPlayerFragment : Fragment() {
             val now = System.currentTimeMillis()
             trace.audioDecoderInitMs = now
             AppLog.i("VideoPlayerViewModel", "PLAYER_PERF [C] audio decoder init ($decoderName) hw_init=${elapsedInitializationMs}ms +${now - trace.prepareMs}ms")
+        }
+
+        // —— 帧率/流畅度可观测性（Media3 帧率匹配黑盒化问题的诊断入口）——
+
+        override fun onVideoInputFormatChanged(
+            eventTime: AnalyticsListener.EventTime,
+            format: Format,
+            decoderReuseEvaluation: DecoderReuseEvaluation?
+        ) {
+            val fps = format.frameRate
+            // Format.NO_VALUE（-1）对 float 字段同样适用；frameRate 无效时为 NO_VALUE。
+            val hasFps = fps > 1f
+            AppLog.i(
+                "PlaybackPerf",
+                "video_format ${format.width}x${format.height} fps=${if (hasFps) fps.toInt() else "?"} " +
+                    "mime=${format.sampleMimeType ?: "?"} codec=${format.codecs ?: "?"}"
+            )
+            // 关键诊断：流无帧率元数据 → Media3 不会自动调 Surface.setFrameRate()，
+            // 帧率匹配无法生效（常见于 b 站部分老番/裸流）。当前不做盲目 setFrameRate（无真实帧率依据，
+            // 乱设会强制刷新率切换反而更糟），仅告警暴露问题。后续可从 DashVideo.realFrameRate 反推兜底。
+            if (!hasFps) {
+                AppLog.w("PlaybackPerf", "video stream has NO frame rate metadata, Surface.setFrameRate skipped by Media3")
+            }
+        }
+
+        override fun onDroppedVideoFrames(
+            eventTime: AnalyticsListener.EventTime,
+            droppedFrames: Int,
+            elapsedMs: Long
+        ) {
+            droppedVideoFramesAccumulator += droppedFrames
+            val now = SystemClock.elapsedRealtime()
+            // 节流：每 2 秒汇总一次，避免逐帧刷屏（参考 maybeLogMaskGeometry 的 lastXxxLogMs 模式）。
+            if (now - lastDroppedFramesLogMs >= 2_000L && droppedVideoFramesAccumulator > 0) {
+                AppLog.w(
+                    "PlaybackPerf",
+                    "dropped_frames=${droppedVideoFramesAccumulator} over ${now - lastDroppedFramesLogMs}ms"
+                )
+                droppedVideoFramesAccumulator = 0
+                lastDroppedFramesLogMs = now
+            }
+        }
+
+        override fun onVideoFrameProcessingOffset(
+            eventTime: AnalyticsListener.EventTime,
+            totalProcessingOffsetUs: Long,
+            frameCount: Int
+        ) {
+            if (frameCount <= 0) return
+            // 平均每帧处理偏移：正值=帧晚到（解码/渲染跟不上），是最强的"帧率匹配/流畅度健康度"信号。
+            // 超过约一帧时长（按 60fps 取 16ms 阈值）视为明显异常。
+            val avgOffsetMs = totalProcessingOffsetUs / 1000.0 / frameCount
+            if (avgOffsetMs > 16.0) {
+                AppLog.w(
+                    "PlaybackPerf",
+                    "frame_processing_offset avg=${String.format("%.1f", avgOffsetMs)}ms frames=$frameCount (late, possible judder)"
+                )
+            }
+        }
+    }
+
+    /**
+     * 按 MediaCodec 名称前缀判断是否硬件解码器。
+     * 与 [com.btelly.core.common.media.VideoCodecSupport.isHardwareDecoder] 同款规则，
+     * 因后者为 private，此处内联复刻用于运行时解码器分类诊断。
+     */
+    private fun isHardwareDecoderName(name: String): Boolean {
+        val n = name.lowercase()
+        return when {
+            n.startsWith("omx.google.") -> false
+            n.startsWith("c2.android.") -> false
+            n.startsWith("c2.google.") -> false
+            n.contains(".sw.") -> false
+            n.contains("software") -> false
+            n.contains("ffmpeg") -> false
+            else -> n.startsWith("omx.") || n.startsWith("c2.")
         }
     }
 
@@ -1643,6 +1730,9 @@ class VideoPlayerFragment : Fragment() {
         backgroundListener?.let(AppBackgroundMonitor::removeListener)
         backgroundListener = null
         player?.removeListener(playerListener)
+        // playerPerfListener 此前未移除：player 是 PlayerInstancePool 的共享单例，
+        // 不移除会跨 Fragment 重建累积泄漏，每次重建都叠加一份 AnalyticsListener。
+        player?.removeAnalyticsListener(playerPerfListener)
         playerView.destroy()
         playerView.stopDanmaku()
         PlayerInstancePool.softDetach(player)
@@ -1673,6 +1763,9 @@ class VideoPlayerFragment : Fragment() {
 
     /** 追踪单次播放请求的 ExoPlayer 内部阶段耗时 */
     private var playerPerfTrace: PlayerPerfTrace? = null
+    /** 丢帧累计计数器（playerPerfListener 节流汇总用，每 2s 一报） */
+    private var droppedVideoFramesAccumulator: Int = 0
+    private var lastDroppedFramesLogMs: Long = 0L
     private var activeStartupTraceId: String = PlaybackStartupTrace.NO_TRACE
     private var activeStartupTraceStartElapsedMs: Long = 0L
     private var activeStartupFirstFrameLogged: Boolean = false

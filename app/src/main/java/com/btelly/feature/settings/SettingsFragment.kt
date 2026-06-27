@@ -34,6 +34,7 @@ import com.btelly.core.common.cache.FileCacheManager
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.ui.navigation.navigateBackFromUi
+import com.btelly.core.ui.system.ScreenUtils
 import com.btelly.feature.player.PlayerInstancePool
 import com.btelly.feature.player.VideoPlayerViewModel
 import com.btelly.feature.player.cache.PlayerMediaCache
@@ -238,7 +239,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.dm_merge_duplicate), "开"),
             SettingModel(getString(R.string.dm_smart_shield), "关"),
             SettingModel(getString(R.string.show_dm_switch), "关"),
-            SettingModel("弹幕引擎", "功能优先")
+            SettingModel("弹幕引擎", "性能优先")
         )
 
         deviceSettings.add(DEVICE_POSITION_VERSION, SettingModel("应用版本", BuildConfig.VERSION_NAME))
@@ -247,7 +248,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         deviceSettings.add(DEVICE_POSITION_SYSTEM_VERSION, SettingModel("系统版本", "Android ${Build.VERSION.RELEASE}"))
         deviceSettings.add(DEVICE_POSITION_SDK_VERSION, SettingModel("SDK版本", Build.VERSION.SDK_INT.toString()))
         deviceSettings.add(DEVICE_POSITION_CPU_ABI, SettingModel("CPU架构", Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown"))
-        deviceSettings.add(DEVICE_POSITION_SCREEN, SettingModel("屏幕分辨率", "${resources.displayMetrics.widthPixels}x${resources.displayMetrics.heightPixels}"))
+        deviceSettings.add(DEVICE_POSITION_SCREEN, SettingModel("屏幕分辨率", ScreenUtils.getRealScreenInfo(requireContext()).toString()))
         deviceSettings.add(DEVICE_POSITION_CODEC, SettingModel("硬解支持", ""))
 
         commonSettings.add(SettingModel("日志记录", if (AppLog.isEnabled) "开" else "关"))

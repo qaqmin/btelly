@@ -38,7 +38,9 @@ data class PlayerSettings(
     // 弹幕引擎：false=功能优先（AkDanmaku 全功能：防挡/渐变/特殊弹幕，但重），
     // true=性能优先（轻量引擎：纯色滚动弹幕，无防挡/渐变/特殊，但流畅）。
     // 切换需重新进入播放生效。
-    val danmakuLiteEngine: Boolean = false
+    // 默认 true：电视端 GPU/CPU 渲染能力弱，akdanmaku 的 View.onDraw+clipPath 防挡
+    // 易导致卡顿；轻量引擎更流畅。用户可在设置切回 akdanmaku 以获得全功能。
+    val danmakuLiteEngine: Boolean = true
 )
 
 private object VideoQualityDefaults {
@@ -203,7 +205,7 @@ object PlayerSettingsStore {
             ),
             danmakuLiteEngine = parseToggle(
                 readSetting(KEY_DANMAKU_LITE_ENGINE),
-                defaultValue = false
+                defaultValue = true
             )
         )
         cachedSettings = settings

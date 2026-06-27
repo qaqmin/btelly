@@ -14,6 +14,7 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.AudioTrackAudioOutputProvider
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioTrackBufferSizeProvider
+import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.media.VideoCodecSupport
 import com.btelly.feature.player.settings.PlayerSettingsStore
 
@@ -231,7 +232,21 @@ object PlayerInstancePool {
     fun createRenderersFactory(context: Context): DefaultRenderersFactory {
         return object : DefaultRenderersFactory(context.applicationContext) {
             init {
+                // 硬解优先链路：流选择层（VideoCodecSupport.orderCandidates）已保证尽量选有硬解的编码，
+                // 这里在渲染器层显式强化：允许解码器回退兜底（避免硬解瞬时失败导致无法播放），
+                // 同时优先选用扩展解码器（ExtensionRendererMode.PREFER）——在无 ffmpeg 扩展依赖时，
+                // 其效果等同把硬件 MediaCodec 渲染器排在最前。
                 setEnableDecoderFallback(true)
+                setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+
+                // 构建期可观测性：记录检测到的硬解集合，便于诊断"是否落到软解"。
+                // getHardwareSupportedCodecs 已有缓存与后台预热，此处为常量时间。
+                val hwCodecs = runCatching { VideoCodecSupport.getHardwareSupportedCodecs() }
+                    .getOrDefault(emptySet())
+                AppLog.i(
+                    TAG,
+                    "renderers_factory built extensionMode=PREFER fallback=true hwCodecs=$hwCodecs"
+                )
             }
 
             override fun buildAudioSink(
