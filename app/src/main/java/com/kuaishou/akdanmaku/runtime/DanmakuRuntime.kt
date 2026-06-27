@@ -74,10 +74,9 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   @Volatile private var lastDrawLockReleasedAt = 0L
   private var lastDrawStallLogAtMs = 0L
   private var lastZeroFrameLogAtMs = 0L
-  // 卡顿期 now 跳变检测:记录上一拍 now 和滚动平均的单帧间隔,
+  // 卡顿期 now 跳变检测:记录上一拍 now 的单帧间隔,
   // removeExpired 据此跳过滚动弹幕的 timeout 移除,避免还在屏幕中段的弹幕被误杀。
   private var lastUpdateTimeMs = 0L
-  private var smoothedFrameDeltaMs = 16L
   private val timelineAnchor = DanmakuTimelineAnchor()
 
   @Volatile
@@ -267,12 +266,9 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
 
     val config = context.config
     val now = context.timer.currentTimeMs
-    // 计算本帧 now 的增量,维护滚动平均,供 removeExpired 检测卡顿期跳变。
-    val frameDeltaMs = if (lastUpdateTimeMs > 0L) (now - lastUpdateTimeMs).coerceAtLeast(0L) else smoothedFrameDeltaMs
-    if (lastUpdateTimeMs > 0L && frameDeltaMs in 1L..200L) {
-      // 指数移动平均,忽略异常跳变(>200ms 不参与平均,避免卡顿把基准拉高)
-      smoothedFrameDeltaMs = (smoothedFrameDeltaMs * 0.8 + frameDeltaMs * 0.2).toLong().coerceAtLeast(1L)
-    }
+    // 本帧 now 增量，供 removeExpired 检测卡顿期跳变（单帧 delta 过大说明主线程卡顿，
+    // now 一帧大跳，此时跳过滚动弹幕的 timeout 移除，避免还在屏幕中段的弹幕被误杀）。
+    val frameDeltaMs = if (lastUpdateTimeMs > 0L) (now - lastUpdateTimeMs).coerceAtLeast(0L) else 0L
     lastUpdateTimeMs = now
     checkpoint = SystemClock.elapsedRealtime()
     val timelineReset = resetForTimelineJumpIfNeeded(now, config)
@@ -520,20 +516,14 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       cacheHit.num = hit
       cacheHit.den = visibleCommandCount
       val drawCostMs = SystemClock.elapsedRealtime() - drawStartedAt
-      val topSummary = if (syncWaitMs >= 5L || drawCostMs >= 15L) {
-        summarizeCommandTops(currentFrame.commands, currentFrame.fixedCommandStartIndex)
-      } else {
-        ""
-      }
-      if (syncWaitMs >= 5L) {
+      if (syncWaitMs >= 5L || drawCostMs >= 15L) {
+        val topSummary = summarizeCommandTops(currentFrame.commands, currentFrame.fixedCommandStartIndex)
         Log.w(
           DanmakuEngine.TAG,
           "[Diag] draw syncWait=${syncWaitMs}ms held=${drawCostMs}ms commands=$commandCount " +
-            "visible=$visibleCommandCount cacheHit=$hit fallback=$fallbackDraws skipped=$fallbackSkipped $topSummary"
+            "visible=$visibleCommandCount cacheHit=$hit cacheMiss=${visibleCommandCount - hit - fallbackDraws} " +
+            "fallback=$fallbackDraws skipped=$fallbackSkipped $topSummary"
         )
-      }
-      if (drawCostMs >= 15L) {
-        Log.w(DanmakuEngine.TAG, "[Diag] draw held=" + drawCostMs + "ms commands=" + commandCount + " cacheHit=" + hit + " cacheMiss=" + (visibleCommandCount - hit - fallbackDraws) + " fallback=" + fallbackDraws + " " + topSummary)
       }
     } finally {
       lastDrawLockReleasedAt = SystemClock.elapsedRealtime()
@@ -712,9 +702,9 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   private fun removeExpired(now: Long, config: DanmakuConfig, frameDeltaMs: Long): Int {
     val iterator = activeStates.iterator()
     var expired = 0
-    // 卡顿期 now 单帧跳变(本帧 delta 远超滚动平均):这一拍跳过滚动弹幕的 timeout 移除,
+    // 卡顿期 now 单帧跳变(本帧 delta 超过固定阈值):这一拍跳过滚动弹幕的 timeout 移除,
     // 等下一拍 now 稳定再判——避免还在屏幕中段的滚动弹幕被误杀(滚动到一半消失)。
-    val skipRollingExpiry = frameDeltaMs > smoothedFrameDeltaMs * 3 && smoothedFrameDeltaMs > 0L
+    val skipRollingExpiry = frameDeltaMs > ROLLING_EXPIRY_SKIP_DELTA_MS
     while (iterator.hasNext()) {
       val state = iterator.next()
       val item = state.item
@@ -1512,6 +1502,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     private const val FRAME_CACHE_RELEASE_DELAY_MS = 48L
     private const val FRAME_STALL_LOG_INTERVAL_MS = 1_000L
     private const val DRAW_STALL_LOG_INTERVAL_MS = 1_000L
+    private const val ROLLING_EXPIRY_SKIP_DELTA_MS = 100L
     private const val MIN_ENQUEUE_PER_FRAME = 4
     private const val MAX_ENQUEUE_PER_FRAME = 32
     private const val ENQUEUE_BUDGET_MS = 2L
