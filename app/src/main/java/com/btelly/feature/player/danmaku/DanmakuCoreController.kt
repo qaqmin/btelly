@@ -28,7 +28,7 @@ import kotlinx.coroutines.withContext
  *  - 设置映射：把 [MyPlayerDanmakuController.SettingsSnapshot] 翻译成引擎的 [DanmakuConfig]。
  *  - 播放同步：通过 positionProvider 回调让引擎自驱动，seek 时主动通知。
  *
- * 不支持（性能优先模式）：直播、VIP 渐变、特殊弹幕（已过滤）、防挡蒙版、智能过滤、表情/高赞图标（stub）。
+ * 不支持（性能优先模式）：直播、VIP 渐变、特殊弹幕（已过滤）、防挡蒙版、智能过滤、表情/高赞图标（已移除，电视端看不清且拖累性能）。
  */
 class DanmakuCoreController(
     private val context: Context,
@@ -338,7 +338,6 @@ class DanmakuCoreController(
             speedLevel = snapshot.speed.toDmSpeedLevel(),
             area = snapshot.screenArea.toDmArea(),
             laneDensity = DanmakuLaneDensity.Standard,
-            showHighLikeIcon = false,
             trackSpacing = DanmakuTrackSpacing.fromPrefValue(snapshot.trackSpacing),
         )
     }
@@ -353,7 +352,6 @@ class DanmakuCoreController(
             speedLevel = 5,
             area = 0.5f,
             laneDensity = DanmakuLaneDensity.Standard,
-            showHighLikeIcon = false,
             trackSpacing = DanmakuTrackSpacing.DEFAULT,
         )
 

@@ -3,21 +3,14 @@ package com.btelly.feature.player.danmaku
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.RectF
 import android.graphics.Typeface
 import android.util.DisplayMetrics
 import android.util.TypedValue
-import androidx.appcompat.content.res.AppCompatResources
 import android.content.Context
-import com.btelly.R
 import com.btelly.core.common.log.AppLog
-import com.btelly.core.emote.EmoteBitmapLoader
-import com.btelly.core.emote.ReplyEmotePanelRepository
 import com.btelly.feature.player.danmaku.Danmaku
-import com.btelly.feature.player.danmaku.isHighLiked
 import com.btelly.feature.player.danmaku.model.DanmakuCacheState
 import com.btelly.feature.player.danmaku.model.DanmakuItem
-import com.btelly.feature.player.danmaku.model.DanmakuInlineSegment
 import com.btelly.feature.player.danmaku.model.DanmakuKind
 import com.btelly.feature.player.danmaku.model.RenderSnapshot
 import kotlin.math.ceil
@@ -107,7 +100,6 @@ internal class DanmakuEngine(
             speedLevel = 4,
             area = 1f,
             laneDensity = DanmakuLaneDensity.Standard,
-            showHighLikeIcon = true,
         )
 
     @Volatile private var textSizePx: Float = sp(18f)
@@ -158,7 +150,6 @@ internal class DanmakuEngine(
     // 避免每帧重复调用 native getFontMetrics（drawMetricsKey 记录决定重算的样式指纹）。
     private var drawMetricsKey = ""
     private var drawBaselineOffset = 0f
-    private var drawEmoteSizePx = 1f
     private val drawFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.DEFAULT_BOLD
         // 对齐 akdanmaku SimpleRenderer：不开 subpixel（TV/OLED 上会把纯色文字边缘拆成 RGB 子像素，
@@ -175,18 +166,6 @@ internal class DanmakuEngine(
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         // 对齐 akdanmaku drawPaint：关闭 isFilterBitmap，避免 drawBitmap 双线性滤波糊化烘焙好的
         // 锐利文字边缘（边缘被混合稀释 → 颜色发浅/不饱满）。弹幕 bitmap 按整数像素 1:1 绘制，无需滤波。
-    }
-    private val emotePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFilterBitmap = true }
-    private val emotePlaceholderFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val emotePlaceholderStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = max(1f, density) // ~1dp
-    }
-    private val emoteTmpRectF = RectF()
-    private val inlineLikeIcon by lazy(LazyThreadSafetyMode.NONE) {
-        AppCompatResources.getDrawable(appContext, R.drawable.ic_action_like)?.mutate()?.apply {
-            setTint(HIGH_LIKE_ICON_COLOR)
-        }
     }
 
     override fun updateViewport(width: Int, height: Int, topInsetPx: Int, bottomInsetPx: Int) {
@@ -402,13 +381,6 @@ internal class DanmakuEngine(
         val outlinePad = outlinePadPx
         val opacityAlpha = (cfg.opacity * 255f).roundToInt().coerceIn(0, 255)
         bitmapPaint.alpha = opacityAlpha
-        emotePaint.alpha = opacityAlpha
-        run {
-            val fillA = ((opacityAlpha * 0x22) / 255).coerceIn(0, 255)
-            val strokeA = ((opacityAlpha * 0x66) / 255).coerceIn(0, 255)
-            emotePlaceholderFill.color = (fillA shl 24) or 0x000000
-            emotePlaceholderStroke.color = (strokeA shl 24) or 0xFFFFFF
-        }
 
         // getFontMetrics 只在 textSize/typeface/strokeWidth 变化时重算，避免每帧冗余 native 调用。
         // drawFill.textSize/typeface/strokeWidth 在上面的惰性块里已和目标值同步，
@@ -417,11 +389,9 @@ internal class DanmakuEngine(
         if (metricsKey != drawMetricsKey) {
             drawFill.getFontMetrics(drawFontMetrics)
             drawBaselineOffset = outlinePad - drawFontMetrics.ascent
-            drawEmoteSizePx = (drawFontMetrics.descent - drawFontMetrics.ascent).coerceAtLeast(1f)
             drawMetricsKey = metricsKey
         }
         val baselineOffset = drawBaselineOffset
-        val emoteSizePx = drawEmoteSizePx
         val styleGen = cacheStyleGeneration
         val width = viewportWidth.coerceAtLeast(0)
         val nowMs = currentPositionMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
@@ -459,7 +429,6 @@ internal class DanmakuEngine(
                 outlinePad = outlinePad,
                 baselineOffset = baselineOffset,
                 opacityAlpha = opacityAlpha,
-                emoteSizePx = emoteSizePx,
             )
         }
         lastDrawCachedCount = cachedDrawn
@@ -974,7 +943,6 @@ internal class DanmakuEngine(
                 fontWeight = cfg.fontWeight,
                 strokeWidthPx = strokeWidthPx,
                 outlinePadPx = outlinePad,
-                showHighLikeIcon = cfg.showHighLikeIcon,
                 generation = cacheStyleGeneration,
             )
         val releaseAtFrameId = currentUiFrameId + 1
@@ -989,7 +957,6 @@ internal class DanmakuEngine(
             val hasValidCache = bmp != null && !bmp.isRecycled && item.cacheGeneration == style.generation
             if (hasValidCache) continue
             if (item.cacheState == DanmakuCacheState.Rendering) continue
-            if (!inlineImagesReadyOrPrefetch(item)) continue
             item.cacheState = DanmakuCacheState.Rendering
             cacheManager.requestBuildCache(
                 item = item,
@@ -1029,27 +996,6 @@ internal class DanmakuEngine(
         if (elapsed >= item.durationMs) return true
         if (item.kind != DanmakuKind.SCROLL) return false
         return scrollX(width = width, nowMs = nowMs, startTimeMs = item.startTimeMs, pxPerMs = item.pxPerMs) + item.textWidthPx < 0f
-    }
-
-    private fun inlineImagesReadyOrPrefetch(item: DanmakuItem): Boolean {
-        val text = item.data.text
-        if ((!config.showHighLikeIcon || !item.data.isHighLiked) && !text.contains('[')) return true
-        val segments =
-            item.inlineSegments
-                ?: run {
-                    val parsed = parseInlineSegments(item) ?: return true
-                    if (shouldCacheInlineSegments(item)) item.inlineSegments = parsed
-                    parsed
-                }
-        var ready = true
-        for (seg in segments) {
-            if (seg !is DanmakuInlineSegment.Emote) continue
-            val bmp = EmoteBitmapLoader.getCached(seg.url)
-            if (bmp != null && !bmp.isRecycled) continue
-            ready = false
-            EmoteBitmapLoader.prefetch(seg.url)
-        }
-        return ready
     }
 
     private fun scrollX(width: Int, nowMs: Int, startTimeMs: Int, pxPerMs: Float): Float {
@@ -1156,84 +1102,14 @@ internal class DanmakuEngine(
             return item.measuredWidthPx
         }
         val text = item.data.text
-        val width =
-            if (text.isBlank()) {
-                outlinePad * 2f
-            } else if ((!config.showHighLikeIcon || !item.data.isHighLiked) && !text.contains('[')) {
-                actionPaint.measureText(text) + outlinePad * 2f
-            } else {
-                measureTextWidthWithInlineSegments(item = item, paint = actionPaint, outlinePad = outlinePad)
-            }
+        val width = if (text.isBlank()) {
+            outlinePad * 2f
+        } else {
+            actionPaint.measureText(text) + outlinePad * 2f
+        }
         item.measuredWidthPx = width
         item.measureGeneration = measureGeneration
         return width
-    }
-
-    private fun measureTextWidthWithInlineSegments(item: DanmakuItem, paint: Paint, outlinePad: Float): Float {
-        val text = item.data.text
-        paint.getFontMetrics(actionFontMetrics)
-        val emoteSizePx = (actionFontMetrics.descent - actionFontMetrics.ascent).coerceAtLeast(1f)
-
-        var w = 0f
-        if (config.showHighLikeIcon && item.data.isHighLiked) {
-            w += emoteSizePx + inlineIconGapPx(emoteSizePx)
-        }
-        if (!text.contains('[')) return w + paint.measureText(text) + outlinePad * 2f
-        var i = 0
-        while (i < text.length) {
-            val open = text.indexOf('[', startIndex = i)
-            if (open < 0) {
-                w += paint.measureText(text, i, text.length)
-                break
-            }
-            val close = text.indexOf(']', startIndex = open + 1)
-            if (close < 0) {
-                w += paint.measureText(text, i, text.length)
-                break
-            }
-            if (open > i) {
-                w += paint.measureText(text, i, open)
-            }
-            val token = text.substring(open, close + 1)
-            val url = ReplyEmotePanelRepository.urlForToken(token)
-            if (url != null && url.startsWith("http")) {
-                w += emoteSizePx
-            } else {
-                w += paint.measureText(text, open, close + 1)
-            }
-            i = close + 1
-        }
-        return w + outlinePad * 2f
-    }
-
-    private fun parseInlineSegments(item: DanmakuItem): List<DanmakuInlineSegment>? {
-        val text = item.data.text
-        var i = 0
-        var lastTextStart = 0
-        var hasInline = false
-        val out = ArrayList<DanmakuInlineSegment>(8)
-        if (config.showHighLikeIcon && item.data.isHighLiked) {
-            out.add(DanmakuInlineSegment.HighLikeIcon)
-            hasInline = true
-        }
-        while (i < text.length) {
-            val open = text.indexOf('[', startIndex = i)
-            if (open < 0) break
-            val close = text.indexOf(']', startIndex = open + 1)
-            if (close < 0) break
-            val token = text.substring(open, close + 1)
-            val url = ReplyEmotePanelRepository.urlForToken(token)
-            if (url != null && url.startsWith("http")) {
-                hasInline = true
-                if (open > lastTextStart) out.add(DanmakuInlineSegment.Text(start = lastTextStart, end = open))
-                out.add(DanmakuInlineSegment.Emote(url = url))
-                lastTextStart = close + 1
-            }
-            i = close + 1
-        }
-        if (!hasInline) return null
-        if (lastTextStart < text.length) out.add(DanmakuInlineSegment.Text(start = lastTextStart, end = text.length))
-        return out
     }
 
     private fun drawTextDirect(
@@ -1244,7 +1120,6 @@ internal class DanmakuEngine(
         outlinePad: Float,
         baselineOffset: Float,
         opacityAlpha: Int,
-        emoteSizePx: Float,
     ) {
         val text = item.data.text
         if (text.isBlank()) return
@@ -1263,73 +1138,10 @@ internal class DanmakuEngine(
 
         val textX = x + outlinePad
         val baseline = yTop + baselineOffset
-
-        val segments =
-            item.inlineSegments
-                ?: run {
-                    val parsed = parseInlineSegments(item)
-                    if (parsed != null && shouldCacheInlineSegments(item)) item.inlineSegments = parsed
-                    parsed
-        }
-        if (segments == null) {
-            if (drawStrokeEnabled) canvas.drawText(text, textX, baseline, drawStroke)
-            canvas.drawText(text, textX, baseline, drawFill)
-            return
-        }
-
-        val emoteTop = yTop + outlinePad
-        val r = (emoteSizePx * 0.18f).coerceIn(2f, 10f)
-        val highLikeGapPx = inlineIconGapPx(emoteSizePx)
-        var cursorX = textX
-        for (seg in segments) {
-            when (seg) {
-                is DanmakuInlineSegment.Text -> {
-                    if (seg.end > seg.start) {
-                        if (drawStrokeEnabled) canvas.drawText(text, seg.start, seg.end, cursorX, baseline, drawStroke)
-                        canvas.drawText(text, seg.start, seg.end, cursorX, baseline, drawFill)
-                        cursorX += drawFill.measureText(text, seg.start, seg.end)
-                    }
-                }
-                is DanmakuInlineSegment.Emote -> {
-                    val bmp = EmoteBitmapLoader.getCached(seg.url)
-                    if (bmp != null) {
-                        emoteTmpRectF.set(cursorX, emoteTop, cursorX + emoteSizePx, emoteTop + emoteSizePx)
-                        canvas.drawBitmap(bmp, null, emoteTmpRectF, emotePaint)
-                    } else {
-                        // Prefetch is throttled elsewhere (later step). For now, do a best-effort prefetch.
-                        EmoteBitmapLoader.prefetch(seg.url)
-                        emoteTmpRectF.set(cursorX, emoteTop, cursorX + emoteSizePx, emoteTop + emoteSizePx)
-                        canvas.drawRoundRect(emoteTmpRectF, r, r, emotePlaceholderFill)
-                        canvas.drawRoundRect(emoteTmpRectF, r, r, emotePlaceholderStroke)
-                    }
-                    cursorX += emoteSizePx
-                }
-                DanmakuInlineSegment.HighLikeIcon -> {
-                    drawInlineLikeIcon(cursorX, emoteTop, emoteSizePx, canvas, opacityAlpha)
-                    cursorX += emoteSizePx + highLikeGapPx
-                }
-            }
-        }
-    }
-
-    private fun shouldCacheInlineSegments(item: DanmakuItem): Boolean {
-        val text = item.data.text
-        return !text.contains('[') || ReplyEmotePanelRepository.version() > 0
-    }
-
-    private fun inlineIconGapPx(iconSizePx: Float): Float = (iconSizePx * 0.14f).coerceAtLeast(density * 2f)
-
-    private fun drawInlineLikeIcon(
-        left: Float,
-        top: Float,
-        sizePx: Float,
-        canvas: Canvas,
-        alpha: Int,
-    ) {
-        val icon = inlineLikeIcon ?: return
-        icon.setBounds(left.roundToInt(), top.roundToInt(), (left + sizePx).roundToInt(), (top + sizePx).roundToInt())
-        icon.alpha = alpha.coerceIn(0, 255)
-        icon.draw(canvas)
+        // 性能优先引擎只支持纯文字滚动弹幕，不渲染内联表情/高赞图标
+        // （电视端弹幕飘过快、观看距离远，表情看不清；用户已在 controller 关闭 showHighLikeIcon）。
+        if (drawStrokeEnabled) canvas.drawText(text, textX, baseline, drawStroke)
+        canvas.drawText(text, textX, baseline, drawFill)
     }
 
     private fun lowerBound(pos: Int): Int {
@@ -1374,7 +1186,6 @@ internal class DanmakuEngine(
 
     private companion object {
         private const val TAG = "BTellyDmEngine"
-        private val HIGH_LIKE_ICON_COLOR = Color.parseColor("#F6C343")
         private const val DEFAULT_ROLLING_DURATION_MS = 6_000f
         private const val MIN_ROLLING_DURATION_MS = 2_000
         private const val MAX_ROLLING_DURATION_MS = 20_000

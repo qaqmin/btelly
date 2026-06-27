@@ -4,35 +4,26 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.RectF
 import android.graphics.Typeface
 import android.content.Context
-import androidx.appcompat.content.res.AppCompatResources
-import com.btelly.R
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.os.Message
 import android.os.Process
-import com.btelly.core.emote.EmoteBitmapLoader
-import com.btelly.core.emote.ReplyEmotePanelRepository
 import android.util.Log
-import com.btelly.feature.player.danmaku.isHighLiked
-import com.btelly.feature.player.danmaku.model.DanmakuInlineSegment
 import com.btelly.feature.player.danmaku.model.DanmakuItem
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.ceil
 import kotlin.math.max
-import kotlin.math.roundToInt
 
 internal data class CacheStyle(
     val textSizePx: Float,
     val fontWeight: DanmakuFontWeight,
     val strokeWidthPx: Float,
     val outlinePadPx: Float,
-    val showHighLikeIcon: Boolean,
     val generation: Int,
 )
 
@@ -44,7 +35,6 @@ internal class CacheManager(
 ) {
     companion object {
         private const val TAG = "DanmakuCache"
-        private val HIGH_LIKE_ICON_COLOR = Color.parseColor("#F6C343")
 
         private const val MSG_BUILD_CACHE = 2001
         private const val MSG_CLEAR = 2002
@@ -90,18 +80,6 @@ internal class CacheManager(
         strokeCap = Paint.Cap.ROUND
     }
     private val fontMetrics = Paint.FontMetrics()
-    private val emotePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFilterBitmap = true }
-    private val placeholderFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val placeholderStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = max(1f, density)
-    }
-    private val emoteRect = RectF()
-    private val inlineLikeIcon by lazy(LazyThreadSafetyMode.NONE) {
-        AppCompatResources.getDrawable(appContext, R.drawable.ic_action_like)?.mutate()?.apply {
-            setTint(HIGH_LIKE_ICON_COLOR)
-        }
-    }
 
     fun queueDepth(): Int = queueDepth.get().coerceAtLeast(0)
 
@@ -235,60 +213,13 @@ internal class CacheManager(
         stroke.color = resolveStandardStrokeColor(rgb, opacityAlpha = 255)
         fill.color = (0xFF shl 24) or rgb
 
-        // Placeholder colors (alpha is applied at draw-time; keep opaque-ish here).
-        placeholderFill.color = (0x22 shl 24) or 0x000000
-        placeholderStroke.color = (0x66 shl 24) or 0xFFFFFF
-
         val baseline = outlinePad - fontMetrics.ascent
         val text = danmaku.text
         val drawStrokeEnabled = strokeWidth > 0.01f
         if (text.isNotBlank()) {
-            val segments =
-                item.inlineSegments
-                    ?: run {
-                        val parsed = parseInlineSegments(item, style)
-                        if (parsed != null && shouldCacheInlineSegments(item)) item.inlineSegments = parsed
-                        parsed
-                    }
-            if (segments == null) {
-                if (drawStrokeEnabled) canvas.drawText(text, outlinePad, baseline, stroke)
-                canvas.drawText(text, outlinePad, baseline, fill)
-            } else {
-                val emoteSizePx = textHeightPx
-                val emoteTop = outlinePad
-                val r = (emoteSizePx * 0.18f).coerceIn(2f, 10f)
-                val highLikeGapPx = inlineIconGapPx(emoteSizePx)
-                var cursorX = outlinePad
-                for (seg in segments) {
-                    when (seg) {
-                        is DanmakuInlineSegment.Text -> {
-                            if (seg.end > seg.start) {
-                                if (drawStrokeEnabled) canvas.drawText(text, seg.start, seg.end, cursorX, baseline, stroke)
-                                canvas.drawText(text, seg.start, seg.end, cursorX, baseline, fill)
-                                cursorX += fill.measureText(text, seg.start, seg.end)
-                            }
-                        }
-                        is DanmakuInlineSegment.Emote -> {
-                            val eb = EmoteBitmapLoader.getCached(seg.url)
-                            if (eb != null && !eb.isRecycled) {
-                                emoteRect.set(cursorX, emoteTop, cursorX + emoteSizePx, emoteTop + emoteSizePx)
-                                canvas.drawBitmap(eb, null, emoteRect, emotePaint)
-                            } else {
-                                // Best-effort prefetch; loader deduplicates.
-                                EmoteBitmapLoader.prefetch(seg.url)
-                                emoteRect.set(cursorX, emoteTop, cursorX + emoteSizePx, emoteTop + emoteSizePx)
-                                canvas.drawRoundRect(emoteRect, r, r, placeholderFill)
-                                canvas.drawRoundRect(emoteRect, r, r, placeholderStroke)
-                            }
-                            cursorX += emoteSizePx
-                        }
-                        DanmakuInlineSegment.HighLikeIcon -> {
-                            drawInlineLikeIcon(cursorX, emoteTop, emoteSizePx, canvas)
-                            cursorX += emoteSizePx + highLikeGapPx
-                        }
-                    }
-                }
-            }
+            // 性能优先引擎只渲染纯文字（描边+填充），不支持内联表情/高赞图标。
+            if (drawStrokeEnabled) canvas.drawText(text, outlinePad, baseline, stroke)
+            canvas.drawText(text, outlinePad, baseline, fill)
         }
 
         val old = item.cacheBitmap
@@ -303,62 +234,6 @@ internal class CacheManager(
         mainHandler.post {
             runCatching { onRenderSign() }.onFailure { Log.w(TAG, "renderSign failed", it) }
         }
-    }
-
-    private fun parseInlineSegments(
-        item: DanmakuItem,
-        style: CacheStyle,
-    ): List<DanmakuInlineSegment>? {
-        val text = item.data.text
-        var i = 0
-        var lastTextStart = 0
-        var hasInline = false
-        val out = ArrayList<DanmakuInlineSegment>(8)
-        if (style.showHighLikeIcon && item.data.isHighLiked) {
-            out.add(DanmakuInlineSegment.HighLikeIcon)
-            hasInline = true
-        }
-        val canParseEmote = ReplyEmotePanelRepository.version() > 0 && text.contains('[')
-        while (i < text.length) {
-            if (!canParseEmote) break
-            val open = text.indexOf('[', startIndex = i)
-            if (open < 0) break
-            val close = text.indexOf(']', startIndex = open + 1)
-            if (close < 0) break
-            val token = text.substring(open, close + 1)
-            val url = ReplyEmotePanelRepository.urlForToken(token)
-            if (url != null && url.startsWith("http")) {
-                hasInline = true
-                if (open > lastTextStart) out.add(DanmakuInlineSegment.Text(start = lastTextStart, end = open))
-                out.add(DanmakuInlineSegment.Emote(url = url))
-                lastTextStart = close + 1
-            }
-            i = close + 1
-        }
-        if (!hasInline) return null
-        if (lastTextStart < text.length) out.add(DanmakuInlineSegment.Text(start = lastTextStart, end = text.length))
-        return out
-    }
-
-    private fun shouldCacheInlineSegments(item: DanmakuItem): Boolean {
-        val text = item.data.text
-        return !text.contains('[') || ReplyEmotePanelRepository.version() > 0
-    }
-
-    private fun inlineIconGapPx(iconSizePx: Float): Float = (iconSizePx * 0.14f).coerceAtLeast(density * 2f)
-
-    private fun drawInlineLikeIcon(
-        left: Float,
-        top: Float,
-        sizePx: Float,
-        canvas: Canvas,
-    ) {
-        val icon = inlineLikeIcon ?: return
-        val right = (left + sizePx).roundToInt()
-        val bottom = (top + sizePx).roundToInt()
-        icon.setBounds(left.roundToInt(), top.roundToInt(), right, bottom)
-        icon.alpha = 255
-        icon.draw(canvas)
     }
 
     private data class CacheRequest(

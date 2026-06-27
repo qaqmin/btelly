@@ -30,9 +30,6 @@ internal class DanmakuItem(
     @Volatile var cacheGeneration: Int = -1
     @Volatile var cacheState: DanmakuCacheState = DanmakuCacheState.Init
 
-    // Optional: cached parse result for inline segments.
-    @Volatile var inlineSegments: List<DanmakuInlineSegment>? = null
-
     // ---- Active state (action thread only) ----
     var kind: DanmakuKind = DanmakuKind.SCROLL
     var lane: Int = 0

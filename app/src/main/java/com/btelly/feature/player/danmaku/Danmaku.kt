@@ -19,10 +19,6 @@ data class Danmaku(
     val attr: Int = 0,
 )
 
-/** 高赞弹幕标记（attr bit2）。当前 stub 版本不渲染高赞图标，仅保留判定。 */
-val Danmaku.isHighLiked: Boolean
-    get() = (attr and (1 shl 2)) != 0
-
 /**
  * 计算弹幕描边颜色（对齐 AkDanmaku SimpleRenderer.resolveStandardStrokeColor）。
  *
