@@ -401,12 +401,7 @@ internal class DanmakuEngine(
         var fallbackSkipped = 0
         for (i in 0 until snapshot.count) {
             val item = snapshot.items[i] ?: continue
-            val x =
-                when (item.kind) {
-                    DanmakuKind.SCROLL -> scrollX(width = width, nowMs = nowMs, startTimeMs = item.startTimeMs, pxPerMs = item.pxPerMs)
-                    DanmakuKind.TOP -> centerX(width = width, contentWidth = item.textWidthPx)
-                    DanmakuKind.BOTTOM -> centerX(width = width, contentWidth = item.textWidthPx)
-                }
+            val x = snapshot.x[i]
             val yTop = snapshot.yTop[i]
             val bmp = item.cacheBitmap
             if (bmp != null && !bmp.isRecycled && item.cacheGeneration == styleGen) {
@@ -593,11 +588,19 @@ internal class DanmakuEngine(
         out.positionMs = nowMs.toLong()
         out.pendingCount = pending.size
         out.nextAtMs = items.getOrNull(index)?.timeMs()
+        // 在 act 线程预算好每条弹幕的 x 坐标填入快照，draw 主线程直接读数组，避免每帧每条
+        // 弹幕在主线程现算 scrollX（浮点运算 + 对象字段内存访问）。对齐 上游弹幕库 做法。
+        val w = viewportWidth.coerceAtLeast(0)
         var count = 0
         for (item in active) {
             out.items[count] = item
             out.yTop[count] = item.layoutTopPx
             out.textWidth[count] = item.textWidthPx
+            out.x[count] = when (item.kind) {
+                DanmakuKind.SCROLL -> scrollX(width = w, nowMs = nowMs, startTimeMs = item.startTimeMs, pxPerMs = item.pxPerMs)
+                DanmakuKind.TOP -> centerX(width = w, contentWidth = item.textWidthPx)
+                DanmakuKind.BOTTOM -> centerX(width = w, contentWidth = item.textWidthPx)
+            }
             count++
         }
         out.count = count
