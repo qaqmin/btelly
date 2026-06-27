@@ -23,7 +23,6 @@
 
 package com.kuaishou.akdanmaku.data.state
 
-import android.graphics.Matrix
 import android.graphics.RectF
 import com.kuaishou.akdanmaku.cache.DrawingCache
 
@@ -38,13 +37,6 @@ internal class DrawState : State() {
   internal val rect: RectF = RectF()
     get() {
       if (rectDirty) updateRect(field)
-      return field
-    }
-
-  private var transformDirty = false
-  internal val transform: Matrix = Matrix()
-    get() {
-      if (transformDirty) updateMatrix(field)
       return field
     }
 
@@ -90,42 +82,6 @@ internal class DrawState : State() {
       }
     }
 
-  var translateX: Float = 0f
-    set(value) {
-      if (field != value) {
-        field = value
-        markDirty()
-      }
-    }
-  var translateY: Float = 0f
-    set(value) {
-      if (field != value) {
-        field = value
-        markDirty()
-      }
-    }
-  var scaleX: Float = 1f
-    set(value) {
-      if (field != value) {
-        field = value
-        markDirty()
-      }
-    }
-  var scaleY: Float = 1f
-    set(value) {
-      if (field != value) {
-        field = value
-        markDirty()
-      }
-    }
-  var rotation: Float = 0f
-    set(value) {
-      if (field != value) {
-        field = value
-        markDirty()
-      }
-    }
-
   fun isMeasured(measureGeneration: Int): Boolean = width > 0f && height > 0f &&
     this.measureGeneration == measureGeneration
 
@@ -140,16 +96,6 @@ internal class DrawState : State() {
     positionXValue = x
   }
 
-  @Suppress("unused")
-  fun resetActionProperty() {
-    translateX = 0f
-    translateY = 0f
-    scaleX = 1f
-    scaleY = 1f
-    rotation = 0f
-    alpha = 1f
-  }
-
   override fun reset() {
     super.reset()
     visibility = false
@@ -158,15 +104,8 @@ internal class DrawState : State() {
     positionY = 0f
     width = 0f
     height = 0f
-    translateX = 0f
-    translateY = 0f
-    scaleX = 1f
-    scaleY = 1f
-    rotation = 0f
     rectDirty = false
-    transformDirty = false
     rect.setEmpty()
-    transform.reset()
     recycle()
   }
 
@@ -185,16 +124,7 @@ internal class DrawState : State() {
     rect.set(positionXValue, positionYValue, positionXValue + width, positionYValue + height)
   }
 
-  private fun updateMatrix(matrix: Matrix) {
-    transformDirty = false
-    matrix.reset()
-    matrix.setScale(scaleX, scaleY)
-    matrix.postRotate(rotation)
-    matrix.postTranslate(positionXValue + translateX, positionYValue + translateY)
-  }
-
   private fun markDirty() {
-    transformDirty = true
     rectDirty = true
   }
 

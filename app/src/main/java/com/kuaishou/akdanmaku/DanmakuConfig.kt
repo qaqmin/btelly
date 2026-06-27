@@ -47,14 +47,11 @@ import com.kuaishou.akdanmaku.ext.AkLog as Log
 import com.kuaishou.akdanmaku.engine.DanmakuEngine
 import com.kuaishou.akdanmaku.filter.DanmakuDataFilter
 import com.kuaishou.akdanmaku.filter.DanmakuLayoutFilter
-import com.kuaishou.akdanmaku.ext.RETAINER_AKDANMAKU
 
 /**
  * 弹幕场景设置参数
  */
 data class DanmakuConfig(
-
-  var retainerPolicy: Int = RETAINER_AKDANMAKU,
 
   /**
    * 预加载缓存的时间提前量
@@ -137,10 +134,8 @@ data class DanmakuConfig(
    * 导致合并体位置跳跃、与后续弹幕重叠，因此默认关闭。本项目改用入轨前的
    * 预处理合并（DanmakuDuplicateMergePolicy），由“合并弹幕”开关控制。
    */
-  var rejectedMergeEnabled: Boolean = false,
-
   /**
-   * 可见性标记，当可见性发生变化时更新
+   * 可见性标记，当可见性发生变化时更新此值
    */
   var visibilityGeneration: Int = 0,
 
@@ -165,16 +160,6 @@ data class DanmakuConfig(
   var filterGeneration: Int = 0,
 
   /**
-   * 排布标记位，当需要清空排布器，重新高度排布时更新此值
-   */
-  var retainerGeneration: Int = 0,
-
-  /**
-   * 渲染标记位，一般意义上每一次 Update 后都会更新此值，用于计算跳帧与绘制
-   */
-  var renderGeneration: Int = 0,
-
-  /**
    * 首次显示标记位，主要用于埋点
    */
   internal var firstShownGeneration: Int = 0,
@@ -187,9 +172,7 @@ data class DanmakuConfig(
       layoutGeneration +
       cacheGeneration +
       measureGeneration +
-      filterGeneration +
-      retainerGeneration +
-      renderGeneration
+      filterGeneration
     private set
 
   fun updateVisibility() {
@@ -220,17 +203,6 @@ data class DanmakuConfig(
     layoutGeneration++
     allGeneration++
     logGeneration("layout", layoutGeneration)
-  }
-
-  fun updateRetainer() {
-    retainerGeneration++
-    allGeneration++
-    logGeneration("retainer", retainerGeneration)
-  }
-
-  fun updateRender() {
-    renderGeneration++
-    allGeneration++
   }
 
   fun updateFirstShown() {

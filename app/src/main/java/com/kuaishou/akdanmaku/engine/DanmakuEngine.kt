@@ -89,7 +89,6 @@ class DanmakuEngine private constructor(renderer: DanmakuRenderer) {
     timer.start(positionMs)
     runtime.seekTo(positionMs)
     context.config.updateVisibility()
-    context.config.updateRetainer()
     context.config.updateLayout()
   }
 

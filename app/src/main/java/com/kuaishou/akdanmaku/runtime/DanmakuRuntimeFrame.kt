@@ -33,8 +33,6 @@ internal class RuntimeFrame {
     private set
   var filterGeneration: Int = -1
     private set
-  var renderGeneration: Int = -1
-    private set
   private var transitionStartedAtMs: Long = 0L
 
   fun reset(visibilityGeneration: Int) {
@@ -46,7 +44,6 @@ internal class RuntimeFrame {
     measureGeneration = -1
     cacheGeneration = -1
     filterGeneration = -1
-    renderGeneration = -1
     transitionStartedAtMs = 0L
     fixedCommandStartIndex = 0
     commands.clear()
@@ -60,8 +57,7 @@ internal class RuntimeFrame {
     layoutGeneration: Int,
     measureGeneration: Int,
     cacheGeneration: Int,
-    filterGeneration: Int,
-    renderGeneration: Int
+    filterGeneration: Int
   ) {
     this.reuseGeneration = reuseGeneration
     this.activeCount = activeCount
@@ -70,7 +66,6 @@ internal class RuntimeFrame {
     this.measureGeneration = measureGeneration
     this.cacheGeneration = cacheGeneration
     this.filterGeneration = filterGeneration
-    this.renderGeneration = renderGeneration
   }
 
   fun markFixedCommandStart(index: Int) {

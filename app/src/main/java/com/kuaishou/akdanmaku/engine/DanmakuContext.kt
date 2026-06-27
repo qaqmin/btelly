@@ -81,12 +81,10 @@ internal class DanmakuContext(val renderer: DanmakuRenderer) {
       current.bold != next.bold ||
       current.fontBorder != next.fontBorder) {
       next.updateMeasure()
-      next.updateRetainer()
       next.updateLayout()
       next.updateCache()
     }
     if (current.textSizeScale != next.textSizeScale) {
-      next.updateRetainer()
       next.updateLayout()
       next.updateMeasure()
       next.updateCache()
@@ -100,11 +98,9 @@ internal class DanmakuContext(val renderer: DanmakuRenderer) {
       current.trackSpacingFactor != next.trackSpacingFactor) {
       next.updateLayout()
       next.updateVisibility()
-      next.updateRetainer()
     }
     if (current.durationMs != next.durationMs ||
       current.rollingDurationMs != next.rollingDurationMs) {
-      next.updateRetainer()
       next.updateLayout()
     }
     if (current.dataFilter.size != next.dataFilter.size ||
@@ -117,8 +113,7 @@ internal class DanmakuContext(val renderer: DanmakuRenderer) {
   private inner class CacheCallbackHandler(looper: Looper) : Handler(looper) {
     override fun handleMessage(msg: Message) {
       if (msg.what == CacheManager.MSG_CACHE_RENDER) {
-        Log.w(DanmakuEngine.TAG, "[Context] onCacheSign, updateRender")
-        config.updateRender()
+        // cache 信号回调：渲染样式可能变化，由后续 frame 的 cacheGeneration 校验处理。
       }
     }
   }

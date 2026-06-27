@@ -64,7 +64,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   private val incrementalDanmakuIds = HashSet<Long>(32)
 
   private val trackLayout = DanmakuTrackLayout()
-  private val rejectedMergeController = RuntimeRejectedMergeController()
   private val framePool = RuntimeFramePool(MAX_RUNTIME_FRAME_POOL_SIZE)
   private val drawPaint = Paint().apply {
     isAntiAlias = true
@@ -75,7 +74,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   private var cacheGeneration = -1
   private var visibilityGeneration = -1
   private var layoutProfileTick = 0
-  private var loadShedLevel = 0
   private var filterCacheableGeneration = -1
   private var filterResultCacheable = false
   private var fallbackLimitLogTick = 0
@@ -278,7 +276,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     measureQueue.clear()
     stateById.clear()
     timelineAnchor.clear()
-    loadShedLevel = 0
     clearTracks()
     releaseFrame(frame)
     releaseFrame(transitionFrame)
@@ -634,13 +631,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       if (drawCostMs >= 15L) {
         Log.w(DanmakuEngine.TAG, "[Diag] draw held=" + drawCostMs + "ms commands=" + commandCount + " cacheHit=" + hit + " cacheMiss=" + (visibleCommandCount - hit - fallbackDraws) + " fallback=" + fallbackDraws + " drawCache=" + (diagDrawCacheNs / 1000000) + "ms drawText=" + (diagDrawTextNs / 1000000) + "ms " + topSummary)
       }
-      updateLoadShedLevelFromDraw(
-        drawCostMs = drawCostMs,
-        fallbackSkippedCount = fallbackSkipped,
-        fallbackCacheMissCount = fallbackCacheMiss,
-        visibleCommandCount = visibleCommandCount,
-        cacheHitCount = hit
-      )
     } finally {
       lastDrawLockReleasedAt = SystemClock.elapsedRealtime()
       onRenderReady()
@@ -701,8 +691,8 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     val transition = transitionFrame
     return "active=${activeStates.size} waiting=${waitingStates.size} pending=${pendingAddItems.size} " +
       "sorted=${sortedItems.size} scan=${timelineWindow.scanIndex} measureQueue=${measureQueue.size} " +
-      "commands=${liveFrame?.commands?.size ?: 0} transition=${transition?.commands?.size ?: 0} " +
-      "loadShed=$loadShedLevel cacheHit=${cacheHit.num}/${cacheHit.den}"
+      "commands=${liveFrame?.commands?.size ?: 0} transition=${transitionFrame?.commands?.size ?: 0} " +
+      "cacheHit=${cacheHit.num}/${cacheHit.den}"
   }
 
   fun getDanmakus(rect: RectF): List<DanmakuItem>? {
@@ -802,7 +792,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     measureCandidates.clear()
     measureQueue.clear()
     stateById.clear()
-    loadShedLevel = 0
     clearTracks()
     invalidateFrameReuse(REUSE_INVALIDATE_RESET)
     if (keepCurrentFrame) {
@@ -849,9 +838,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     if (currentFrame.filterGeneration != config.filterGeneration) {
       return "filterGen:${currentFrame.filterGeneration}->${config.filterGeneration}"
     }
-    if (currentFrame.renderGeneration != config.renderGeneration) {
-      return "renderGen:${currentFrame.renderGeneration}->${config.renderGeneration}"
-    }
     return null
   }
 
@@ -890,14 +876,14 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   private fun enqueueDueItems(now: Long, config: DanmakuConfig): Int {
     var activeAdded = 0
     val startedAt = SystemClock.elapsedRealtime()
-    val enqueueBudget = DanmakuLoadShedder.enqueueBudget(loadShedLevel)
+    val enqueueBudget = MAX_ENQUEUE_PER_FRAME
     timelineWindow.enqueueDue(
       nowMs = now,
       durationMs = config.durationMs,
       rollingDurationMs = config.rollingDurationMs,
       entryAheadMs = entryAheadMs(config),
       enqueueBudget = enqueueBudget,
-      shouldSkipItem = { DanmakuLoadShedder.shouldSkipItem(loadShedLevel) },
+      shouldSkipItem = { false },
       shouldStopAfterAdded = { addedCount ->
         addedCount >= MIN_ENQUEUE_PER_FRAME &&
           SystemClock.elapsedRealtime() - startedAt >= ENQUEUE_BUDGET_MS
@@ -1093,11 +1079,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         trackLayout.layout(item, now, width, height, margin, config)
       }
       if (!visible) {
-        if (rejectedMergeController.tryMergeRejected(item, config, now)) {
-          rejectedIncrementalStates.add(state)
-          dropped++
-          continue
-        }
         if (DanmakuRejectionPolicy.shouldDropRejectedItem(item)) {
           rejectedIncrementalStates.add(state)
           dropped++
@@ -1156,7 +1137,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       } else {
         appended++
       }
-      rejectedMergeController.registerVisible(item, config, now)
     }
     dropRejectedIncrementalStates()
     if (appended == 0 && fixedAppended == 0) {
@@ -1241,9 +1221,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     }
     if (currentFrame.filterGeneration != config.filterGeneration) {
       return "filterGen:${currentFrame.filterGeneration}->${config.filterGeneration}"
-    }
-    if (currentFrame.renderGeneration != config.renderGeneration) {
-      return "renderGen:${currentFrame.renderGeneration}->${config.renderGeneration}"
     }
     if (!isOnlyIncrementalActiveInvalidation()) {
       return "reuseInvalid:${frameReuseInvalidationSummary()}"
@@ -1338,13 +1315,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       if (profileDetails) trackMs += SystemClock.elapsedRealtime() - stepAt
       if (!visible) {
         trackRejectedCount++
-        if (rejectedMergeController.tryMergeRejected(item, config, now)) {
-          stateById.remove(item.data.danmakuId)
-          activeStates.removeAt(activeIndex)
-          dropActiveState(state)
-          invalidateFrameReuse(REUSE_INVALIDATE_DROP_REJECTED)
-          removedState = true
-        } else if (DanmakuRejectionPolicy.shouldDropRejectedItem(item)) {
+        if (DanmakuRejectionPolicy.shouldDropRejectedItem(item)) {
           stateById.remove(item.data.danmakuId)
           activeStates.removeAt(activeIndex)
           dropActiveState(state)
@@ -1404,7 +1375,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       } else {
         newFrame.commands.add(item, cache, drawState.cacheGeneration, left, top, right, bottom)
       }
-      rejectedMergeController.registerVisible(item, config, now)
       if (profileDetails) commandMs += SystemClock.elapsedRealtime() - stepAt
       activeIndex++
     }
@@ -1417,11 +1387,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     val cost = SystemClock.elapsedRealtime() - startedAt
     markFrameReuseState(newFrame, config)
     clearFrameReuseInvalidationReason()
-    updateLoadShedLevel(
-      layoutCostMs = cost,
-      rejectedCount = trackRejectedCount,
-      unmeasuredCount = unmeasuredCount
-    )
     if (cost >= LAYOUT_OVERLOAD_MS) {
       val topSummary = summarizeCommandTops(newFrame.commands, newFrame.fixedCommandStartIndex)
       Log.w(
@@ -1449,14 +1414,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     return newFrame
   }
 
-  private fun fixedCommandBudgetForCurrentLoad(): Int {
-    return when (loadShedLevel.coerceIn(0, DanmakuLoadShedder.MAX_LEVEL)) {
-      0 -> Int.MAX_VALUE
-      1 -> MAX_FIXED_COMMANDS_LOAD_SHED_LEVEL_1
-      2 -> MAX_FIXED_COMMANDS_LOAD_SHED_LEVEL_2
-      else -> MAX_FIXED_COMMANDS_LOAD_SHED_LEVEL_3
-    }
-  }
+  private fun fixedCommandBudgetForCurrentLoad(): Int = Int.MAX_VALUE
 
   private fun logZeroFrameIfNeeded(
     now: Long,
@@ -1492,7 +1450,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       "[Runtime] zero frame now=${now}ms active=${activeStates.size} waiting=${waitingStates.size} " +
         "outside=$outsideCount unmeasured=$unmeasuredCount filtered=$filteredCount " +
         "rejected=$trackRejectedCount measuredVisible=$measuredVisibleCandidates " +
-        "cacheReq=$cacheRequestedCount cacheDef=$cacheDeferredCount loadShed=$loadShedLevel " +
+        "cacheReq=$cacheRequestedCount cacheDef=$cacheDeferredCount " +
         "size=${context.displayer.width}x${context.displayer.height} sample=$sample"
     )
   }
@@ -1600,7 +1558,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         "stateU=$uninitialized stateM=$measuring stateReady=$measuredOrAbove stateErr=$error " +
         "reuseMiss=${reuseMissReason ?: "none"} incr=${if (incrementalProfile.applied) 1 else 0} " +
         "incrReason=${incrementalProfile.reason} incrItems=${incrementalProfile.items} " +
-        "incrCommands=${incrementalProfile.commands} loadShed=$loadShedLevel " +
+        "incrCommands=${incrementalProfile.commands} " +
         "visible=${config.visibility} size=${displayer.width}x${displayer.height} screenPart=${config.screenPart}"
     )
   }
@@ -1929,165 +1887,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     }
   }
 
-  private inner class RuntimeRejectedMergeController {
-    private val targets = HashMap<MergeKey, MergeTarget>(256)
-    private var sequence = 0L
-
-    fun registerVisible(item: DanmakuItem, config: DanmakuConfig, nowMs: Long) {
-      if (!config.rejectedMergeEnabled) return
-      if (!isMergeCandidate(item)) return
-      prune(nowMs)
-      val key = item.mergeKey()
-      targets[key] = MergeTarget(item, countOf(item.data.content).coerceAtLeast(1), nowMs, nowMs)
-    }
-
-    fun tryMergeRejected(item: DanmakuItem, config: DanmakuConfig, nowMs: Long): Boolean {
-      if (!config.rejectedMergeEnabled) return false
-      if (!isMergeCandidate(item)) return false
-      prune(nowMs)
-      val target = targets[item.mergeKey()] ?: return false
-      val targetItem = target.item
-      if (targetItem == item || targetItem.isRuntimeOutside(nowMs)) {
-        targets.remove(item.mergeKey())
-        return false
-      }
-      val nextCount = target.count + 1
-      val previousContent = targetItem.data.content
-      val previousWidth = targetItem.drawState.width
-      val previousTextSize = targetItem.data.textSize
-      target.count = nextCount
-      target.lastUpdatedMs = nowMs
-      val baseContent = previousContent.substringBeforeLast(" ×")
-      val mergedContent = "$baseContent ×$nextCount"
-      targetItem.data = targetItem.data.copy(
-        content = mergedContent,
-        textSize = mergedTextSize(targetItem, item),
-        mergedType = DanmakuItemData.MERGED_TYPE_MERGED
-      )
-      targetItem.cacheRecycle()
-      applyMergedMeasurement(
-        targetItem = targetItem,
-        previousContent = previousContent,
-        previousWidth = previousWidth,
-        previousTextSize = previousTextSize,
-        mergedContent = mergedContent,
-        config = config
-      )
-      targetItem.drawState.layoutGeneration = config.layoutGeneration
-      requestCacheBuildIfNeeded(targetItem, config, CACHE_PRIORITY_VISIBLE)
-      invalidateFrameReuse(REUSE_INVALIDATE_DROP_REJECTED)
-      if (nextCount == 2 || nextCount % 10 == 0) {
-        sequence++
-        Log.i(
-          DanmakuEngine.TAG,
-          "[Runtime] rejected merge #$sequence noTrack=1 merged=1 count=$nextCount " +
-            "width=${previousWidth.toInt()}->${targetItem.drawState.width.toInt()} " +
-            "target=${targetItem.data.danmakuId} rejected=${item.data.danmakuId}"
-        )
-      }
-      return true
-    }
-
-    private fun prune(nowMs: Long) {
-      val iterator = targets.iterator()
-      while (iterator.hasNext()) {
-        val target = iterator.next().value
-        if (nowMs - target.createdAtMs > MERGE_DUPLICATE_WINDOW_MS ||
-          target.item.isRuntimeOutside(nowMs)
-        ) {
-          iterator.remove()
-        }
-      }
-    }
-
-    private fun isMergeCandidate(item: DanmakuItem): Boolean {
-      return item.data.mode == DanmakuItemData.DANMAKU_MODE_ROLLING &&
-        item.data.content.isNotBlank()
-    }
-
-    private fun DanmakuItem.mergeKey(): MergeKey {
-      val data = this.data
-      return MergeKey(
-        content = data.content.substringBeforeLast(" ×").trim().lowercase(),
-        mode = data.mode,
-        color = data.textColor,
-        renderFlags = data.renderFlags,
-        fillTextureUrl = data.vipGradientStyle.fillTextureUrl,
-        strokeTextureUrl = data.vipGradientStyle.strokeTextureUrl
-      )
-    }
-
-    private fun countOf(content: String): Int {
-      val suffix = content.substringAfterLast(" ×", missingDelimiterValue = "")
-      return suffix.toIntOrNull() ?: 1
-    }
-
-    private fun applyMergedMeasurement(
-      targetItem: DanmakuItem,
-      previousContent: String,
-      previousWidth: Float,
-      previousTextSize: Int,
-      mergedContent: String,
-      config: DanmakuConfig
-    ) {
-      val drawState = targetItem.drawState
-      val baseWidth = previousWidth.coerceAtLeast(drawState.width)
-      val textSizePx = mergedTextSizePx(targetItem)
-      val previousTextSizePx = textSizePx(previousTextSize)
-      val textScale = if (previousTextSizePx > 0f) {
-        (textSizePx / previousTextSizePx).coerceAtLeast(1f)
-      } else {
-        1f
-      }
-      val suffixCharCount = (mergedContent.length - previousContent.length).coerceAtLeast(0)
-      val suffixWidth = suffixCharCount * textSizePx * MERGE_SUFFIX_WIDTH_FACTOR
-      val safetyPadding = textSizePx * MERGE_SUFFIX_SAFETY_EM + MERGE_CANVAS_PADDING
-      val firstMergedSuffix = !previousContent.contains(" ×")
-      val safetyGrowth = if (firstMergedSuffix || suffixCharCount > 0) safetyPadding else 0f
-      drawState.width = max(baseWidth * textScale + suffixWidth + safetyGrowth, drawState.width)
-      drawState.height = max(drawState.height * textScale, textSizePx + MERGE_CANVAS_PADDING)
-      drawState.measureGeneration = config.measureGeneration
-      targetItem.state = ItemState.Measured
-      targetItem.pendingMeasureGeneration = -1
-      targetItem.pendingCacheGeneration = -1
-    }
-
-    private fun mergedTextSize(targetItem: DanmakuItem, rejectedItem: DanmakuItem): Int {
-      val targetTextSize = if (targetItem.data.mergedType == DanmakuItemData.MERGED_TYPE_MERGED) {
-        targetItem.data.textSize - MERGE_TEXT_SIZE_BONUS
-      } else {
-        targetItem.data.textSize
-      }
-      return max(targetTextSize, rejectedItem.data.textSize) + MERGE_TEXT_SIZE_BONUS
-    }
-
-    private fun mergedTextSizePx(item: DanmakuItem): Float {
-      return textSizePx(item.data.textSize)
-    }
-
-    private fun textSizePx(textSizeSp: Int): Float {
-      val textSize = textSizeSp.toFloat().coerceIn(12f, 25f)
-      val densityScale = (context.displayer.density - 0.6f).coerceAtLeast(0.4f)
-      return (textSize * densityScale * context.config.textSizeScale).coerceAtLeast(12f)
-    }
-  }
-
-  private data class MergeKey(
-    val content: String,
-    val mode: Int,
-    val color: Int,
-    val renderFlags: Int,
-    val fillTextureUrl: String,
-    val strokeTextureUrl: String
-  )
-
-  private data class MergeTarget(
-    val item: DanmakuItem,
-    var count: Int,
-    val createdAtMs: Long,
-    var lastUpdatedMs: Long
-  )
-
   private fun acquireState(item: DanmakuItem): ActiveItemState =
     statePool.removeLastOrNull()?.also { it.reset(item) } ?: ActiveItemState(item)
 
@@ -2186,8 +1985,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       layoutGeneration = config.layoutGeneration,
       measureGeneration = config.measureGeneration,
       cacheGeneration = config.cacheGeneration,
-      filterGeneration = config.filterGeneration,
-      renderGeneration = config.renderGeneration
+      filterGeneration = config.filterGeneration
     )
   }
 
@@ -2196,51 +1994,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     if (activeStates.size > expectedActiveUpperBound) return false
     val staleCommands = currentFrame.commands.size + promotedItems - activeStates.size
     return staleCommands <= MAX_STALE_COMMANDS_BEFORE_REBUILD
-  }
-
-  private fun updateLoadShedLevel(layoutCostMs: Long, rejectedCount: Int, unmeasuredCount: Int) {
-    val oldLevel = loadShedLevel
-    loadShedLevel = DanmakuLoadShedder.nextLevel(
-      currentLevel = loadShedLevel,
-      layoutCostMs = layoutCostMs,
-      rejectedCount = rejectedCount,
-      unmeasuredCount = unmeasuredCount
-    )
-    if (loadShedLevel != oldLevel) {
-      Log.i(
-        DanmakuEngine.TAG,
-        "[Runtime] load shed level=$loadShedLevel cost=${layoutCostMs}ms rejected=$rejectedCount unmeasured=$unmeasuredCount"
-      )
-    }
-  }
-
-  private fun updateLoadShedLevelFromDraw(
-    drawCostMs: Long,
-    fallbackSkippedCount: Int,
-    fallbackCacheMissCount: Int,
-    visibleCommandCount: Int,
-    cacheHitCount: Int
-  ) {
-    val oldLevel = loadShedLevel
-    val nextLevel = DanmakuLoadShedder.nextLevel(
-      currentLevel = loadShedLevel,
-      layoutCostMs = 0L,
-      rejectedCount = 0,
-      unmeasuredCount = 0,
-      drawCostMs = drawCostMs,
-      fallbackSkippedCount = fallbackSkippedCount
-    )
-    if (nextLevel > loadShedLevel) {
-      loadShedLevel = nextLevel
-    }
-    if (loadShedLevel != oldLevel || drawCostMs >= DRAW_OVERLOAD_MS) {
-      Log.i(
-        DanmakuEngine.TAG,
-        "[Runtime] draw load shed level=$loadShedLevel cost=${drawCostMs}ms " +
-          "fallbackSkipped=$fallbackSkippedCount cacheMiss=$fallbackCacheMissCount " +
-          "cacheHit=$cacheHitCount visible=$visibleCommandCount"
-      )
-    }
   }
 
   private fun DanmakuItem.isRuntimeTimeout(now: Long): Boolean {
@@ -2321,9 +2074,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     private const val MAX_INCREMENTAL_PROMOTED_PER_FRAME = 16
     private const val MAX_FALLBACK_DRAWS_PER_FRAME = 2
     private const val MAX_FIXED_FALLBACK_DRAWS_PER_FRAME = 1
-    private const val MAX_FIXED_COMMANDS_LOAD_SHED_LEVEL_1 = 8
-    private const val MAX_FIXED_COMMANDS_LOAD_SHED_LEVEL_2 = 4
-    private const val MAX_FIXED_COMMANDS_LOAD_SHED_LEVEL_3 = 2
     private const val MAX_FALLBACK_CACHE_BOOSTS_PER_FRAME = 4
     private const val MAX_FRAME_CACHE_RELEASES_PER_UPDATE = 16
     private const val FALLBACK_LIMIT_LOG_INTERVAL = 30
@@ -2333,7 +2083,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     private const val LIVE_HISTORY_MAX = 2000
     private const val RUNTIME_OVERLOAD_MS = 12L
     private const val LAYOUT_OVERLOAD_MS = 12L
-    private const val DRAW_OVERLOAD_MS = 12L
     private const val LAYOUT_PROFILE_DETAIL_INTERVAL = 30
     private const val MAX_ACTIVE_STATE_POOL_SIZE = 512
     private const val MAX_MEASURE_ENTRY_POOL_SIZE = 512
@@ -2342,17 +2091,13 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     private const val MAX_MEASURE_CANDIDATES_PER_FRAME = 12
     private const val MAX_MEASURE_CACHE_HITS_PER_FRAME = 4
     private const val MAX_STALE_COMMANDS_BEFORE_REBUILD = 32
-    private const val MERGE_DUPLICATE_WINDOW_MS = 2_000L
-    private const val MERGE_TEXT_SIZE_BONUS = 2
-    private const val MERGE_SUFFIX_WIDTH_FACTOR = 0.7f
-    private const val MERGE_SUFFIX_SAFETY_EM = 0.8f
-    private const val MERGE_CANVAS_PADDING = 6f
     private const val FRAME_CACHE_RELEASE_DELAY_MS = 48L
     private const val FRAME_STALL_LOG_INTERVAL_MS = 1_000L
     private const val DRAW_STALL_LOG_INTERVAL_MS = 1_000L
     private const val FRAME_DANMAKU_SUMMARY_INTERVAL_MS = 2_000L
     private const val DANMAKU_EXPIRY_LOG_INTERVAL_MS = 1_000L
     private const val MIN_ENQUEUE_PER_FRAME = 4
+    private const val MAX_ENQUEUE_PER_FRAME = 32
     private const val ENQUEUE_BUDGET_MS = 2L
     private const val CACHE_PRIORITY_VISIBLE = 0
     private const val REUSE_INVALIDATE_ADD_ITEMS = 0

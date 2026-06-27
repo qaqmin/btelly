@@ -516,7 +516,6 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
       )
       if (config.durationMs != duration) {
         config.durationMs = duration
-        config.updateRetainer()
         config.updateLayout()
       }
       currentDisplayerWidth = width
@@ -544,7 +543,6 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
             newConfig.updateLayout()
             newConfig.updateMeasure()
             newConfig.updateCache()
-            newConfig.updateRetainer()
           }
         }
       }

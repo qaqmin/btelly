@@ -24,11 +24,7 @@
 package com.kuaishou.akdanmaku.ext
 
 import android.graphics.Bitmap
-import com.kuaishou.akdanmaku.data.DanmakuItemData
 import com.kuaishou.akdanmaku.data.DanmakuItem
-import com.kuaishou.akdanmaku.ui.DanmakuDisplayer
-import com.kuaishou.akdanmaku.utils.Size
-import kotlin.math.abs
 
 /**
  * 数据相关扩展
@@ -46,49 +42,3 @@ fun DanmakuItem.isLate(current: Long): Boolean =
 
 fun DanmakuItem.isOutside(current: Long): Boolean =
   isTimeout(current) || isLate(current)
-
-internal fun DanmakuItem.willCollision(
-  danmaku: DanmakuItem,
-  displayer: DanmakuDisplayer,
-  current: Long,
-  durationMs: Long,
-  overlapFraction: Float = 0f
-): Boolean {
-  if (isOutside(current)) return false
-  val dt = danmaku.timePosition - timePosition
-  if (dt <= 0) return true
-  if (abs(dt) >= durationMs ||
-    isTimeout(current) ||
-    danmaku.isTimeout(current)) {
-    return false
-  }
-
-  if (data.mode == DanmakuItemData.DANMAKU_MODE_CENTER_TOP || data.mode == DanmakuItemData.DANMAKU_MODE_CENTER_BOTTOM) {
-    return true
-  }
-
-  return checkCollisionAtTime(this, danmaku, displayer, current, durationMs, overlapFraction) ||
-    checkCollisionAtTime(this, danmaku, displayer, current + durationMs, durationMs, overlapFraction)
-}
-
-private fun checkCollisionAtTime(
-  d1: DanmakuItem,
-  d2: DanmakuItem,
-  displayer: DanmakuDisplayer,
-  current: Long,
-  durationMs: Long,
-  overlapFraction: Float = 0f
-): Boolean {
-  val width = displayer.width
-  val w1 = d1.drawState.width
-  val w2 = d2.drawState.width
-  val tolerance = minOf(w1, w2) * overlapFraction
-  val dt1 = current - d1.timePosition
-  val dt2 = current - d2.timePosition
-  val r1 = width - (width + w1) * (dt1.toFloat() / durationMs) + w1
-  val l2 = width - (width + w2) * (dt2.toFloat() / durationMs)
-  return l2 < r1 - tolerance
-}
-
-const val RETAINER_BILIBILI = 0
-const val RETAINER_AKDANMAKU = 1
