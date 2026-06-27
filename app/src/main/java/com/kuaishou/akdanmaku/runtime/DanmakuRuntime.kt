@@ -1889,7 +1889,10 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
 
   private fun shouldProfileLayoutFrame(): Boolean {
     layoutProfileTick++
-    return true // [DIAG] force on
+    // 采样式诊断：每 30 帧采一次，保留周期性性能 profiling 能力的同时，
+    // 消除非采样帧里循环内每条弹幕 10-15 次 SystemClock 系统调用开销。
+    // 采样那帧仍有完整开销，但 30:1 比例下整体可忽略。
+    return layoutProfileTick % 30 == 0
   }
 
   private class ReleaseProfile(

@@ -10,6 +10,7 @@ import android.util.TypedValue
 import androidx.appcompat.content.res.AppCompatResources
 import android.content.Context
 import com.btelly.R
+import com.btelly.core.common.log.AppLog
 import com.btelly.core.emote.EmoteBitmapLoader
 import com.btelly.core.emote.ReplyEmotePanelRepository
 import com.btelly.feature.player.danmaku.Danmaku
@@ -139,6 +140,8 @@ internal class DanmakuEngine(
     // ---- Layout state (action thread only) ----
     private val actionFontMetrics = Paint.FontMetrics()
     private val actionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.DEFAULT_BOLD }
+    // actionPaint 度量是否已算（字号/描边变化后置 false，强制下帧重算）。
+    @Volatile private var actionMetricsValid = false
     private var configuredLaneCount: Int = 0
     private var configuredLaneHeightPx: Float = 0f
     private var configuredTopInsetPx: Int = 0
@@ -151,6 +154,11 @@ internal class DanmakuEngine(
 
     // ---- Draw (main thread only) ----
     private val drawFontMetrics = Paint.FontMetrics()
+    // getFontMetrics 结果缓存：只有 textSize/typeface/strokeWidth 变化时才重算，
+    // 避免每帧重复调用 native getFontMetrics（drawMetricsKey 记录决定重算的样式指纹）。
+    private var drawMetricsKey = ""
+    private var drawBaselineOffset = 0f
+    private var drawEmoteSizePx = 1f
     private val drawFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.DEFAULT_BOLD
         // 对齐 akdanmaku SimpleRenderer：不开 subpixel（TV/OLED 上会把纯色文字边缘拆成 RGB 子像素，
@@ -211,6 +219,8 @@ internal class DanmakuEngine(
             if (styleChanged) {
                 cacheStyleGeneration++
                 measureGeneration++
+                // 样式变化后 actionPaint 度量需重算（act 帧循环里按此标志判断）。
+                actionMetricsValid = false
                 // Invalidate current caches to avoid mixing styles.
                 val releaseAt = currentUiFrameId + 1
                 val size = active.size
@@ -281,8 +291,12 @@ internal class DanmakuEngine(
             val bottomInset = viewportBottomInsetPx.coerceIn(0, height - topInset)
             val availableHeight = (height - topInset - bottomInset).coerceAtLeast(0)
 
-            actionPaint.textSize = textSizePx
-            actionPaint.getFontMetrics(actionFontMetrics)
+            // actionPaint 度量只随字号/描边变化，缓存比对避免每帧 getFontMetrics。
+            if (actionPaint.textSize != textSizePx || !actionMetricsValid) {
+                actionPaint.textSize = textSizePx
+                actionPaint.getFontMetrics(actionFontMetrics)
+                actionMetricsValid = true
+            }
             // 度量高度对齐 akdanmaku SimpleRenderer.getCacheHeight：descent - ascent + leading。
             // leading 对 CJK 字体通常为 0，但西文/混排时可能有值，补上保证两套引擎行高基准一致。
             val textBoxHeight = (actionFontMetrics.descent - actionFontMetrics.ascent + actionFontMetrics.leading) + outlinePad * 2f
@@ -396,15 +410,25 @@ internal class DanmakuEngine(
             emotePlaceholderStroke.color = (strokeA shl 24) or 0xFFFFFF
         }
 
-        drawFill.getFontMetrics(drawFontMetrics)
-        val baselineOffset = outlinePad - drawFontMetrics.ascent
-        val emoteSizePx = (drawFontMetrics.descent - drawFontMetrics.ascent).coerceAtLeast(1f)
+        // getFontMetrics 只在 textSize/typeface/strokeWidth 变化时重算，避免每帧冗余 native 调用。
+        // drawFill.textSize/typeface/strokeWidth 在上面的惰性块里已和目标值同步，
+        // 所以这里用它们拼出指纹 key 与缓存对比即可。
+        val metricsKey = "${drawFill.textSize}_${drawFill.typeface}_${drawStroke.strokeWidth}"
+        if (metricsKey != drawMetricsKey) {
+            drawFill.getFontMetrics(drawFontMetrics)
+            drawBaselineOffset = outlinePad - drawFontMetrics.ascent
+            drawEmoteSizePx = (drawFontMetrics.descent - drawFontMetrics.ascent).coerceAtLeast(1f)
+            drawMetricsKey = metricsKey
+        }
+        val baselineOffset = drawBaselineOffset
+        val emoteSizePx = drawEmoteSizePx
         val styleGen = cacheStyleGeneration
         val width = viewportWidth.coerceAtLeast(0)
         val nowMs = currentPositionMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
         var cachedDrawn = 0
         var fallbackDrawn = 0
+        var fallbackSkipped = 0
         for (i in 0 until snapshot.count) {
             val item = snapshot.items[i] ?: continue
             val x =
@@ -418,6 +442,12 @@ internal class DanmakuEngine(
             if (bmp != null && !bmp.isRecycled && item.cacheGeneration == styleGen) {
                 canvas.drawBitmap(bmp, x, yTop, bitmapPaint)
                 cachedDrawn++
+                continue
+            }
+            // 主线程实时直绘限流：cache miss 时若已达上限，本帧跳过该弹幕，
+            // 等后台缓存线程建好 bitmap 后下一帧命中缓存再画。
+            if (fallbackDrawn >= MAX_FALLBACK_DRAWS_PER_FRAME) {
+                fallbackSkipped++
                 continue
             }
             fallbackDrawn++
@@ -434,6 +464,10 @@ internal class DanmakuEngine(
         }
         lastDrawCachedCount = cachedDrawn
         lastDrawFallbackCount = fallbackDrawn
+        if (fallbackSkipped > 0 && fallbackSkipped >= fallbackDrawn * 4) {
+            // 当跳过的远多于直绘的，说明缓存跟不上弹幕涌入速度，告警便于诊断。
+            AppLog.w(TAG, "draw fallback throttled: drawn=$fallbackDrawn skipped=$fallbackSkipped cached=$cachedDrawn")
+        }
     }
 
     override fun setDanmakus(list: List<Danmaku>) {
@@ -1339,6 +1373,7 @@ internal class DanmakuEngine(
         }
 
     private companion object {
+        private const val TAG = "BTellyDmEngine"
         private val HIGH_LIKE_ICON_COLOR = Color.parseColor("#F6C343")
         private const val DEFAULT_ROLLING_DURATION_MS = 6_000f
         private const val MIN_ROLLING_DURATION_MS = 2_000
@@ -1358,5 +1393,12 @@ internal class DanmakuEngine(
         private const val MAX_CACHE_REQUESTS_PER_FRAME = 8
         private const val MAX_CACHE_SCAN_PER_FRAME = 16
         private const val MAX_CACHE_QUEUE_DEPTH = 48
+
+        // 主线程每帧最多实时直绘（fallback drawTextDirect）的弹幕条数。
+        // drawText 比 drawBitmap 慢一个量级（描边+填充两次 native 调用），cache miss 高峰时
+        // 不限量直绘会吃掉主线程整帧预算。超限的未缓存弹幕本帧跳过，等后台缓存线程建好 bitmap，
+        // 下一帧命中缓存再画（最多晚 1-2 帧约 16-32ms，肉眼几乎无感）。
+        // 对齐 akdanmaku MAX_FALLBACK_DRAWS_PER_FRAME=2 的设计。
+        private const val MAX_FALLBACK_DRAWS_PER_FRAME = 2
     }
 }

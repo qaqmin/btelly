@@ -53,6 +53,8 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
   private val cacheThread by lazy {
     HandlerThread(THREAD_NAME).apply {
       start()
+      // 降为后台优先级：cache 构建是文字渲染重活，不应与主线程/ActionThread 平等抢 CPU。
+      Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
       available = true
     }
   }

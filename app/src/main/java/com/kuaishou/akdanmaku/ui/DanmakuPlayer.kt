@@ -30,6 +30,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.os.Message
+import android.os.Process
 import android.os.SystemClock
 import com.kuaishou.akdanmaku.ext.AkLog as Log
 import android.view.Choreographer
@@ -93,7 +94,14 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     override fun onDataRemoved(removalItems: List<DanmakuItem>) {
     }
   }
-  private val actionThread by lazy  { HandlerThread("ActionThread").apply { start() } }
+  private val actionThread by lazy {
+    HandlerThread("ActionThread").apply {
+      start()
+      // act 计算（布局/轨道/碰撞）比 cache 构建更重要（影响弹幕位置准确性），
+      // 只略低于主线程渲染，避免与主线程 onDraw 平等抢 CPU 导致渲染卡顿。
+      Process.setThreadPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE)
+    }
+  }
   private val actionHandler by lazy { ActionHandler(actionThread.looper) }
   private val frameCallback by lazy { FrameCallback() }
 

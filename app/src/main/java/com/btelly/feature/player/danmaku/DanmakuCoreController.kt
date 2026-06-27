@@ -8,6 +8,12 @@ import com.btelly.feature.player.view.BiliDanmakuFilterPolicy
 import com.btelly.feature.player.view.DanmakuDuplicateMergePolicy
 import com.btelly.feature.player.view.MyPlayerDanmakuController
 import com.btelly.model.dm.DmModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 上游实现 弹幕引擎适配控制器（性能优先模式）。
@@ -57,6 +63,14 @@ class DanmakuCoreController(
     @Volatile
     private var isPlaying = false
 
+    /**
+     * 数据预处理协程作用域：把排序/过滤/合并/转换丢到后台线程，避免阻塞主线程。
+     * 参考 MyPlayerDanmakuController.controllerScope 的模式。
+     */
+    private val controllerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /** 数据预处理代际：新数据到来时自增，后台协程完成后校验，过期则丢弃结果（防竞态）。 */
+    private val prepareGeneration = java.util.concurrent.atomic.AtomicInteger(0)
+
     init {
         installProviders()
     }
@@ -76,8 +90,17 @@ class DanmakuCoreController(
         @Suppress("UNUSED_PARAMETER") startupTraceStartElapsedMs: Long = 0L
     ) {
         this.filterContext = filterContext
-        rawItems = data.sortedBy { it.progress }
-        applyDataToView()
+        // 排序 + 过滤/合并/转换丢到后台线程，避免大数据（可达 2 万条）阻塞主线程。
+        // 代际校验防止"旧数据处理完时新数据已到"的竞态。
+        val generation = prepareGeneration.incrementAndGet()
+        controllerScope.launch {
+            val sorted = data.sortedBy { it.progress }
+            withContext(Dispatchers.Main.immediate) {
+                if (prepareGeneration.get() != generation) return@withContext
+                rawItems = sorted
+            }
+            applyDataToViewAsync(generation, append = false)
+        }
     }
 
     fun appendData(
@@ -86,20 +109,46 @@ class DanmakuCoreController(
     ) {
         if (data.isEmpty()) return
         this.filterContext = filterContext
-        rawItems = mergeSorted(rawItems, data)
-        applyDataToView(append = true)
+        val generation = prepareGeneration.incrementAndGet()
+        controllerScope.launch {
+            // 合并需要读 rawItems，在主线程快照避免并发修改。
+            val existing = withContext(Dispatchers.Main.immediate) {
+                if (prepareGeneration.get() != generation) return@withContext null
+                rawItems
+            } ?: return@launch
+            val merged = mergeSorted(existing, data)
+            withContext(Dispatchers.Main.immediate) {
+                if (prepareGeneration.get() != generation) return@withContext
+                rawItems = merged
+            }
+            applyDataToViewAsync(generation, append = true)
+        }
     }
 
     fun applySettings(snapshot: MyPlayerDanmakuController.SettingsSnapshot) {
         if (lastSnapshot == snapshot) return
+        val old = lastSnapshot
         lastSnapshot = snapshot
         currentConfig = buildConfig(snapshot)
         viewProvider()?.visibility = if (snapshot.enabled) android.view.View.VISIBLE else android.view.View.GONE
-        // 弹幕引擎的 DanmakuConfig 不含 allowTop/allowBottom/mergeDuplicate——这些靠数据层
-        // (BiliDanmakuFilterPolicy + DanmakuDuplicateMergePolicy)在注入前过滤。
-        // 所以这些设置变化后必须重新预处理已有数据并重新注入，否则开关不生效。
-        // （APP设置-弹幕设置生效是因为它走的是同样的 setData→applyDataToView 路径，会重新过滤。）
-        if (rawItems.isNotEmpty()) {
+        if (old == null) {
+            // 首次：必须走完整数据预处理。
+            if (rawItems.isNotEmpty()) applyDataToView()
+            return
+        }
+        // 字段级 diff：区分"config 级"与"数据级"设置。
+        // config 级（alpha/textSize/speed/screenArea/enabled/trackSpacing）只改渲染参数，
+        //   引擎 updateConfig 已正确处理——opacity/speed/area 不失效已缓存的文字 bitmap，
+        //   仅 textSize/strokeWidth 变化才失效 bitmap（引擎内部按需分帧重建）。
+        //   所以这类设置变化只需通过 configProvider 下发新 config，无需重跑过滤/合并/转换。
+        // 数据级（allowTop/allowBottom/mergeDuplicate/smartFilterLevel/showAdvancedDanmaku）影响
+        //   过滤/合并结果，必须重新预处理已有数据并重新注入，否则开关不生效。
+        val dataLevelChanged = old.allowTop != snapshot.allowTop ||
+            old.allowBottom != snapshot.allowBottom ||
+            old.mergeDuplicate != snapshot.mergeDuplicate ||
+            old.smartFilterLevel != snapshot.smartFilterLevel ||
+            old.showAdvancedDanmaku != snapshot.showAdvancedDanmaku
+        if (dataLevelChanged && rawItems.isNotEmpty()) {
             applyDataToView()
         }
     }
@@ -176,19 +225,61 @@ class DanmakuCoreController(
 
     fun release() {
         stop()
+        controllerScope.cancel()
     }
 
     // ---- 内部 ----
 
+    /**
+     * 同步预处理并注入（数据级设置变更时走这里：数据已在内存，重处理以应用新的过滤/合并设置）。
+     * 仍跑在调用线程（主线程），但设置变更触发的频率远低于首屏加载，可接受。
+     */
     private fun applyDataToView(append: Boolean = false) {
-        val view = viewProvider() ?: return
         if (rawItems.isEmpty()) {
-            if (!append) view.setDanmakus(emptyList())
+            if (!append) viewProvider()?.setDanmakus(emptyList())
             return
         }
+        val prepared = preprocess(rawItems, append)
+        injectToView(prepared, append)
+    }
+
+    /**
+     * 异步预处理并注入（setData/appendData 走这里：把重活丢后台）。
+     * [generation] 用于代际校验，过期结果丢弃。
+     */
+    private suspend fun applyDataToViewAsync(generation: Int, append: Boolean) {
+        // 快照当前数据（在主线程读，避免与 setData/appendData 并发修改 rawItems）。
+        val snapshot = withContext(Dispatchers.Main.immediate) {
+            if (prepareGeneration.get() != generation) return@withContext null
+            if (rawItems.isEmpty()) return@withContext emptyList<DmModel>()
+            rawItems.toList() // 防御性拷贝，后台处理期间不被并发修改
+        } ?: return
+        if (snapshot.isEmpty()) {
+            withContext(Dispatchers.Main.immediate) {
+                if (prepareGeneration.get() != generation) return@withContext
+                if (!append) viewProvider()?.setDanmakus(emptyList())
+            }
+            return
+        }
+        // 后台线程：过滤 + 合并 + 转换（重活，可能上万条）。
+        val prepared = preprocess(snapshot, append)
+        // 回主线程注入引擎（setDanmakus/appendDanmakus 操作 View，必须主线程）。
+        withContext(Dispatchers.Main.immediate) {
+            if (prepareGeneration.get() != generation) return@withContext
+            injectToView(prepared, append)
+        }
+    }
+
+    /**
+     * 数据预处理：过滤 + 合并重复。纯 CPU 计算，无 View/主线程依赖，可安全在后台线程执行。
+     */
+    private fun preprocess(
+        items: List<DmModel>,
+        @Suppress("UNUSED_PARAMETER") append: Boolean
+    ): List<Danmaku> {
         // 1. 过滤（复用现有策略，engine 无关）
         val filtered = BiliDanmakuFilterPolicy.apply(
-            items = rawItems,
+            items = items,
             context = filterContext,
             settings = lastSnapshot,
             stage = "danmaku"
@@ -203,8 +294,13 @@ class DanmakuCoreController(
                     "dropped=${filtered.size - prepared.size}"
             )
         }
-        // 3. 转 Danmaku + 注入引擎
-        val danmakus = prepared.toDanmakus()
+        // 3. 转 Danmaku
+        return prepared.toDanmakus()
+    }
+
+    /** 把预处理结果注入引擎（操作 View，必须在主线程调用）。 */
+    private fun injectToView(danmakus: List<Danmaku>, append: Boolean) {
+        val view = viewProvider() ?: return
         if (append && viewHasData()) {
             view.appendDanmakus(danmakus, alreadySorted = true)
         } else {
@@ -212,8 +308,7 @@ class DanmakuCoreController(
         }
         AppLog.i(
             TAG,
-            "applied raw=${rawItems.size} filtered=${filtered.size} prepared=${prepared.size} " +
-                "danmakus=${danmakus.size} merge=$mergeDuplicate"
+            "applied danmakus=${danmakus.size} merge=${lastSnapshot?.mergeDuplicate ?: true} append=$append"
         )
     }
 
