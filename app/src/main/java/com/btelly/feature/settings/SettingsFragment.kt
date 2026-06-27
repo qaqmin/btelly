@@ -106,7 +106,6 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val KEY_DM_ALLOW_BOTTOM = "dm_allow_bottom"
         private const val KEY_DM_FILTER_WEIGHT = "dm_filter_weight"
         private const val KEY_DM_ALLOW_VIP_COLORFUL_DM = "dm_allow_vip_colorful_dm"
-        private const val KEY_DM_SHOW_ADVANCED = "dm_show_advanced"
         private const val KEY_DM_MERGE_DUPLICATE = "dm_merge_duplicate"
         private const val KEY_DM_SMART_SHIELD = "dm_smart_shield"
         private const val KEY_GAIA_VGATE_V_VOUCHER = "gaia_vgate_v_voucher"
@@ -235,7 +234,6 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.dm_allow_bottom), "关"),
             SettingModel(getString(R.string.dm_filter_weight), "关"),
             SettingModel(getString(R.string.allow_vip_colorful_dm), "开"),
-            SettingModel(getString(R.string.dm_show_advanced), "开"),
             SettingModel(getString(R.string.dm_merge_duplicate), "开"),
             SettingModel(getString(R.string.dm_smart_shield), "关"),
             SettingModel(getString(R.string.show_dm_switch), "关"),
@@ -576,17 +574,14 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             9 -> toggleSetting(dmSettings, 9, KEY_DM_ALLOW_VIP_COLORFUL_DM) { value ->
                 appSettings.putStringAsync(KEY_DM_ALLOW_VIP_COLORFUL_DM, value)
             }
-            10 -> toggleSetting(dmSettings, 10, KEY_DM_SHOW_ADVANCED) { value ->
-                appSettings.putStringAsync(KEY_DM_SHOW_ADVANCED, value)
-            }
-            11 -> toggleSetting(dmSettings, 11, KEY_DM_MERGE_DUPLICATE) { value ->
+            10 -> toggleSetting(dmSettings, 10, KEY_DM_MERGE_DUPLICATE) { value ->
                 appSettings.putStringAsync(KEY_DM_MERGE_DUPLICATE, value)
             }
-            12 -> toggleSetting(dmSettings, 12, KEY_DM_SMART_SHIELD) { value ->
+            11 -> toggleSetting(dmSettings, 11, KEY_DM_SMART_SHIELD) { value ->
                 appSettings.putStringAsync(KEY_DM_SMART_SHIELD, value)
             }
-            13 -> toggleSetting(dmSettings, 13, KEY_SHOW_DM_SWITCH)
-            14 -> toggleDanmakuEngine()
+            12 -> toggleSetting(dmSettings, 12, KEY_SHOW_DM_SWITCH)
+            13 -> toggleDanmakuEngine()
         }
     }
 
@@ -1021,13 +1016,12 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             appSettings.getCachedString(KEY_DM_FILTER_WEIGHT) ?: dmSettings[8].info
         )
         applySavedValue(dmSettings, 9, KEY_DM_ALLOW_VIP_COLORFUL_DM)
-        applySavedValue(dmSettings, 10, KEY_DM_SHOW_ADVANCED)
-        applySavedValue(dmSettings, 11, KEY_DM_MERGE_DUPLICATE)
-        applySavedValue(dmSettings, 12, KEY_DM_SMART_SHIELD)
-        applySavedValue(dmSettings, 13, KEY_SHOW_DM_SWITCH)
-        // 弹幕引擎（index 14）：存"开/关"，显示"性能优先/功能优先"
+        applySavedValue(dmSettings, 10, KEY_DM_MERGE_DUPLICATE)
+        applySavedValue(dmSettings, 11, KEY_DM_SMART_SHIELD)
+        applySavedValue(dmSettings, 12, KEY_SHOW_DM_SWITCH)
+        // 弹幕引擎（index 13）：存"开/关"，显示"性能优先/功能优先"
         appSettings.getCachedString(KEY_DANMAKU_LITE_ENGINE)?.let { saved ->
-            dmSettings.getOrNull(14)?.info = if (saved == "开") "性能优先" else "功能优先"
+            dmSettings.getOrNull(13)?.info = if (saved == "开") "性能优先" else "功能优先"
         }
     }
 

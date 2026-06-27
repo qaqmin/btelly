@@ -141,13 +141,12 @@ class DanmakuCoreController(
         //   引擎 updateConfig 已正确处理——opacity/speed/area 不失效已缓存的文字 bitmap，
         //   仅 textSize/strokeWidth 变化才失效 bitmap（引擎内部按需分帧重建）。
         //   所以这类设置变化只需通过 configProvider 下发新 config，无需重跑过滤/合并/转换。
-        // 数据级（allowTop/allowBottom/mergeDuplicate/smartFilterLevel/showAdvancedDanmaku）影响
+        // 数据级（allowTop/allowBottom/mergeDuplicate/smartFilterLevel）影响
         //   过滤/合并结果，必须重新预处理已有数据并重新注入，否则开关不生效。
         val dataLevelChanged = old.allowTop != snapshot.allowTop ||
             old.allowBottom != snapshot.allowBottom ||
             old.mergeDuplicate != snapshot.mergeDuplicate ||
-            old.smartFilterLevel != snapshot.smartFilterLevel ||
-            old.showAdvancedDanmaku != snapshot.showAdvancedDanmaku
+            old.smartFilterLevel != snapshot.smartFilterLevel
         if (dataLevelChanged && rawItems.isNotEmpty()) {
             applyDataToView()
         }

@@ -70,10 +70,6 @@ fun isVipColorfulDanmakuAllowed(): Boolean {
     return getToggleSetting("dm_allow_vip_colorful_dm", true)
 }
 
-fun isAdvancedDanmakuEnabled(): Boolean {
-    return getToggleSetting("dm_show_advanced", true)
-}
-
 fun getHomeDefaultStartPageIndex(maxIndex: Int, defaultIndex: Int = 1): Int {
     val safeMaxIndex = maxIndex.coerceAtLeast(0)
     val clampedDefault = defaultIndex.coerceIn(0, safeMaxIndex)

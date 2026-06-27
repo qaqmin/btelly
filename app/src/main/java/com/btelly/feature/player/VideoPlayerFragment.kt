@@ -1123,19 +1123,6 @@ class VideoPlayerFragment : Fragment() {
                 }
 
                 launch {
-                    viewModel.specialDanmaku.collect { data ->
-                        PlaybackStartupTrace.log(
-                            traceId = activeStartupTraceId,
-                            startElapsedMs = activeStartupTraceStartElapsedMs,
-                            step = "special_danmaku_ui_submitted",
-                            message = "count=${data.size}"
-                        )
-                        playerView.setSpecialDanmakuData(data)
-                        updateDanmakuSwitchVisibility()
-                    }
-                }
-
-                launch {
                     viewModel.interactionModel.collect { model ->
                         if (model == null) {
                             interactionView.hideAll()
@@ -1503,8 +1490,7 @@ class VideoPlayerFragment : Fragment() {
     }
 
     private fun updateDanmakuSwitchVisibility() {
-        val hasDanmaku = viewModel.danmaku.value.orEmpty().isNotEmpty() ||
-            viewModel.specialDanmaku.value.orEmpty().isNotEmpty()
+        val hasDanmaku = viewModel.danmaku.value.orEmpty().isNotEmpty()
         playerView.showHideDmSwitchButton(playerSettings.showDanmakuSwitch && hasDanmaku)
     }
 

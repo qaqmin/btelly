@@ -1279,18 +1279,6 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         viewModel.onDmMaskReset = {
             playerView.releaseDmMask()
         }
-        lifecycleScope.launch {
-            viewModel.specialDanmaku.collect { data ->
-                PlaybackStartupTrace.log(
-                    traceId = activeStartupTraceId,
-                    startElapsedMs = activeStartupTraceStartElapsedMs,
-                    step = "special_danmaku_ui_submitted",
-                    message = "count=${data.size}"
-                )
-                playerView.setSpecialDanmakuData(data)
-                updateDanmakuSwitchVisibility()
-            }
-        }
 
         lifecycleScope.launch {
             viewModel.episodes.collect { episodes ->
@@ -1585,8 +1573,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     }
 
     private fun updateDanmakuSwitchVisibility() {
-        val hasDanmaku = viewModel.danmaku.value.isNotEmpty() ||
-            viewModel.specialDanmaku.value.isNotEmpty()
+        val hasDanmaku = viewModel.danmaku.value.isNotEmpty()
         playerView.showHideDmSwitchButton(playerSettings.showDanmakuSwitch && hasDanmaku)
     }
 

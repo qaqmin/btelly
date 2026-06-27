@@ -46,10 +46,6 @@
             android:id="@+id/dmk_view"
             android:layout_width="match_parent"
             android:layout_height="match_parent"/>
-        <com.btelly.feature.player.view.SpecialDanmakuOverlayView
-            android:id="@+id/special_dmk_overlay"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"/>
     </com.btelly.feature.player.view.DanmakuMaskHostLayout>
     <com.btelly.feature.player.interaction.InteractionOverlayView
         android:id="@+id/interaction_view"

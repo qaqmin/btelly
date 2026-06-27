@@ -22,13 +22,10 @@ import com.google.gson.Gson
 import com.btelly.R
 import com.btelly.core.common.media.VideoCodecSupport
 
-import com.btelly.model.dm.AdvancedDanmakuParser
 import com.btelly.model.dm.DmColorfulStyleParser
 import com.btelly.model.dm.DmMaskInfo
 import com.btelly.model.dm.DmMaskRepository
 import com.btelly.model.dm.DmModel
-import com.btelly.model.dm.SpecialDanmakuModel
-import com.btelly.model.dm.SpecialDanmakuParser
 import com.btelly.model.interaction.InteractionModel
 import com.btelly.model.interaction.InteractionVariableModel
 import com.btelly.feature.player.interaction.InteractionEngine
@@ -473,7 +470,6 @@ class VideoPlayerViewModel(
     // ==================== 弹幕系统（转发到 DanmakuPlaybackController）====================
     val danmaku: StateFlow<List<DmModel>> get() = danmakuController.danmaku
     internal val danmakuUpdates: SharedFlow<DanmakuPlaybackController.DanmakuUpdate> get() = danmakuController.danmakuUpdates
-    val specialDanmaku: StateFlow<List<SpecialDanmakuModel>> get() = danmakuController.specialDanmaku
     internal val dmMaskState: StateFlow<DanmakuPlaybackController.DmMaskState> get() = danmakuController.dmMaskState
     var onDmMaskReady: ((maskUrl: String, cid: Long, fps: Int) -> Unit)?
         get() = danmakuController.onDmMaskReady

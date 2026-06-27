@@ -2,12 +2,9 @@ package com.btelly.feature.player
 
 import android.os.SystemClock
 import com.btelly.core.common.log.AppLog
-import com.btelly.model.dm.AdvancedDanmakuParser
 import com.btelly.model.dm.DmColorfulStyleParser
 import com.btelly.model.dm.DmMaskInfo
 import com.btelly.model.dm.DmModel
-import com.btelly.model.dm.SpecialDanmakuModel
-import com.btelly.model.dm.SpecialDanmakuParser
 import com.btelly.model.proto.DmProtoParser
 import com.btelly.model.proto.DmWebViewReplyProto
 import kotlinx.coroutines.CoroutineScope
@@ -77,8 +74,7 @@ internal class DanmakuPlaybackController(
     }
 
     private data class SpecialDanmakuPayload(
-        val regularItems: List<DmModel>,
-        val specialItems: List<SpecialDanmakuModel>
+        val regularItems: List<DmModel>
     )
 
     companion object {
@@ -122,9 +118,6 @@ internal class DanmakuPlaybackController(
     private val _danmakuUpdates = MutableSharedFlow<DanmakuUpdate>(extraBufferCapacity = 1)
     val danmakuUpdates: SharedFlow<DanmakuUpdate> = _danmakuUpdates
 
-    private val _specialDanmaku = MutableStateFlow<List<SpecialDanmakuModel>>(emptyList())
-    val specialDanmaku: StateFlow<List<SpecialDanmakuModel>> = _specialDanmaku
-
     private val _dmMaskState = MutableStateFlow<DmMaskState>(DmMaskState.Idle)
     val dmMaskState: StateFlow<DmMaskState> = _dmMaskState
 
@@ -150,7 +143,6 @@ internal class DanmakuPlaybackController(
     private val danmakuPublishedSegments = linkedSetOf<Int>()
     private val danmakuPublishPendingSegments = linkedSetOf<Int>()
     private val publishedRegularDanmakuKeys = HashSet<String>()
-    private val publishedSpecialDanmakuKeys = HashSet<String>()
     // 弹幕发布专用单线程后台 dispatcher：保证多次发布的计算/emit 顺序（replace 先于 append），
     // 同时把去重、排序、identityKey 预算移出主线程（P1：init 发布 3000 条曾主线程耗时 37ms）。
     private val danmakuPublishDispatcher = Dispatchers.Default.limitedParallelism(1)
@@ -232,7 +224,7 @@ internal class DanmakuPlaybackController(
                 traceId = context.startupTraceId,
                 startElapsedMs = context.startupTraceStartElapsedMs,
                 step = "danmaku_view_ready",
-                message = "cid=$cid source=$danmakuViewSource segments=${danmakuView?.totalSegments ?: 0} totalCount=${danmakuView?.totalCount ?: 0} special=${danmakuView?.specialDanmakuUrls?.size ?: 0} filterLevel=${smartFilter?.resolvedLevel ?: 0} filterEnabled=${smartFilter?.resolvedEnabled ?: false} cloudLvl=${smartFilter?.cloudLevel ?: 0} cloudSw=${smartFilter?.cloudSwitch ?: 0} playerLvl=${smartFilter?.playerLevel ?: 0} playerOn=${smartFilter?.playerEnabled ?: false}"
+                message = "cid=$cid source=$danmakuViewSource segments=${danmakuView?.totalSegments ?: 0} totalCount=${danmakuView?.totalCount ?: 0} filterLevel=${smartFilter?.resolvedLevel ?: 0} filterEnabled=${smartFilter?.resolvedEnabled ?: false} cloudLvl=${smartFilter?.cloudLevel ?: 0} cloudSw=${smartFilter?.cloudSwitch ?: 0} playerLvl=${smartFilter?.playerLevel ?: 0} playerOn=${smartFilter?.playerEnabled ?: false}"
             )
 
             val segmentCount = danmakuView?.totalSegments
@@ -287,7 +279,7 @@ internal class DanmakuPlaybackController(
                         traceId = context.startupTraceId,
                         startElapsedMs = context.startupTraceStartElapsedMs,
                         step = "danmaku_segment_preload_hit",
-                        message = "cid=$cid segment=$initialSegment regular=${preloaded.regularItems.size} special=${preloaded.specialItems.size}"
+                        message = "cid=$cid segment=$initialSegment regular=${preloaded.regularItems.size}"
                     )
                     preloaded
                 } else {
@@ -297,7 +289,7 @@ internal class DanmakuPlaybackController(
                             traceId = context.startupTraceId,
                             startElapsedMs = context.startupTraceStartElapsedMs,
                             step = "danmaku_segment_preload_hit",
-                            message = "cid=$cid segment=$initialSegment source=douyin_cache regular=${douyinCached.regularItems.size} special=${douyinCached.specialItems.size}"
+                            message = "cid=$cid segment=$initialSegment source=douyin_cache regular=${douyinCached.regularItems.size}"
                         )
                         douyinCached
                     } else {
@@ -321,7 +313,7 @@ internal class DanmakuPlaybackController(
                     traceId = context.startupTraceId,
                     startElapsedMs = context.startupTraceStartElapsedMs,
                     step = "danmaku_initial_segment_ready",
-                    message = "segment=$initialSegment regular=${currentPayload.regularItems.size} special=${currentPayload.specialItems.size}"
+                    message = "segment=$initialSegment regular=${currentPayload.regularItems.size}"
                 )
             }
             // 缓存当前段
@@ -331,27 +323,12 @@ internal class DanmakuPlaybackController(
             danmakuPublishedSegments.clear()
             danmakuPublishedSegments.add(initialSegment)
             publishDanmaku(currentPayload.regularItems, replace = true)
-            publishSpecialDanmaku(currentPayload.specialItems, replace = true)
             logDanmakuDiagnostics(
                 label = "segment-$initialSegment",
                 items = currentPayload.regularItems,
                 danmakuView = danmakuView
             )
             trimDistantDanmakuSegments()
-
-            launch(Dispatchers.IO) {
-                val specialPayload = loadSpecialDanmakuPayload(danmakuView?.specialDanmakuUrls.orEmpty())
-                if (!isActiveDanmakuRequest(loadGeneration)) return@launch
-                withContext(Dispatchers.Main) {
-                    if (!isActiveDanmakuRequest(loadGeneration)) return@withContext
-                    if (specialPayload.regularItems.isNotEmpty()) {
-                        publishDanmaku(specialPayload.regularItems.sortedBy { it.progress }, replace = false)
-                    }
-                    if (specialPayload.specialItems.isNotEmpty()) {
-                        publishSpecialDanmaku(specialPayload.specialItems, replace = false)
-                    }
-                }
-            }
 
         }
     }
@@ -449,7 +426,7 @@ internal class DanmakuPlaybackController(
                     traceId = context.startupTraceId,
                     startElapsedMs = context.startupTraceStartElapsedMs,
                     step = "danmaku_segment_preload_ready",
-                    message = "cid=$cid segment=$segmentIndex elapsedMs=${SystemClock.elapsedRealtime() - startedAt} regular=${payload.regularItems.size} special=${payload.specialItems.size}"
+                    message = "cid=$cid segment=$segmentIndex elapsedMs=${SystemClock.elapsedRealtime() - startedAt} regular=${payload.regularItems.size}"
                 )
             }
         }
@@ -465,14 +442,12 @@ internal class DanmakuPlaybackController(
         // 它们是为下一条播放预加载的，clear 只是清理当前播放的弹幕状态。
         // 新的 preload 启动时会自行取消旧 job（见 preloadInitialSegment）。
         _danmaku.value = emptyList()
-        _specialDanmaku.value = emptyList()
         danmakuSegmentPayloads.clear()
         danmakuLoadedSegments.clear()
         danmakuLoadingSegments.clear()
         danmakuPublishedSegments.clear()
         danmakuPublishPendingSegments.clear()
         publishedRegularDanmakuKeys.clear()
-        publishedSpecialDanmakuKeys.clear()
         currentDanmakuSegmentIndex = -1
         danmakuTotalSegments = 0
         currentDanmakuFilterContext = defaultFilterContext
@@ -622,30 +597,22 @@ internal class DanmakuPlaybackController(
             val currentPayload = danmakuSegmentPayloads[segmentIndex] ?: basePayload
             val existingRegularKeys = currentPayload.regularItems
                 .mapTo(HashSet(currentPayload.regularItems.size)) { it.danmakuIdentityKey() }
-            val existingSpecialKeys = currentPayload.specialItems
-                .mapTo(HashSet(currentPayload.specialItems.size)) { it.specialDanmakuIdentityKey() }
             val tailRegularCandidates = tailPayload.regularItems
                 .filter { it.progress >= effectiveRangeStart && it.progress < rangeEndMs }
                 .sortedBy { it.progress }
-            val tailSpecialCandidates = tailPayload.specialItems
-                .filter { it.progress >= effectiveRangeStart && it.progress < rangeEndMs }
-                .sortedBy { it.progress }
             val tailRegularItems = tailRegularCandidates.filter { existingRegularKeys.add(it.danmakuIdentityKey()) }
-            val tailSpecialItems = tailSpecialCandidates.filter { existingSpecialKeys.add(it.specialDanmakuIdentityKey()) }
             val mergedPayload = SpecialDanmakuPayload(
-                regularItems = (currentPayload.regularItems + tailRegularItems).distinctRegularDanmaku(),
-                specialItems = (currentPayload.specialItems + tailSpecialItems).distinctSpecialDanmaku()
+                regularItems = (currentPayload.regularItems + tailRegularItems).distinctRegularDanmaku()
             )
             val droppedRegular = tailRegularCandidates.size - tailRegularItems.size
-            val droppedSpecial = tailSpecialCandidates.size - tailSpecialItems.size
-            if (droppedRegular > 0 || droppedSpecial > 0 ||
+            if (droppedRegular > 0 ||
                 tailPayload.regularItems.any { it.progress < effectiveRangeStart || it.progress >= rangeEndMs }
             ) {
                 PlaybackStartupTrace.log(
                     traceId = context.startupTraceId,
                     startElapsedMs = context.startupTraceStartElapsedMs,
                     step = "danmaku_tail_dedup",
-                    message = "segment=$segmentIndex range=${formatDanmakuRange(effectiveRangeStart, rangeEndMs)} tailRegular=${tailPayload.regularItems.size} appendRegular=${tailRegularItems.size} droppedRegular=$droppedRegular tailSpecial=${tailPayload.specialItems.size} appendSpecial=${tailSpecialItems.size} droppedSpecial=$droppedSpecial"
+                    message = "segment=$segmentIndex range=${formatDanmakuRange(effectiveRangeStart, rangeEndMs)} tailRegular=${tailPayload.regularItems.size} appendRegular=${tailRegularItems.size} droppedRegular=$droppedRegular"
                 )
             }
             danmakuSegmentPayloads[segmentIndex] = mergedPayload
@@ -655,9 +622,6 @@ internal class DanmakuPlaybackController(
             }
             if (tailRegularItems.isNotEmpty()) {
                 publishDanmaku(tailRegularItems, replace = false)
-            }
-            if (tailSpecialItems.isNotEmpty()) {
-                publishSpecialDanmaku(tailSpecialItems, replace = false)
             }
         }
     }
@@ -673,7 +637,6 @@ internal class DanmakuPlaybackController(
         parseEndMs: Long? = null
     ): SpecialDanmakuPayload = withContext(Dispatchers.IO) {
         val regularItems = mutableListOf<DmModel>()
-        val specialItems = mutableListOf<SpecialDanmakuModel>()
         segmentIndices.forEach { segmentIndex ->
             val bytes = playInfoGateway.requestDanmakuSegmentBytes(
                 cid = cid,
@@ -690,45 +653,33 @@ internal class DanmakuPlaybackController(
                 message = "cid=$cid segment=$segmentIndex bytes=${bytes.size} range=${formatDanmakuRange(rangeStartMs, rangeEndMs)}"
             )
             val regularStartIndex = regularItems.size
-            val specialStartIndex = specialItems.size
-            var advancedCount = 0
             val scanResult = runCatching {
                 DmProtoParser.forEachSegmentElemWithMetaInProgressRange(bytes, parseStartMs, parseEndMs) { elem ->
-                    if (elem.mode == 7) {
-                        if (!isDanmakuElemInParseRange(elem.progress, parseStartMs, parseEndMs)) {
-                            return@forEachSegmentElemWithMetaInProgressRange
-                        }
-                        advancedCount += 1
-                        AdvancedDanmakuParser.parse(
-                            id = elem.id.takeIf { it > 0L } ?: elem.progress.toLong(),
-                            progressMs = elem.progress,
-                            color = elem.color,
-                            fontSize = elem.fontSize,
-                            rawContent = elem.content
-                        )?.let(specialItems::add)
-                    } else {
-                        if (!isDanmakuElemInParseRange(elem.progress, parseStartMs, parseEndMs)) {
-                            return@forEachSegmentElemWithMetaInProgressRange
-                        }
-                        regularItems += DmModel(
-                            id = elem.id,
-                            color = elem.color,
-                            colorful = elem.colorful,
-                            content = elem.content,
-                            mode = elem.mode,
-                            progress = elem.progress,
-                            fontSize = elem.fontSize,
-                            weight = elem.weight,
-                            pool = elem.pool,
-                            attr = elem.attr,
-                            aiFlagScore = 0,
-                            midHash = elem.midHash,
-                            ctime = elem.ctime,
-                            action = elem.action,
-                            idStr = elem.idStr,
-                            animation = elem.animation
-                        )
+                    // mode==7(代码弹幕)/mode==9(脚本弹幕)为特殊弹幕，TV 端不支持，直接丢弃。
+                    if (elem.mode == 7 || elem.mode == 9) {
+                        return@forEachSegmentElemWithMetaInProgressRange
                     }
+                    if (!isDanmakuElemInParseRange(elem.progress, parseStartMs, parseEndMs)) {
+                        return@forEachSegmentElemWithMetaInProgressRange
+                    }
+                    regularItems += DmModel(
+                        id = elem.id,
+                        color = elem.color,
+                        colorful = elem.colorful,
+                        content = elem.content,
+                        mode = elem.mode,
+                        progress = elem.progress,
+                        fontSize = elem.fontSize,
+                        weight = elem.weight,
+                        pool = elem.pool,
+                        attr = elem.attr,
+                        aiFlagScore = 0,
+                        midHash = elem.midHash,
+                        ctime = elem.ctime,
+                        action = elem.action,
+                        idStr = elem.idStr,
+                        animation = elem.animation
+                    )
                 }
             }.getOrNull() ?: return@forEach
             val meta = scanResult.meta
@@ -755,73 +706,11 @@ internal class DanmakuPlaybackController(
                 traceId = context.startupTraceId,
                 startElapsedMs = context.startupTraceStartElapsedMs,
                 step = "danmaku_segment_parsed",
-                message = "cid=$cid segment=$segmentIndex elems=${scanResult.elemCount} regular=${regularItems.size - regularStartIndex} special=${specialItems.size - specialStartIndex} advanced=$advancedCount"
+                message = "cid=$cid segment=$segmentIndex elems=${scanResult.elemCount} regular=${regularItems.size - regularStartIndex}"
             )
         }
         SpecialDanmakuPayload(
-            regularItems = regularItems,
-            specialItems = specialItems
-        )
-    }
-
-    private suspend fun loadSpecialDanmakuPayload(urls: List<String>): SpecialDanmakuPayload = withContext(Dispatchers.IO) {
-        val regularItems = mutableListOf<DmModel>()
-        val specialItems = mutableListOf<SpecialDanmakuModel>()
-        urls.forEach { url ->
-            val bytes = playInfoGateway.requestAbsoluteBytes(url) ?: return@forEach
-            val segment = runCatching {
-                DmProtoParser.parseSegment(bytes)
-            }.getOrNull() ?: return@forEach
-            val colorfulSrcByType = segment.colorfulSrc
-                .filter { it.type != 0 && it.src.isNotBlank() }
-                .associate { it.type to it.src }
-            segment.elems.forEach { elem ->
-                when {
-                    elem.mode == 7 -> {
-                        AdvancedDanmakuParser.parse(
-                            id = elem.id.takeIf { it > 0L } ?: elem.progress.toLong(),
-                            progressMs = elem.progress,
-                            color = elem.color,
-                            fontSize = elem.fontSize,
-                            rawContent = elem.content
-                        )?.let(specialItems::add)
-                    }
-                    elem.mode == 9 || elem.content.contains("def text", ignoreCase = true) -> {
-                        specialItems += SpecialDanmakuParser.parse(
-                            parentId = elem.id.takeIf { it > 0L } ?: elem.progress.toLong(),
-                            progressMs = elem.progress,
-                            fallbackColor = elem.color,
-                            script = elem.content
-                        )
-                    }
-                    else -> {
-                        val rawColorfulSrc = colorfulSrcByType[elem.colorful].orEmpty()
-                        regularItems += DmModel(
-                            id = elem.id,
-                            color = elem.color,
-                            colorful = elem.colorful,
-                            colorfulSrc = rawColorfulSrc,
-                            colorfulStyle = DmColorfulStyleParser.parse(rawColorfulSrc),
-                            content = elem.content,
-                            mode = elem.mode,
-                            progress = elem.progress,
-                            fontSize = elem.fontSize,
-                            weight = elem.weight,
-                            pool = elem.pool,
-                            attr = elem.attr,
-                            midHash = elem.midHash,
-                            ctime = elem.ctime,
-                            action = elem.action,
-                            idStr = elem.idStr,
-                            animation = elem.animation
-                        )
-                    }
-                }
-            }
-        }
-        SpecialDanmakuPayload(
-            regularItems = regularItems,
-            specialItems = specialItems
+            regularItems = regularItems
         )
     }
 
@@ -838,7 +727,7 @@ internal class DanmakuPlaybackController(
         val filter = danmakuView.smartFilterConfig
         AppLog.d(
             "DanmakuMeta",
-            "cid=$cid aid=$aid duration=${durationMs}ms segments=$segmentCount totalCount=${danmakuView.totalCount} special=${danmakuView.specialDanmakuUrls.size} filterLevel=${filter.resolvedLevel} filterEnabled=${filter.resolvedEnabled} cloudLvl=${filter.cloudLevel} cloudSw=${filter.cloudSwitch} playerLvl=${filter.playerLevel} playerOn=${filter.playerEnabled} defaultLvl=${filter.defaultLevel} defaultOn=${filter.defaultEnabled}"
+            "cid=$cid aid=$aid duration=${durationMs}ms segments=$segmentCount totalCount=${danmakuView.totalCount} filterLevel=${filter.resolvedLevel} filterEnabled=${filter.resolvedEnabled} cloudLvl=${filter.cloudLevel} cloudSw=${filter.cloudSwitch} playerLvl=${filter.playerLevel} playerOn=${filter.playerEnabled} defaultLvl=${filter.defaultLevel} defaultOn=${filter.defaultEnabled}"
         )
     }
 
@@ -865,10 +754,7 @@ internal class DanmakuPlaybackController(
             "DanmakuDiag",
             "$label: received=${items.size} totalCount=$totalCount totalSegments=$totalSegments expectedPerSeg=$expectedPerSegment filterLevel=${filter?.resolvedLevel ?: 0} filterOn=${filter?.resolvedEnabled ?: false}"
         )
-        val advancedCount = items.count { it.mode == 7 }
-        val unsupportedCount = items.count { it.mode !in setOf(1, 4, 5, 6, 7) }
-        if (advancedCount > 0) {
-        }
+        val unsupportedCount = items.count { it.mode !in setOf(1, 4, 5, 6) }
         if (unsupportedCount > 0) {
         }
         logSpecialColorCandidates(label, items)
@@ -997,32 +883,6 @@ internal class DanmakuPlaybackController(
                 ))
             }
         }
-    }
-
-    private fun publishSpecialDanmaku(items: List<SpecialDanmakuModel>, replace: Boolean) {
-        val startedAtMs = SystemClock.elapsedRealtime()
-        val normalizedItems = items.distinctSpecialDanmaku()
-        val emittedItems = if (replace) {
-            publishedSpecialDanmakuKeys.clear()
-            normalizedItems.forEach { publishedSpecialDanmakuKeys.add(it.specialDanmakuIdentityKey()) }
-            normalizedItems
-        } else {
-            normalizedItems.filter { publishedSpecialDanmakuKeys.add(it.specialDanmakuIdentityKey()) }
-        }
-        if (replace) {
-            _specialDanmaku.value = normalizedItems
-        } else if (emittedItems.isNotEmpty()) {
-            _specialDanmaku.value = _specialDanmaku.value.orEmpty() + emittedItems
-        }
-        logDanmakuPublishPerf(
-            type = "special",
-            replace = replace,
-            inputCount = items.size,
-            normalizedCount = normalizedItems.size,
-            emittedCount = emittedItems.size,
-            totalPublishedKeys = publishedSpecialDanmakuKeys.size,
-            startedAtMs = startedAtMs
-        )
     }
 
     private fun logDanmakuPublishPerf(
@@ -1277,7 +1137,7 @@ internal class DanmakuPlaybackController(
                         traceId = context.startupTraceId,
                         startElapsedMs = context.startupTraceStartElapsedMs,
                         step = "danmaku_segment_republish",
-                        message = "cid=${context.currentCid} segment=$segmentIndex regular=${cachedPayload.regularItems.size} special=${cachedPayload.specialItems.size}"
+                        message = "cid=${context.currentCid} segment=$segmentIndex regular=${cachedPayload.regularItems.size}"
                     )
                     publishDanmakuSegmentPayload(segmentIndex, cachedPayload)
                 }
@@ -1299,7 +1159,7 @@ internal class DanmakuPlaybackController(
                 traceId = context.startupTraceId,
                 startElapsedMs = context.startupTraceStartElapsedMs,
                 step = "danmaku_segment_cache_hit",
-                message = "cid=$cid segment=$segmentIndex publish=$publishWhenReady regular=${cachedPayload.regularItems.size} special=${cachedPayload.specialItems.size}"
+                message = "cid=$cid segment=$segmentIndex publish=$publishWhenReady regular=${cachedPayload.regularItems.size}"
             )
             if (publishWhenReady) {
                 publishDanmakuSegmentPayload(segmentIndex, cachedPayload)
@@ -1359,7 +1219,7 @@ internal class DanmakuPlaybackController(
                     )
                     return@withContext
                 }
-                if (payload.regularItems.isEmpty() && payload.specialItems.isEmpty()) {
+                if (payload.regularItems.isEmpty()) {
                     PlaybackStartupTrace.log(
                         traceId = context.startupTraceId,
                         startElapsedMs = context.startupTraceStartElapsedMs,
@@ -1375,7 +1235,7 @@ internal class DanmakuPlaybackController(
                     traceId = context.startupTraceId,
                     startElapsedMs = context.startupTraceStartElapsedMs,
                     step = "danmaku_segment_load_ready",
-                    message = "cid=$cid segment=$segmentIndex publish=$shouldPublish regular=${payload.regularItems.size} special=${payload.specialItems.size}"
+                    message = "cid=$cid segment=$segmentIndex publish=$shouldPublish regular=${payload.regularItems.size}"
                 )
                 if (shouldPublish) {
                     publishDanmakuSegmentPayload(segmentIndex, payload)
@@ -1392,14 +1252,11 @@ internal class DanmakuPlaybackController(
             traceId = context.startupTraceId,
             startElapsedMs = context.startupTraceStartElapsedMs,
             step = "danmaku_segment_published",
-            message = "segment=$segmentIndex regular=${payload.regularItems.size} special=${payload.specialItems.size}"
+            message = "segment=$segmentIndex regular=${payload.regularItems.size}"
         )
         danmakuPublishedSegments.add(segmentIndex)
         if (payload.regularItems.isNotEmpty()) {
             publishDanmaku(payload.regularItems, replace = false)
-        }
-        if (payload.specialItems.isNotEmpty()) {
-            publishSpecialDanmaku(payload.specialItems, replace = false)
         }
     }
 }

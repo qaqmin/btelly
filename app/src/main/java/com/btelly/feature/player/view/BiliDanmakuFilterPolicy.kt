@@ -131,7 +131,7 @@ internal object BiliDanmakuFilterPolicy {
                 playerConfig.typeTop && playerConfig.typeTopBottom && settings?.allowTop != false
             DanmakuItemData.DANMAKU_MODE_CENTER_BOTTOM ->
                 playerConfig.typeBottom && playerConfig.typeTopBottom && settings?.allowBottom != false
-            7 -> playerConfig.typeSpecial && playerConfig.seniorModeSwitch && settings?.showAdvancedDanmaku == true
+            7 -> false
             else -> playerConfig.typeScroll
         }
     }

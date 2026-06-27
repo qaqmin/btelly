@@ -47,14 +47,12 @@ import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.model.dm.DmMaskRepository
 import com.btelly.model.dm.DmModel
-import com.btelly.model.dm.SpecialDanmakuModel
 import com.btelly.model.player.VideoSnapshotData
 import com.btelly.model.subtitle.SubtitleInfoModel
 import com.btelly.model.video.quality.AudioQuality
 import com.btelly.model.video.quality.VideoCodecEnum
 import com.btelly.model.video.quality.VideoQuality
 import com.btelly.core.common.ext.getDanmakuSmartFilterLevel
-import com.btelly.core.common.ext.isAdvancedDanmakuEnabled
 import com.btelly.feature.player.LiveLineInfo
 import com.btelly.feature.player.LiveQualityInfo
 import com.btelly.feature.player.PlaybackStartupTrace
@@ -128,7 +126,6 @@ class MyPlayerView @JvmOverloads constructor(
     private var settingView: MyPlayerSettingView? = null
     private var seekOverlayView: SeekOverlayView? = null
     private var dmkView: DanmakuView? = null
-    private var specialDmkOverlayView: SpecialDanmakuOverlayView? = null
     private var dmkMaskHost: DanmakuMaskHostLayout? = null
     private var pauseIndicatorView: View? = null
     private var resumeHintView: LinearLayout? = null
@@ -233,9 +230,6 @@ class MyPlayerView @JvmOverloads constructor(
     ).also {
         it.playerPositionProvider = { player?.currentPosition ?: 0L }
     }
-    private val specialDanmakuController = MyPlayerSpecialDanmakuController(
-        overlayViewProvider = { specialDmkOverlayView }
-    )
     private val dmMaskController = DmMaskController(
         maskHostProvider = { dmkMaskHost },
         repository = DmMaskRepository()
@@ -376,7 +370,6 @@ class MyPlayerView @JvmOverloads constructor(
                     liteDanmakuController?.updatePlaybackSpeed(speed)
                 } else {
                     danmakuController.updatePlaybackSpeed(speed)
-                    specialDanmakuController.updatePlaybackSpeed(speed)
                 }
                 dmMaskController.onPlayerClockChanged(speed, player.currentPosition.coerceAtLeast(0L))
             }
@@ -487,7 +480,6 @@ class MyPlayerView @JvmOverloads constructor(
         }
         errorMessageView = findViewById(R.id.exo_error_message)
         dmkView = findViewById(R.id.dmk_view)
-        specialDmkOverlayView = findViewById(R.id.special_dmk_overlay)
         dmkMaskHost = findViewById(R.id.dmk_mask_host)
         pauseIndicatorView = findViewById(R.id.image_pause_indicator)
 
@@ -597,7 +589,6 @@ class MyPlayerView @JvmOverloads constructor(
                         liteDanmakuController?.setEnabled(enabled)
                     } else {
                         danmakuController.setEnabled(enabled)
-                        specialDanmakuController.setEnabled(enabled)
                     }
                 }
             })
@@ -687,7 +678,6 @@ class MyPlayerView @JvmOverloads constructor(
                     liteDanmakuController?.updatePlaybackSpeed(speed)
                 } else {
                     danmakuController.updatePlaybackSpeed(speed)
-                    specialDanmakuController.updatePlaybackSpeed(speed)
                 }
             }
 
@@ -862,7 +852,6 @@ class MyPlayerView @JvmOverloads constructor(
             liteDanmakuController?.resetForPlaybackStart(startPositionMs)
         } else {
             danmakuController.resetForPlaybackStart(startPositionMs)
-            specialDanmakuController.resetForPlaybackStart(startPositionMs)
         }
         releaseDmMask()
     }
@@ -2115,7 +2104,6 @@ class MyPlayerView @JvmOverloads constructor(
             liteDanmakuController?.updatePlaybackSpeed(speed)
         } else {
             danmakuController.updatePlaybackSpeed(speed)
-            specialDanmakuController.updatePlaybackSpeed(speed)
         }
     }
 
@@ -2583,7 +2571,6 @@ class MyPlayerView @JvmOverloads constructor(
             liteDanmakuController = null
         } else {
             danmakuController.release()
-            specialDanmakuController.release()
         }
         dmMaskController.dispose()
         maskRetryScope.cancel()
@@ -2709,13 +2696,6 @@ class MyPlayerView @JvmOverloads constructor(
         }
     }
 
-    fun setSpecialDanmakuData(data: List<SpecialDanmakuModel>) {
-        if (!useLiteEngine) {
-            specialDanmakuController.setData(data)
-        }
-        // 轻量引擎不支持特殊弹幕，忽略
-    }
-
     fun appendDanmakuData(
         data: List<DmModel>,
         filterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY
@@ -2748,7 +2728,6 @@ class MyPlayerView @JvmOverloads constructor(
             liteDanmakuController?.setEnabled(enabled)
         } else {
             danmakuController.setEnabled(enabled)
-            specialDanmakuController.setEnabled(enabled)
         }
     }
 
@@ -2757,7 +2736,6 @@ class MyPlayerView @JvmOverloads constructor(
             liteDanmakuController?.pause()
         } else {
             danmakuController.pause()
-            specialDanmakuController.pause()
         }
     }
 
@@ -2766,7 +2744,6 @@ class MyPlayerView @JvmOverloads constructor(
             liteDanmakuController?.resume()
         } else {
             danmakuController.resume()
-            specialDanmakuController.resume()
         }
     }
 
@@ -2775,7 +2752,6 @@ class MyPlayerView @JvmOverloads constructor(
             liteDanmakuController?.stop()
         } else {
             danmakuController.stop()
-            specialDanmakuController.stop()
         }
     }
 
@@ -2785,7 +2761,6 @@ class MyPlayerView @JvmOverloads constructor(
             return
         }
         danmakuController.syncPosition(positionMs, forceSeek)
-        specialDanmakuController.syncPosition(positionMs, forceSeek)
         // 注入 providers 到 host layout（如果尚未注入）
         dmkMaskHost?.let { host ->
             if (host.ptsProvider == null) {
@@ -2936,7 +2911,6 @@ class MyPlayerView @JvmOverloads constructor(
             liteDanmakuController?.applySettings(snapshot)
         } else {
             danmakuController.applySettings(snapshot)
-            specialDanmakuController.applySettings(snapshot)
         }
     }
 
@@ -2944,7 +2918,6 @@ class MyPlayerView @JvmOverloads constructor(
     private fun buildDanmakuSettingsSnapshot(): MyPlayerDanmakuController.SettingsSnapshot {
         return MyPlayerDanmakuController.SettingsSnapshot(
             enabled = settingView?.getDmEnable() ?: true,
-            showAdvancedDanmaku = isAdvancedDanmakuEnabled(),
             alpha = settingView?.getDmAlpha() ?: 1f,
             textSize = settingView?.getDmTextScaleParam() ?: 40,
             speed = settingView?.getDmSpeedParam() ?: 4,

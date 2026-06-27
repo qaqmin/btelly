@@ -89,7 +89,6 @@ class MyPlayerDanmakuController(
 
     data class SettingsSnapshot(
         val enabled: Boolean,
-        val showAdvancedDanmaku: Boolean,
         val alpha: Float,
         val textSize: Int,
         val speed: Int,

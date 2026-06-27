@@ -46,8 +46,7 @@ class BiliDanmakuFilterPolicyTest {
             context = DanmakuFilterContext.EMPTY,
             settings = settings(
                 allowTop = false,
-                allowBottom = false,
-                showAdvancedDanmaku = false
+                allowBottom = false
             ),
             stage = "test"
         )
@@ -109,12 +108,10 @@ class BiliDanmakuFilterPolicyTest {
 
     private fun settings(
         allowTop: Boolean = true,
-        allowBottom: Boolean = true,
-        showAdvancedDanmaku: Boolean = true
+        allowBottom: Boolean = true
     ): MyPlayerDanmakuController.SettingsSnapshot =
         MyPlayerDanmakuController.SettingsSnapshot(
             enabled = true,
-            showAdvancedDanmaku = showAdvancedDanmaku,
             alpha = 1f,
             textSize = 40,
             speed = 4,
