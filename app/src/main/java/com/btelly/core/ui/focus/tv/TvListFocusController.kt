@@ -351,6 +351,14 @@ class TvListFocusController(
         val hasRealFocus = focused != null &&
             position != RecyclerView.NO_POSITION &&
             adapter.isFocusablePosition(position)
+        // 触屏（touch mode）下根本没有焦点，不应伪造锚点，否则返回时会拿着假锚点去
+        // requestFocus 而必然失败（一连串 returned FALSE）。此时老老实实返回 false，
+        // 让上层走 ensureValidFocus 的既有 touch mode 让路逻辑。
+        if (recyclerView.isInTouchMode && !hasRealFocus) {
+            capturedAnchor = null
+            logD("captureCurrentAnchor: touchMode without focus, skip fabricating anchor")
+            return false
+        }
         capturedAnchor = if (hasRealFocus) {
             createAnchor(focused!!, position, TvFocusAnchor.Source.RETURN_RESTORE)
         } else if (currentAnchor != null && resolveAnchorPosition(currentAnchor!!) != RecyclerView.NO_POSITION) {
@@ -371,6 +379,12 @@ class TvListFocusController(
         logD("restoreCapturedAnchor: anchorKey=${anchor.stableKey} anchorPos=${anchor.adapterPosition} resolvedPos=$position")
         if (position == RecyclerView.NO_POSITION) {
             logD("restoreCapturedAnchor: resolvedPos=NO_POSITION, return false")
+            return false
+        }
+        // touch mode 下框架不维护焦点（典型：触屏进播放器再返回），此时去 requestFocus
+        // 必然失败。与 ensureValidFocus 的 touch mode 让路保持一致，直接返回 false。
+        if (recyclerView.isInTouchMode) {
+            logD("restoreCapturedAnchor: skip — touchMode (no focus to restore)")
             return false
         }
         // 焦点已落在列表外部一个可见、可聚焦的 View 上（典型场景：侧边栏功能按钮），
