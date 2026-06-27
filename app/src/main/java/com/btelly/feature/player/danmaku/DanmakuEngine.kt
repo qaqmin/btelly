@@ -398,21 +398,22 @@ internal class DanmakuEngine(
 
         var cachedDrawn = 0
         var fallbackDrawn = 0
-        var fallbackSkipped = 0
         for (i in 0 until snapshot.count) {
             val item = snapshot.items[i] ?: continue
-            val x = snapshot.x[i]
+            // x 坐标在主线程 draw 时现算（用 draw 当前的 nowMs），保证滚动位置与画面同步。
+            // 此前曾在 act 线程预算填入 snapshot.x，但 act 线程的 nowMs 滞后于 draw，
+            // 导致弹幕位置抖动/卡顿。对齐参考实现（上游弹幕库）。
+            val x =
+                when (item.kind) {
+                    DanmakuKind.SCROLL -> scrollX(width = width, nowMs = nowMs, startTimeMs = item.startTimeMs, pxPerMs = item.pxPerMs)
+                    DanmakuKind.TOP -> centerX(width = width, contentWidth = item.textWidthPx)
+                    DanmakuKind.BOTTOM -> centerX(width = width, contentWidth = item.textWidthPx)
+                }
             val yTop = snapshot.yTop[i]
             val bmp = item.cacheBitmap
             if (bmp != null && !bmp.isRecycled && item.cacheGeneration == styleGen) {
                 canvas.drawBitmap(bmp, x, yTop, bitmapPaint)
                 cachedDrawn++
-                continue
-            }
-            // 主线程实时直绘限流：cache miss 时若已达上限，本帧跳过该弹幕，
-            // 等后台缓存线程建好 bitmap 后下一帧命中缓存再画。
-            if (fallbackDrawn >= MAX_FALLBACK_DRAWS_PER_FRAME) {
-                fallbackSkipped++
                 continue
             }
             fallbackDrawn++
@@ -428,10 +429,6 @@ internal class DanmakuEngine(
         }
         lastDrawCachedCount = cachedDrawn
         lastDrawFallbackCount = fallbackDrawn
-        if (fallbackSkipped > 0 && fallbackSkipped >= fallbackDrawn * 4) {
-            // 当跳过的远多于直绘的，说明缓存跟不上弹幕涌入速度，告警便于诊断。
-            AppLog.w(TAG, "draw fallback throttled: drawn=$fallbackDrawn skipped=$fallbackSkipped cached=$cachedDrawn")
-        }
     }
 
     override fun setDanmakus(list: List<Danmaku>) {
@@ -588,19 +585,11 @@ internal class DanmakuEngine(
         out.positionMs = nowMs.toLong()
         out.pendingCount = pending.size
         out.nextAtMs = items.getOrNull(index)?.timeMs()
-        // 在 act 线程预算好每条弹幕的 x 坐标填入快照，draw 主线程直接读数组，避免每帧每条
-        // 弹幕在主线程现算 scrollX（浮点运算 + 对象字段内存访问）。对齐 上游弹幕库 做法。
-        val w = viewportWidth.coerceAtLeast(0)
         var count = 0
         for (item in active) {
             out.items[count] = item
             out.yTop[count] = item.layoutTopPx
             out.textWidth[count] = item.textWidthPx
-            out.x[count] = when (item.kind) {
-                DanmakuKind.SCROLL -> scrollX(width = w, nowMs = nowMs, startTimeMs = item.startTimeMs, pxPerMs = item.pxPerMs)
-                DanmakuKind.TOP -> centerX(width = w, contentWidth = item.textWidthPx)
-                DanmakuKind.BOTTOM -> centerX(width = w, contentWidth = item.textWidthPx)
-            }
             count++
         }
         out.count = count
@@ -1208,11 +1197,6 @@ internal class DanmakuEngine(
         private const val MAX_CACHE_SCAN_PER_FRAME = 16
         private const val MAX_CACHE_QUEUE_DEPTH = 48
 
-        // 主线程每帧最多实时直绘（fallback drawTextDirect）的弹幕条数。
-        // drawText 比 drawBitmap 慢一个量级（描边+填充两次 native 调用），cache miss 高峰时
-        // 不限量直绘会吃掉主线程整帧预算。超限的未缓存弹幕本帧跳过，等后台缓存线程建好 bitmap，
-        // 下一帧命中缓存再画（最多晚 1-2 帧约 16-32ms，肉眼几乎无感）。
-        // 对齐 akdanmaku MAX_FALLBACK_DRAWS_PER_FRAME=2 的设计。
-        private const val MAX_FALLBACK_DRAWS_PER_FRAME = 2
     }
+
 }
