@@ -27,13 +27,10 @@ package com.kuaishou.akdanmaku.data
 
 import android.graphics.RectF
 import com.kuaishou.akdanmaku.ext.AkLog as Log
-import com.badlogic.gdx.utils.Array
 import com.kuaishou.akdanmaku.data.DanmakuItemData.Companion.DANMAKU_ITEM_DATA_EMPTY
-import com.kuaishou.akdanmaku.data.state.HoldState
 import com.kuaishou.akdanmaku.data.state.DrawState
 import com.kuaishou.akdanmaku.engine.DanmakuContext.Companion.NONE_CONTEXT
 import com.kuaishou.akdanmaku.engine.DanmakuEngine
-import com.kuaishou.akdanmaku.action.Action
 import com.kuaishou.akdanmaku.ui.DanmakuPlayer
 
 /**
@@ -49,9 +46,6 @@ open class DanmakuItem(var data: DanmakuItemData, player: DanmakuPlayer? = null)
 
   internal var timer = player?.engine?.timer ?: NONE_CONTEXT.timer
 
-  internal val actions = Array<Action>(0)
-
-  private val holdState = HoldState(timer)
   internal val drawState = DrawState()
   internal var shownGeneration = -1
   internal var rollingStartTimeMs = ROLLING_START_TIME_UNSET
@@ -65,10 +59,8 @@ open class DanmakuItem(var data: DanmakuItemData, player: DanmakuPlayer? = null)
   val rect: RectF
     get() = drawState.rect
 
-  val isHolding: Boolean
-    get() = holdState.isHolding
   val timePosition: Long
-    get() = data.position + holdState.holdTime
+    get() = data.position
 
   val isLate: Boolean
     get() = timePosition > timer.currentTimeMs
@@ -78,15 +70,10 @@ open class DanmakuItem(var data: DanmakuItemData, player: DanmakuPlayer? = null)
   val isOutside: Boolean
     get() = isLate || isTimeout
 
-  fun hold() = holdState.hold()
-
-  fun unhold() = holdState.unhold()
-
   fun reset() {
     Log.d(DanmakuEngine.TAG, "[Item] Reset $this")
     state = ItemState.Uninitialized
     rect.setEmpty()
-    holdState.reset()
     drawState.reset()
     rollingStartTimeMs = ROLLING_START_TIME_UNSET
     rollingMotionWidth = 0f
@@ -112,11 +99,6 @@ open class DanmakuItem(var data: DanmakuItemData, player: DanmakuPlayer? = null)
     if (state > ItemState.Measured) {
       state = ItemState.Measured
     }
-  }
-
-  @Suppress("unused")
-  fun addAction(vararg action: Action) {
-    actions.addAll(*action)
   }
 
   companion object {
