@@ -4,11 +4,12 @@ import com.kuaishou.akdanmaku.data.DanmakuItem.Companion.ROLLING_START_TIME_UNSE
 
 internal object RollingDanmakuTiming {
 
+  // 热路径：避免 takeIf 的内联函数开销（会生成额外分支与临时装箱），直接 if 判断。
   fun resolvedStartTime(startTimeMs: Long, timePositionMs: Long): Long =
-    startTimeMs.takeIf { it != ROLLING_START_TIME_UNSET } ?: timePositionMs
+    if (startTimeMs != ROLLING_START_TIME_UNSET) startTimeMs else timePositionMs
 
   fun predictedStartTime(startTimeMs: Long, nowMs: Long, timePositionMs: Long): Long =
-    startTimeMs.takeIf { it != ROLLING_START_TIME_UNSET } ?: nowMs.coerceAtLeast(timePositionMs)
+    if (startTimeMs != ROLLING_START_TIME_UNSET) startTimeMs else nowMs.coerceAtLeast(timePositionMs)
 
   fun positionX(
     screenWidth: Int,

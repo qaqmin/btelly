@@ -325,7 +325,6 @@ internal class DrawCommandResult(
     const val SKIP_NONE = 0
     const val SKIP_CACHE_MISS = 1
     const val SKIP_UNMEASURED = 2
-    const val SKIP_RENDERER_FAILED = 3
 
     val CACHE_HIT = DrawCommandResult(cacheHit = true, fallbackDrawn = false)
     val FALLBACK_DRAWN = DrawCommandResult(cacheHit = false, fallbackDrawn = true)
@@ -338,11 +337,6 @@ internal class DrawCommandResult(
       cacheHit = false,
       fallbackDrawn = false,
       skipReason = SKIP_UNMEASURED
-    )
-    val RENDERER_FAILED_SKIPPED = DrawCommandResult(
-      cacheHit = false,
-      fallbackDrawn = false,
-      skipReason = SKIP_RENDERER_FAILED
     )
   }
 }

@@ -76,16 +76,6 @@ internal class DanmakuContext(val renderer: DanmakuRenderer) {
     }
   }
 
-  fun tryDrawRenderer(
-    item: DanmakuItem,
-    canvas: Canvas,
-    displayer: DanmakuDisplayer,
-    config: DanmakuConfig
-  ): Boolean {
-    drawRenderer(item, canvas, displayer, config)
-    return true
-  }
-
   private fun markGenerationsForChangedValues(current: DanmakuConfig, next: DanmakuConfig) {
     if (current.density != next.density ||
       current.bold != next.bold ||

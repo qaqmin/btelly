@@ -543,14 +543,18 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       var fallbackSkipped = 0
       var fallbackCacheMiss = 0
       var fallbackUnmeasured = 0
-      var fallbackRendererFailed = 0
       var fallbackCacheBoosts = 0
       var visibleCommandCount = 0
       var skippedOutside = 0
       val now = context.timer.currentTimeMs
       val commandCount = currentFrame.commands.size
+      // alpha 只依赖 config，整个 draw 循环不变，提前算一次避免每条弹幕重复乘法。
+      val drawAlpha = (config.alpha * 255).toInt().coerceIn(0, 255)
       var diagDrawCacheNs = 0L
       var diagDrawTextNs = 0L
+      // 采样式诊断：与 shouldProfileLayoutFrame 共用同一 tick，非采样帧跳过 per-item nanos
+      // 系统调用（消除每条弹幕每帧 2 次 SystemClock.elapsedRealtimeNanos），采样帧仍精确归因。
+      val profileDrawDetails = shouldProfileLayoutFrame()
       for (index in 0 until commandCount) {
         val item = currentFrame.commands.itemAt(index)
         if (!drawingTransitionFrame && item.isRuntimeOutside(now)) {
@@ -559,7 +563,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         }
         val fixedCommand = index >= currentFrame.fixedCommandStartIndex
         visibleCommandCount++
-        val diagCmdT0 = SystemClock.elapsedRealtimeNanos()
+        val diagCmdT0 = if (profileDrawDetails) SystemClock.elapsedRealtimeNanos() else 0L
         val drawResult = drawCommand(
           canvas = canvas,
           frame = currentFrame,
@@ -571,10 +575,13 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
           } else {
             rollingFallbackDraws < MAX_FALLBACK_DRAWS_PER_FRAME
           },
-          transitionElapsedMs = transitionElapsedMs
+          transitionElapsedMs = transitionElapsedMs,
+          drawAlpha = drawAlpha
         )
-        val diagCmdNs = SystemClock.elapsedRealtimeNanos() - diagCmdT0
-        if (drawResult.cacheHit) diagDrawCacheNs += diagCmdNs else if (drawResult.fallbackDrawn) diagDrawTextNs += diagCmdNs
+        if (profileDrawDetails) {
+          val diagCmdNs = SystemClock.elapsedRealtimeNanos() - diagCmdT0
+          if (drawResult.cacheHit) diagDrawCacheNs += diagCmdNs else if (drawResult.fallbackDrawn) diagDrawTextNs += diagCmdNs
+        }
         if (drawResult.cacheHit) {
           hit++
         } else if (drawResult.fallbackDrawn) {
@@ -595,7 +602,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
               }
             }
             DrawCommandResult.SKIP_UNMEASURED -> fallbackUnmeasured++
-            DrawCommandResult.SKIP_RENDERER_FAILED -> fallbackRendererFailed++
           }
         }
         dispatchShown(item, config)
@@ -617,7 +623,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
           "[Runtime] draw fallback limited drawn=$fallbackDraws skipped=$fallbackSkipped " +
             "rollingDrawn=$rollingFallbackDraws fixedDrawn=$fixedFallbackDraws " +
             "cacheMiss=$fallbackCacheMiss unmeasured=$fallbackUnmeasured " +
-            "rendererFailed=$fallbackRendererFailed boosts=$fallbackCacheBoosts commands=$commandCount"
+            "boosts=$fallbackCacheBoosts commands=$commandCount"
         )
       }
       cacheHit.num = hit
@@ -1288,6 +1294,8 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     val rollingDurationMs = config.rollingDurationMs
     val topMode = DanmakuItemData.DANMAKU_MODE_CENTER_TOP
     val bottomMode = DanmakuItemData.DANMAKU_MODE_CENTER_BOTTOM
+    // entryAheadMs 只依赖 config，整个循环不变，提前算一次避免每条弹幕重复计算。
+    val aheadMs = entryAheadMs(config)
     var activeIndex = 0
     while (activeIndex < activeStates.size) {
       val state = activeStates[activeIndex]
@@ -1358,7 +1366,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       }
       if (cacheRequestBudget > 0) {
         stepAt = if (profileDetails) SystemClock.elapsedRealtime() else 0L
-        val requested = requestCacheBuildIfNeeded(item, config, state.cachePriority(now, entryAheadMs(config)))
+        val requested = requestCacheBuildIfNeeded(item, config, state.cachePriority(now, aheadMs))
         if (profileDetails) cacheMs += SystemClock.elapsedRealtime() - stepAt
         if (requested) {
           cacheRequestBudget--
@@ -1614,30 +1622,31 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     index: Int,
     config: DanmakuConfig,
     allowFallback: Boolean,
-    transitionElapsedMs: Long
+    transitionElapsedMs: Long,
+    drawAlpha: Int
   ): DrawCommandResult {
     val item = commands.itemAt(index)
     val drawState = item.drawState
     if (item.state < ItemState.Measured || !drawState.isMeasured(config.measureGeneration)) {
       return DrawCommandResult.UNMEASURED_SKIPPED
     }
-    val cache = resolveCommandCache(frame, commands, index, item, config)
+    val cache = resolveCommandCache(frame, commands, index, item, config.cacheGeneration)
     val left = resolveCommandLeft(commands, index, config, transitionElapsedMs)
     val top = commands.topAt(index)
     if (cache != DrawingCache.EMPTY_DRAWING_CACHE) {
       val bitmap = cache.get()?.bitmap
       if (bitmap != null && !bitmap.isRecycled) {
-        drawPaint.alpha = (config.alpha * 255).toInt().coerceIn(0, 255)
+        drawPaint.alpha = drawAlpha
         canvas.drawBitmap(bitmap, left, top, drawPaint)
         return DrawCommandResult.CACHE_HIT
       }
     }
     if (!allowFallback) return DrawCommandResult.CACHE_MISS_SKIPPED
-    var drawn = false
+    // tryDrawRenderer 固定返回 true（drawRenderer 无失败路径），去掉 drawn 恒真判断与冗余间接层。
     canvas.withTranslation(left, top) {
-      drawn = context.tryDrawRenderer(item, canvas, context.displayer, config)
+      context.drawRenderer(item, canvas, context.displayer, config)
     }
-    return if (drawn) DrawCommandResult.FALLBACK_DRAWN else DrawCommandResult.RENDERER_FAILED_SKIPPED
+    return DrawCommandResult.FALLBACK_DRAWN
   }
 
   private fun boostVisibleCacheIfNeeded(item: DanmakuItem, config: DanmakuConfig): Boolean {
@@ -1665,17 +1674,17 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     commands: CommandBuffer,
     index: Int,
     item: DanmakuItem,
-    config: DanmakuConfig
+    cacheGeneration: Int
   ): DrawingCache {
     val commandCache = commands.cacheAt(index)
     if (commandCache != DrawingCache.EMPTY_DRAWING_CACHE &&
-      commands.cacheGenerationAt(index) == config.cacheGeneration) {
+      commands.cacheGenerationAt(index) == cacheGeneration) {
       return commandCache
     }
     val drawState = item.drawState
     val latestCache = drawState.drawingCache
     if (latestCache == DrawingCache.EMPTY_DRAWING_CACHE ||
-      drawState.cacheGeneration != config.cacheGeneration ||
+      drawState.cacheGeneration != cacheGeneration ||
       latestCache.get() == null) {
       return DrawingCache.EMPTY_DRAWING_CACHE
     }
@@ -1692,7 +1701,8 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     val left = commands.leftAt(index)
     val item = commands.itemAt(index)
     if (item.data.mode != DanmakuItemData.DANMAKU_MODE_ROLLING) return left
-    val durationMs = item.duration.takeIf { it > 0L } ?: config.rollingDurationMs
+    val itemDuration = item.duration
+    val durationMs = if (itemDuration > 0L) itemDuration else config.rollingDurationMs
     if (durationMs <= 0L) return left
     return if (transitionElapsedMs > 0L) {
       val width = commands.rightAt(index) - left

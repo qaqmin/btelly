@@ -5,10 +5,10 @@
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
+ * the Software without restriction without limitation the rights to use, copy, modify,
+ * merge, publish, distribute, sublicense, and/or sell copies of the Software,
+ * and to permit persons to whom the Software is furnished to do so, subject to the
+ * following conditions:
  *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
@@ -29,53 +29,52 @@ import com.kuaishou.akdanmaku.data.DanmakuItem
 import com.kuaishou.akdanmaku.ext.isOutside
 import com.kuaishou.akdanmaku.ext.isTimeout
 import com.kuaishou.akdanmaku.utils.DanmakuTimer
-import java.util.*
 
 /**
- *
+ * 重复弹幕合并过滤器。
  *
  * @author Xana
  * @since 2021-06-30
  */
 open class DuplicateMergingFilter : DanmakuDataFilter(DanmakuFilters.FILTER_TYPE_DUPLICATE_MERGE) {
 
-  protected val blockedDanmakus = TreeSet<DanmakuItem>()
+  // 用 LinkedHashMap 当 Set（value 占位），替代原 TreeSet：
+  // contains/add/remove 从 O(log n) 降到 O(1)；迭代顺序为插入顺序，
+  // 弹幕按时间顺序入队，故"从头删超时项、碰到第一个未超时即停"的清理语义保持不变。
+  private val blockedDanmakus = LinkedHashMap<DanmakuItem, Boolean>()
   protected val currentDanmakus = mutableMapOf<String, DanmakuItem>()
-  protected val passedDanmakus = TreeSet<DanmakuItem>()
+  private val passedDanmakus = LinkedHashMap<DanmakuItem, Boolean>()
 
   private fun removeTimeoutDanmakus(limitTime: Int, currentTimeMills: Long) {
     val startTime: Long = SystemClock.uptimeMillis()
-    removeTimeout(blockedDanmakus.iterator(), startTime, limitTime, currentTimeMills)
-    removeTimeout(passedDanmakus.iterator(), startTime, limitTime, currentTimeMills)
-    removeTimeoutMap(currentDanmakus.iterator(), startTime, limitTime, currentTimeMills)
+    removeTimeoutSet(blockedDanmakus, startTime, limitTime, currentTimeMills)
+    removeTimeoutSet(passedDanmakus, startTime, limitTime, currentTimeMills)
+    removeTimeoutMap(currentDanmakus, startTime, limitTime, currentTimeMills)
   }
 
-  private fun removeTimeout(
-    iterator: MutableIterator<DanmakuItem>,
+  private fun removeTimeoutSet(
+    set: MutableMap<DanmakuItem, Boolean>,
     startTime: Long,
     limitTime: Int,
     currentTimeMills: Long
   ) {
-    while (iterator.hasNext()) {
+    val iter = set.keys.iterator()
+    while (iter.hasNext()) {
       if (SystemClock.uptimeMillis() - startTime <= limitTime) return
-      val entity = iterator.next()
-      if (entity.isTimeout(currentTimeMills)) iterator.remove()
-      else return
+      if (iter.next().isTimeout(currentTimeMills)) iter.remove() else return
     }
   }
 
   private fun removeTimeoutMap(
-    iterator: MutableIterator<Map.Entry<String, DanmakuItem>>,
+    map: MutableMap<String, DanmakuItem>,
     startTime: Long,
     limitTime: Int,
     currentTimeMills: Long
   ) {
-    while (iterator.hasNext()) {
+    val iter = map.values.iterator()
+    while (iter.hasNext()) {
       if (SystemClock.uptimeMillis() - startTime <= limitTime) return
-      val entry = iterator.next()
-      val entity = entry.value
-      if (entity.isTimeout(currentTimeMills)) iterator.remove()
-      else return
+      if (iter.next().isTimeout(currentTimeMills)) iter.remove() else return
     }
   }
 
@@ -83,18 +82,18 @@ open class DuplicateMergingFilter : DanmakuDataFilter(DanmakuFilters.FILTER_TYPE
     val data = item.data
     val currentTimeMills = timer.currentTimeMs
     removeTimeoutDanmakus(7, currentTimeMills)
-    return if (blockedDanmakus.contains(item) && !item.isOutside(currentTimeMills)) {
+    return if (blockedDanmakus.containsKey(item) && !item.isOutside(currentTimeMills)) {
       true
-    } else if (passedDanmakus.contains(item)) {
+    } else if (passedDanmakus.containsKey(item)) {
       false
     } else if (currentDanmakus.containsKey(data.content)) {
       currentDanmakus[data.content] = item
       blockedDanmakus.remove(item)
-      blockedDanmakus.add(item)
+      blockedDanmakus[item] = true
       true
     } else {
       currentDanmakus[data.content] = item
-      passedDanmakus.add(item)
+      passedDanmakus[item] = true
       true
     }
   }
