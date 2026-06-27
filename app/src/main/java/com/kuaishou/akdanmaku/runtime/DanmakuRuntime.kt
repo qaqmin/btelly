@@ -67,7 +67,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   private var measureGeneration = -1
   private var cacheGeneration = -1
   private var visibilityGeneration = -1
-  private var layoutProfileTick = 0
   private var filterCacheableGeneration = -1
   private var filterResultCacheable = false
   private var fallbackLimitLogTick = 0
@@ -98,73 +97,39 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
 
   @Synchronized
   fun primeMeasureItems(items: List<DanmakuItem>, maxCount: Int) {
-    if (items.isEmpty() || maxCount <= 0) return
-    val config = context.config
-    var scheduled = 0
-    var cacheHits = 0
-    var cachePrimed = 0
-    val startedAt = SystemClock.elapsedRealtime()
-    for (item in items) {
-      if (item.state == ItemState.Measuring) continue
-      if (item.drawState.isMeasured(config.measureGeneration) && item.state >= ItemState.Measured) {
-        if (cachePrimed < MAX_PRIME_CACHE_BUILDS &&
-          requestCacheBuildIfNeeded(item, config, CACHE_PRIORITY_VISIBLE)) {
-          cachePrimed++
-        }
-        continue
-      }
-      val cachedSize = context.cacheManager.getDanmakuSize(item.data)
-      if (cachedSize != null) {
-        item.drawState.width = cachedSize.width.toFloat()
-        item.drawState.height = cachedSize.height.toFloat()
-        item.drawState.measureGeneration = config.measureGeneration
-        item.state = ItemState.Measured
-        item.pendingMeasureGeneration = -1
-        cacheHits++
-        if (cachePrimed < MAX_PRIME_CACHE_BUILDS &&
-          requestCacheBuildIfNeeded(item, config, CACHE_PRIORITY_VISIBLE)) {
-          cachePrimed++
-        }
-        continue
-      }
-      if (scheduled >= maxCount) break
-      // 首窗口提交后先把测量排进缓存线程，减少第一批 action 帧里的集中测量抖动。
-      item.state = ItemState.Measuring
-      item.pendingMeasureGeneration = config.measureGeneration
-      context.cacheManager.requestMeasure(
-        item = item,
-        displayer = context.displayer,
-        config = config,
-        priority = CACHE_PRIORITY_VISIBLE,
-        buildAfterMeasure = cachePrimed < MAX_PRIME_CACHE_BUILDS
-      )
-      if (cachePrimed < MAX_PRIME_CACHE_BUILDS) {
-        cachePrimed++
-      }
-      scheduled++
-    }
-    val costMs = SystemClock.elapsedRealtime() - startedAt
-    if (items.size >= 96 || scheduled >= 24 || costMs >= 4L) {
-      Log.i(
-        DanmakuEngine.TAG,
-        "[Runtime] prime measure scheduled=$scheduled cacheHit=$cacheHits cachePrimed=$cachePrimed " +
-          "total=${items.size} cost=${costMs}ms"
-      )
-    }
+    primeMeasure(items, maxCount, sync = false)
   }
 
   @Synchronized
   fun primeMeasureItemsNow(items: List<DanmakuItem>, maxCount: Int) {
+    primeMeasure(items, maxCount, sync = true)
+  }
+
+  @Synchronized
+  fun primeMeasureItem(item: DanmakuItem) {
+    primeMeasure(listOf(item), maxCount = 1, sync = false)
+  }
+
+  /**
+   * 测量预热统一实现。
+   *
+   * - sync=false：未命中尺寸缓存则异步 requestMeasure（避免阻塞调用线程），跳过 Measuring 态。
+   * - sync=true：未命中则同步 measureNow（失败置 Error），超额后回退异步补扫。
+   *
+   * 两路共享「已测量→prime cache / 命中缓存→标 Measured+prime cache」骨架。
+   */
+  private fun primeMeasure(items: List<DanmakuItem>, maxCount: Int, sync: Boolean) {
     if (items.isEmpty() || maxCount <= 0) return
     val config = context.config
-    var measured = 0
+    var processed = 0
     var cacheHits = 0
     var cachePrimed = 0
     var failed = 0
     var scanned = 0
     val startedAt = SystemClock.elapsedRealtime()
     for (item in items) {
-      if (measured >= maxCount) break
+      if (processed >= maxCount) break
+      if (!sync && item.state == ItemState.Measuring) continue
       scanned++
       if (item.drawState.isMeasured(config.measureGeneration) && item.state >= ItemState.Measured) {
         if (cachePrimed < MAX_PRIME_CACHE_BUILDS &&
@@ -174,11 +139,32 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         continue
       }
       val cachedSize = context.cacheManager.getDanmakuSize(item.data)
-      val size = cachedSize ?: context.cacheManager.measureNow(item, context.displayer, config)
+      val size = if (cachedSize != null) {
+        cachedSize
+      } else if (sync) {
+        context.cacheManager.measureNow(item, context.displayer, config)
+      } else {
+        null
+      }
       if (size == null) {
-        item.state = ItemState.Error
-        item.pendingMeasureGeneration = -1
-        failed++
+        if (sync) {
+          item.state = ItemState.Error
+          item.pendingMeasureGeneration = -1
+          failed++
+        } else {
+          // 异步：未命中则排进缓存线程，减少第一批 action 帧里的集中测量抖动。
+          item.state = ItemState.Measuring
+          item.pendingMeasureGeneration = config.measureGeneration
+          context.cacheManager.requestMeasure(
+            item = item,
+            displayer = context.displayer,
+            config = config,
+            priority = CACHE_PRIORITY_VISIBLE,
+            buildAfterMeasure = cachePrimed < MAX_PRIME_CACHE_BUILDS
+          )
+          if (cachePrimed < MAX_PRIME_CACHE_BUILDS) cachePrimed++
+          processed++
+        }
         continue
       }
       item.drawState.width = size.width.toFloat()
@@ -186,52 +172,34 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       item.drawState.measureGeneration = config.measureGeneration
       item.state = ItemState.Measured
       item.pendingMeasureGeneration = -1
-      if (cachedSize != null) {
-        cacheHits++
-      }
+      if (cachedSize != null) cacheHits++
       if (cachePrimed < MAX_PRIME_CACHE_BUILDS &&
         requestCacheBuildIfNeeded(item, config, CACHE_PRIORITY_VISIBLE)) {
         cachePrimed++
       }
-      measured++
+      processed++
     }
     val costMs = SystemClock.elapsedRealtime() - startedAt
-    if (measured > 0 || failed > 0 || costMs >= 4L) {
-      Log.i(
-        DanmakuEngine.TAG,
-        "[Runtime] sync prime measure measured=$measured cacheHit=$cacheHits failed=$failed " +
-          "cachePrimed=$cachePrimed total=${items.size} cost=${costMs}ms"
-      )
+    if (sync) {
+      if (processed > 0 || failed > 0 || costMs >= 4L) {
+        Log.i(
+          DanmakuEngine.TAG,
+          "[Runtime] sync prime measure measured=$processed cacheHit=$cacheHits failed=$failed " +
+            "cachePrimed=$cachePrimed total=${items.size} cost=${costMs}ms"
+        )
+      }
+      if (scanned < items.size) {
+        primeMeasure(items.drop(scanned), maxCount, sync = false)
+      }
+    } else {
+      if (items.size >= 96 || processed >= 24 || costMs >= 4L) {
+        Log.i(
+          DanmakuEngine.TAG,
+          "[Runtime] prime measure scheduled=$processed cacheHit=$cacheHits cachePrimed=$cachePrimed " +
+            "total=${items.size} cost=${costMs}ms"
+        )
+      }
     }
-    if (scanned < items.size) {
-      primeMeasureItems(items.drop(scanned), maxCount)
-    }
-  }
-
-  @Synchronized
-  fun primeMeasureItem(item: DanmakuItem) {
-    val config = context.config
-    if (item.state == ItemState.Measuring) return
-    if (item.drawState.isMeasured(config.measureGeneration) && item.state >= ItemState.Measured) return
-    val cachedSize = context.cacheManager.getDanmakuSize(item.data)
-    if (cachedSize != null) {
-      item.drawState.width = cachedSize.width.toFloat()
-      item.drawState.height = cachedSize.height.toFloat()
-      item.drawState.measureGeneration = config.measureGeneration
-      item.state = ItemState.Measured
-      item.pendingMeasureGeneration = -1
-      requestCacheBuildIfNeeded(item, config, CACHE_PRIORITY_VISIBLE)
-      return
-    }
-    item.state = ItemState.Measuring
-    item.pendingMeasureGeneration = config.measureGeneration
-    context.cacheManager.requestMeasure(
-      item = item,
-      displayer = context.displayer,
-      config = config,
-      priority = CACHE_PRIORITY_VISIBLE,
-      buildAfterMeasure = true
-    )
   }
 
   @Synchronized
@@ -483,11 +451,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       val commandCount = currentFrame.commands.size
       // alpha 只依赖 config，整个 draw 循环不变，提前算一次避免每条弹幕重复乘法。
       val drawAlpha = (config.alpha * 255).toInt().coerceIn(0, 255)
-      var diagDrawCacheNs = 0L
-      var diagDrawTextNs = 0L
-      // 采样式诊断：与 shouldProfileLayoutFrame 共用同一 tick，非采样帧跳过 per-item nanos
-      // 系统调用（消除每条弹幕每帧 2 次 SystemClock.elapsedRealtimeNanos），采样帧仍精确归因。
-      val profileDrawDetails = shouldProfileLayoutFrame()
       for (index in 0 until commandCount) {
         val item = currentFrame.commands.itemAt(index)
         if (!drawingTransitionFrame && item.isRuntimeOutside(now)) {
@@ -496,7 +459,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         }
         val fixedCommand = index >= currentFrame.fixedCommandStartIndex
         visibleCommandCount++
-        val diagCmdT0 = if (profileDrawDetails) SystemClock.elapsedRealtimeNanos() else 0L
         val drawResult = drawCommand(
           canvas = canvas,
           frame = currentFrame,
@@ -511,10 +473,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
           transitionElapsedMs = transitionElapsedMs,
           drawAlpha = drawAlpha
         )
-        if (profileDrawDetails) {
-          val diagCmdNs = SystemClock.elapsedRealtimeNanos() - diagCmdT0
-          if (drawResult.cacheHit) diagDrawCacheNs += diagCmdNs else if (drawResult.fallbackDrawn) diagDrawTextNs += diagCmdNs
-        }
         if (drawResult.cacheHit) {
           hit++
         } else if (drawResult.fallbackDrawn) {
@@ -575,7 +533,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         )
       }
       if (drawCostMs >= 15L) {
-        Log.w(DanmakuEngine.TAG, "[Diag] draw held=" + drawCostMs + "ms commands=" + commandCount + " cacheHit=" + hit + " cacheMiss=" + (visibleCommandCount - hit - fallbackDraws) + " fallback=" + fallbackDraws + " drawCache=" + (diagDrawCacheNs / 1000000) + "ms drawText=" + (diagDrawTextNs / 1000000) + "ms " + topSummary)
+        Log.w(DanmakuEngine.TAG, "[Diag] draw held=" + drawCostMs + "ms commands=" + commandCount + " cacheHit=" + hit + " cacheMiss=" + (visibleCommandCount - hit - fallbackDraws) + " fallback=" + fallbackDraws + " " + topSummary)
       }
     } finally {
       lastDrawLockReleasedAt = SystemClock.elapsedRealtime()
@@ -914,21 +872,10 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     val displayer = context.displayer
     val newFrame = framePool.acquire(visibilityGeneration)
     val startedAt = SystemClock.elapsedRealtime()
-    val profileDetails = shouldProfileLayoutFrame()
-    var filterMs = 0L
-    var trackMs = 0L
-    var cacheMs = 0L
-    var commandMs = 0L
-    var retainMs = 0L
-    var fixedMergeMs = 0L
-    var outsideCheckMs = 0L
-    var measureCheckMs = 0L
     var filteredCount = 0
     var unmeasuredCount = 0
     var outsideCount = 0
     var trackRejectedCount = 0
-    var trackFastCount = 0
-    var trackLayoutCount = 0
     var cacheRequestedCount = 0
     var cacheDeferredCount = 0
     var cacheRequestBudget = MAX_CACHE_REQUESTS_PER_FRAME
@@ -950,51 +897,37 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       val state = activeStates[activeIndex]
       val item = state.item
       var removedState = false
-      var stepAt = if (profileDetails) SystemClock.elapsedRealtime() else 0L
       if (item.isRuntimeOutside(now)) {
-        if (profileDetails) outsideCheckMs += SystemClock.elapsedRealtime() - stepAt
         outsideCount++
         activeIndex++
         continue
       }
-      if (profileDetails) outsideCheckMs += SystemClock.elapsedRealtime() - stepAt
 
-      stepAt = if (profileDetails) SystemClock.elapsedRealtime() else 0L
       val drawState = item.drawState
       if (item.state < ItemState.Measured || !drawState.isMeasured(measureGeneration)) {
-        if (profileDetails) measureCheckMs += SystemClock.elapsedRealtime() - stepAt
         enqueueMeasureState(state)
         unmeasuredCount++
         activeIndex++
         continue
       }
-      if (profileDetails) measureCheckMs += SystemClock.elapsedRealtime() - stepAt
       state.awaitingMeasure = false
-      stepAt = if (profileDetails) SystemClock.elapsedRealtime() else 0L
       if (isDataFiltered(item, config)) {
-        if (profileDetails) filterMs += SystemClock.elapsedRealtime() - stepAt
         filteredCount++
         activeIndex++
         continue
       }
-      if (profileDetails) filterMs += SystemClock.elapsedRealtime() - stepAt
 
-      stepAt = if (profileDetails) SystemClock.elapsedRealtime() else 0L
       val mode = item.data.mode
       val visible = if (drawState.layoutGeneration == layoutGeneration) {
         val updated = trackLayout.updateExisting(item, width, height, config)
         if (updated) {
-          trackFastCount++
           true
         } else {
-          trackLayoutCount++
           trackLayout.layout(item, now, width, height, margin, config)
         }
       } else {
-        trackLayoutCount++
         trackLayout.layout(item, now, width, height, margin, config)
       }
-      if (profileDetails) trackMs += SystemClock.elapsedRealtime() - stepAt
       if (!visible) {
         trackRejectedCount++
         if (DanmakuRejectionPolicy.shouldDropRejectedItem(item)) {
@@ -1007,9 +940,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         continue
       }
       if (cacheRequestBudget > 0) {
-        stepAt = if (profileDetails) SystemClock.elapsedRealtime() else 0L
         val requested = requestCacheBuildIfNeeded(item, config, state.cachePriority(now, aheadMs))
-        if (profileDetails) cacheMs += SystemClock.elapsedRealtime() - stepAt
         if (requested) {
           cacheRequestBudget--
           cacheRequestedCount++
@@ -1021,14 +952,10 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       if (item.state >= ItemState.Rendered && drawState.cacheGeneration != cacheGeneration) {
         item.cacheRecycle()
       }
-      stepAt = if (profileDetails) SystemClock.elapsedRealtime() else 0L
       val cache = drawState.drawingCache
       if (cache != DrawingCache.EMPTY_DRAWING_CACHE) {
-        stepAt = if (profileDetails) SystemClock.elapsedRealtime() else 0L
         newFrame.retainCache(cache)
-        if (profileDetails) retainMs += SystemClock.elapsedRealtime() - stepAt
       }
-      stepAt = if (profileDetails) SystemClock.elapsedRealtime() else 0L
       val left = if (mode == topMode || mode == bottomMode) {
         drawState.positionX
       } else {
@@ -1055,26 +982,19 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       } else {
         newFrame.commands.add(item, cache, drawState.cacheGeneration, left, top, right, bottom)
       }
-      if (profileDetails) commandMs += SystemClock.elapsedRealtime() - stepAt
       activeIndex++
     }
-    val fixedMergeStartedAt = if (profileDetails) SystemClock.elapsedRealtime() else 0L
     newFrame.markFixedCommandStart(newFrame.commands.size)
     newFrame.commands.addAll(newFrame.fixedCommands)
     newFrame.fixedCommands.clear()
-    if (profileDetails) fixedMergeMs = SystemClock.elapsedRealtime() - fixedMergeStartedAt
     val cost = SystemClock.elapsedRealtime() - startedAt
     if (cost >= LAYOUT_OVERLOAD_MS) {
-      val topSummary = summarizeCommandTops(newFrame.commands, newFrame.fixedCommandStartIndex)
       Log.w(
         DanmakuEngine.TAG,
-        "[Runtime] layout profile cost=${cost}ms outside=${outsideCheckMs}ms measureCheck=${measureCheckMs}ms " +
-          "filter=${filterMs}ms track=${trackMs}ms cache=${cacheMs}ms retain=${retainMs}ms " +
-          "command=${commandMs}ms fixedMerge=${fixedMergeMs}ms active=${activeStates.size} waiting=${waitingStates.size} " +
+        "[Runtime] layout overload cost=${cost}ms active=${activeStates.size} " +
           "draw=${newFrame.commands.size} outside=$outsideCount " +
           "unmeasured=$unmeasuredCount filtered=$filteredCount rejected=$trackRejectedCount " +
-          "trackFast=$trackFastCount trackLayout=$trackLayoutCount cacheReq=$cacheRequestedCount " +
-          "cacheDef=$cacheDeferredCount $topSummary"
+          "cacheReq=$cacheRequestedCount cacheDef=$cacheDeferredCount"
       )
     }
     logZeroFrameIfNeeded(
@@ -1438,14 +1358,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     framePool.release(oldFrame)
   }
 
-  private fun shouldProfileLayoutFrame(): Boolean {
-    layoutProfileTick++
-    // 采样式诊断：每 30 帧采一次，保留周期性性能 profiling 能力的同时，
-    // 消除非采样帧里循环内每条弹幕 10-15 次 SystemClock 系统调用开销。
-    // 采样那帧仍有完整开销，但 30:1 比例下整体可忽略。
-    return layoutProfileTick % 30 == 0
-  }
-
   private class ReleaseProfile(
     val frames: Int,
     val caches: Int,
@@ -1591,7 +1503,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     private const val LIVE_HISTORY_MAX = 2000
     private const val RUNTIME_OVERLOAD_MS = 12L
     private const val LAYOUT_OVERLOAD_MS = 12L
-    private const val LAYOUT_PROFILE_DETAIL_INTERVAL = 30
     private const val MAX_ACTIVE_STATE_POOL_SIZE = 512
     private const val MAX_MEASURE_ENTRY_POOL_SIZE = 512
     private const val MAX_RUNTIME_FRAME_POOL_SIZE = 3
