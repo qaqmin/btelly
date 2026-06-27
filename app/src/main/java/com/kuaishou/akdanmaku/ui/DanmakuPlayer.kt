@@ -38,7 +38,6 @@ import androidx.core.math.MathUtils.clamp
 import com.kuaishou.akdanmaku.DanmakuConfig
 import com.kuaishou.akdanmaku.data.DanmakuItemData
 import com.kuaishou.akdanmaku.data.DanmakuItem
-import com.kuaishou.akdanmaku.data.DataSource
 import com.kuaishou.akdanmaku.engine.DanmakuEngine
 import com.kuaishou.akdanmaku.ext.endTrace
 import com.kuaishou.akdanmaku.ext.startTrace
@@ -62,8 +61,7 @@ import kotlin.math.max
  *
  * @param renderer 业务端自定义的弹幕渲染器
  */
-@Suppress("unused")
-class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
+class DanmakuPlayer(renderer: DanmakuRenderer) {
 
   companion object {
     internal const val MSG_FRAME_UPDATE = 2101
@@ -85,15 +83,6 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
 
   private var danmakuView: DanmakuView? = null
   internal val engine = DanmakuEngine.get(renderer)
-  private val dataSourceListener = object : DataSource.DataChangeListener {
-    override fun onDataAdded(additionalItems: List<DanmakuItem>) {
-      engine.runtime.primeMeasureItems(additionalItems, MAX_PRIME_MEASURE_ON_APPEND)
-      engine.runtime.addItems(additionalItems)
-    }
-
-    override fun onDataRemoved(removalItems: List<DanmakuItem>) {
-    }
-  }
   private val actionThread by lazy {
     HandlerThread("ActionThread").apply {
       start()
@@ -138,10 +127,6 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     get() = engine.runtime.cacheHit
 
   internal fun diagnosticSummary(): String = engine.runtime.diagnosticSummary()
-
-  init {
-    dataSource?.setListener(dataSourceListener)
-  }
 
   private fun postFrameCallback() {
     // Choreographer 绑定到调用线程的 Looper。这里从 updateFrame 在 ActionThread 调用,

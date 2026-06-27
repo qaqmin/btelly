@@ -214,9 +214,6 @@ data class DanmakuConfig(
       Log.d(DanmakuEngine.TAG, "Generation[$type] update to $generation")
     }
 
-    // 单次释放缓存的最大数量
-    const val MAX_RELEASE_PER_DRAIN = 48
-
     const val DEFAULT_DURATION = 3800L
 
     /**

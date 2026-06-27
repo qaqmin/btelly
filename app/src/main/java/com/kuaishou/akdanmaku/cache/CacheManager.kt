@@ -113,14 +113,6 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
     cacheHandler.enqueue(PendingCacheTask.measure(CacheInfo(item, displayer, config, key, buildAfterMeasure), priority))
   }
 
-  /**
-   * 发送一个 build 结束的请求，放置在当前若干 build_cache 消息后，当此批次缓存完成后会发送一个回调消息
-   */
-  fun requestBuildSign() {
-    if (isReleased) return
-    cacheHandler.requestBuildSign()
-  }
-
   fun cancelAllRequests() {
     if (isReleased) return
     cacheHandler.cancelQueuedRequests()
@@ -129,32 +121,9 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
     cancelFlag = true
   }
 
-  fun requestRelease() {
-    if (isReleased) return
-    cancelAllRequests()
-    cacheHandler.sendEmptyMessage(WORKER_MSG_RELEASE)
-  }
-
-  fun destroyCache(cache: DrawingCache) {
-    if (isReleased || cache == DrawingCache.EMPTY_DRAWING_CACHE) return
-    cacheHandler.obtainMessage(WORKER_MSG_DESTROY, cache).sendToTarget()
-  }
-
   fun releaseCache(cache: DrawingCache) {
     if (isReleased || cache == DrawingCache.EMPTY_DRAWING_CACHE) return
     cacheHandler.obtainMessage(WORKER_MSG_RELEASE_ITEM, cache).sendToTarget()
-  }
-
-  fun releaseReferences(caches: List<DrawingCache>, delayMs: Long = CACHE_REFERENCE_RELEASE_DELAY_MS) {
-    if (caches.isEmpty()) return
-    val snapshot = ArrayList<DrawingCache>(caches.size)
-    for (cache in caches) {
-      if (cache != DrawingCache.EMPTY_DRAWING_CACHE) {
-        snapshot.add(cache)
-      }
-    }
-    if (snapshot.isEmpty()) return
-    releaseReferenceSnapshot(snapshot, delayMs)
   }
 
   fun releaseReferenceSnapshot(caches: ArrayList<DrawingCache>, delayMs: Long = CACHE_REFERENCE_RELEASE_DELAY_MS) {
@@ -165,11 +134,6 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
     } else {
       message.sendToTarget()
     }
-  }
-
-  fun clearMeasureCache() {
-    if (isReleased) return
-    cacheHandler.obtainMessage(WORKER_MSG_CLEAR_CACHE).sendToTarget()
   }
 
   fun getDanmakuSize(danmaku: DanmakuItemData): Size? = measureSizeCache[danmaku.danmakuId]
@@ -272,11 +236,6 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
       message.sendToTarget()
     }
 
-    fun requestBuildSign() {
-      removeMessages(WORKER_MSG_RENDER_SIGN)
-      sendEmptyMessage(WORKER_MSG_RENDER_SIGN)
-    }
-
     fun cancelQueuedRequests() {
       cancelWorkMessages()
       pendingTasks.clear()
@@ -295,18 +254,6 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
           dispatching = false
           renderSignPending = false
         }
-        WORKER_MSG_CLEAR_CACHE -> {
-          measureSizeCache.clear()
-          pendingMeasureKeys.clear()
-          pendingBuildKeys.clear()
-          pendingTasks.clear()
-          dispatching = false
-          renderSignPending = false
-          clearSharedDrawingCaches()
-        }
-        WORKER_MSG_DESTROY -> {
-          (msg.obj as? DrawingCache)?.destroy()
-        }
         WORKER_MSG_RELEASE_ITEM -> {
           (msg.obj as? DrawingCache)?.let { if (!cachePool.release(it)) it.destroy() }
         }
@@ -322,15 +269,6 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
           } else {
             callbackHandler.sendEmptyMessage(MSG_CACHE_RENDER)
           }
-        }
-        WORKER_MSG_RELEASE -> {
-          pendingTasks.clear()
-          dispatching = false
-          renderSignPending = false
-          removeMessages(WORKER_MSG_RELEASE_REFERENCES)
-          cachePool.clear()
-          isReleased = true
-          cacheThread.quitSafely()
         }
       }
     }
@@ -679,14 +617,10 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
   companion object {
     const val THREAD_NAME = "AkDanmaku-Cache"
 
-    private const val WORKER_MSG_RELEASE = -100
-
     private const val WORKER_MSG_RENDER_SIGN = -1
     private const val WORKER_MSG_BUILD_MEASURE = 0
     private const val WORKER_MSG_BUILD_CACHE = 1
     private const val WORKER_MSG_SEEK = 2
-    private const val WORKER_MSG_CLEAR_CACHE = 3
-    private const val WORKER_MSG_DESTROY = 4
     private const val WORKER_MSG_RELEASE_ITEM = 5
     private const val WORKER_MSG_WARM_UP = 6
     private const val WORKER_MSG_QUEUE_TASK = 7

@@ -17,112 +17,20 @@ internal class RuntimeFrame {
     private set
   private var retainedCacheSet = HashSet<DrawingCache>(256)
   var visibilityGeneration: Int = -1
-  var reuseGeneration: Int = -1
-    private set
   var fixedCommandStartIndex: Int = 0
-    private set
-  var activeCount: Int = 0
-    private set
-  var waitingCount: Int = 0
-    private set
-  var layoutGeneration: Int = -1
-    private set
-  var measureGeneration: Int = -1
-    private set
-  var cacheGeneration: Int = -1
-    private set
-  var filterGeneration: Int = -1
     private set
   private var transitionStartedAtMs: Long = 0L
 
   fun reset(visibilityGeneration: Int) {
     this.visibilityGeneration = visibilityGeneration
-    reuseGeneration = -1
-    activeCount = 0
-    waitingCount = 0
-    layoutGeneration = -1
-    measureGeneration = -1
-    cacheGeneration = -1
-    filterGeneration = -1
     transitionStartedAtMs = 0L
     fixedCommandStartIndex = 0
     commands.clear()
     fixedCommands.clear()
   }
 
-  fun markReuseState(
-    reuseGeneration: Int,
-    activeCount: Int,
-    waitingCount: Int,
-    layoutGeneration: Int,
-    measureGeneration: Int,
-    cacheGeneration: Int,
-    filterGeneration: Int
-  ) {
-    this.reuseGeneration = reuseGeneration
-    this.activeCount = activeCount
-    this.waitingCount = waitingCount
-    this.layoutGeneration = layoutGeneration
-    this.measureGeneration = measureGeneration
-    this.cacheGeneration = cacheGeneration
-    this.filterGeneration = filterGeneration
-  }
-
   fun markFixedCommandStart(index: Int) {
     fixedCommandStartIndex = index.coerceIn(0, commands.size)
-  }
-
-  fun appendRollingCommands(newCommands: CommandBuffer) {
-    val count = newCommands.size
-    if (count == 0) return
-    commands.insertAll(fixedCommandStartIndex, newCommands)
-    fixedCommandStartIndex += count
-  }
-
-  fun appendFixedCommands(newCommands: CommandBuffer) {
-    commands.addAll(newCommands)
-  }
-
-  fun pruneRuntimeOutsideCommands(nowMs: Long, isRuntimeOutside: (DanmakuItem, Long) -> Boolean): Int {
-    val oldFixedCommandStart = fixedCommandStartIndex
-    var keptRolling = 0
-    var dropped = 0
-    commands.retainIndexed { index, item ->
-      val keep = !isRuntimeOutside(item, nowMs)
-      if (keep && index < oldFixedCommandStart) {
-        keptRolling++
-      } else if (!keep) {
-        dropped++
-      }
-      keep
-    }
-    fixedCommandStartIndex = keptRolling.coerceIn(0, commands.size)
-    return dropped
-  }
-
-  /**
-   * 移除 commands 中所有 danmakuId 命中 [ids] 的命令,返回移除条数。
-   *
-   * 用于 tryAppendPromotedCommands 追加前剔除残留的同 id 旧命令:
-   * seek/replace 后 stateById 被清空但 frame.commands 可能仍持有上一帧的旧命令,
-   * 若不剔除,promote 追加会在同一帧出现两条相同 danmakuId 的命令(用户看到的"两条相同弹幕分上下轨道")。
-   */
-  fun removeCommandsByDanmakuIds(ids: Set<Long>): Int {
-    if (ids.isEmpty() || commands.size == 0) return 0
-    val oldFixedCommandStart = fixedCommandStartIndex
-    var keptRolling = 0
-    var dropped = 0
-    commands.retainIndexed { index, item ->
-      val keep = item.data.danmakuId !in ids
-      if (keep && index < oldFixedCommandStart) {
-        keptRolling++
-      } else if (!keep) {
-        dropped++
-      }
-      keep
-    }
-    fixedCommandStartIndex = keptRolling.coerceIn(0, commands.size)
-    return dropped
   }
 
   fun markTransition(nowMs: Long) {

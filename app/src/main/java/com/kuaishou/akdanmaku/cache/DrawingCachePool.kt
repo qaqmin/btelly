@@ -78,55 +78,6 @@ class DrawingCachePool(private var maxMemorySize: Int) {
     }
   }
 
-  /**
-   * 批量释放池中多余的缓存，单次最多释放 [maxReleasePerDrain] 个。
-   * 适用于在播放过程中周期性回收不再需要的缓存。
-   */
-  fun drainExcess(maxReleasePerDrain: Int = DanmakuConfig.MAX_RELEASE_PER_DRAIN) {
-    synchronized(this) {
-      if (memorySize <= maxMemorySize / 2) return
-      val toRelease = caches
-        .sortedByDescending { it.size }
-        .take(maxReleasePerDrain)
-      toRelease.forEach { cache ->
-        caches.remove(cache)
-        val key = bucketKey(cache.width, cache.height)
-        bucketMap[key]?.remove(cache)
-        memorySize -= cache.size
-        cache.destroy()
-      }
-      Log.v(
-        "DrawingCache",
-        "[drainExcess] released ${toRelease.size} caches, " +
-          "remaining=${caches.size}, memorySize=$memorySize"
-      )
-    }
-  }
-
-  /**
-   * 根据屏幕分辨率和设备可用内存动态调整池的最大内存上限。
-   * 当新上限小于当前已用内存时，会自动释放多余的缓存。
-   */
-  fun adjustForDevice(screenWidth: Int, screenHeight: Int) {
-    val newSize = DanmakuConfig.computeCachePoolMaxMemorySize(screenWidth, screenHeight)
-    synchronized(this) {
-      maxMemorySize = newSize
-      while (memorySize > maxMemorySize && caches.isNotEmpty()) {
-        val cache = caches.first()
-        caches.remove(cache)
-        val key = bucketKey(cache.width, cache.height)
-        bucketMap[key]?.remove(cache)
-        memorySize -= cache.size
-        cache.destroy()
-      }
-    }
-    Log.v(
-      "DrawingCache",
-      "[adjustForDevice] screenSize=${screenWidth}x${screenHeight}, " +
-        "maxMemory=${maxMemorySize / (1024 * 1024)}MB"
-    )
-  }
-
   fun clear() {
     synchronized(this) {
       caches.forEach { it.destroy() }

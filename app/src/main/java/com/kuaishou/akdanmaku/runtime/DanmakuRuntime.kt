@@ -52,16 +52,10 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   private val activeStates = ArrayList<ActiveItemState>(256)
   private val waitingStates = ArrayList<ActiveItemState>(128)
   private val stateById = HashMap<Long, ActiveItemState>(512)
-  private val rejectedIncrementalStates = ArrayList<ActiveItemState>(8)
   private val measureCandidates = ArrayList<ActiveItemState>(128)
   private val measureQueue = ArrayDeque<MeasureQueueEntry>()
   private val measureEntryPool = ArrayList<MeasureQueueEntry>(256)
   private val statePool = ArrayList<ActiveItemState>(256)
-  private val incrementalActiveStates = ArrayList<ActiveItemState>(32)
-  private val incrementalCommandBuffer = CommandBuffer(32)
-  // 本次 promote 的弹幕 danmakuId 集合,append 前用于剔除 frame.commands 中的同 id 残留命令。
-  // seek/replace 后 stateById 被清空,promote 可能命中上一帧遗留的同 id 命令,导致同一弹幕双轨。
-  private val incrementalDanmakuIds = HashSet<Long>(32)
 
   private val trackLayout = DanmakuTrackLayout()
   private val framePool = RuntimeFramePool(MAX_RUNTIME_FRAME_POOL_SIZE)
@@ -81,15 +75,11 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   @Volatile private var lastDrawLockReleasedAt = 0L
   private var lastDrawStallLogAtMs = 0L
   private var lastZeroFrameLogAtMs = 0L
-  private var lastFrameDanmakuSummaryAtMs = 0L
-  private var lastDanmakuExpiryLogAtMs = 0L
   // 卡顿期 now 跳变检测:记录上一拍 now 和滚动平均的单帧间隔,
   // removeExpired 据此跳过滚动弹幕的 timeout 移除,避免还在屏幕中段的弹幕被误杀。
   private var lastUpdateTimeMs = 0L
   private var smoothedFrameDeltaMs = 16L
   private val timelineAnchor = DanmakuTimelineAnchor()
-  private var frameReuseGeneration = 0
-  private val frameReuseInvalidationCounts = IntArray(REUSE_INVALIDATE_REASON_COUNT)
 
   @Volatile
   private var frame: RuntimeFrame? = null
@@ -253,7 +243,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   fun updateItem(item: DanmakuItem) {
     sortedItems.remove(item)
     pendingAddItems.add(item)
-    invalidateFrameReuse(REUSE_INVALIDATE_UPDATE_ITEM)
   }
 
   @Synchronized
@@ -326,7 +315,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       activeStates.forEach { it.item.drawState.layoutGeneration = -1 }
       waitingStates.forEach { it.item.drawState.layoutGeneration = -1 }
       layoutGeneration = config.layoutGeneration
-      invalidateFrameReuse(REUSE_INVALIDATE_LAYOUT_GEN)
     }
     if (config.measureGeneration != measureGeneration) {
       activeStates.forEach { state ->
@@ -344,13 +332,11 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         enqueueMeasureState(state)
       }
       measureGeneration = config.measureGeneration
-      invalidateFrameReuse(REUSE_INVALIDATE_MEASURE_GEN)
     }
     if (config.cacheGeneration != cacheGeneration) {
       activeStates.forEach { it.item.cacheRecycle() }
       waitingStates.forEach { it.item.cacheRecycle() }
       cacheGeneration = config.cacheGeneration
-      invalidateFrameReuse(REUSE_INVALIDATE_CACHE_GEN)
     }
     visibilityGeneration = config.visibilityGeneration
     val generationMs = SystemClock.elapsedRealtime() - checkpoint
@@ -359,8 +345,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     val expiredItems = removeExpired(now, config, frameDeltaMs)
     val expireMs = SystemClock.elapsedRealtime() - checkpoint
     checkpoint = SystemClock.elapsedRealtime()
-    incrementalActiveStates.clear()
-    incrementalDanmakuIds.clear()
     val enqueuedActiveItems = enqueueDueItems(now, config)
     val enqueueMs = SystemClock.elapsedRealtime() - checkpoint
     checkpoint = SystemClock.elapsedRealtime()
@@ -370,46 +354,14 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     val scheduledMeasures = scheduleMeasureActiveItems(config)
     val measureMs = SystemClock.elapsedRealtime() - checkpoint
     checkpoint = SystemClock.elapsedRealtime()
-    var reuseMissReason = currentFrameReuseMissReason(
-      config = config,
-      promotedItems = promotedItems,
-      scheduledMeasures = scheduledMeasures
-    )
-    val measureOnlyReuse = reuseMissReason?.startsWith("scheduledMeasure:") == true &&
-      frame != null &&
-      transitionFrame == null &&
-      frameBaseReuseMissReason(frame!!, config, promotedItems = 0) == null
-    if (measureOnlyReuse) {
-      reuseMissReason = null
-    }
-    var canReuseFrame = reuseMissReason == null
-    val incrementalProfile = if (!canReuseFrame) {
-      tryAppendPromotedCommands(
-        now = now,
-        config = config,
-        promotedItems = promotedItems,
-        expiredItems = expiredItems,
-        scheduledMeasures = scheduledMeasures,
-        reuseMissReason = reuseMissReason
-      )
-    } else {
-      IncrementalFrameProfile.EMPTY
-    }
-    if (incrementalProfile.applied) {
-      reuseMissReason = null
-      canReuseFrame = true
-    }
-    val newFrame = if (canReuseFrame) null else layoutAndBuildFrame(now, config)
+    val newFrame = layoutAndBuildFrame(now, config)
     val layoutMs = SystemClock.elapsedRealtime() - checkpoint
     checkpoint = SystemClock.elapsedRealtime()
-    var replacedFrame = false
-    if (newFrame != null) {
-      if (shouldReplaceWithFrame(newFrame)) {
-        replaceFrame(newFrame)
-        replacedFrame = true
-      } else {
-        framePool.release(newFrame)
-      }
+    val replacedFrame = shouldReplaceWithFrame(newFrame)
+    if (replacedFrame) {
+      replaceFrame(newFrame)
+    } else {
+      framePool.release(newFrame)
     }
     val frameMs = SystemClock.elapsedRealtime() - checkpoint
     logFrameStallIfNeeded(
@@ -419,10 +371,8 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       enqueuedActiveItems = enqueuedActiveItems,
       promotedItems = promotedItems,
       scheduledMeasures = scheduledMeasures,
-      builtCommands = newFrame?.commands?.size ?: -1,
-      replacedFrame = replacedFrame,
-      reuseMissReason = reuseMissReason,
-      incrementalProfile = incrementalProfile
+      builtCommands = newFrame.commands.size,
+      replacedFrame = replacedFrame
     )
 
     val cost = SystemClock.elapsedRealtime() - startedAt
@@ -447,10 +397,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
           "measure=${measureMs}ms scheduled=$scheduledMeasures layout=${layoutMs}ms frame=${frameMs}ms " +
           "active=${activeStates.size} waiting=${waitingStates.size} draw=${frame?.commands?.size ?: 0} " +
           "built=${newFrame?.commands?.size ?: -1} replaced=${if (replacedFrame) 1 else 0} " +
-          "reuse=${if (canReuseFrame) 1 else 0} reuseMiss=${reuseMissReason ?: "none"} " +
-          "incr=${if (incrementalProfile.applied) 1 else 0} incrReason=${incrementalProfile.reason} " +
-          "incrItems=${incrementalProfile.items} incrCommands=${incrementalProfile.commands} " +
-          "incrDropped=${incrementalProfile.droppedItems} " +
           "releaseFrames=${releaseProfile.frames} releaseCaches=${releaseProfile.caches} " +
           "releasePost=${releaseProfile.postMs}ms releaseRef=${releaseProfile.refMs}ms releaseRecycle=${releaseProfile.recycleMs}ms"
       )
@@ -793,7 +739,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     measureQueue.clear()
     stateById.clear()
     clearTracks()
-    invalidateFrameReuse(REUSE_INVALIDATE_RESET)
     if (keepCurrentFrame) {
       promoteCurrentFrameToTransition()
     } else {
@@ -804,41 +749,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     frame = null
     releaseAllPendingFrames()
     return TimelineResetProfile(activeCount, waitingCount, hadFrame)
-  }
-
-  private fun currentFrameReuseMissReason(
-    config: DanmakuConfig,
-    promotedItems: Int,
-    scheduledMeasures: Int
-  ): String? {
-    val currentFrame = frame ?: return "noFrame"
-    if (transitionFrame != null) return "transition"
-    if (promotedItems != 0) return "promoted:$promotedItems"
-    if (scheduledMeasures != 0) return "scheduledMeasure:$scheduledMeasures"
-    if (currentFrame.visibilityGeneration != visibilityGeneration) {
-      return "visibility:${currentFrame.visibilityGeneration}->$visibilityGeneration"
-    }
-    if (currentFrame.reuseGeneration != frameReuseGeneration) {
-      return "reuseGen:${currentFrame.reuseGeneration}->$frameReuseGeneration:${frameReuseInvalidationSummary()}"
-    }
-    if (currentFrame.activeCount != activeStates.size &&
-      !canReuseWithExpiredCommands(currentFrame, promotedItems = 0)) {
-      return "active:${currentFrame.activeCount}->${activeStates.size}"
-    }
-    if (measureQueue.isNotEmpty()) return "measureQueue:${measureQueue.size}"
-    if (currentFrame.layoutGeneration != config.layoutGeneration) {
-      return "layoutGen:${currentFrame.layoutGeneration}->${config.layoutGeneration}"
-    }
-    if (currentFrame.measureGeneration != config.measureGeneration) {
-      return "measureGen:${currentFrame.measureGeneration}->${config.measureGeneration}"
-    }
-    if (currentFrame.cacheGeneration != config.cacheGeneration) {
-      return "cacheGen:${currentFrame.cacheGeneration}->${config.cacheGeneration}"
-    }
-    if (currentFrame.filterGeneration != config.filterGeneration) {
-      return "filterGen:${currentFrame.filterGeneration}->${config.filterGeneration}"
-    }
-    return null
   }
 
   private fun removeExpired(now: Long, config: DanmakuConfig, frameDeltaMs: Long): Int {
@@ -867,7 +777,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         iterator.remove()
         recycleState(state)
         expired++
-        logDanmakuExpiry(item, now)
       }
     }
     return expired
@@ -902,9 +811,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         enqueueMeasureState(state)
         if (item.timePosition <= now) {
           activeStates.add(state)
-          incrementalActiveStates.add(state)
           activeAdded++
-          invalidateFrameReuse(REUSE_INVALIDATE_ENQUEUE)
         } else {
           waitingStates.add(state)
         }
@@ -927,10 +834,8 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     repeat(promoteCount) {
       val state = waitingStates[it]
       activeStates.add(state)
-      incrementalActiveStates.add(state)
     }
     waitingStates.subList(0, promoteCount).clear()
-    invalidateFrameReuse(REUSE_INVALIDATE_PROMOTE)
     return promoteCount
   }
 
@@ -1004,229 +909,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   private fun entryAheadMs(config: DanmakuConfig): Long =
     max(PREPARE_AHEAD_MS, config.preCacheTimeMs)
 
-  private fun tryAppendPromotedCommands(
-    now: Long,
-    config: DanmakuConfig,
-    promotedItems: Int,
-    expiredItems: Int,
-    scheduledMeasures: Int,
-    reuseMissReason: String?
-  ): IncrementalFrameProfile {
-    val incrementalItems = incrementalActiveStates.size
-    if (incrementalItems <= 0) {
-      return IncrementalFrameProfile.notApplied("noPromoted")
-    }
-    if (incrementalItems > MAX_INCREMENTAL_PROMOTED_PER_FRAME) {
-      return IncrementalFrameProfile.notApplied("tooMany:$incrementalItems")
-    }
-    if (transitionFrame != null) {
-      return IncrementalFrameProfile.notApplied("transition")
-    }
-    val currentFrame = frame ?: return IncrementalFrameProfile.notApplied("noFrame")
-    if (reuseMissReason != "promoted:$promotedItems" &&
-      reuseMissReason?.startsWith("reuseGen:") != true) {
-      return IncrementalFrameProfile.notApplied(reuseMissReason ?: "reuse")
-    }
-    if (expiredItems > 0) {
-      currentFrame.pruneRuntimeOutsideCommands(now) { item, commandNow ->
-        item.isRuntimeOutside(commandNow)
-      }
-    }
-    val baseReuseMissReason = frameBaseReuseMissReason(currentFrame, config, incrementalItems)
-    if (baseReuseMissReason != null) {
-      return IncrementalFrameProfile.notApplied("baseChanged:$baseReuseMissReason")
-    }
-
-    incrementalCommandBuffer.clear()
-    val incrementalFixedCommandBuffer = currentFrame.fixedCommands
-    incrementalFixedCommandBuffer.clear()
-    val displayer = context.displayer
-    val width = displayer.width
-    val height = displayer.height
-    val margin = displayer.margin
-    val cacheGeneration = config.cacheGeneration
-    var appended = 0
-    var fixedAppended = 0
-    var cacheRequested = 0
-    var cacheBudget = MAX_INCREMENTAL_CACHE_REQUESTS_PER_FRAME
-    var dropped = 0
-    val fixedCommandBudget = fixedCommandBudgetForCurrentLoad()
-    rejectedIncrementalStates.clear()
-    for (state in incrementalActiveStates) {
-      val item = state.item
-      if (item.isRuntimeOutside(now)) {
-        incrementalCommandBuffer.clear()
-        incrementalFixedCommandBuffer.clear()
-        rejectedIncrementalStates.clear()
-        return IncrementalFrameProfile.notApplied("outside")
-      }
-      val drawState = item.drawState
-      if (item.state < ItemState.Measured || !drawState.isMeasured(config.measureGeneration)) {
-        enqueueMeasureState(state)
-        incrementalCommandBuffer.clear()
-        incrementalFixedCommandBuffer.clear()
-        rejectedIncrementalStates.clear()
-        return IncrementalFrameProfile.notApplied("unmeasured")
-      }
-      state.awaitingMeasure = false
-      if (isDataFiltered(item, config)) {
-        continue
-      }
-      val visible = if (drawState.layoutGeneration == config.layoutGeneration) {
-        trackLayout.updateExisting(item, width, height, config) ||
-          trackLayout.layout(item, now, width, height, margin, config)
-      } else {
-        trackLayout.layout(item, now, width, height, margin, config)
-      }
-      if (!visible) {
-        if (DanmakuRejectionPolicy.shouldDropRejectedItem(item)) {
-          rejectedIncrementalStates.add(state)
-          dropped++
-          continue
-        }
-        incrementalCommandBuffer.clear()
-        incrementalFixedCommandBuffer.clear()
-        rejectedIncrementalStates.clear()
-        return IncrementalFrameProfile.notApplied("trackRejectedHolding")
-      }
-      if (cacheBudget > 0 &&
-        requestCacheBuildIfNeeded(item, config, state.cachePriority(now, entryAheadMs(config)))) {
-        cacheBudget--
-        cacheRequested++
-      }
-      if (item.state >= ItemState.Rendered && drawState.cacheGeneration != cacheGeneration) {
-        item.cacheRecycle()
-      }
-      val cache = drawState.drawingCache
-      if (cache != DrawingCache.EMPTY_DRAWING_CACHE) {
-        currentFrame.retainCache(cache)
-      }
-      val mode = item.data.mode
-      val fixedMode = mode == DanmakuItemData.DANMAKU_MODE_CENTER_TOP ||
-        mode == DanmakuItemData.DANMAKU_MODE_CENTER_BOTTOM
-      val left = if (fixedMode) {
-        drawState.positionX
-      } else {
-        rollingLeft(item, now, width, config.rollingDurationMs)
-      }
-      val top = drawState.positionY
-      val targetBuffer = if (fixedMode) incrementalFixedCommandBuffer else incrementalCommandBuffer
-      if (fixedMode && fixedAppended >= fixedCommandBudget) {
-        if (DanmakuRejectionPolicy.shouldDropRejectedItem(item)) {
-          rejectedIncrementalStates.add(state)
-        } else {
-          incrementalCommandBuffer.clear()
-          incrementalFixedCommandBuffer.clear()
-          rejectedIncrementalStates.clear()
-          return IncrementalFrameProfile.notApplied("fixedBudgetHolding")
-        }
-        dropped++
-        continue
-      }
-      targetBuffer.add(
-          item = item,
-          cache = cache,
-          cacheGeneration = drawState.cacheGeneration,
-          left = left,
-          top = top,
-          right = left + drawState.width,
-          bottom = top + drawState.height
-        )
-      if (fixedMode) {
-        fixedAppended++
-      } else {
-        appended++
-      }
-    }
-    dropRejectedIncrementalStates()
-    if (appended == 0 && fixedAppended == 0) {
-      markFrameReuseState(currentFrame, config)
-      clearFrameReuseInvalidationReason()
-      return IncrementalFrameProfile(
-        applied = true,
-        reason = if (dropped > 0) "promotedDropped" else "filtered",
-        items = incrementalItems,
-        commands = 0,
-        droppedItems = dropped
-      )
-    }
-    // 追加前剔除 frame.commands 中与本次 promote 同 id 的残留命令。
-    // seek/replace 会清空 stateById 但 frame.commands 可能仍持有上一帧的同 id 命令,
-    // 若不剔除,promote 追加后同一弹幕会在一帧里出现两条 command(用户看到的"两条相同弹幕分上下轨道同时前进")。
-    if (currentFrame.commands.size > 0) {
-      incrementalDanmakuIds.clear()
-      for (state in incrementalActiveStates) {
-        incrementalDanmakuIds.add(state.item.data.danmakuId)
-      }
-      val removedDuplicates = currentFrame.removeCommandsByDanmakuIds(incrementalDanmakuIds)
-      incrementalDanmakuIds.clear()
-      if (removedDuplicates > 0) {
-        invalidateFrameReuse(REUSE_INVALIDATE_DROP_REJECTED)
-        // 输出被重复 promote 的弹幕详情,定位为何会被重新 promote(timeout 后未清 sortedItems? seek 重置 scanIndex?)
-        val detail = StringBuilder()
-        var detailCount = 0
-        for (state in incrementalActiveStates) {
-          if (detailCount >= 4) break
-          val it = state.item
-          if (detail.isNotEmpty()) detail.append(" | ")
-          detail.append("id=${it.data.danmakuId} pos=${it.data.position} mode=${it.data.mode} ")
-          detail.append("top=${it.drawState.positionY.toInt()} rollingStart=${it.rollingStartTimeMs} ")
-          detail.append("\"${it.data.content.take(10)}\"")
-          detailCount++
-        }
-        Log.w(
-          DanmakuEngine.TAG,
-          "[Runtime] duplicate command dedup removed=$removedDuplicates " +
-            "appending=$appended fixedAppending=$fixedAppended active=${activeStates.size} " +
-            "commands=${currentFrame.commands.size} now=${now}ms " +
-            "promoteDetail=$detail"
-        )
-      }
-    }
-    currentFrame.appendRollingCommands(incrementalCommandBuffer)
-    currentFrame.appendFixedCommands(incrementalFixedCommandBuffer)
-    incrementalCommandBuffer.clear()
-    incrementalFixedCommandBuffer.clear()
-    markFrameReuseState(currentFrame, config)
-    clearFrameReuseInvalidationReason()
-    return IncrementalFrameProfile(
-      applied = true,
-      reason = if (dropped > 0) "promotedDropped" else "promoted",
-      items = incrementalItems,
-      commands = appended + fixedAppended,
-      cacheRequests = cacheRequested,
-      droppedItems = dropped
-    )
-  }
-
-  private fun frameBaseReuseMissReason(
-    currentFrame: RuntimeFrame,
-    config: DanmakuConfig,
-    promotedItems: Int
-  ): String? {
-    if (currentFrame.visibilityGeneration != visibilityGeneration) {
-      return "visibility:${currentFrame.visibilityGeneration}->$visibilityGeneration"
-    }
-    if (!canReuseWithExpiredCommands(currentFrame, promotedItems)) {
-      return "active:${currentFrame.activeCount}+${promotedItems}->${activeStates.size}"
-    }
-    if (currentFrame.layoutGeneration != config.layoutGeneration) {
-      return "layoutGen:${currentFrame.layoutGeneration}->${config.layoutGeneration}"
-    }
-    if (currentFrame.measureGeneration != config.measureGeneration) {
-      return "measureGen:${currentFrame.measureGeneration}->${config.measureGeneration}"
-    }
-    if (currentFrame.cacheGeneration != config.cacheGeneration) {
-      return "cacheGen:${currentFrame.cacheGeneration}->${config.cacheGeneration}"
-    }
-    if (currentFrame.filterGeneration != config.filterGeneration) {
-      return "filterGen:${currentFrame.filterGeneration}->${config.filterGeneration}"
-    }
-    if (!isOnlyIncrementalActiveInvalidation()) {
-      return "reuseInvalid:${frameReuseInvalidationSummary()}"
-    }
-    return null
-  }
 
   private fun layoutAndBuildFrame(now: Long, config: DanmakuConfig): RuntimeFrame {
     val displayer = context.displayer
@@ -1319,7 +1001,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
           stateById.remove(item.data.danmakuId)
           activeStates.removeAt(activeIndex)
           dropActiveState(state)
-          invalidateFrameReuse(REUSE_INVALIDATE_DROP_REJECTED)
           removedState = true
         }
         if (!removedState) activeIndex++
@@ -1363,7 +1044,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
             stateById.remove(item.data.danmakuId)
             activeStates.removeAt(activeIndex)
             dropActiveState(state)
-            invalidateFrameReuse(REUSE_INVALIDATE_DROP_REJECTED)
             removedState = true
           }
           if (!removedState) activeIndex++
@@ -1383,10 +1063,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     newFrame.commands.addAll(newFrame.fixedCommands)
     newFrame.fixedCommands.clear()
     if (profileDetails) fixedMergeMs = SystemClock.elapsedRealtime() - fixedMergeStartedAt
-    logBuiltFrameDanmakuSummary(newFrame, now)
     val cost = SystemClock.elapsedRealtime() - startedAt
-    markFrameReuseState(newFrame, config)
-    clearFrameReuseInvalidationReason()
     if (cost >= LAYOUT_OVERLOAD_MS) {
       val topSummary = summarizeCommandTops(newFrame.commands, newFrame.fixedCommandStartIndex)
       Log.w(
@@ -1522,9 +1199,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     promotedItems: Int,
     scheduledMeasures: Int,
     builtCommands: Int,
-    replacedFrame: Boolean,
-    reuseMissReason: String?,
-    incrementalProfile: IncrementalFrameProfile
+    replacedFrame: Boolean
   ) {
     val commandCount = frame?.commands?.size ?: 0
     if (commandCount > 0) return
@@ -1556,9 +1231,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         "synced=$syncedItems enqActive=$enqueuedActiveItems promoted=$promotedItems " +
         "scheduledMeasure=$scheduledMeasures measureQueue=${measureQueue.size} " +
         "stateU=$uninitialized stateM=$measuring stateReady=$measuredOrAbove stateErr=$error " +
-        "reuseMiss=${reuseMissReason ?: "none"} incr=${if (incrementalProfile.applied) 1 else 0} " +
-        "incrReason=${incrementalProfile.reason} incrItems=${incrementalProfile.items} " +
-        "incrCommands=${incrementalProfile.commands} " +
         "visible=${config.visibility} size=${displayer.width}x${displayer.height} screenPart=${config.screenPart}"
     )
   }
@@ -1687,85 +1359,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     return "topDist unique=${counts.size} maxSame=$maxSameTop rolling=$rollingCount fixed=$fixedCount sample=$sample"
   }
 
-  /**
-   * 诊断日志:输出全量重建帧里每条 command 的 danmakuId/content/轨道/Y坐标。
-   * 同时检测两类重复:
-   *  1. 同 danmakuId 出现多次(引擎层 frame 残留重复)——本修复目标
-   *  2. 不同 danmakuId 但同内容同轨道(B 站原始数据就有多条,需上层 DanmakuDuplicateMergePolicy 合并)
-   * 限频 FRAME_DANMAKU_SUMMARY_INTERVAL_MS 避免刷屏。
-   */
-  private fun logBuiltFrameDanmakuSummary(frame: RuntimeFrame, nowMs: Long) {
-    val commandCount = frame.commands.size
-    if (commandCount <= 0) return
-    val elapsed = SystemClock.elapsedRealtime()
-    if (elapsed - lastFrameDanmakuSummaryAtMs < FRAME_DANMAKU_SUMMARY_INTERVAL_MS) return
-    lastFrameDanmakuSummaryAtMs = elapsed
-    val fixedStart = frame.fixedCommandStartIndex
-    val idCounts = HashMap<Long, Int>(commandCount)
-    // key = (content, top轨道) 用于发现"同内容同轨道不同 id"的多条
-    val contentTrackCounts = HashMap<String, Int>(commandCount)
-    val detail = StringBuilder()
-    val detailLimit = 12
-    for (index in 0 until commandCount) {
-      val item = frame.commands.itemAt(index)
-      val data = item.data
-      val id = data.danmakuId
-      idCounts[id] = (idCounts[id] ?: 0) + 1
-      val isFixed = index >= fixedStart
-      val trackKey = (if (isFixed) "fixed" else "roll") + "|" + frame.commands.topAt(index).toInt()
-      val contentTrackKey = data.content + "|" + trackKey
-      contentTrackCounts[contentTrackKey] = (contentTrackCounts[contentTrackKey] ?: 0) + 1
-      if (index < detailLimit) {
-        if (detail.isNotEmpty()) detail.append(" | ")
-        detail.append("[")
-        detail.append(if (isFixed) "F" else "R")
-        detail.append(" id=")
-        detail.append(id)
-        detail.append(" top=")
-        detail.append(frame.commands.topAt(index).toInt())
-        detail.append(" pos=")
-        detail.append(data.position)
-        detail.append(" \"")
-        detail.append(data.content.take(12))
-        detail.append("\"]")
-      }
-    }
-    val dupIdCount = idCounts.count { it.value > 1 }
-    val maxDupId = idCounts.maxOfOrNull { it.value } ?: 1
-    val dupContentTrackCount = contentTrackCounts.count { it.value > 1 }
-    val maxDupContentTrack = contentTrackCounts.maxOfOrNull { it.value } ?: 1
-    // 有任何重复就打 W,否则低频打 I 便于对照屏幕。
-    val hasDup = dupIdCount > 0 || dupContentTrackCount > 0
-    val level = if (hasDup) 'W' else 'I'
-    val msg = "[Frame] danmaku summary now=${nowMs}ms count=$commandCount " +
-      "dupId=$dupIdCount maxDupId=$maxDupId " +
-      "dupContentTrack=$dupContentTrackCount maxDupContentTrack=$maxDupContentTrack " +
-      "detail=$detail"
-    if (hasDup) {
-      Log.w(DanmakuEngine.TAG, msg)
-    } else {
-      Log.i(DanmakuEngine.TAG, msg)
-    }
-  }
-
-  /**
-   * 诊断日志:记录滚动弹幕因 timeout 被 removeExpired 移除。
-   * 用于对照"被移除的弹幕"与"随后被重新 promote 的弹幕"是否同一条——
-   * 若是,说明 sortedItems 在移除后仍被 scanIndex 回扫重新 enqueue(根因待定)。
-   */
-  private fun logDanmakuExpiry(item: DanmakuItem, nowMs: Long) {
-    val elapsed = SystemClock.elapsedRealtime()
-    if (elapsed - lastDanmakuExpiryLogAtMs < DANMAKU_EXPIRY_LOG_INTERVAL_MS) return
-    lastDanmakuExpiryLogAtMs = elapsed
-    Log.i(
-      DanmakuEngine.TAG,
-      "[Runtime] danmaku expired removed now=${nowMs}ms id=${item.data.danmakuId} " +
-        "pos=${item.data.position} mode=${item.data.mode} " +
-        "rollingStart=${item.rollingStartTimeMs} duration=${item.duration} " +
-        "\"${item.data.content.take(12)}\""
-    )
-  }
-
   private fun dispatchShown(item: DanmakuItem, config: DanmakuConfig) {
     val target = listener ?: return
     if (item.shownGeneration == config.firstShownGeneration) return
@@ -1871,22 +1464,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     val hadFrame: Boolean
   )
 
-  private class IncrementalFrameProfile(
-    val applied: Boolean,
-    val reason: String,
-    val items: Int,
-    val commands: Int,
-    val cacheRequests: Int = 0,
-    val droppedItems: Int = 0
-  ) {
-    companion object {
-      val EMPTY = IncrementalFrameProfile(false, "none", 0, 0)
-
-      fun notApplied(reason: String): IncrementalFrameProfile =
-        IncrementalFrameProfile(false, reason, 0, 0)
-    }
-  }
-
   private fun acquireState(item: DanmakuItem): ActiveItemState =
     statePool.removeLastOrNull()?.also { it.reset(item) } ?: ActiveItemState(item)
 
@@ -1895,17 +1472,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     if (statePool.size < MAX_ACTIVE_STATE_POOL_SIZE) {
       statePool.add(state)
     }
-  }
-
-  private fun dropRejectedIncrementalStates() {
-    if (rejectedIncrementalStates.isEmpty()) return
-    for (state in rejectedIncrementalStates) {
-      activeStates.remove(state)
-      stateById.remove(state.item.data.danmakuId)
-      dropActiveState(state)
-    }
-    rejectedIncrementalStates.clear()
-    invalidateFrameReuse(REUSE_INVALIDATE_DROP_REJECTED)
   }
 
   private fun dropActiveState(state: ActiveItemState) {
@@ -1938,62 +1504,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
 
   private fun removeFromTracks(item: DanmakuItem) {
     trackLayout.remove(item)
-  }
-
-  private fun invalidateFrameReuse(reasonIndex: Int) {
-    frameReuseGeneration++
-    if (reasonIndex in frameReuseInvalidationCounts.indices) {
-      frameReuseInvalidationCounts[reasonIndex]++
-    }
-  }
-
-  private fun frameReuseInvalidationSummary(): String {
-    val builder = StringBuilder()
-    for (index in frameReuseInvalidationCounts.indices) {
-      val count = frameReuseInvalidationCounts[index]
-      if (count == 0) continue
-      if (builder.isNotEmpty()) builder.append('+')
-      builder.append(REUSE_INVALIDATE_REASON_NAMES[index])
-      if (count > 1) {
-        builder.append('*').append(count)
-      }
-    }
-    return if (builder.isEmpty()) "unknown" else builder.toString()
-  }
-
-  private fun clearFrameReuseInvalidationReason() {
-    frameReuseInvalidationCounts.fill(0)
-  }
-
-  private fun isOnlyIncrementalActiveInvalidation(): Boolean {
-    for (index in frameReuseInvalidationCounts.indices) {
-      val count = frameReuseInvalidationCounts[index]
-      if (index == REUSE_INVALIDATE_PROMOTE || index == REUSE_INVALIDATE_ENQUEUE) {
-        if (count < 0) return false
-      } else if (count != 0) {
-        return false
-      }
-    }
-    return true
-  }
-
-  private fun markFrameReuseState(frame: RuntimeFrame, config: DanmakuConfig) {
-    frame.markReuseState(
-      reuseGeneration = frameReuseGeneration,
-      activeCount = activeStates.size,
-      waitingCount = waitingStates.size,
-      layoutGeneration = config.layoutGeneration,
-      measureGeneration = config.measureGeneration,
-      cacheGeneration = config.cacheGeneration,
-      filterGeneration = config.filterGeneration
-    )
-  }
-
-  private fun canReuseWithExpiredCommands(currentFrame: RuntimeFrame, promotedItems: Int): Boolean {
-    val expectedActiveUpperBound = currentFrame.activeCount + promotedItems
-    if (activeStates.size > expectedActiveUpperBound) return false
-    val staleCommands = currentFrame.commands.size + promotedItems - activeStates.size
-    return staleCommands <= MAX_STALE_COMMANDS_BEFORE_REBUILD
   }
 
   private fun DanmakuItem.isRuntimeTimeout(now: Long): Boolean {
@@ -2069,9 +1579,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     private const val PREPARE_AHEAD_MS = 300L
     private const val MAX_MEASURE_PER_FRAME = 12
     private const val MAX_CACHE_REQUESTS_PER_FRAME = 8
-    private const val MAX_INCREMENTAL_CACHE_REQUESTS_PER_FRAME = 4
     private const val MAX_PRIME_CACHE_BUILDS = 24
-    private const val MAX_INCREMENTAL_PROMOTED_PER_FRAME = 16
     private const val MAX_FALLBACK_DRAWS_PER_FRAME = 2
     private const val MAX_FIXED_FALLBACK_DRAWS_PER_FRAME = 1
     private const val MAX_FALLBACK_CACHE_BOOSTS_PER_FRAME = 4
@@ -2090,39 +1598,13 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     private const val MAX_MEASURE_QUEUE_SCAN_PER_FRAME = 24
     private const val MAX_MEASURE_CANDIDATES_PER_FRAME = 12
     private const val MAX_MEASURE_CACHE_HITS_PER_FRAME = 4
-    private const val MAX_STALE_COMMANDS_BEFORE_REBUILD = 32
     private const val FRAME_CACHE_RELEASE_DELAY_MS = 48L
     private const val FRAME_STALL_LOG_INTERVAL_MS = 1_000L
     private const val DRAW_STALL_LOG_INTERVAL_MS = 1_000L
-    private const val FRAME_DANMAKU_SUMMARY_INTERVAL_MS = 2_000L
-    private const val DANMAKU_EXPIRY_LOG_INTERVAL_MS = 1_000L
     private const val MIN_ENQUEUE_PER_FRAME = 4
     private const val MAX_ENQUEUE_PER_FRAME = 32
     private const val ENQUEUE_BUDGET_MS = 2L
     private const val CACHE_PRIORITY_VISIBLE = 0
-    private const val REUSE_INVALIDATE_ADD_ITEMS = 0
-    private const val REUSE_INVALIDATE_ADD_ITEM = 1
-    private const val REUSE_INVALIDATE_UPDATE_ITEM = 2
-    private const val REUSE_INVALIDATE_LAYOUT_GEN = 3
-    private const val REUSE_INVALIDATE_MEASURE_GEN = 4
-    private const val REUSE_INVALIDATE_CACHE_GEN = 5
-    private const val REUSE_INVALIDATE_RESET = 6
-    private const val REUSE_INVALIDATE_ENQUEUE = 7
-    private const val REUSE_INVALIDATE_PROMOTE = 8
-    private const val REUSE_INVALIDATE_DROP_REJECTED = 9
-    private val REUSE_INVALIDATE_REASON_NAMES = arrayOf(
-      "addItems",
-      "addItem",
-      "updateItem",
-      "layoutGen",
-      "measureGen",
-      "cacheGen",
-      "reset",
-      "enqueue",
-      "promote",
-      "dropRejected"
-    )
-    private val REUSE_INVALIDATE_REASON_COUNT = REUSE_INVALIDATE_REASON_NAMES.size
     private val EMPTY_ACTIVE_STATE = ActiveItemState(DanmakuItem.DANMAKU_ITEM_EMPTY)
   }
 }
