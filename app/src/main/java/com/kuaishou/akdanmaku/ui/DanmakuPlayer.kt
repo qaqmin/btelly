@@ -484,9 +484,6 @@ class DanmakuPlayer(renderer: DanmakuRenderer, dataSource: DataSource? = null) {
     return engine.runtime.getDanmakus(hitRect)
   }
 
-  fun hold(item: DanmakuItem?) {
-    engine.runtime.hold(item)
-  }
 
   fun obtainItem(danmaku: DanmakuItemData): DanmakuItem =
     ObjectPool.obtainItem(danmaku, this)

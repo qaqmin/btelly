@@ -98,7 +98,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   @Volatile
   private var transitionFrame: RuntimeFrame? = null
   private val pendingReleaseFrames = ArrayList<RuntimeFrame>(3)
-  private var holdingItem: DanmakuItem? = null
 
   fun warmUp() {
     context.cacheManager.warmUp()
@@ -279,7 +278,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     measureQueue.clear()
     stateById.clear()
     timelineAnchor.clear()
-    holdingItem = null
     loadShedLevel = 0
     clearTracks()
     releaseFrame(frame)
@@ -294,14 +292,6 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     val config = context.config
     resetRuntimeWindow(positionMs, config, keepCurrentFrame = true)
     timelineAnchor.syncTo(positionMs)
-  }
-
-  @Synchronized
-  fun hold(item: DanmakuItem?) {
-    if (item == holdingItem) return
-    holdingItem?.unhold()
-    holdingItem = item
-    item?.hold()
   }
 
   fun update() {
@@ -884,7 +874,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         // 滚动弹幕在卡顿跳变帧保留,下一拍再判
         continue
       }
-      if (!item.isHolding && item.isRuntimeTimeout(now)) {
+      if (item.isRuntimeTimeout(now)) {
         stateById.remove(item.data.danmakuId)
         removeFromTracks(item)
         item.cacheRecycle()

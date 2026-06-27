@@ -235,7 +235,7 @@ internal class RollingTrackAllocator {
     }
 
     fun isTimeout(nowMs: Long, durationMs: Long, startTimeMs: Long = this.startTimeMs): Boolean =
-      !item.isHolding && RollingDanmakuTiming.isTimeout(nowMs, startTimeMs, durationMs)
+      RollingDanmakuTiming.isTimeout(nowMs, startTimeMs, durationMs)
 
     fun willCollideWith(
       nextStartTime: Long,
@@ -422,6 +422,6 @@ internal class FixedTrackAllocator(private val fromBottom: Boolean) {
     val expireTimeMs: Long
   ) {
     fun isTimeout(nowMs: Long): Boolean =
-      !item.isHolding && (item.isTimeout(nowMs) || nowMs > expireTimeMs)
+      item.isTimeout(nowMs) || nowMs > expireTimeMs
   }
 }
