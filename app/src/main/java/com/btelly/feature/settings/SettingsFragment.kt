@@ -1294,13 +1294,13 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
     }
 
     private fun toggleDanmakuEngine() {
-        val setting = dmSettings.getOrNull(14) ?: return
+        val setting = dmSettings.getOrNull(13) ?: return
         showChoiceDialog(
             title = setting.title,
             currentValue = setting.info,
             options = arrayOf("功能优先", "性能优先")
         ) { value ->
-            updateSetting(dmSettings, 14, value)
+            updateSetting(dmSettings, 13, value)
             // 存"开/关"格式与其它 toggle 一致；性能优先=开，功能优先=关
             val lite = value == "性能优先"
             appSettings.putStringAsync(KEY_DANMAKU_LITE_ENGINE, if (lite) "开" else "关")
