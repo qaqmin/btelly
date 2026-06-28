@@ -190,8 +190,9 @@ class DanmakuPlayer(renderer: DanmakuRenderer) {
     engine.act()
     val actMs = SystemClock.elapsedRealtime() - actStartedAtMs
     // Post invalidate view to force onDraw's call on next frame.
+    // 局部 invalidate：只刷新弹幕实际占的竖向条带，避免全屏重绘（借鉴 lite 引擎）。
     startTrace("postInvalidate")
-    danmakuView?.postInvalidateOnAnimation()
+    danmakuView?.invalidateDanmakuAreaOnAnimation(engine.context.config.screenPart)
     endTrace()
     endTrace()
     val totalMs = SystemClock.elapsedRealtime() - frameStartedAtMs

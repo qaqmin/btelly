@@ -142,7 +142,8 @@ internal class DanmakuPlaybackController(
     private val danmakuLoadingSegments = linkedSetOf<Int>()
     private val danmakuPublishedSegments = linkedSetOf<Int>()
     private val danmakuPublishPendingSegments = linkedSetOf<Int>()
-    private val publishedRegularDanmakuKeys = HashSet<String>()
+    // replace 时整体替换（主线程 O(1) 引用赋值，避免万级 HashSet addAll 卡帧）。
+    private var publishedRegularDanmakuKeys = HashSet<String>()
     // 弹幕发布专用单线程后台 dispatcher：保证多次发布的计算/emit 顺序（replace 先于 append），
     // 同时把去重、排序、identityKey 预算移出主线程（P1：init 发布 3000 条曾主线程耗时 37ms）。
     private val danmakuPublishDispatcher = Dispatchers.Default.limitedParallelism(1)
@@ -825,12 +826,15 @@ internal class DanmakuPlaybackController(
     }
 
     private fun publishDanmaku(items: List<DmModel>, replace: Boolean) {
-        val startedAtMs = SystemClock.elapsedRealtime()
         scope.launch(danmakuPublishDispatcher) {
             // 后台单线程：去重 + 排序 + 预算 identityKey（P1 主线程开销大头，3000 条曾耗时 37ms）。
             val normalizedItems = items.distinctRegularDanmaku()
             val normalizedKeys = normalizedItems.map { it.danmakuIdentityKey() }
+            // replace 路径：后台构建好完整 HashSet，主线程整体替换（O(1) 引用赋值），
+            // 避免万级 addAll 卡主线程。
+            val replaceKeys = if (replace) HashSet(normalizedKeys) else null
             withContext(Dispatchers.Main.immediate) {
+                val mainStartedAtMs = SystemClock.elapsedRealtime()
                 if (replace && normalizedItems.isNotEmpty() && firstDanmakuTraceLoggedId != context.startupTraceId) {
                     firstDanmakuTraceLoggedId = context.startupTraceId
                     PlaybackStartupTrace.log(
@@ -841,8 +845,7 @@ internal class DanmakuPlaybackController(
                     )
                 }
                 val emittedItems = if (replace) {
-                    publishedRegularDanmakuKeys.clear()
-                    publishedRegularDanmakuKeys.addAll(normalizedKeys)
+                    publishedRegularDanmakuKeys = replaceKeys!!
                     normalizedItems
                 } else {
                     normalizedItems.filterIndexed { i, _ -> publishedRegularDanmakuKeys.add(normalizedKeys[i]) }
@@ -871,7 +874,7 @@ internal class DanmakuPlaybackController(
                     normalizedCount = normalizedItems.size,
                     emittedCount = emittedItems.size,
                     totalPublishedKeys = publishedRegularDanmakuKeys.size,
-                    startedAtMs = startedAtMs
+                    startedAtMs = mainStartedAtMs
                 )
                 if (!replace && emittedItems.isEmpty()) {
                     return@withContext
@@ -1068,10 +1071,11 @@ internal class DanmakuPlaybackController(
         // 使自然播放/seek 到达边界前数据已就绪，避免越过 coveredUntil 后断档空窗。
         if (positionMs + DANMAKU_SEEK_RANGE_AHEAD_MS <= coveredUntil) return
         // 跨到尚未发布的分段：走标准分段加载通道，保证分段状态机（loaded/published）一致。
+        // seek 跨段时用 replace 清除旧段弹幕，避免旧弹幕堆积导致 active 虚高。
         if (targetSegment != currentDanmakuSegmentIndex &&
             !danmakuPublishedSegments.contains(targetSegment)
         ) {
-            loadDanmakuSegmentIfNeeded(targetSegment, publishWhenReady = true)
+            loadDanmakuSegmentIfNeeded(targetSegment, publishWhenReady = true, replace = true)
             return
         }
         // 当前分段（含 segment 1 的 partial 尾部）补全：从已覆盖处续加载。
@@ -1129,7 +1133,7 @@ internal class DanmakuPlaybackController(
     /**
      * 按需加载指定弹幕片段（如果尚未加载）
      */
-    private fun loadDanmakuSegmentIfNeeded(segmentIndex: Int, publishWhenReady: Boolean) {
+    private fun loadDanmakuSegmentIfNeeded(segmentIndex: Int, publishWhenReady: Boolean, replace: Boolean = false) {
         if (danmakuLoadedSegments.contains(segmentIndex)) {
             if (publishWhenReady && !danmakuPublishedSegments.contains(segmentIndex)) {
                 danmakuSegmentPayloads[segmentIndex]?.let { cachedPayload ->
@@ -1139,7 +1143,7 @@ internal class DanmakuPlaybackController(
                         step = "danmaku_segment_republish",
                         message = "cid=${context.currentCid} segment=$segmentIndex regular=${cachedPayload.regularItems.size}"
                     )
-                    publishDanmakuSegmentPayload(segmentIndex, cachedPayload)
+                    publishDanmakuSegmentPayload(segmentIndex, cachedPayload, replace = replace)
                 }
             }
             return
@@ -1162,7 +1166,7 @@ internal class DanmakuPlaybackController(
                 message = "cid=$cid segment=$segmentIndex publish=$publishWhenReady regular=${cachedPayload.regularItems.size}"
             )
             if (publishWhenReady) {
-                publishDanmakuSegmentPayload(segmentIndex, cachedPayload)
+                publishDanmakuSegmentPayload(segmentIndex, cachedPayload, replace = replace)
             }
             return
         }
@@ -1238,13 +1242,13 @@ internal class DanmakuPlaybackController(
                     message = "cid=$cid segment=$segmentIndex publish=$shouldPublish regular=${payload.regularItems.size}"
                 )
                 if (shouldPublish) {
-                    publishDanmakuSegmentPayload(segmentIndex, payload)
+                    publishDanmakuSegmentPayload(segmentIndex, payload, replace = replace)
                 }
             }
         }
     }
 
-    private fun publishDanmakuSegmentPayload(segmentIndex: Int, payload: SpecialDanmakuPayload) {
+    private fun publishDanmakuSegmentPayload(segmentIndex: Int, payload: SpecialDanmakuPayload, replace: Boolean) {
         if (danmakuPublishedSegments.contains(segmentIndex)) {
             return
         }
@@ -1252,11 +1256,11 @@ internal class DanmakuPlaybackController(
             traceId = context.startupTraceId,
             startElapsedMs = context.startupTraceStartElapsedMs,
             step = "danmaku_segment_published",
-            message = "segment=$segmentIndex regular=${payload.regularItems.size}"
+            message = "segment=$segmentIndex regular=${payload.regularItems.size} replace=$replace"
         )
         danmakuPublishedSegments.add(segmentIndex)
         if (payload.regularItems.isNotEmpty()) {
-            publishDanmaku(payload.regularItems, replace = false)
+            publishDanmaku(payload.regularItems, replace = replace)
         }
     }
 }

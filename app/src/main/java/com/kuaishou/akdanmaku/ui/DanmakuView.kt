@@ -98,6 +98,22 @@ class DanmakuView @JvmOverloads constructor(
     danmakuPlayer?.notifyDisplayerSizeChanged(right - left, bottom - top)
   }
 
+  /**
+   * 局部 invalidate：只刷新弹幕实际占的竖向条带（top 到 height×screenPart），
+   * 避免每帧全屏重绘（大屏 TV 上 GPU 带宽/功耗浪费）。借鉴 lite 引擎做法。
+   * [screenPart] 弹幕显示区域比例（0~1），=1 时退化为全屏 invalidate。
+   */
+  fun invalidateDanmakuAreaOnAnimation(screenPart: Float) {
+    val w = measuredWidth
+    val h = measuredHeight
+    if (w <= 0 || h <= 0 || screenPart >= 1f) {
+      postInvalidateOnAnimation()
+      return
+    }
+    val bottom = (h * screenPart.coerceIn(0f, 1f)).toInt().coerceIn(1, h)
+    postInvalidateOnAnimation(0, 0, w, bottom)
+  }
+
   class ViewDisplayer : DanmakuDisplayer {
     override var height: Int = 0
     override var width: Int = 0

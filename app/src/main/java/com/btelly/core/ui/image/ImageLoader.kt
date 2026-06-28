@@ -236,6 +236,9 @@ object ImageLoader {
                     onFailed()
                 }
             } catch (t: Throwable) {
+                // 协程正常取消（滑动 seek 时丢弃旧请求）不是失败，不打日志、不回调。
+                // 与 loadInto/loadFastVideoCoverInto 的 CancellationException 短路保持一致。
+                if (t is CancellationException) throw t
                 AppLog.w(TAG, "loadBitmap failed url=${url.takeLast(50)}", t)
                 onFailed()
             }
