@@ -1122,7 +1122,7 @@ internal class DanmakuEngine(
         // （描边用 baseAlpha 230/210，填充用 0xFF），draw 时统一用 paint.alpha 施加整体 opacity。
         // 这样直绘 fallback 与 cache 命中视觉一致，且调透明度时整体淡化、不会文字描边各褪各的。
         if (drawStrokeEnabled) {
-            drawStroke.color = resolveStandardStrokeColor(rgb, 255)
+            drawStroke.color = BiliDanmakuStyle.resolveStrokeColor(rgb, 255)
             drawStroke.alpha = opacityAlpha
         }
         drawFill.color = (0xFF shl 24) or rgb

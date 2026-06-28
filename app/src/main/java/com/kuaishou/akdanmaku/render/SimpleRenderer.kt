@@ -27,7 +27,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.LinearGradient
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Shader
@@ -39,6 +38,8 @@ import com.kuaishou.akdanmaku.data.DanmakuItem
 import com.kuaishou.akdanmaku.data.DanmakuItemData
 import com.kuaishou.akdanmaku.ui.DanmakuDisplayer
 import com.kuaishou.akdanmaku.utils.Size
+import com.btelly.feature.player.danmaku.BiliDanmakuStyle
+import com.btelly.feature.player.danmaku.VipGradientRenderer
 import com.btelly.feature.player.view.VipDanmakuTextureCache
 import java.util.HashMap
 import java.util.LinkedHashMap
@@ -100,9 +101,9 @@ open class SimpleRenderer : DanmakuRenderer {
     strokePaint.clearShadowLayer()
     strokePaint.textSize = textPaint.textSize
     strokePaint.typeface = textPaint.typeface
-    strokePaint.color = resolveStandardStrokeColor(textPaint.color)
+    strokePaint.color = BiliDanmakuStyle.resolveStrokeColor(textPaint.color, 255)
     strokePaint.style = Paint.Style.STROKE
-    strokePaint.strokeWidth = resolveStrokeWidth(config.fontBorder, textPaint.textSize)
+    strokePaint.strokeWidth = BiliDanmakuStyle.resolveStrokeWidth(textPaint.textSize, config.fontBorder)
     strokePaint.strokeJoin = Paint.Join.ROUND
     strokePaint.strokeCap = Paint.Cap.ROUND
   }
@@ -176,9 +177,8 @@ open class SimpleRenderer : DanmakuRenderer {
     val top = baselineY + textPaint.ascent()
     val bottom = baselineY + textPaint.descent()
     val textHeight = (bottom - top).coerceAtLeast(1f)
-    val fillBitmap = VipDanmakuTextureCache.getBitmap(danmakuItemData.vipGradientStyle.fillTextureUrl)
     val strokeBitmap = VipDanmakuTextureCache.getBitmap(danmakuItemData.vipGradientStyle.strokeTextureUrl)
-    if (fillBitmap != null || strokeBitmap != null) {
+    if (strokeBitmap != null) {
       drawVipTextureText(
         canvas = canvas,
         text = text,
@@ -187,74 +187,43 @@ open class SimpleRenderer : DanmakuRenderer {
         top = top,
         textWidth = textWidth,
         textHeight = textHeight,
-        fillBitmap = fillBitmap,
         strokeBitmap = strokeBitmap,
-        fallbackColor = danmakuItemData.textColor
       )
       return
     }
-    val palette = resolveVipPalette(danmakuItemData.textColor)
-    val leadingColor = lightenColor(palette.first(), 0.35f)
-    val trailingColor = darkenColor(palette.last(), 0.05f)
-    // 旧实现用 setShadowLayer 制造光晕，但 setShadowLayer 内部会强制走 BlurMaskFilter 软件路径，
-    // 在 TV 上 buildCache 时单条弹幕可能要 1~3ms，弹幕高峰期累加直接打爆 act 线程。
-    // 改成"先画一层更宽的暗色外描边 + 一层基础描边"做廉价描边光晕近似。
     strokePaint.style = Paint.Style.STROKE
     strokePaint.strokeJoin = Paint.Join.ROUND
     strokePaint.strokeCap = Paint.Cap.ROUND
     strokePaint.shader = null
     strokePaint.clearShadowLayer()
-
-    val outerStrokeWidth = if (borderMode == DanmakuConfig.FONT_BORDER_HEAVY) {
-      (textPaint.textSize * 0.26f).coerceAtLeast(4f)
-    } else {
-      (textPaint.textSize * 0.22f).coerceAtLeast(3f)
-    }
-    val innerStrokeWidth = if (borderMode == DanmakuConfig.FONT_BORDER_HEAVY) {
-      (textPaint.textSize * 0.16f).coerceAtLeast(2.5f)
-    } else {
-      (textPaint.textSize * 0.14f).coerceAtLeast(2f)
-    }
-
-    val shaderKey = "${leadingColor}_${trailingColor}_${textWidth}_${textHeight}"
-    textPaint.shader = vipShaderCache.getOrPut(shaderKey) {
-      LinearGradient(
-        startX,
-        top,
-        startX + textWidth,
-        bottom,
-        intArrayOf(
-          Color.WHITE,
-          lightenColor(leadingColor, 0.55f),
-          leadingColor,
-          trailingColor
-        ),
-        VIP_TEXT_GRADIENT_POSITIONS,
-        Shader.TileMode.CLAMP
-      )
-    }
-    textPaint.clearShadowLayer()
-
+    val strokeWidth =
+      if (borderMode == DanmakuConfig.FONT_BORDER_DEFAULT) {
+        BiliDanmakuStyle.resolveVipStrokeWidth(textPaint.textSize)
+      } else {
+        BiliDanmakuStyle.resolveStrokeWidth(textPaint.textSize, borderMode)
+      }
     when (borderMode) {
       DanmakuConfig.FONT_BORDER_NONE -> Unit
       DanmakuConfig.FONT_BORDER_SHADOW -> {
         textPaint.setShadowLayer(SHADOW_RADIUS, SHADOW_DX, SHADOW_DY, Color.BLACK)
       }
       else -> {
-        // 外发光层：宽且半透明，模拟 setShadowLayer 的柔和光晕。
-        strokePaint.color = withAlpha(darkenColor(trailingColor, 0.45f), 96)
-        strokePaint.strokeWidth = outerStrokeWidth
-        canvas.drawText(text, startX, baselineY, strokePaint)
-        // 主描边层：实色不透明，决定边缘清晰度。
-        strokePaint.color = withAlpha(darkenColor(leadingColor, 0.55f), 220)
-        strokePaint.strokeWidth = innerStrokeWidth
+        strokePaint.color = BiliDanmakuStyle.resolveVipStrokeColor()
+        strokePaint.strokeWidth = strokeWidth
+        strokePaint.shader = VipGradientRenderer.resolveStrokeShader(
+          left = startX,
+          top = top,
+          width = textWidth,
+          height = textHeight,
+          textColor = danmakuItemData.textColor
+        )
         canvas.drawText(text, startX, baselineY, strokePaint)
       }
     }
 
+    textPaint.color = Color.WHITE
     canvas.drawText(text, startX, baselineY, textPaint)
     textPaint.clearShadowLayer()
-    textPaint.shader = null
     strokePaint.clearShadowLayer()
   }
 
@@ -266,20 +235,18 @@ open class SimpleRenderer : DanmakuRenderer {
     top: Float,
     textWidth: Float,
     textHeight: Float,
-    fillBitmap: Bitmap?,
     strokeBitmap: Bitmap?,
-    fallbackColor: Int
   ) {
     strokePaint.style = Paint.Style.STROKE
-    strokePaint.strokeWidth = (textPaint.textSize * 0.12f).coerceAtLeast(1.8f)
+    strokePaint.strokeWidth = BiliDanmakuStyle.resolveVipStrokeWidth(textPaint.textSize)
     strokePaint.strokeJoin = Paint.Join.ROUND
     strokePaint.strokeCap = Paint.Cap.ROUND
-    strokePaint.color = Color.BLACK
+    strokePaint.color = BiliDanmakuStyle.resolveVipStrokeColor()
     strokePaint.shader = strokeBitmap?.createTextShader(startX, top, textWidth, textHeight)
 
     textPaint.style = Paint.Style.FILL
-    textPaint.color = fallbackColor or Color.argb(255, 0, 0, 0)
-    textPaint.shader = fillBitmap?.createTextShader(startX, top, textWidth, textHeight)
+    textPaint.color = Color.WHITE
+    textPaint.shader = null
 
     canvas.drawText(text, startX, baselineY, strokePaint)
     canvas.drawText(text, startX, baselineY, textPaint)
@@ -305,84 +272,7 @@ open class SimpleRenderer : DanmakuRenderer {
     }
   }
 
-  private fun resolveVipPalette(textColor: Int): IntArray {
-    val resolved = textColor or Color.argb(255, 0, 0, 0)
-    if ((resolved and 0x00FFFFFF) == 0x00FFFFFF) {
-      return DEFAULT_VIP_GRADIENT_COLORS
-    }
-    vipPaletteCache[resolved]?.let { return it }
-    val result = IntArray(DEFAULT_VIP_GRADIENT_COLORS.size) { i ->
-      blendColor(DEFAULT_VIP_GRADIENT_COLORS[i], resolved, 0.26f)
-    }
-    vipPaletteCache[resolved] = result
-    return result
-  }
-
-  private fun resolveStandardStrokeColor(textColor: Int): Int {
-    val luminance = (0.2126f * Color.red(textColor) +
-      0.7152f * Color.green(textColor) +
-      0.0722f * Color.blue(textColor)) / 255f
-    return if (luminance > 0.5f) {
-      withAlpha(Color.BLACK, 230)
-    } else {
-      withAlpha(Color.WHITE, 210)
-    }
-  }
-
-  private fun resolveStrokeWidth(borderMode: Int, textSize: Float): Float {
-    return if (borderMode == DanmakuConfig.FONT_BORDER_HEAVY) {
-      (textSize * 0.12f).coerceIn(2f, 4f)
-    } else {
-      (textSize * 0.09f).coerceIn(1.5f, 3f)
-    }
-  }
-
-  private fun lightenColor(color: Int, amount: Float): Int {
-    val safeAmount = amount.coerceIn(0f, 1f)
-    val alpha = Color.alpha(color)
-    val red = Color.red(color)
-    val green = Color.green(color)
-    val blue = Color.blue(color)
-    return Color.argb(
-      alpha,
-      (red + (255 - red) * safeAmount).roundToInt().coerceIn(0, 255),
-      (green + (255 - green) * safeAmount).roundToInt().coerceIn(0, 255),
-      (blue + (255 - blue) * safeAmount).roundToInt().coerceIn(0, 255)
-    )
-  }
-
-  private fun darkenColor(color: Int, amount: Float): Int {
-    val safeAmount = (1f - amount.coerceIn(0f, 1f)).coerceIn(0f, 1f)
-    val alpha = Color.alpha(color)
-    return Color.argb(
-      alpha,
-      (Color.red(color) * safeAmount).roundToInt().coerceIn(0, 255),
-      (Color.green(color) * safeAmount).roundToInt().coerceIn(0, 255),
-      (Color.blue(color) * safeAmount).roundToInt().coerceIn(0, 255)
-    )
-  }
-
-  private fun blendColor(start: Int, end: Int, progress: Float): Int {
-    val p = progress.coerceIn(0f, 1f)
-    return Color.argb(
-      (Color.alpha(start) + (Color.alpha(end) - Color.alpha(start)) * p).roundToInt().coerceIn(0, 255),
-      (Color.red(start) + (Color.red(end) - Color.red(start)) * p).roundToInt().coerceIn(0, 255),
-      (Color.green(start) + (Color.green(end) - Color.green(start)) * p).roundToInt().coerceIn(0, 255),
-      (Color.blue(start) + (Color.blue(end) - Color.blue(start)) * p).roundToInt().coerceIn(0, 255)
-    )
-  }
-
-  private fun withAlpha(color: Int, alpha: Int): Int {
-    return Color.argb(
-      alpha.coerceIn(0, 255),
-      Color.red(color),
-      Color.green(color),
-      Color.blue(color)
-    )
-  }
-
   companion object {
-    private val DEFAULT_DARK_COLOR: Int = Color.argb(255, 0x22, 0x22, 0x22)
     private val DEFAULT_VIP_GRADIENT_COLORS = intArrayOf(
       Color.parseColor("#FF6AA8"),
       Color.parseColor("#FFD86E"),
@@ -390,13 +280,10 @@ open class SimpleRenderer : DanmakuRenderer {
       Color.parseColor("#86B9FF"),
       Color.parseColor("#C18EFF")
     )
-    private val VIP_TEXT_GRADIENT_POSITIONS = floatArrayOf(0f, 0.38f, 0.7f, 1f)
 
     private const val CANVAS_PADDING: Int = 6
 
     private val sTextHeightCache: MutableMap<Float, Float> = HashMap()
-    private val vipPaletteCache = HashMap<Int, IntArray>()
-    private val vipShaderCache = HashMap<String, LinearGradient>()
     private val measureCache = object : LinkedHashMap<Long, Size>(512, 0.75f, true) {
       override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Size>?): Boolean {
         return size > MEASURE_CACHE_MAX
@@ -448,7 +335,7 @@ open class SimpleRenderer : DanmakuRenderer {
         textPaint.clearShadowLayer()
       }
       else -> {
-        strokePaint.strokeWidth = resolveStrokeWidth(borderMode, textPaint.textSize)
+        strokePaint.strokeWidth = BiliDanmakuStyle.resolveStrokeWidth(textPaint.textSize, borderMode)
         canvas.drawText(text, startX, baselineY, strokePaint)
         canvas.drawText(text, startX, baselineY, textPaint)
       }

@@ -36,10 +36,10 @@ internal object VipGradientRenderer {
     private val paletteCache = HashMap<Int, IntArray>(32)
 
     /**
-     * 绘制 VIP 渐变文字。填充用 LinearGradient，描边用双层光晕近似。
+     * 绘制 VIP 文字：字芯保持白色，纹理由描边承载。
      *
      * 调用方需提供 [fillPaint]（FILL）和 [strokePaint]（STROKE），绘制完毕后调用方
-     * 务必清 shader（fillPaint.shader = null），避免污染下一条弹幕。
+     * 务必清 shader，避免污染下一条弹幕。
      */
     fun draw(
         canvas: Canvas,
@@ -59,28 +59,68 @@ internal object VipGradientRenderer {
         val textHeight = (bottom - top).coerceAtLeast(1f)
 
         val palette = resolveVipPalette(textColor)
-        val leadingColor = lightenColor(palette.first(), 0.35f)
-        val trailingColor = darkenColor(palette.last(), 0.05f)
+        val leadingColor = lightenColor(palette.first(), 0.40f)
+        val trailingColor = lightenColor(palette.last(), 0.08f)
 
-        // 描边光晕（双层近似 setShadowLayer）
+        // 轻描边，避免把字芯压黑。
         strokePaint.style = Paint.Style.STROKE
         strokePaint.strokeJoin = Paint.Join.ROUND
         strokePaint.strokeCap = Paint.Cap.ROUND
         strokePaint.shader = null
         strokePaint.clearShadowLayer()
 
-        val outerStrokeWidth = (textSizePx * 0.22f).coerceAtLeast(3f)
-        val innerStrokeWidth = (textSizePx * 0.14f).coerceAtLeast(2f)
+        val outerStrokeWidth = BiliDanmakuStyle.resolveVipStrokeWidth(textSizePx)
+        val innerStrokeWidth = (outerStrokeWidth * 0.74f).coerceAtLeast(1.0f)
 
-        // 填充 shader（4色对角线渐变，左上白色高光→右下暗尾）
-        val shaderKey = "${leadingColor}_${trailingColor}_${textWidth}_${textHeight}"
-        fillPaint.shader = shaderCache.getOrPut(shaderKey) {
+        // 描边 shader（浅粉→浅蓝的柔和过渡，字芯保持白）
+        strokePaint.shader = resolveStrokeShader(startX, top, textWidth, textHeight, textColor)
+
+        // 外层淡边
+        strokePaint.color = BiliDanmakuStyle.resolveVipStrokeColor()
+        strokePaint.strokeWidth = outerStrokeWidth
+        canvas.drawText(text, startX, baselineY, strokePaint)
+        // 内层提亮
+        strokePaint.color = BiliDanmakuStyle.resolveVipInnerStrokeColor()
+        strokePaint.strokeWidth = innerStrokeWidth
+        canvas.drawText(text, startX, baselineY, strokePaint)
+
+        // 字芯固定白色
+        fillPaint.color = Color.WHITE
+        canvas.drawText(text, startX, baselineY, fillPaint)
+
+        // 收尾：清 shader 避免污染下一条弹幕
+        strokePaint.shader = null
+        strokePaint.clearShadowLayer()
+    }
+
+    /** 根据 textColor 生成 5 色调色板（默认彩虹色板 × textColor 26% 混合）。 */
+    private fun resolveVipPalette(textColor: Int): IntArray {
+        val resolved = textColor or Color.argb(255, 0, 0, 0)
+        paletteCache[resolved]?.let { return it }
+        val result = BiliDanmakuStyle.resolveVipGradientColors(resolved)
+        paletteCache[resolved] = result
+        return result
+    }
+
+    fun resolveStrokeShader(
+        left: Float,
+        top: Float,
+        width: Float,
+        height: Float,
+        textColor: Int
+    ): LinearGradient {
+        val resolved = normalizeKeyColor(textColor)
+        val key = "${resolved}_${left}_${top}_${width}_${height}"
+        return shaderCache.getOrPut(key) {
+            val palette = resolveVipPalette(resolved)
+            val leadingColor = lightenColor(palette.first(), 0.40f)
+            val trailingColor = lightenColor(palette.last(), 0.08f)
             LinearGradient(
-                startX, top,
-                startX + textWidth, bottom,
+                left, top,
+                left + width, top + height,
                 intArrayOf(
-                    Color.WHITE,
-                    lightenColor(leadingColor, 0.55f),
+                    Color.argb(255, 255, 248, 253),
+                    lightenColor(leadingColor, 0.34f),
                     leadingColor,
                     trailingColor
                 ),
@@ -88,37 +128,10 @@ internal object VipGradientRenderer {
                 Shader.TileMode.CLAMP
             )
         }
-
-        // 外发光层：宽且半透明
-        strokePaint.color = withAlpha(darkenColor(trailingColor, 0.45f), 96)
-        strokePaint.strokeWidth = outerStrokeWidth
-        canvas.drawText(text, startX, baselineY, strokePaint)
-        // 主描边层：实色
-        strokePaint.color = withAlpha(darkenColor(leadingColor, 0.55f), 220)
-        strokePaint.strokeWidth = innerStrokeWidth
-        canvas.drawText(text, startX, baselineY, strokePaint)
-
-        // 填充
-        canvas.drawText(text, startX, baselineY, fillPaint)
-
-        // 收尾：清 shader 避免污染下一条弹幕
-        fillPaint.shader = null
-        strokePaint.clearShadowLayer()
     }
 
-    /** 根据 textColor 生成 5 色调色板（默认彩虹色板 × textColor 26% 混合）。 */
-    private fun resolveVipPalette(textColor: Int): IntArray {
-        val resolved = textColor or Color.argb(255, 0, 0, 0)
-        if ((resolved and 0x00FFFFFF) == 0x00FFFFFF) {
-            return DEFAULT_VIP_GRADIENT_COLORS // 白色直接用默认色板
-        }
-        paletteCache[resolved]?.let { return it }
-        val result = IntArray(DEFAULT_VIP_GRADIENT_COLORS.size) { i ->
-            blendColor(DEFAULT_VIP_GRADIENT_COLORS[i], resolved, 0.26f)
-        }
-        paletteCache[resolved] = result
-        return result
-    }
+    private fun normalizeKeyColor(color: Int): Int =
+        if (color == 0) Color.WHITE else (color or Color.argb(255, 0, 0, 0))
 
     private fun lightenColor(color: Int, amount: Float): Int {
         val a = Color.alpha(color)
@@ -128,25 +141,4 @@ internal object VipGradientRenderer {
         return Color.argb(a, r, g, b)
     }
 
-    private fun darkenColor(color: Int, amount: Float): Int {
-        val a = Color.alpha(color)
-        val factor = (1f - amount).coerceAtLeast(0f)
-        return Color.argb(
-            a,
-            (Color.red(color) * factor).toInt(),
-            (Color.green(color) * factor).toInt(),
-            (Color.blue(color) * factor).toInt()
-        )
-    }
-
-    private fun blendColor(start: Int, end: Int, progress: Float): Int {
-        val r = (Color.red(start) + (Color.red(end) - Color.red(start)) * progress).toInt()
-        val g = (Color.green(start) + (Color.green(end) - Color.green(start)) * progress).toInt()
-        val b = (Color.blue(start) + (Color.blue(end) - Color.blue(start)) * progress).toInt()
-        val a = (Color.alpha(start) + (Color.alpha(end) - Color.alpha(start)) * progress).toInt()
-        return Color.argb(a, r, g, b)
-    }
-
-    private fun withAlpha(color: Int, alpha: Int): Int =
-        (alpha.coerceIn(0, 255) shl 24) or (color and 0x00FFFFFF)
 }

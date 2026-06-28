@@ -280,8 +280,8 @@ internal class CacheManager(
         // 描边色用老版本逻辑（对齐 AkDanmaku SimpleRenderer）：亮字配黑描边，暗字配白描边。
         // Bitmap 烘焙时用完全不透明（alpha 255），整体透明度由 drawTextDirect/drawBitmap 时按
         // opacityAlpha 统一施加。
-        stroke.color = resolveStandardStrokeColor(rgb, opacityAlpha = 255)
-        fill.color = (0xFF shl 24) or rgb
+        stroke.color = BiliDanmakuStyle.resolveStrokeColor(rgb, opacityAlpha = 255)
+        fill.color = Color.WHITE
 
         val baseline = outlinePad - fontMetrics.ascent
         val text = danmaku.text
@@ -292,7 +292,7 @@ internal class CacheManager(
                 VipGradientRenderer.draw(
                     canvas = canvas,
                     text = text,
-                    textColor = rgb,
+                    textColor = Color.WHITE,
                     startX = outlinePad,
                     baselineY = baseline,
                     textSizePx = style.textSizePx,

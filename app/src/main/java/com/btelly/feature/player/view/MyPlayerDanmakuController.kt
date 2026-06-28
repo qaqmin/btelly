@@ -1,7 +1,6 @@
 package com.btelly.feature.player.view
 
 import android.content.Context
-import android.graphics.Color
 import android.os.SystemClock
 import androidx.media3.common.Player
 import com.kuaishou.akdanmaku.DanmakuConfig
@@ -14,6 +13,7 @@ import com.kuaishou.akdanmaku.ui.DanmakuPlayer
 import com.kuaishou.akdanmaku.ui.DanmakuView
 import com.btelly.feature.player.DanmakuFilterContext
 import com.btelly.feature.player.PlaybackStartupTrace
+import com.btelly.feature.player.danmaku.BiliDanmakuStyle
 import com.btelly.feature.player.danmaku.DanmakuTrackSpacing
 import com.btelly.core.common.log.AppLog
 import com.btelly.model.dm.DmModel
@@ -428,7 +428,7 @@ class MyPlayerDanmakuController(
 
     private fun doSendLiveDanmaku(dm: DmModel, player: DanmakuPlayer) {
         val currentTime = player.getCurrentTimeMs()
-        val color = dm.color.toDanmakuColor()
+        val color = BiliDanmakuStyle.normalizeProtocolColor(dm.color)
         val data = DanmakuItemData(
             danmakuId = ++liveDanmakuIdCounter,
             position = currentTime.coerceAtLeast(0L),
@@ -1660,7 +1660,7 @@ class MyPlayerDanmakuController(
             content = renderContent,
             mode = mode.toDanmakuMode(),
             textSize = fontSize.coerceAtLeast(12),
-            textColor = color.toDanmakuColor(),
+            textColor = BiliDanmakuStyle.normalizeProtocolColor(color),
             score = weight.coerceAtLeast(0),
             renderFlags = resolveRenderFlags(allowVipColorful),
             vipGradientStyle = resolveVipGradientStyle(allowVipColorful)
@@ -1747,14 +1747,6 @@ class MyPlayerDanmakuController(
             DanmakuConfig.FONT_BORDER_SHADOW,
             DanmakuConfig.FONT_BORDER_NONE -> this
             else -> DanmakuConfig.FONT_BORDER_DEFAULT
-        }
-    }
-
-    private fun Int.toDanmakuColor(): Int {
-        return if (this == 0) {
-            Color.WHITE
-        } else {
-            this or 0xFF000000.toInt()
         }
     }
 
