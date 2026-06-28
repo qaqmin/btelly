@@ -11,7 +11,7 @@ import android.os.HandlerThread
 import android.os.Looper
 import android.os.Message
 import android.os.Process
-import android.util.Log
+import com.btelly.core.common.log.AppLog
 import com.btelly.feature.player.danmaku.model.DanmakuItem
 import com.btelly.feature.player.danmaku.model.SharedCacheEntry
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -234,7 +234,7 @@ internal class CacheManager(
             assignEntryToItem(item, shared, style)
             sharedHit.incrementAndGet()
             mainHandler.post {
-                runCatching { onRenderSign() }.onFailure { Log.w(TAG, "renderSign failed", it) }
+                runCatching { onRenderSign() }.onFailure { AppLog.w(TAG, "renderSign failed", it) }
             }
             return
         }
@@ -287,9 +287,24 @@ internal class CacheManager(
         val text = danmaku.text
         val drawStrokeEnabled = strokeWidth > 0.01f
         if (text.isNotBlank()) {
-            // 性能优先引擎只渲染纯文字（描边+填充），不支持内联表情/高赞图标。
-            if (drawStrokeEnabled) canvas.drawText(text, outlinePad, baseline, stroke)
-            canvas.drawText(text, outlinePad, baseline, fill)
+            if (danmaku.vipGradient) {
+                // VIP 渐变弹幕：LinearGradient 填充 + 双层描边光晕（烘焙进 bitmap，稳态零开销）。
+                VipGradientRenderer.draw(
+                    canvas = canvas,
+                    text = text,
+                    textColor = rgb,
+                    startX = outlinePad,
+                    baselineY = baseline,
+                    textSizePx = style.textSizePx,
+                    strokeWidthPx = strokeWidth,
+                    fillPaint = fill,
+                    strokePaint = stroke
+                )
+            } else {
+                // 性能优先引擎只渲染纯文字（描边+填充），不支持内联表情/高赞图标。
+                if (drawStrokeEnabled) canvas.drawText(text, outlinePad, baseline, stroke)
+                canvas.drawText(text, outlinePad, baseline, fill)
+            }
         }
 
         // 构建完成：包成 SharedCacheEntry，item 一份引用 + 共享表一份引用。
@@ -301,7 +316,7 @@ internal class CacheManager(
 
         // Signal renderer to refresh. Throttle is intentionally handled by UI frame pacing.
         mainHandler.post {
-            runCatching { onRenderSign() }.onFailure { Log.w(TAG, "renderSign failed", it) }
+            runCatching { onRenderSign() }.onFailure { AppLog.w(TAG, "renderSign failed", it) }
         }
     }
 

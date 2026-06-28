@@ -12,7 +12,7 @@ import com.btelly.model.dm.DmModel
  * - mode 7（特殊）/9（脚本）不转换，返回 null，交给上层过滤
  * - 空内容不转换
  */
-fun DmModel.toDanmaku(): Danmaku? {
+fun DmModel.toDanmaku(allowVipColorful: Boolean = false): Danmaku? {
     if (content.isBlank()) return null
     // mode 7/9 是高级/脚本弹幕，弹幕引擎不支持，过滤掉
     if (mode == 7 || mode == 9) return null
@@ -31,13 +31,14 @@ fun DmModel.toDanmaku(): Danmaku? {
         midHash = midHash.takeIf { it.isNotBlank() },
         dmid = id.takeIf { it > 0L },
         attr = attr,
+        vipGradient = allowVipColorful && colorful == VipGradientRenderer.COLORFUL_VIP_GRADIENT,
     )
 }
 
 /** 批量转换，自动过滤 null。 */
-fun List<DmModel>.toDanmakus(): List<Danmaku> =
+fun List<DmModel>.toDanmakus(allowVipColorful: Boolean = false): List<Danmaku> =
     ArrayList<Danmaku>(size).also { out ->
         for (item in this) {
-            item.toDanmaku()?.let(out::add)
+            item.toDanmaku(allowVipColorful)?.let(out::add)
         }
     }

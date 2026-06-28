@@ -7,7 +7,7 @@ import android.os.Looper
 import android.os.Message
 import android.os.SystemClock
 import android.view.Choreographer
-import android.util.Log
+import com.btelly.core.common.log.AppLog
 import com.btelly.feature.player.danmaku.Danmaku
 import com.btelly.feature.player.danmaku.model.RenderSnapshot
 import java.util.concurrent.Semaphore
@@ -326,7 +326,7 @@ internal class DanmakuPlayer(
                     } catch (ie: InterruptedException) {
                         // Ignore.
                     } catch (t: Throwable) {
-                        Log.w(TAG, "updateFrame crashed", t)
+                        AppLog.w(TAG, "updateFrame crashed", t)
                     }
                 }
 

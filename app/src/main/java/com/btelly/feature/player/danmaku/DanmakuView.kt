@@ -6,7 +6,7 @@ import android.os.SystemClock
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.View
-import android.util.Log
+import com.btelly.core.common.log.AppLog
 import com.btelly.feature.player.danmaku.Danmaku
 import java.util.concurrent.atomic.AtomicLong
 import java.util.Locale
@@ -312,7 +312,7 @@ class DanmakuView @JvmOverloads constructor(
             }
         val actAgeMs = if (sample.actAtUptimeMs > 0L) (now - sample.actAtUptimeMs).coerceAtLeast(0L) else -1L
 
-        Log.i(
+        AppLog.i(
             "DanmakuPerf",
             buildString(220) {
                 append("dm=").append(if (config.enabled) "on" else "off")

@@ -17,6 +17,8 @@ data class Danmaku(
     val midHash: String? = null,
     val dmid: Long? = null,
     val attr: Int = 0,
+    /** VIP 渐变弹幕标记（colorful == 0xEA61 且 allowVipColorful 开启时为 true）。 */
+    val vipGradient: Boolean = false,
 )
 
 /**
