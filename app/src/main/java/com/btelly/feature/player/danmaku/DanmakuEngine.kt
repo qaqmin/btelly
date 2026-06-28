@@ -205,10 +205,10 @@ internal class DanmakuEngine(
                 val size = active.size
                 for (i in 0 until size) {
                     val a = active[i]
-                    val bmp = a.cacheBitmap
-                    if (bmp != null) {
-                        cacheManager.enqueueRelease(bmp, releaseAtFrameId = releaseAt)
-                        a.cacheBitmap = null
+                    val entry = a.cacheEntry
+                    if (entry != null) {
+                        cacheManager.enqueueRelease(entry, releaseAtFrameId = releaseAt)
+                        a.cacheEntry = null
                     }
                     a.cacheState = DanmakuCacheState.Init
                     a.cacheGeneration = -1
@@ -410,9 +410,9 @@ internal class DanmakuEngine(
                     DanmakuKind.BOTTOM -> centerX(width = width, contentWidth = item.textWidthPx)
                 }
             val yTop = snapshot.yTop[i]
-            val bmp = item.cacheBitmap
-            if (bmp != null && !bmp.isRecycled && item.cacheGeneration == styleGen) {
-                canvas.drawBitmap(bmp, x, yTop, bitmapPaint)
+            val entry = item.cacheEntry
+            if (entry != null && !entry.isRecycled && item.cacheGeneration == styleGen) {
+                canvas.drawBitmap(entry.bitmap, x, yTop, bitmapPaint)
                 cachedDrawn++
                 continue
             }
@@ -945,8 +945,8 @@ internal class DanmakuEngine(
             if (cacheManager.queueDepth() >= MAX_CACHE_QUEUE_DEPTH) break
             val indexInActive = (cacheProbeCursor + offset) % active.size
             val item = active[indexInActive]
-            val bmp = item.cacheBitmap
-            val hasValidCache = bmp != null && !bmp.isRecycled && item.cacheGeneration == style.generation
+            val entry = item.cacheEntry
+            val hasValidCache = entry != null && !entry.isRecycled && item.cacheGeneration == style.generation
             if (hasValidCache) continue
             if (item.cacheState == DanmakuCacheState.Rendering) continue
             item.cacheState = DanmakuCacheState.Rendering
@@ -962,10 +962,10 @@ internal class DanmakuEngine(
     }
 
     private fun releaseItemCache(item: DanmakuItem, releaseAtFrameId: Int) {
-        val bmp = item.cacheBitmap
-        if (bmp != null) {
-            cacheManager.enqueueRelease(bmp, releaseAtFrameId = releaseAtFrameId)
-            item.cacheBitmap = null
+        val entry = item.cacheEntry
+        if (entry != null) {
+            cacheManager.enqueueRelease(entry, releaseAtFrameId = releaseAtFrameId)
+            item.cacheEntry = null
         }
         item.cacheState = DanmakuCacheState.Init
         item.cacheGeneration = -1

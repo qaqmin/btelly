@@ -13,6 +13,7 @@ import android.os.Message
 import android.os.Process
 import android.util.Log
 import com.btelly.feature.player.danmaku.model.DanmakuItem
+import com.btelly.feature.player.danmaku.model.SharedCacheEntry
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -44,6 +45,11 @@ internal class CacheManager(
         private const val CACHE_POOL_MAX_COUNT: Int = 72
 
         private const val MAX_RELEASE_PER_DRAIN = 24
+        private const val MAX_SHARED_CACHE = 256
+
+        // FNV-1a 64-bit（与 akdanmaku sharedCacheKey 同算法）
+        private const val FNV_OFFSET = -3750763034362895579L
+        private const val FNV_PRIME = 1099511628211L
     }
 
     private val mainHandler = Handler(mainLooper)
@@ -57,6 +63,28 @@ internal class CacheManager(
     private val handler: Handler = CacheHandler(thread.looper)
 
     private val pool = BitmapPool(maxBytes = CACHE_POOL_MAX_BYTES, maxCount = CACHE_POOL_MAX_COUNT)
+
+    /**
+     * 共享缓存表：相同内容（text+color+textSize+stroke+typeface）的弹幕共享同一个 SharedCacheEntry。
+     * accessOrder=true 实现 LRU，超 MAX_SHARED_CACHE 时淘汰最久未访问条目。
+     * 只在 CacheHandler 线程访问（buildCache/查询/淘汰），无需加锁。
+     * 淘汰时 release 表持有的那份引用；bitmap 是否回收由引用计数决定（item 可能还在用）。
+     */
+    private val sharedCacheStore = object : java.util.LinkedHashMap<Long, SharedCacheEntry>(128, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, SharedCacheEntry>?): Boolean {
+            if (size <= MAX_SHARED_CACHE) return false
+            eldest?.value?.let { entry ->
+                // 释放共享表持有的那份引用。若此时已无 item 引用，bitmap 立刻可回收；
+                // 若仍有 item 在用，bitmap 等最后一个 item release 时才回收。
+                if (entry.release()) {
+                    enqueueRelease(entry, releaseAtFrameId = 0)
+                }
+            }
+            return true
+        }
+    }
+    private var sharedCacheGeneration = -1
+    private val sharedHit = AtomicLong(0L)
 
     private val queueDepth = AtomicInteger(0)
     private val releaseQueue: ConcurrentLinkedQueue<PendingRelease> = ConcurrentLinkedQueue()
@@ -91,6 +119,7 @@ internal class CacheManager(
             bitmapReused = bitmapReused.get(),
             bitmapPutToPool = bitmapPutToPool.get(),
             bitmapRecycled = bitmapRecycled.get(),
+            sharedHit = sharedHit.get(),
         )
 
     fun requestBuildCache(
@@ -104,10 +133,10 @@ internal class CacheManager(
         handler.obtainMessage(MSG_BUILD_CACHE, payload).sendToTarget()
     }
 
-    fun enqueueRelease(bitmap: Bitmap?, releaseAtFrameId: Int) {
-        if (bitmap == null) return
-        if (bitmap.isRecycled) return
-        releaseQueue.add(PendingRelease(bitmap = bitmap, releaseAtFrameId = releaseAtFrameId))
+    fun enqueueRelease(entry: SharedCacheEntry?, releaseAtFrameId: Int) {
+        if (entry == null) return
+        if (entry.isRecycled) return
+        releaseQueue.add(PendingRelease(entry = entry, releaseAtFrameId = releaseAtFrameId))
     }
 
     fun drainReleasedBitmaps(currentFrameId: Int) {
@@ -117,7 +146,11 @@ internal class CacheManager(
             if (head.releaseAtFrameId > currentFrameId) break
             releaseQueue.poll()
             drained++
-            val bmp = head.bitmap
+            val entry = head.entry
+            if (entry.isRecycled) continue
+            // release() 归零说明没有其他持有者（item 已退场 + 共享表已淘汰），可安全回收。
+            if (!entry.release()) continue
+            val bmp = entry.bitmap
             if (bmp.isRecycled) continue
             val pooled = pool.tryPut(bmp)
             if (!pooled) {
@@ -149,12 +182,14 @@ internal class CacheManager(
                 }
                 MSG_CLEAR -> {
                     queueDepth.set(0)
+                    clearSharedCacheStore()
                     pool.clear()
                     releaseQueue.clear()
                 }
                 MSG_RELEASE -> {
                     removeCallbacksAndMessages(null)
                     queueDepth.set(0)
+                    clearSharedCacheStore()
                     pool.clear()
                     releaseQueue.clear()
                     runCatching { thread.quitSafely() }
@@ -168,7 +203,7 @@ internal class CacheManager(
         val style = req.style
 
         // Skip if already has a matching cache.
-        val existing = item.cacheBitmap
+        val existing = item.cacheEntry
         if (existing != null && !existing.isRecycled && item.cacheGeneration == style.generation) {
             item.cacheState = com.btelly.feature.player.danmaku.model.DanmakuCacheState.Rendered
             return
@@ -176,6 +211,42 @@ internal class CacheManager(
 
         if (style.textSizePx <= 0f || !style.textSizePx.isFinite()) return
 
+        // 样式 generation 变化时清空共享表（旧 bitmap 内容已不匹配新样式）。
+        if (sharedCacheGeneration != style.generation) {
+            clearSharedCacheStore()
+            sharedCacheGeneration = style.generation
+        }
+
+        // 共享缓存命中：相同内容（text+color+textSize+stroke+typeface）的弹幕复用同一 bitmap。
+        val danmaku = item.data
+        val key = sharedCacheKey(
+            text = danmaku.text,
+            color = danmaku.color and 0xFFFFFF,
+            textSizePx = style.textSizePx,
+            typefaceOrdinal = style.fontWeight.ordinal,
+            strokeWidthPx = style.strokeWidthPx,
+            outlinePadPx = style.outlinePadPx,
+        )
+        val shared = sharedCacheStore[key]
+        if (shared != null && !shared.isRecycled) {
+            // 命中：item 持有一份引用，跳过绘制。
+            shared.acquire()
+            assignEntryToItem(item, shared, style)
+            sharedHit.incrementAndGet()
+            mainHandler.post {
+                runCatching { onRenderSign() }.onFailure { Log.w(TAG, "renderSign failed", it) }
+            }
+            return
+        }
+        // 命中失败（bitmap 已回收）时剔除脏条目。
+        if (shared != null) {
+            sharedCacheStore.remove(key)
+            if (shared.release()) {
+                enqueueRelease(shared, releaseAtFrameId = 0)
+            }
+        }
+
+        // ---- 未命中：构建新 bitmap（原有逻辑）----
         val outlinePad = style.outlinePadPx.coerceAtLeast(0f)
         val strokeWidth = style.strokeWidthPx.coerceAtLeast(0f)
 
@@ -205,7 +276,6 @@ internal class CacheManager(
 
         val canvas = Canvas(bmp)
 
-        val danmaku = item.data
         val rgb = danmaku.color and 0xFFFFFF
         // 描边色用老版本逻辑（对齐 AkDanmaku SimpleRenderer）：亮字配黑描边，暗字配白描边。
         // Bitmap 烘焙时用完全不透明（alpha 255），整体透明度由 drawTextDirect/drawBitmap 时按
@@ -222,19 +292,72 @@ internal class CacheManager(
             canvas.drawText(text, outlinePad, baseline, fill)
         }
 
-        val old = item.cacheBitmap
-        item.cacheBitmap = bmp
-        item.cacheGeneration = style.generation
-        item.cacheState = com.btelly.feature.player.danmaku.model.DanmakuCacheState.Rendered
-        if (old != null && old != bmp) {
-            enqueueRelease(old, releaseAtFrameId = req.releaseAtFrameId)
-        }
+        // 构建完成：包成 SharedCacheEntry，item 一份引用 + 共享表一份引用。
+        val entry = SharedCacheEntry(bmp)
+        entry.acquire() // item 持有
+        entry.acquire() // 共享表持有（避免最后一个 item 离场后 bitmap 立刻回收）
+        sharedCacheStore[key] = entry
+        assignEntryToItem(item, entry, style)
 
         // Signal renderer to refresh. Throttle is intentionally handled by UI frame pacing.
         mainHandler.post {
             runCatching { onRenderSign() }.onFailure { Log.w(TAG, "renderSign failed", it) }
         }
     }
+
+    /**
+     * 把 entry 挂到 item 上，并释放 item 之前持有的旧 entry 引用。
+     * item 在 buildCache 命中/构建完成时调用。
+     */
+    private fun assignEntryToItem(item: DanmakuItem, entry: SharedCacheEntry, style: CacheStyle) {
+        val old = item.cacheEntry
+        item.cacheEntry = entry
+        item.cacheGeneration = style.generation
+        item.cacheState = com.btelly.feature.player.danmaku.model.DanmakuCacheState.Rendered
+        if (old != null && old !== entry) {
+            // 旧 entry 引用 -1，归零则排队回收（帧号 0 立即回收，因为这是 cache 线程内部替换）。
+            if (old.release()) {
+                enqueueRelease(old, releaseAtFrameId = 0)
+            }
+        }
+    }
+
+    /** 清空共享表，释放每项表持有的引用（item 引用不受影响）。 */
+    private fun clearSharedCacheStore() {
+        if (sharedCacheStore.isEmpty()) return
+        val entries = sharedCacheStore.values.toList()
+        sharedCacheStore.clear()
+        for (entry in entries) {
+            if (entry.release()) {
+                enqueueRelease(entry, releaseAtFrameId = 0)
+            }
+        }
+    }
+
+    /**
+     * 共享缓存内容指纹（FNV-1a 块混，与 akdanmaku sharedCacheKey 同算法）。
+     * 必须包含所有影响 bitmap 渲染输出的字段，漏一个会出现"不同弹幕共享同一 bitmap"的视觉错乱。
+     */
+    private fun sharedCacheKey(
+        text: String,
+        color: Int,
+        textSizePx: Float,
+        typefaceOrdinal: Int,
+        strokeWidthPx: Float,
+        outlinePadPx: Float,
+    ): Long {
+        var acc = FNV_OFFSET
+        acc = mix(acc, text.hashCode().toLong())
+        acc = mix(acc, text.length.toLong())
+        acc = mix(acc, color.toLong())
+        acc = mix(acc, textSizePx.toBits().toLong())
+        acc = mix(acc, typefaceOrdinal.toLong())
+        acc = mix(acc, strokeWidthPx.toBits().toLong())
+        acc = mix(acc, outlinePadPx.toBits().toLong())
+        return acc
+    }
+
+    private fun mix(acc: Long, value: Long): Long = (acc xor value) * FNV_PRIME
 
     private data class CacheRequest(
         val item: DanmakuItem,
@@ -244,7 +367,7 @@ internal class CacheManager(
     )
 
     private data class PendingRelease(
-        val bitmap: Bitmap,
+        val entry: SharedCacheEntry,
         val releaseAtFrameId: Int,
     )
 
@@ -325,5 +448,6 @@ internal class CacheManager(
         val bitmapReused: Long,
         val bitmapPutToPool: Long,
         val bitmapRecycled: Long,
+        val sharedHit: Long = 0L,
     )
 }

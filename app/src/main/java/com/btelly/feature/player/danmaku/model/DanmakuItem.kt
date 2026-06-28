@@ -1,6 +1,5 @@
 package com.btelly.feature.player.danmaku.model
 
-import android.graphics.Bitmap
 import com.btelly.feature.player.danmaku.Danmaku
 
 internal enum class DanmakuKind {
@@ -26,7 +25,7 @@ internal class DanmakuItem(
     @Volatile var measuredHeightPx: Float = Float.NaN
     @Volatile var measureGeneration: Int = -1
 
-    @Volatile var cacheBitmap: Bitmap? = null
+    @Volatile var cacheEntry: SharedCacheEntry? = null
     @Volatile var cacheGeneration: Int = -1
     @Volatile var cacheState: DanmakuCacheState = DanmakuCacheState.Init
 
