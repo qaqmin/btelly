@@ -1,5 +1,6 @@
 package com.btelly.feature.player.danmaku
 
+import com.kuaishou.akdanmaku.data.DanmakuVipGradientStyle
 import com.btelly.model.dm.DmModel
 
 /**
@@ -21,6 +22,7 @@ fun DmModel.toDanmaku(allowVipColorful: Boolean = false): Danmaku? {
     // 对齐 akdanmaku 的 toDanmakuColor()（color==0 → Color.WHITE）。
     // 否则引擎会把 0 当黑色渲染（见 DanmakuEngine.drawFill.color = rgb or alpha）。
     val normalizedColor = if (color == 0) 0xFFFFFF else color
+    val vipGradient = allowVipColorful && colorful == VipGradientRenderer.COLORFUL_VIP_GRADIENT
     return Danmaku(
         timeMs = progress.coerceIn(0, Int.MAX_VALUE),
         mode = mode,
@@ -31,7 +33,15 @@ fun DmModel.toDanmaku(allowVipColorful: Boolean = false): Danmaku? {
         midHash = midHash.takeIf { it.isNotBlank() },
         dmid = id.takeIf { it > 0L },
         attr = attr,
-        vipGradient = allowVipColorful && colorful == VipGradientRenderer.COLORFUL_VIP_GRADIENT,
+        vipGradient = vipGradient,
+        vipGradientStyle = if (vipGradient) {
+            DanmakuVipGradientStyle(
+                fillTextureUrl = colorfulStyle.fillColorUrl,
+                strokeTextureUrl = colorfulStyle.strokeColorUrl
+            )
+        } else {
+            DanmakuVipGradientStyle.NONE
+        },
     )
 }
 

@@ -1,5 +1,7 @@
 package com.btelly.feature.player.danmaku
 
+import com.kuaishou.akdanmaku.data.DanmakuVipGradientStyle
+
 /**
  * 弹幕引擎内部数据模型（迁移自 上游弹幕库的 Danmaku 数据模型）。
  *
@@ -17,4 +19,5 @@ data class Danmaku(
     val attr: Int = 0,
     /** VIP 渐变弹幕标记（colorful == 0xEA61 且 allowVipColorful 开启时为 true）。 */
     val vipGradient: Boolean = false,
+    val vipGradientStyle: DanmakuVipGradientStyle = DanmakuVipGradientStyle.NONE,
 )

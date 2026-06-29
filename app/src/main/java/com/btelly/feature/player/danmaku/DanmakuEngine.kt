@@ -1,7 +1,6 @@
 package com.btelly.feature.player.danmaku
 
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.util.DisplayMetrics
@@ -93,17 +92,23 @@ internal class DanmakuEngine(
     private var config: DanmakuConfig =
         DanmakuConfig(
             enabled = true,
-            opacity = 1f,
+            opacity = BiliDanmakuStyle.DEFAULT_ALPHA_FACTOR,
             textSizeSp = 18f,
             fontWeight = DanmakuFontWeight.Bold,
-            strokeWidthPx = 4,
+            strokeWidthPx = BiliDanmakuStyle.strokeWidthForCache(
+                textSizePx = sp(18f),
+                fontBorder = com.kuaishou.akdanmaku.DanmakuConfig.FONT_BORDER_DEFAULT
+            ),
             speedLevel = 4,
             area = 1f,
             laneDensity = DanmakuLaneDensity.Standard,
         )
 
     @Volatile private var textSizePx: Float = sp(18f)
-    @Volatile private var strokeWidthPx: Float = 4f
+    @Volatile private var strokeWidthPx: Float = BiliDanmakuStyle.strokeWidthForCache(
+        textSizePx = sp(18f),
+        fontBorder = com.kuaishou.akdanmaku.DanmakuConfig.FONT_BORDER_DEFAULT
+    ).toFloat()
     @Volatile private var outlinePadPx: Float = 2f
 
     @Volatile private var cacheStyleGeneration: Int = 0
@@ -1117,8 +1122,26 @@ internal class DanmakuEngine(
         if (text.isBlank()) return
 
         val drawStrokeEnabled = strokeWidthPx > 0.01f
+        val textX = x + outlinePad
+        val baseline = yTop + baselineOffset
+        if (item.data.vipGradient) {
+            val drawn = VipGradientRenderer.draw(
+                canvas = canvas,
+                text = text,
+                style = item.data.vipGradientStyle,
+                startX = textX,
+                baselineY = baseline,
+                textSizePx = textSizePx,
+                opacityAlpha = opacityAlpha,
+                fillPaint = drawFill,
+                strokePaint = drawStroke,
+            )
+            if (drawn) return
+            // 贴图未加载：按普通白字弹幕兜底，不卡 VIP 视觉。
+        }
+
         val rgb = item.data.color and 0xFFFFFF
-        // 对齐 cache 烘焙路径（CacheManager:232-233）与 akdanmaku：paint.color 用满透明度
+        // 对齐 cache 烘焙路径与 akdanmaku：paint.color 用满透明度
         // （描边用 baseAlpha 230/210，填充用 0xFF），draw 时统一用 paint.alpha 施加整体 opacity。
         // 这样直绘 fallback 与 cache 命中视觉一致，且调透明度时整体淡化、不会文字描边各褪各的。
         if (drawStrokeEnabled) {
@@ -1128,8 +1151,6 @@ internal class DanmakuEngine(
         drawFill.color = (0xFF shl 24) or rgb
         drawFill.alpha = opacityAlpha
 
-        val textX = x + outlinePad
-        val baseline = yTop + baselineOffset
         // 性能优先引擎只支持纯文字滚动弹幕，不渲染内联表情/高赞图标
         // （电视端弹幕飘过快、观看距离远，表情看不清；用户已在 controller 关闭 showHighLikeIcon）。
         if (drawStrokeEnabled) canvas.drawText(text, textX, baseline, drawStroke)

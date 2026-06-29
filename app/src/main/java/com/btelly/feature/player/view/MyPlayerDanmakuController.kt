@@ -123,6 +123,7 @@ class MyPlayerDanmakuController(
     private var danmakuPlayer: DanmakuPlayer? = null
     private var danmakuConfig = DanmakuConfig(
         preCacheTimeMs = DANMAKU_PRE_CACHE_TIME_MS,
+        alpha = BiliDanmakuStyle.DEFAULT_ALPHA_FACTOR,
         dataFilter = listOf(TypeFilter())
     )
     private var danmakuTimeline: DanmakuTimeline = DanmakuTimeline.EMPTY

@@ -394,10 +394,17 @@ class DanmakuView @JvmOverloads constructor(
     private fun defaultConfig(): DanmakuConfig =
         DanmakuConfig(
             enabled = true,
-            opacity = 1f,
+            opacity = BiliDanmakuStyle.DEFAULT_ALPHA_FACTOR,
             textSizeSp = 18f,
             fontWeight = DanmakuFontWeight.Bold,
-            strokeWidthPx = 4,
+            strokeWidthPx = BiliDanmakuStyle.strokeWidthForCache(
+                textSizePx = TypedValue.applyDimension(
+                    TypedValue.COMPLEX_UNIT_SP,
+                    18f,
+                    resources.displayMetrics
+                ),
+                fontBorder = com.kuaishou.akdanmaku.DanmakuConfig.FONT_BORDER_DEFAULT
+            ),
             speedLevel = 4,
             area = 1f,
             laneDensity = DanmakuLaneDensity.Standard,

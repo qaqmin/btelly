@@ -54,6 +54,7 @@ open class DanmakuItem(var data: DanmakuItemData, player: DanmakuPlayer? = null)
   internal var filteredInGeneration = false
   internal var pendingMeasureGeneration = -1
   internal var pendingCacheGeneration = -1
+  internal var drawingIntoCache = false
 
 
   val rect: RectF
@@ -81,6 +82,7 @@ open class DanmakuItem(var data: DanmakuItemData, player: DanmakuPlayer? = null)
     filteredInGeneration = false
     pendingMeasureGeneration = -1
     pendingCacheGeneration = -1
+    drawingIntoCache = false
   }
 
   override fun compareTo(other: DanmakuItem): Int {

@@ -2,7 +2,6 @@ package com.btelly.feature.player.danmaku
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.content.Context
@@ -14,6 +13,7 @@ import android.os.Process
 import com.btelly.core.common.log.AppLog
 import com.btelly.feature.player.danmaku.model.DanmakuItem
 import com.btelly.feature.player.danmaku.model.SharedCacheEntry
+import com.btelly.feature.player.view.VipDanmakuTextureCache
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -226,6 +226,11 @@ internal class CacheManager(
             typefaceOrdinal = style.fontWeight.ordinal,
             strokeWidthPx = style.strokeWidthPx,
             outlinePadPx = style.outlinePadPx,
+            vipGradient = danmaku.vipGradient,
+            vipFillTextureUrl = danmaku.vipGradientStyle.fillTextureUrl,
+            vipStrokeTextureUrl = danmaku.vipGradientStyle.strokeTextureUrl,
+            vipFillTextureLoaded = danmaku.vipGradient && VipDanmakuTextureCache.getBitmap(danmaku.vipGradientStyle.fillTextureUrl) != null,
+            vipStrokeTextureLoaded = danmaku.vipGradient && VipDanmakuTextureCache.getBitmap(danmaku.vipGradientStyle.strokeTextureUrl) != null,
         )
         val shared = sharedCacheStore[key]
         if (shared != null && !shared.isRecycled) {
@@ -277,31 +282,32 @@ internal class CacheManager(
         val canvas = Canvas(bmp)
 
         val rgb = danmaku.color and 0xFFFFFF
-        // 描边色用老版本逻辑（对齐 AkDanmaku SimpleRenderer）：亮字配黑描边，暗字配白描边。
-        // Bitmap 烘焙时用完全不透明（alpha 255），整体透明度由 drawTextDirect/drawBitmap 时按
-        // opacityAlpha 统一施加。
+        // 描边规则不变：亮字配黑描边，暗字配白描边。
+        // 缓存图按原始不透明样式烘焙，播放透明度由 drawBitmap 统一施加，保证缓存路径和直绘路径一致。
         stroke.color = BiliDanmakuStyle.resolveStrokeColor(rgb, opacityAlpha = 255)
-        fill.color = Color.WHITE
+        fill.color = (0xFF shl 24) or rgb
 
         val baseline = outlinePad - fontMetrics.ascent
         val text = danmaku.text
         val drawStrokeEnabled = strokeWidth > 0.01f
         if (text.isNotBlank()) {
-            if (danmaku.vipGradient) {
-                // VIP 渐变弹幕：LinearGradient 填充 + 双层描边光晕（烘焙进 bitmap，稳态零开销）。
+            val vipDrawn = if (danmaku.vipGradient) {
+                // VIP 弹幕：完全复刻 B 站，用 colorful_src 贴图。贴图未加载时返回 false。
                 VipGradientRenderer.draw(
                     canvas = canvas,
                     text = text,
-                    textColor = Color.WHITE,
+                    style = danmaku.vipGradientStyle,
                     startX = outlinePad,
                     baselineY = baseline,
                     textSizePx = style.textSizePx,
-                    strokeWidthPx = strokeWidth,
                     fillPaint = fill,
                     strokePaint = stroke
                 )
             } else {
-                // 性能优先引擎只渲染纯文字（描边+填充），不支持内联表情/高赞图标。
+                false
+            }
+            if (!vipDrawn) {
+                // 普通弹幕，或 VIP 贴图未加载时的白字兜底。
                 if (drawStrokeEnabled) canvas.drawText(text, outlinePad, baseline, stroke)
                 canvas.drawText(text, outlinePad, baseline, fill)
             }
@@ -360,6 +366,11 @@ internal class CacheManager(
         typefaceOrdinal: Int,
         strokeWidthPx: Float,
         outlinePadPx: Float,
+        vipGradient: Boolean,
+        vipFillTextureUrl: String,
+        vipStrokeTextureUrl: String,
+        vipFillTextureLoaded: Boolean,
+        vipStrokeTextureLoaded: Boolean,
     ): Long {
         var acc = FNV_OFFSET
         acc = mix(acc, text.hashCode().toLong())
@@ -369,6 +380,13 @@ internal class CacheManager(
         acc = mix(acc, typefaceOrdinal.toLong())
         acc = mix(acc, strokeWidthPx.toBits().toLong())
         acc = mix(acc, outlinePadPx.toBits().toLong())
+        acc = mix(acc, if (vipGradient) 1L else 0L)
+        if (vipGradient) {
+            acc = mix(acc, vipFillTextureUrl.hashCode().toLong())
+            acc = mix(acc, vipStrokeTextureUrl.hashCode().toLong())
+            acc = mix(acc, if (vipFillTextureLoaded) 1L else 0L)
+            acc = mix(acc, if (vipStrokeTextureLoaded) 1L else 0L)
+        }
         return acc
     }
 

@@ -4,20 +4,22 @@ import android.graphics.Color
 import kotlin.math.roundToInt
 
 /**
- * B 站风格弹幕文字规则：
- * - 协议色 0 归一成白字
- * - 描边按亮度反色
- * - 默认描边档位按 0.09×textSize
+ * B 站风格弹幕文字规则。
+ *
+ * 已从 B 站反编译代码确认的点播弹幕配置默认值（DanmakuParams.reset()）：
+ * - danmaku_alpha_factor: 0.8          （弹幕整体透明度因子）
+ * - danmaku_textsize_scale_factor: 1.0 （字号缩放）
+ * - danmaku_stroke_width_scaling: 0.8  （描边宽度缩放，点播默认 0.8）
+ * - danmaku_duration_factor reset 后为 7.0
+ *
+ * 描边宽度 = 基础系数(textSize) × stroke_width_scaling(0.8)。
+ * scaling 0.8 与官方一致，描边粗细仅由基础系数决定。
  */
 internal object BiliDanmakuStyle {
-
-    private val VIP_GRADIENT_BASE_COLORS = intArrayOf(
-        Color.parseColor("#FFB7DD"),
-        Color.parseColor("#FFD0EF"),
-        Color.parseColor("#E8DEFF"),
-        Color.parseColor("#C5DEFF"),
-        Color.parseColor("#B5F0F2")
-    )
+    const val DEFAULT_ALPHA_FACTOR = 0.8f
+    const val DEFAULT_TEXT_SIZE_SCALE_FACTOR = 1.0f
+    const val DEFAULT_STROKE_WIDTH_SCALING = 0.8f
+    const val DEFAULT_DURATION_FACTOR_SECONDS = 7.0f
 
     fun normalizeProtocolColor(color: Int): Int =
         if (color == 0) {
@@ -36,44 +38,50 @@ internal object BiliDanmakuStyle {
         return (strokeAlpha shl 24) or baseRgb
     }
 
-    fun resolveStrokeWidth(textSizePx: Float, fontBorder: Int): Float =
-        when (fontBorder) {
-            1 -> (textSizePx * 0.12f).coerceIn(2f, 4f)
-            2 -> (textSizePx * 0.09f).coerceIn(1.5f, 3f)
-            3 -> 0f
-            else -> (textSizePx * 0.09f).coerceIn(1.5f, 3f)
+    /**
+     * 描边宽度（像素）。
+     *
+     * fontBorder 语义见 DanmakuConfig：
+     * - 0 DEFAULT 默认描边：textSize × 0.13，夹在 [2.5, 4.5]
+     * - 1 HEAVY  重描边  ：textSize × 0.16，夹在 [3, 5.4]
+     * - 2 SHADOW 投影    ：走 setShadowLayer，这里返回与默认档同宽，仅作 paint 备用
+     * - 3 NONE   无描边  ：0
+     *
+     * 最终宽度再乘 stroke_width_scaling(0.8)，与官方一致。
+     */
+    fun resolveStrokeWidth(
+        textSizePx: Float,
+        fontBorder: Int
+    ): Float {
+        val baseWidth = when (fontBorder) {
+            1 -> (textSizePx * 0.16f).coerceIn(3f, 5.4f)
+            2 -> (textSizePx * 0.13f).coerceIn(2.5f, 4.5f)
+            3 -> return 0f
+            else -> (textSizePx * 0.13f).coerceIn(2.5f, 4.5f)
         }
-
-    fun resolveVipStrokeWidth(textSizePx: Float): Float =
-        (textSizePx * 0.11f).coerceIn(2.2f, 4.6f)
-
-    fun resolveVipStrokeColor(): Int = Color.argb(210, 255, 224, 244)
-
-    fun resolveVipInnerStrokeColor(): Int = Color.argb(245, 255, 251, 255)
-
-    fun resolveVipGradientColors(textColor: Int): IntArray {
-        val resolved = normalizeProtocolColor(textColor)
-        if ((resolved and 0x00FFFFFF) == 0x00FFFFFF) {
-            return VIP_GRADIENT_BASE_COLORS.copyOf()
-        }
-        val blend = 0.18f
-        return IntArray(VIP_GRADIENT_BASE_COLORS.size) { i ->
-            blendColor(VIP_GRADIENT_BASE_COLORS[i], resolved, blend)
-        }
+        return baseWidth * DEFAULT_STROKE_WIDTH_SCALING
     }
+
+    fun resolveBaseStrokeWidth(textSizePx: Float, fontBorder: Int): Float =
+        when (fontBorder) {
+            1 -> (textSizePx * 0.16f).coerceIn(3f, 5.4f)
+            2 -> (textSizePx * 0.13f).coerceIn(2.5f, 4.5f)
+            3 -> 0f
+            else -> (textSizePx * 0.13f).coerceIn(2.5f, 4.5f)
+        }
+
+    /**
+     * VIP 渐变弹幕描边宽度。VIP 弹幕描边色由贴图决定（colorful_src），
+     * 这里只给宽度。系数与默认描边档一致。
+     */
+    fun resolveVipStrokeWidth(textSizePx: Float): Float =
+        (textSizePx * 0.13f).coerceIn(2.5f, 4.5f) * DEFAULT_STROKE_WIDTH_SCALING
 
     fun useShadowLayer(fontBorder: Int): Boolean = fontBorder == 2
 
-    fun strokeWidthForCache(textSizePx: Float, fontBorder: Int): Int =
+    fun strokeWidthForCache(
+        textSizePx: Float,
+        fontBorder: Int
+    ): Int =
         resolveStrokeWidth(textSizePx, fontBorder).roundToInt().coerceAtLeast(0)
-
-    private fun blendColor(start: Int, end: Int, progress: Float): Int {
-        val p = progress.coerceIn(0f, 1f)
-        return Color.argb(
-            (Color.alpha(start) + (Color.alpha(end) - Color.alpha(start)) * p).roundToInt().coerceIn(0, 255),
-            (Color.red(start) + (Color.red(end) - Color.red(start)) * p).roundToInt().coerceIn(0, 255),
-            (Color.green(start) + (Color.green(end) - Color.green(start)) * p).roundToInt().coerceIn(0, 255),
-            (Color.blue(start) + (Color.blue(end) - Color.blue(start)) * p).roundToInt().coerceIn(0, 255)
-        )
-    }
 }

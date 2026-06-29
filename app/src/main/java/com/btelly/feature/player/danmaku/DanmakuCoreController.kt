@@ -8,7 +8,9 @@ import com.btelly.feature.player.PlaybackStartupTrace
 import com.btelly.feature.player.view.BiliDanmakuFilterPolicy
 import com.btelly.feature.player.view.DanmakuDuplicateMergePolicy
 import com.btelly.feature.player.view.MyPlayerDanmakuController
+import com.btelly.feature.player.view.VipDanmakuTextureCache
 import com.btelly.model.dm.DmModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,7 +31,7 @@ import kotlinx.coroutines.withContext
  *  - 设置映射：把 [MyPlayerDanmakuController.SettingsSnapshot] 翻译成引擎的 [DanmakuConfig]。
  *  - 播放同步：通过 positionProvider 回调让引擎自驱动，seek 时主动通知。
  *
- * 不支持（性能优先模式）：直播、VIP 渐变、特殊弹幕（已过滤）、防挡蒙版、智能过滤、表情/高赞图标（已移除，电视端看不清且拖累性能）。
+ * 不支持（性能优先模式）：直播、特殊弹幕（已过滤）、防挡蒙版、智能过滤、表情/高赞图标（已移除，电视端看不清且拖累性能）。
  */
 class DanmakuCoreController(
     private val context: Context,
@@ -71,6 +73,8 @@ class DanmakuCoreController(
     private val controllerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     /** 数据预处理代际：新数据到来时自增，后台协程完成后校验，过期则丢弃结果（防竞态）。 */
     private val prepareGeneration = java.util.concurrent.atomic.AtomicInteger(0)
+    private var preloadTextureJob: Job? = null
+    private var preloadedVipTextureKeys: Set<String> = emptySet()
 
     init {
         installProviders()
@@ -208,6 +212,7 @@ class DanmakuCoreController(
         isPlaying = false
         viewProvider()?.setDanmakus(emptyList())
         rawItems = emptyList()
+        preloadedVipTextureKeys = emptySet()
     }
 
     fun resetForPlaybackStart(positionMs: Long) {
@@ -225,6 +230,7 @@ class DanmakuCoreController(
 
     fun release() {
         stop()
+        preloadTextureJob?.cancel()
         controllerScope.cancel()
     }
 
@@ -296,8 +302,37 @@ class DanmakuCoreController(
         }
         // 3. 转 Danmaku（读 VIP 渐变开关，关闭时 vipGradient 全 false，走普通路径零开销）
         val allowVipColorful = isVipColorfulDanmakuAllowed()
-        return prepared.toDanmakus(allowVipColorful = allowVipColorful)
+        val danmakus = prepared.toDanmakus(allowVipColorful = allowVipColorful)
+        scheduleVipTexturePreload(danmakus)
+        return danmakus
     }
+
+    private fun scheduleVipTexturePreload(danmakus: List<Danmaku>) {
+        val styles = danmakus.asSequence()
+            .filter { it.vipGradient }
+            .map { it.vipGradientStyle }
+            .filter { it.hasTexture }
+            .distinct()
+            .toList()
+        if (styles.isEmpty()) return
+        val keys = styles.mapTo(LinkedHashSet()) { it.textureKey() }
+        val missingKeys = keys - preloadedVipTextureKeys
+        if (missingKeys.isEmpty()) return
+        val missingStyles = styles.filter { it.textureKey() in missingKeys }
+        val generation = prepareGeneration.get()
+        preloadTextureJob?.cancel()
+        preloadTextureJob = controllerScope.launch(Dispatchers.IO) {
+            VipDanmakuTextureCache.preloadStyles(missingStyles)
+            withContext(Dispatchers.Main.immediate) {
+                if (prepareGeneration.get() != generation) return@withContext
+                preloadedVipTextureKeys = preloadedVipTextureKeys + missingKeys
+                applyDataToView()
+            }
+        }
+    }
+
+    private fun com.kuaishou.akdanmaku.data.DanmakuVipGradientStyle.textureKey(): String =
+        "$fillTextureUrl#$strokeTextureUrl"
 
     /** 把预处理结果注入引擎（操作 View，必须在主线程调用）。 */
     private fun injectToView(danmakus: List<Danmaku>, append: Boolean) {
@@ -324,9 +359,10 @@ class DanmakuCoreController(
         val akDanmakuPx = BILI_BASE_FONT_SIZE * (density - 0.6f).coerceAtLeast(0.4f) * textSizeScale
         val textSizeSp = (akDanmakuPx / density).coerceAtLeast(1f)
 
-        // 描边对齐 AkDanmaku resolveStrokeWidth（FONT_BORDER_DEFAULT 模式）：
-        //   strokeWidth = (textSizePx × 0.09).coerceIn(1.5, 3)
-        val strokeWidthPx = (akDanmakuPx * 0.09f).coerceIn(1.5f, 3f).toInt()
+        val strokeWidthPx = BiliDanmakuStyle.strokeWidthForCache(
+            textSizePx = akDanmakuPx,
+            fontBorder = com.kuaishou.akdanmaku.DanmakuConfig.FONT_BORDER_DEFAULT
+        )
 
         return DanmakuConfig(
             enabled = snapshot.enabled,
@@ -346,11 +382,14 @@ class DanmakuCoreController(
     private fun defaultConfig(): DanmakuConfig =
         DanmakuConfig(
             enabled = true,
-            opacity = 1f,
+            opacity = BiliDanmakuStyle.DEFAULT_ALPHA_FACTOR,
             textSizeSp = 18f,
             fontWeight = DanmakuFontWeight.Bold,
-            strokeWidthPx = 4,
-            speedLevel = 5,
+            strokeWidthPx = BiliDanmakuStyle.strokeWidthForCache(
+                textSizePx = 18f * density,
+                fontBorder = com.kuaishou.akdanmaku.DanmakuConfig.FONT_BORDER_DEFAULT
+            ),
+            speedLevel = 4,
             area = 0.5f,
             laneDensity = DanmakuLaneDensity.Standard,
             trackSpacing = DanmakuTrackSpacing.DEFAULT,

@@ -485,6 +485,7 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
         }
         synchronized(drawState) {
           try {
+            item.drawingIntoCache = true
             context.drawRenderer(item, holder.canvas, info.displayer, config)
             item.state = ItemState.Rendered
             item.drawState.cacheGeneration = info.cacheGeneration
@@ -496,6 +497,8 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
             Log.e(DanmakuEngine.TAG, "CacheManager.draw failed", e)
             item.state = ItemState.Error
             item.pendingCacheGeneration = -1
+          } finally {
+            item.drawingIntoCache = false
           }
         }
         endTrace()
