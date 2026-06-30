@@ -230,6 +230,7 @@ internal class DanmakuPlayer(
         canvas: Canvas,
         rawPositionMs: Long,
         isPlaying: Boolean,
+        playWhenReady: Boolean,
         playbackSpeed: Float,
         config: DanmakuConfig,
     ) {
@@ -245,10 +246,13 @@ internal class DanmakuPlayer(
             return
         }
         lastEnabled = true
-        if (isPlaying) {
+        // 渲染循环启停只看"是否想播放"：isPlaying（真在解码）或 playWhenReady（想播但可能在 buffering）。
+        // 修复 bug2：后台返回时 ExoPlayer 还在 buffering，isPlaying 尚未变 true，
+        // 但 playWhenReady 已为 true，此时必须保持渲染循环，否则弹幕卡死直到首帧。
+        if (isPlaying || playWhenReady) {
             startIfNeeded()
         } else if (started) {
-            // Freeze danmaku on pause/buffering: no need to keep 60fps update loop running.
+            // Freeze danmaku on pause: no need to keep 60fps update loop running.
             started = false
             releaseSemaphoreIfNeeded()
             Choreographer.getInstance().removeFrameCallback(frameCallback)

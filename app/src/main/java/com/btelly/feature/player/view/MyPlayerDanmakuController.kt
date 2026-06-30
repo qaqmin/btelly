@@ -534,6 +534,16 @@ class MyPlayerDanmakuController(
     fun notifyIsPlayingChanged(isPlaying: Boolean) {
         if (isPlaying && wasBufferingWhilePlaying) {
             resumeAfterBuffering()
+            return
+        }
+        // 修复 bug2：切后台（onStop→pause）时不会经过 BUFFERING，wasBufferingWhilePlaying 为 false，
+        // 上面的分支不会触发。切回前台后 onIsPlayingChanged(true) 到来，若引擎已启动但 timer 处于
+        // 暂停态，必须主动恢复，否则弹幕卡死直到重新播放。
+        if (isPlaying) {
+            val player = danmakuPlayer ?: return
+            if (isDanmakuStarted && !isDanmakuPaused && player.isPaused) {
+                resumeAfterBuffering()
+            }
         }
     }
 
@@ -604,7 +614,9 @@ class MyPlayerDanmakuController(
                 // 上一段播放过程中如果 drift sync 留了软同步因子，恢复回用户设定的速度。
                 ensureTimerFactor(player, currentPlaybackSpeed)
                 val enginePos = player.getCurrentTimeMs()
-                if (abs(enginePos - videoPos) > MAX_SYNC_DRIFT_MS) {
+                // 纠正偏差，但禁止回退：暂停瞬间 ExoPlayer 的 raw position 可能回退，
+                // 若 enginePos 已在 videoPos 之后，不强制 seek 回退，避免弹幕"时间倒流"。
+                if (enginePos < videoPos && (videoPos - enginePos) > MAX_SYNC_DRIFT_MS) {
                     seekPlayerTo(
                         player = player,
                         targetPositionMs = videoPos,
@@ -754,6 +766,12 @@ class MyPlayerDanmakuController(
 
     fun notifyPlaybackFirstFrame() {
         lastFirstFrameRealtimeMs = SystemClock.elapsedRealtime()
+        // 修复 bug2：首帧渲染是切后台/surface 重建后恢复弹幕的可靠时机。
+        // 若引擎已启动但 timer 处于暂停态（被后台 pause 了），主动恢复重启渲染循环。
+        val player = danmakuPlayer ?: return
+        if (isDanmakuStarted && !isDanmakuPaused && player.isPaused) {
+            resumeAfterBuffering()
+        }
     }
 
     private fun applyPreparedDataToPlayer(

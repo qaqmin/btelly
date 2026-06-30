@@ -19,6 +19,7 @@ class DanmakuView @JvmOverloads constructor(
 
     private var positionProvider: (() -> Long)? = null
     private var isPlayingProvider: (() -> Boolean)? = null
+    private var playWhenReadyProvider: (() -> Boolean)? = null
     private var playbackSpeedProvider: (() -> Float)? = null
     private var configProvider: (() -> DanmakuConfig)? = null
 
@@ -155,6 +156,10 @@ class DanmakuView @JvmOverloads constructor(
         isPlayingProvider = provider
     }
 
+    fun setPlayWhenReadyProvider(provider: () -> Boolean) {
+        playWhenReadyProvider = provider
+    }
+
     fun setPlaybackSpeedProvider(provider: () -> Float) {
         playbackSpeedProvider = provider
     }
@@ -223,6 +228,7 @@ class DanmakuView @JvmOverloads constructor(
                 canvas = canvas,
                 rawPositionMs = 0L,
                 isPlaying = false,
+                playWhenReady = false,
                 playbackSpeed = 1f,
                 config = cfg,
             )
@@ -239,6 +245,11 @@ class DanmakuView @JvmOverloads constructor(
         val isPlaying =
             runCatching { isPlayingProvider?.invoke() }.getOrNull()
                 ?: (now - lastPositionChangeUptimeMs < STOP_WHEN_IDLE_MS)
+        // playWhenReady 表示"想播放"（可能正在 buffering）。后台返回时 isPlaying 尚未变 true，
+        // 但 playWhenReady 已为 true，用它驱动渲染循环避免弹幕卡死。
+        val playWhenReady =
+            runCatching { playWhenReadyProvider?.invoke() }.getOrNull()
+                ?: isPlaying
         val speed =
             runCatching { playbackSpeedProvider?.invoke() }.getOrNull()
                 ?.takeIf { it.isFinite() && it > 0f }
@@ -249,6 +260,7 @@ class DanmakuView @JvmOverloads constructor(
             canvas = canvas,
             rawPositionMs = rawPos,
             isPlaying = isPlaying,
+            playWhenReady = playWhenReady,
             playbackSpeed = speed,
             config = cfg,
         )

@@ -297,6 +297,10 @@ class DanmakuPlayer(renderer: DanmakuRenderer) {
     engine.pause()
   }
 
+  /** 引擎 timer 是否处于暂停态（切后台/暂停后为 true）。供上层判断是否需要恢复。 */
+  val isPaused: Boolean
+    get() = engine.isPaused
+
   fun stop() {
     stopFrameLoop()
     seekTo(0)

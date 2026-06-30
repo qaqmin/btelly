@@ -68,7 +68,13 @@ internal class DanmakuTimer {
         lastSeekSerial = seekSerial
 
         if (!isPlaying) {
-            if (lastPlaying || abs(raw - smoothPositionMs) >= IDLE_REANCHOR_THRESHOLD_MS) {
+            // 暂停/恢复瞬间 ExoPlayer 的 raw position 常会回退几十~上百毫秒
+            // （解码器缓冲固有行为）。若此时无条件重锚到 raw，弹幕会瞬间"时间倒流"。
+            // 修复：暂停瞬间保留当前平滑位置不动；暂停中也只允许往前纠偏，禁止回退。
+            if (lastPlaying) {
+                // 刚从播放切到暂停：保持弹幕停在当前平滑位置，绝不回退。
+            } else if (raw - smoothPositionMs >= IDLE_REANCHOR_THRESHOLD_MS) {
+                // 暂停中，raw 明显往前跳（如 seek 到更晚位置），才向前重锚。
                 smoothPositionMs = raw
             }
             lastPlaying = false

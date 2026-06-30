@@ -66,6 +66,12 @@ class DanmakuCoreController(
     @Volatile
     private var isPlaying = false
 
+    // playWhenReady：用户"想播放"的意图，独立于 isPlaying（是否真在解码）。
+    // 后台返回恢复时 ExoPlayer 可能还在 buffering，isPlaying 尚未变 true，但 playWhenReady 已为 true。
+    // 用它驱动渲染循环，避免弹幕卡死直到首帧。
+    @Volatile
+    private var playWhenReady = false
+
     /**
      * 数据预处理协程作用域：把排序/过滤/合并/转换丢到后台线程，避免阻塞主线程。
      * 参考 MyPlayerDanmakuController.controllerScope 的模式。
@@ -76,6 +82,13 @@ class DanmakuCoreController(
     private var preloadTextureJob: Job? = null
     private var preloadedVipTextureKeys: Set<String> = emptySet()
 
+    /**
+     * 引擎数据是否已被 stop 清空（切后台）。stop() 置 true；重新喂数据后置 false。
+     * 切回前台首帧时若为 true 且 rawItems 非空，用 rawItems 恢复弹幕。
+     */
+    @Volatile
+    private var dataStopped: Boolean = false
+
     init {
         installProviders()
     }
@@ -84,6 +97,7 @@ class DanmakuCoreController(
         val view = viewProvider() ?: return
         view.setPositionProvider { playerPositionProvider?.invoke()?.coerceAtLeast(0L) ?: 0L }
         view.setIsPlayingProvider { isPlaying }
+        view.setPlayWhenReadyProvider { playWhenReady }
         view.setPlaybackSpeedProvider { 1f } // 引擎内部按播放速度算 duration，这里固定 1
         view.setConfigProvider { currentConfig }
     }
@@ -165,6 +179,7 @@ class DanmakuCoreController(
         // playWhenReady 作为 isPlaying 的候选值之一（buffering 时 isPlaying=false 会由
         // notifyIsPlayingChanged 覆盖），用 volatile 字段避免事件顺序竞争。
         val wasPlaying = isPlaying
+        this.playWhenReady = playWhenReady
         isPlaying = playWhenReady
         // isPlaying 从 false→true 时必须主动 invalidate，否则引擎 Choreographer 已停，
         // 没有 onDraw 触发就不会重启渲染循环 → 弹幕卡住/消失。
@@ -189,7 +204,15 @@ class DanmakuCoreController(
         // 主动 invalidate 触发一次 onDraw，让引擎有机会重启渲染循环；
         // 同时兜底设 isPlaying=true（首帧出来说明解码器已就绪，弹幕应跟随播放）。
         val wasPlaying = isPlaying
-        if (!wasPlaying) isPlaying = true
+        if (!wasPlaying) {
+            playWhenReady = true
+            isPlaying = true
+        }
+        // 修复 bug2：切后台 stop 清空了引擎数据，切回前台首帧时用保留的 rawItems 恢复弹幕。
+        if (dataStopped && rawItems.isNotEmpty()) {
+            dataStopped = false
+            resumeDataFromBackground()
+        }
         viewProvider()?.invalidate()
     }
 
@@ -199,20 +222,26 @@ class DanmakuCoreController(
     }
 
     fun pause() {
+        playWhenReady = false
         isPlaying = false
     }
 
     fun resume() {
         val wasPlaying = isPlaying
+        playWhenReady = true
         isPlaying = true
         if (!wasPlaying) viewProvider()?.invalidate()
     }
 
     fun stop() {
+        playWhenReady = false
         isPlaying = false
+        // 仅清引擎 active 数据，保留 rawItems：切后台 stop 后，切回前台播放时
+        // notifyIsPlayingChanged/notifyPlaybackFirstFrame 会用 rawItems 重新喂数据恢复弹幕。
+        // （此前清 rawItems 导致切后台再回来弹幕永久消失，直到重新播放。）
         viewProvider()?.setDanmakus(emptyList())
-        rawItems = emptyList()
         preloadedVipTextureKeys = emptySet()
+        dataStopped = rawItems.isNotEmpty()
     }
 
     fun resetForPlaybackStart(positionMs: Long) {
@@ -232,6 +261,19 @@ class DanmakuCoreController(
         stop()
         preloadTextureJob?.cancel()
         controllerScope.cancel()
+    }
+
+    /**
+     * 切后台 stop 后，切回前台首帧时用保留的 rawItems 恢复弹幕。
+     * 对齐 ak 引擎：ak 的 stop 不碰 danmakuTimeline，恢复时靠 rebuildAndApplyData 重建窗口；
+     * lite 的 stop 此前会清 rawItems 导致切回后弹幕永久消失，现改为保留 rawItems 并在此恢复。
+     */
+    private fun resumeDataFromBackground() {
+        if (rawItems.isEmpty()) return
+        val generation = prepareGeneration.incrementAndGet()
+        controllerScope.launch {
+            applyDataToViewAsync(generation, append = false)
+        }
     }
 
     // ---- 内部 ----
@@ -342,6 +384,8 @@ class DanmakuCoreController(
         } else {
             view.setDanmakus(danmakus)
         }
+        // 数据已重新注入引擎，清除"切后台 stop"标记。
+        dataStopped = false
         AppLog.i(
             TAG,
             "applied danmakus=${danmakus.size} merge=${lastSnapshot?.mergeDuplicate ?: true} append=$append"
