@@ -11,6 +11,7 @@ import androidx.media3.common.util.UnstableApi
 import com.btelly.R
 import com.btelly.databinding.ActivityPlayerBinding
 import com.btelly.core.ui.base.BaseActivity
+import com.btelly.core.common.ext.toast
 import com.btelly.feature.player.LivePlayerFragment
 
 @OptIn(UnstableApi::class)
@@ -18,6 +19,21 @@ class LivePlayerActivity : BaseActivity<ActivityPlayerBinding>() {
 
     private var exitTime: Long = 0
     private val exitInterval = 2000L
+
+    /** 青少年模式：直播期间每 15 秒结算观看时长，达上限触发休息退出。 */
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val teenModeTicker = object : Runnable {
+        override fun run() {
+            com.btelly.core.common.content.TeenModeTimer.tick()
+            if (com.btelly.core.common.content.TeenModeTimer.isResting()) {
+                val restMin = com.btelly.core.common.content.TeenModeTimer.getRestLimitMin().coerceAtLeast(1)
+                toast("请关闭电视注意休息，还需休息 $restMin 分钟")
+                finish()
+                return
+            }
+            mainHandler.postDelayed(this, 15_000L)
+        }
+    }
 
     override fun getViewBinding(): ActivityPlayerBinding =
         ActivityPlayerBinding.inflate(layoutInflater)
@@ -43,12 +59,24 @@ class LivePlayerActivity : BaseActivity<ActivityPlayerBinding>() {
                 replace(R.id.player_container, LivePlayerFragment.newInstance(roomId))
             }
         }
+        // 青少年模式：启动观看时长定时器
+        mainHandler.postDelayed(teenModeTicker, 15_000L)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        mainHandler.removeCallbacks(teenModeTicker)
     }
 
     companion object {
         private const val EXTRA_ROOM_ID = "room_id"
 
         fun start(context: Context, roomId: Long) {
+            // 青少年模式：休息期间拦截直播入口
+            com.btelly.core.common.content.TeenModeTimer.consumeBlockReason(context)?.let {
+                context.toast(it)
+                return
+            }
             context.startActivity(Intent(context, LivePlayerActivity::class.java).apply {
                 putExtra(EXTRA_ROOM_ID, roomId)
             })

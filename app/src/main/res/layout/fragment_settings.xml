@@ -190,9 +190,9 @@
                 android:textStyle="bold"/>
         </androidx.appcompat.widget.LinearLayoutCompat>
 
-        <!-- 电视直播分类（位于弹幕与设备信息之间） -->
+        <!-- 青少年模式分类（位于弹幕与电视直播之间） -->
         <androidx.appcompat.widget.LinearLayoutCompat
-            android:id="@+id/button_setting_tv"
+            android:id="@+id/button_setting_teen"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/px20"
@@ -211,8 +211,43 @@
             <androidx.appcompat.widget.AppCompatImageView
                 android:layout_width="@dimen/px50"
                 android:layout_height="@dimen/px50"
+                app:srcCompat="@drawable/ic_teen_protection"
+                app:tint="?android:attr/textColorPrimary"/>
+            <androidx.appcompat.widget.AppCompatTextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="@dimen/px20"
+                android:layout_marginStart="@dimen/px20"
+                android:layout_weight="1"
+                android:text="@string/teen_mode"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="@dimen/px30"
+                android:textStyle="bold"/>
+        </androidx.appcompat.widget.LinearLayoutCompat>
+
+        <!-- 电视直播分类（位于青少年模式与设备信息之间） -->
+        <androidx.appcompat.widget.LinearLayoutCompat
+            android:id="@+id/button_setting_tv"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/px20"
+            android:background="@drawable/cell_background"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="@dimen/px30"
+            android:paddingTop="@dimen/px20"
+            android:paddingEnd="@dimen/px30"
+            android:paddingBottom="@dimen/px20"
+            app:layout_constraintEnd_toEndOf="@+id/button_setting_teen"
+            app:layout_constraintStart_toStartOf="@+id/button_setting_teen"
+            app:layout_constraintTop_toBottomOf="@+id/button_setting_teen">
+            <androidx.appcompat.widget.AppCompatImageView
+                android:layout_width="@dimen/px50"
+                android:layout_height="@dimen/px50"
                 android:padding="@dimen/px2"
-                app:srcCompat="@drawable/ic_tv"
+                app:srcCompat="@drawable/ic_cctv"
                 app:tint="?android:attr/textColorPrimary"/>
             <androidx.appcompat.widget.AppCompatTextView
                 android:layout_width="0dp"

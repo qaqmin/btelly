@@ -65,6 +65,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         const val CATEGORY_DM = 2
         const val CATEGORY_DEVICE = 3
         const val CATEGORY_TV = 4
+        const val CATEGORY_TEEN = 5
 
         private const val DEVICE_POSITION_VERSION = 0
         private const val DEVICE_POSITION_CHECK_UPDATE = 1
@@ -82,6 +83,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val KEY_LIVE_ENTRY = "live_entry"
         private const val KEY_CCTV_LIVE_ENTRY = "cctv_live_entry"
         private const val KEY_MINOR_PROTECTION = "minor_protection"
+        private const val KEY_WATCH_TIME_LIMIT = "teen_watch_limit_min"
+        private const val KEY_REST_TIME_LIMIT = "teen_rest_limit_min"
         private const val KEY_DEFAULT_VIDEO_QUALITY = "default_video_quality"
         private const val KEY_DEFAULT_AUDIO_TRACK = "default_audio_track"
         private const val KEY_DEFAULT_PLAY_SPEED = "default_play_speed"
@@ -116,8 +119,15 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val KEY_SPONSOR_BLOCK_ENABLED = "sponsor_block_enabled"
         private const val KEY_AUDIO_NORMALIZE = "audio_normalize"
         private const val KEY_DANMAKU_LITE_ENGINE = "danmaku_lite_engine"
-        private const val COMMON_POSITION_RISK_CONTROL = 7
+        private const val COMMON_POSITION_RISK_CONTROL = 6
         private val DM_SMART_FILTER_OPTIONS = arrayOf("关", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10")
+
+        /**
+         * 青少年模式-单次观看时长/休息时长选项：0=不限制，1 分钟为测试用，之后步进 10 分钟，最长 120 分钟。
+         * 1 分钟仅供功能自测，正式使用从 10 分钟起。
+         */
+        private val TEEN_TIME_OPTIONS = arrayOf("0", "1") + (10..120 step 10).map { it.toString() }
+        private val TEEN_TIME_DISPLAY = TEEN_TIME_OPTIONS.copyOf().also { it[0] = "不限制" }
 
         private val HOME_START_PAGE_OPTIONS = arrayOf("推荐", "热门", "番剧", "影视", "动态")
     }
@@ -125,6 +135,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
     private lateinit var commonSettings: MutableList<SettingModel>
     private lateinit var playerSettings: MutableList<SettingModel>
     private lateinit var dmSettings: MutableList<SettingModel>
+    private lateinit var teenSettings: MutableList<SettingModel>
     private lateinit var tvSettings: MutableList<SettingModel>
     private val deviceSettings = mutableListOf<SettingModel>()
     private val appSettings: AppSettingsDataStore by inject()
@@ -192,12 +203,18 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.image_quality), "中尺寸"),
             SettingModel(getString(R.string.theme), "黑色"),
             SettingModel(getString(R.string.live_entry), "关"),
-            SettingModel(getString(R.string.minor_protection), "开"),
             SettingModel(getString(R.string.risk_control_verify), "无"),
             SettingModel(getString(R.string.show_video_detail_page), "关"),
             SettingModel(getString(R.string.give_coin_number), "2"),
             SettingModel(getString(R.string.ipv4_only), "开"),
             SettingModel(getString(R.string.douyin_mode), "关")
+        )
+
+        // 青少年模式分类：青少年保护开关（从通用设置迁移）+ 单次观看时长 + 休息时长
+        teenSettings = mutableListOf(
+            SettingModel(getString(R.string.minor_protection), "开"),
+            SettingModel(getString(R.string.watch_time_limit), "不限制"),
+            SettingModel(getString(R.string.rest_time_limit), "不限制")
         )
 
         // 电视直播分类：CCTV 直播开关（从通用设置迁移）+ X5 内核替换
@@ -273,6 +290,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         binding.buttonSettingCommon.setOnClickListener { showCategory(CATEGORY_COMMON) }
         binding.buttonSettingPlay.setOnClickListener { showCategory(CATEGORY_PLAY) }
         binding.buttonSettingDm.setOnClickListener { showCategory(CATEGORY_DM) }
+        binding.buttonSettingTeen.setOnClickListener { showCategory(CATEGORY_TEEN) }
         binding.buttonSettingDevice.setOnClickListener { showCategory(CATEGORY_DEVICE) }
         binding.buttonSettingTv.setOnClickListener { showCategory(CATEGORY_TV) }
     }
@@ -296,6 +314,9 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             CATEGORY_DM -> {
                 showListCategory(dmSettings, animate)
             }
+            CATEGORY_TEEN -> {
+                showListCategory(teenSettings, animate)
+            }
             CATEGORY_DEVICE -> {
                 showListCategory(deviceSettings, animate)
             }
@@ -309,12 +330,14 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         binding.buttonSettingCommon.isSelected = category == CATEGORY_COMMON
         binding.buttonSettingPlay.isSelected = category == CATEGORY_PLAY
         binding.buttonSettingDm.isSelected = category == CATEGORY_DM
+        binding.buttonSettingTeen.isSelected = category == CATEGORY_TEEN
         binding.buttonSettingDevice.isSelected = category == CATEGORY_DEVICE
         binding.buttonSettingTv.isSelected = category == CATEGORY_TV
         val buttons = listOf(
             binding.buttonSettingCommon,
             binding.buttonSettingPlay,
             binding.buttonSettingDm,
+            binding.buttonSettingTeen,
             binding.buttonSettingDevice,
             binding.buttonSettingTv
         )
@@ -334,6 +357,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             CATEGORY_COMMON -> handleCommonSettingClick(position, item)
             CATEGORY_PLAY -> handlePlayerSettingClick(position, item)
             CATEGORY_DM -> handleDmSettingClick(position, item)
+            CATEGORY_TEEN -> handleTeenSettingClick(position, item)
             CATEGORY_DEVICE -> handleDeviceSettingClick(position)
             CATEGORY_TV -> handleTvSettingClick(position)
         }
@@ -497,29 +521,11 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
                 val activity = activity as? MainActivity
                 activity?.applyLiveEntryVisibility()
             }
-            6 -> {
-                val setting = commonSettings.getOrNull(6) ?: return
-                if (setting.info == "开") {
-                    showMinorProtectionVerifyDialog {
-                        toggleSetting(commonSettings, 6, KEY_MINOR_PROTECTION) { value ->
-                            appSettings.putStringAsync(KEY_MINOR_PROTECTION, value)
-                            val activity = activity as? MainActivity
-                            activity?.applyCategoryEntryVisibility()
-                        }
-                    }
-                } else {
-                    toggleSetting(commonSettings, 6, KEY_MINOR_PROTECTION) { value ->
-                        appSettings.putStringAsync(KEY_MINOR_PROTECTION, value)
-                        val activity = activity as? MainActivity
-                        activity?.applyCategoryEntryVisibility()
-                    }
-                }
-            }
-            7 -> showRiskControlDialog()
-            8 -> toggleSetting(commonSettings, 8, KEY_SHOW_VIDEO_DETAIL)
-            9 -> showCommonChoiceDialog(position, KEY_GIVE_COIN_NUMBER, arrayOf("1", "2"))
-            10 -> toggleSetting(commonSettings, 10, KEY_IPV4_ONLY)
-            11 -> toggleSetting(commonSettings, 11, KEY_DOUYIN_MODE)
+            6 -> showRiskControlDialog()
+            7 -> toggleSetting(commonSettings, 7, KEY_SHOW_VIDEO_DETAIL)
+            8 -> showCommonChoiceDialog(position, KEY_GIVE_COIN_NUMBER, arrayOf("1", "2"))
+            9 -> toggleSetting(commonSettings, 9, KEY_IPV4_ONLY)
+            10 -> toggleSetting(commonSettings, 10, KEY_DOUYIN_MODE)
             commonSettings.lastIndex - 1 -> {
                 val newValue = if (AppLog.isEnabled) "关" else "开"
                 AppLog.setEnabled(newValue == "开")
@@ -589,6 +595,63 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         when (position) {
             DEVICE_POSITION_CHECK_UPDATE -> checkForUpdate()
         }
+    }
+
+    /**
+     * 青少年模式分类点击处理。三个选项任意修改都需先通过魂斗罗秘籍验证，
+     * 防止孩子关闭保护或调大时长绕过限制。
+     */
+    private fun handleTeenSettingClick(position: Int, @Suppress("UNUSED_PARAMETER") item: SettingModel) {
+        showMinorProtectionVerifyDialog {
+            when (position) {
+                // 0: 青少年保护开关（从通用设置迁移）
+                0 -> toggleSetting(teenSettings, 0, KEY_MINOR_PROTECTION) { value ->
+                    appSettings.putStringAsync(KEY_MINOR_PROTECTION, value)
+                    val activity = activity as? MainActivity
+                    activity?.applyCategoryEntryVisibility()
+                }
+                // 1: 单次观看时长（0=不限制，步进10分钟）
+                1 -> showTeenTimeChoiceDialog(position, KEY_WATCH_TIME_LIMIT)
+                // 2: 休息时长（0=不限制，步进10分钟；为0则整个时间限制关闭）
+                2 -> showTeenTimeChoiceDialog(position, KEY_REST_TIME_LIMIT)
+            }
+        }
+    }
+
+    private fun showTeenTimeChoiceDialog(position: Int, key: String) {
+        showChoiceDialog(
+            title = teenSettings[position].title,
+            currentValue = teenSettings[position].info,
+            options = TEEN_TIME_DISPLAY
+        ) { selected ->
+            // 把显示值映射回数字字符串存储（"不限制" → "0"）
+            val index = TEEN_TIME_DISPLAY.indexOf(selected).coerceAtLeast(0)
+            val rawValue = TEEN_TIME_OPTIONS[index]
+            updateSetting(teenSettings, position, selected)
+            appSettings.putStringAsync(key, rawValue)
+            // 改时长设置：清掉累计观看时长与休息戳，避免脏状态
+            com.btelly.core.common.content.TeenModeTimer.resetForLimitChange()
+            Toast.makeText(
+                requireContext(),
+                "${teenSettings[position].title}：$selected",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    /** 恢复青少年模式时长选项显示（数字 → "不限制"/"X 分钟"）。 */
+    private fun restoreTeenTimeLimits() {
+        val watchRaw = appSettings.getCachedString(KEY_WATCH_TIME_LIMIT)
+        val restRaw = appSettings.getCachedString(KEY_REST_TIME_LIMIT)
+        teenSettings.getOrNull(1)?.info = formatTeenTimeDisplay(watchRaw)
+        teenSettings.getOrNull(2)?.info = formatTeenTimeDisplay(restRaw)
+    }
+
+    private fun formatTeenTimeDisplay(raw: String?): String {
+        val idx = TEEN_TIME_OPTIONS.indexOf(raw?.trim())
+        if (idx < 0) return "不限制"
+        val value = TEEN_TIME_OPTIONS[idx].toIntOrNull() ?: 0
+        return if (value == 0) "不限制" else "${value}分钟"
     }
 
     private var cachedReleaseInfo: ApkUpdater.ReleaseInfo? = null
@@ -978,12 +1041,15 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         val theme = appSettings.getCachedInt("theme", 1)
         commonSettings[4].info = theme.toThemeName()
         applySavedValue(commonSettings, 5, KEY_LIVE_ENTRY)
-        applySavedValue(commonSettings, 6, KEY_MINOR_PROTECTION)
         updateRiskControlStatus()
-        applySavedValue(commonSettings, 8, KEY_SHOW_VIDEO_DETAIL)
-        applySavedValue(commonSettings, 9, KEY_GIVE_COIN_NUMBER)
-        applySavedValue(commonSettings, 10, KEY_IPV4_ONLY)
-        applySavedValue(commonSettings, 11, KEY_DOUYIN_MODE)
+        applySavedValue(commonSettings, 7, KEY_SHOW_VIDEO_DETAIL)
+        applySavedValue(commonSettings, 8, KEY_GIVE_COIN_NUMBER)
+        applySavedValue(commonSettings, 9, KEY_IPV4_ONLY)
+        applySavedValue(commonSettings, 10, KEY_DOUYIN_MODE)
+
+        // 青少年模式分类：保护开关（从通用设置迁移）+ 观看时长 + 休息时长
+        applySavedValue(teenSettings, 0, KEY_MINOR_PROTECTION)
+        restoreTeenTimeLimits()
 
         // 电视直播分类：CCTV 开关（从通用设置迁移过来）
         applySavedValue(tvSettings, 0, KEY_CCTV_LIVE_ENTRY)
@@ -1223,6 +1289,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             CATEGORY_COMMON -> target === commonSettings
             CATEGORY_PLAY -> target === playerSettings
             CATEGORY_DM -> target === dmSettings
+            CATEGORY_TEEN -> target === teenSettings
             CATEGORY_TV -> target === tvSettings
             else -> false
         }

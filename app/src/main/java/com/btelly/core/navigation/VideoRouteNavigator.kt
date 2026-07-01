@@ -35,6 +35,11 @@ object VideoRouteNavigator {
             message = "aid=${video.aid} bvid=${video.bvid} cid=${video.cid} title=${video.title.take(32)}"
         )
         AppLog.d(TAG, "openVideo: bvid=${video.bvid}, aid=${video.aid}, title=${video.title}, forcePlayer=$forcePlayer")
+        // 青少年模式：休息期间拦截视频入口
+        com.btelly.core.common.content.TeenModeTimer.consumeBlockReason(context)?.let {
+            context.toast(it)
+            return
+        }
         if (!video.hasPlaybackIdentity) {
             AppLog.w(TAG, "openVideo blocked: missing playback identity, title=${video.title}, cid=${video.cid}")
             context.toast("当前卡片数据不完整，暂时无法播放")

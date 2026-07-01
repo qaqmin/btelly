@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -108,6 +109,13 @@ class AppSettingsDataStore(private val context: Context) {
         return cache[key] as? Boolean ?: defaultValue
     }
 
+    fun getCachedLong(key: String, defaultValue: Long = 0L): Long {
+        val cached = cache[key]
+        if (cached != null) return cached as? Long ?: defaultValue
+        ensureCacheReady(key)
+        return cache[key] as? Long ?: defaultValue
+    }
+
     fun getCachedStringSet(key: String, defaultValue: Set<String> = emptySet()): Set<String> {
         @Suppress("UNCHECKED_CAST")
         cache[key]?.let { return it as? Set<String> ?: defaultValue }
@@ -125,6 +133,12 @@ class AppSettingsDataStore(private val context: Context) {
         val cached = cache[key]
         if (cached != null) return cached as? Int ?: defaultValue
         return (dataStore.data.first()[intPreferencesKey(key)] ?: defaultValue).also { cache[key] = it }
+    }
+
+    suspend fun getLong(key: String, defaultValue: Long = 0L): Long {
+        val cached = cache[key]
+        if (cached != null) return cached as? Long ?: defaultValue
+        return (dataStore.data.first()[longPreferencesKey(key)] ?: defaultValue).also { cache[key] = it }
     }
 
     suspend fun getStringSet(key: String, defaultValue: Set<String> = emptySet()): Set<String> {
@@ -204,6 +218,28 @@ class AppSettingsDataStore(private val context: Context) {
         }
     }
 
+    fun putLongAsync(key: String, value: Long) {
+        cache[key] = value
+        scope.launch {
+            dataStore.edit { prefs ->
+                prefs[longPreferencesKey(key)] = value
+            }
+        }
+    }
+
+    fun removeAsync(key: String) {
+        cache.remove(key)
+        scope.launch {
+            dataStore.edit { prefs ->
+                prefs.remove(stringPreferencesKey(key))
+                prefs.remove(intPreferencesKey(key))
+                prefs.remove(longPreferencesKey(key))
+                prefs.remove(booleanPreferencesKey(key))
+                prefs.remove(stringSetPreferencesKey(key))
+            }
+        }
+    }
+
     fun putBooleanAsync(key: String, value: Boolean) {
         cache[key] = value
         scope.launch {
@@ -227,6 +263,7 @@ class AppSettingsDataStore(private val context: Context) {
         dataStore.edit { prefs ->
             prefs.remove(stringPreferencesKey(key))
             prefs.remove(intPreferencesKey(key))
+            prefs.remove(longPreferencesKey(key))
             prefs.remove(booleanPreferencesKey(key))
             prefs.remove(stringSetPreferencesKey(key))
         }

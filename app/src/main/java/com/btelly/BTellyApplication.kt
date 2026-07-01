@@ -102,6 +102,8 @@ class BTellyApplication : Application() {
             AppLog.i(TAG, "STARTUP sessionRuntimeInit start reason=$reason")
             // 登录态只需要设置缓存、Cookie 和持久化用户资料，不需要先构造 OkHttp/Retrofit。
             trace("initSettingsBlocking", startMs) { initSettingsBlocking(reason) }
+            // 青少年模式：设置缓存就绪后刷新休息状态，让 restingFlow 反映持久化中的真实值
+            com.btelly.core.common.content.TeenModeTimer.initOnStartup()
             trace("initNetworkSession", startMs) { initNetworkSession() }
             // 设置缓存已同步就绪：后台扫描缓存目录并按当前上限 trim 一次。
             // 既能收敛旧版 totalSize 计数 bug 遗留的超额，也避免后续 Fragment 首次访问时

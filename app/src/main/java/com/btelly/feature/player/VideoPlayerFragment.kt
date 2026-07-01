@@ -378,12 +378,16 @@ class VideoPlayerFragment : Fragment() {
             if (isPlaying && !isSeeking) {
                 playerView.resumeDanmaku()
                 progressCoordinator.restart()
+                // 青少年模式：累计观看时长埋点（仅时间限制启用时计时）
+                com.btelly.core.common.content.TeenModeTimer.onPlayStart()
             } else if (!isPlaying) {
                 if (player?.playbackState != Player.STATE_BUFFERING) {
                     playerView.pauseDanmaku()
                 }
                 progressCoordinator.stop()
                 progressCoordinator.syncNow(publishProgressState = true)
+                // 青少年模式：结算本段观看时长，达上限则触发休息
+                com.btelly.core.common.content.TeenModeTimer.onPlayStop()
             }
             syncPlaybackEnvironment()
         }

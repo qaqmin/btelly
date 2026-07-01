@@ -23,6 +23,7 @@ import com.btelly.feature.marmot.quality.CctvQualityProvider
 import com.btelly.feature.marmot.quality.LiveQualityProvider
 import com.btelly.feature.marmot.quality.MarmotQualityProvider
 import com.btelly.core.common.log.AppLog
+import com.btelly.core.common.ext.toast
 import com.btelly.core.ui.base.BaseActivity
 import com.btelly.databinding.ActivityMarmotLiveBinding
 import com.btelly.feature.marmot.MarmotCloudUpdate
@@ -63,6 +64,11 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
 
         /** 启动入口。 */
         fun start(context: Context) {
+            // 青少年模式：休息期间拦截 TV 直播入口
+            com.btelly.core.common.content.TeenModeTimer.consumeBlockReason(context)?.let {
+                context.toast(it)
+                return
+            }
             context.startActivity(Intent(context, MarmotLiveActivity::class.java))
         }
 
@@ -81,6 +87,20 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val gson = Gson()
+
+    /** 青少年模式：直播期间每 15 秒结算观看时长，达上限触发休息退出。 */
+    private val teenModeTicker = object : Runnable {
+        override fun run() {
+            com.btelly.core.common.content.TeenModeTimer.tick()
+            if (com.btelly.core.common.content.TeenModeTimer.isResting()) {
+                val restMin = com.btelly.core.common.content.TeenModeTimer.getRestLimitMin().coerceAtLeast(1)
+                android.widget.Toast.makeText(this@MarmotLiveActivity, "请关闭电视注意休息，还需休息 $restMin 分钟", android.widget.Toast.LENGTH_SHORT).show()
+                finish()
+                return
+            }
+            mainHandler.postDelayed(this, 15_000L)
+        }
+    }
 
     /** 当前播放频道。 */
     private var currentVod: Vod? = null
@@ -157,6 +177,8 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun initView() {
         jsBridge = MarmotJsBridge(this, jsCallbacks)
+        // 青少年模式：启动观看时长定时器
+        mainHandler.postDelayed(teenModeTicker, 15_000L)
         initWebView()
         setupChannelMenu()
         setupQualityMenu()
@@ -671,6 +693,7 @@ $scriptTags
 
     override fun onDestroy() {
         mainHandler.removeCallbacks(switchChannelRunnable)
+        mainHandler.removeCallbacks(teenModeTicker)
         webEngine?.let { engine ->
             engine.removeJavascriptInterface(jsBridge.bridgeName)
             engine.loadUrl("about:blank")

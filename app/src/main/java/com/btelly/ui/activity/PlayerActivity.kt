@@ -260,6 +260,24 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     private var latestControllerVisibility: Int = View.GONE
     private var latestPlaybackPositionMs: Long = 0L
     private var latestPlaybackDurationMs: Long = 0L
+
+    /** 青少年模式累计观看时长定时器：每 15 秒结算一次，达上限触发休息退出。 */
+    private val teenModeHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val teenModeTicker = object : Runnable {
+        override fun run() {
+            com.btelly.core.common.content.TeenModeTimer.tick()
+            teenModeHandler.postDelayed(this, 15_000L)
+        }
+    }
+
+    private fun startTeenModeTicker() {
+        teenModeHandler.removeCallbacks(teenModeTicker)
+        teenModeHandler.postDelayed(teenModeTicker, 15_000L)
+    }
+
+    private fun stopTeenModeTicker() {
+        teenModeHandler.removeCallbacks(teenModeTicker)
+    }
     private var pendingRelatedVideosBeforeFirstFrame: List<VideoModel>? = null
     private lateinit var slimTimelineRenderer: SlimTimelineRenderer
     private val sessionCoordinator = PlayerSessionCoordinator()
@@ -1034,6 +1052,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     }
 
     private fun setupObservers() {
+        startTeenModeTicker()
         lifecycleScope.launch {
             viewModel.playbackRequest.collect { request ->
                 val currentPlayer = player ?: return@collect
@@ -1192,8 +1211,23 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             }
         }
 
-        lifecycleScope.launch { viewModel.currentPosition.collect { positionMs -> latestPlaybackPositionMs = positionMs.coerceAtLeast(0L); renderBottomProgressBar() } }
+        lifecycleScope.launch { viewModel.currentPosition.collect { positionMs ->
+            latestPlaybackPositionMs = positionMs.coerceAtLeast(0L)
+            renderBottomProgressBar()
+        } }
         lifecycleScope.launch { viewModel.duration.collect { durationMs -> latestPlaybackDurationMs = durationMs.coerceAtLeast(0L); renderBottomProgressBar() } }
+
+        // 青少年模式：观看时长达上限进入休息时，立即退出播放器并提示还需休息多久
+        lifecycleScope.launch {
+            com.btelly.core.common.content.TeenModeTimer.restingFlow.collect { resting ->
+                if (resting) {
+                    val restMin = com.btelly.core.common.content.TeenModeTimer.getRestLimitMin()
+                        .coerceAtLeast(1)
+                    toast("请关闭电视注意休息，还需休息 $restMin 分钟")
+                    finish()
+                }
+            }
+        }
 
         lifecycleScope.launch {
             viewModel.currentSubtitleText.collect { subtitle ->
@@ -1453,6 +1487,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     override fun onDestroy() {
         playerView.removeCallbacks(resumePlaybackRunnable)
         stopProgressUpdates()
+        stopTeenModeTicker()
         resumeHintController.release()
         player?.removeListener(playerListener)
         playerView.destroy()
