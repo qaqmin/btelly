@@ -1,42 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp"
-    android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-
-    <!-- 外层电视外壳边框 -->
+    android:width="100dp"
+    android:height="100dp"
+    android:viewportWidth="1024"
+    android:viewportHeight="1024">
     <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#AAAAAA"
-        android:strokeWidth="2"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M4,6 L20,6 A1 1 0 0 1 21,7 L21,16 A1 1 0 0 1 20,17 L4,17 A1 1 0 0 1 3,16 L3,7 A1 1 0 0 1 4,6 Z"/>
-
-    <!-- 内层屏幕圆角边框 -->
+        android:fillColor="#ffffff"
+        android:pathData="M338,90L474,250L424,292L288,132C276,118 278,97 292,85C306,73 326,76 338,90Z" />
     <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#AAAAAA"
-        android:strokeWidth="2"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M8.5,8 L15.5,8 A2.5 2.5 0 0 1 18,10.5 L18,12.5 A2.5 2.5 0 0 1 15.5,15 L8.5,15 A2.5 2.5 0 0 1 6,12.5 L6,10.5 A2.5 2.5 0 0 1 8.5,8 Z"/>
-
-    <!-- V型电视天线 -->
+        android:fillColor="#ffffff"
+        android:pathData="M686,90L550,250L600,292L736,132C748,118 746,97 732,85C718,73 698,76 686,90Z" />
     <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#AAAAAA"
-        android:strokeWidth="2"
-        android:strokeLineCap="round"
-        android:pathData="M12,6 L9,3 M12,6 L15,3"/>
-
-    <!-- 底部底座 -->
+        android:fillColor="#ffffff"
+        android:fillType="evenOdd"
+        android:pathData="M112,256H912C956,256 992,292 992,336V696C992,740 956,776 912,776H112C68,776 32,740 32,696V336C32,292 68,256 112,256ZM128,328C115,328 104,339 104,352V680C104,693 115,704 128,704H896C909,704 920,693 920,680V352C920,339 909,328 896,328H128Z" />
     <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#AAAAAA"
-        android:strokeWidth="2"
-        android:strokeLineCap="round"
-        android:pathData="M5,18.5 H19"/>
-
+        android:fillColor="#ffffff"
+        android:fillType="evenOdd"
+        android:pathData="M176,392H696C736,392 768,424 768,464V616C768,656 736,688 696,688H176C136,688 104,656 104,616V464C104,424 136,392 176,392ZM200,464C187,464 176,475 176,488V592C176,605 187,616 200,616H672C685,616 696,605 696,592V488C696,475 685,464 672,464H200Z" />
+    <path
+        android:fillColor="#ffffff"
+        android:pathData="M846,424m-36,0a36,36 0,1 0,72 0a36,36 0,1 0,-72 0" />
+    <path
+        android:fillColor="#ffffff"
+        android:pathData="M846,536m-36,0a36,36 0,1 0,72 0a36,36 0,1 0,-72 0" />
+    <path
+        android:fillColor="#ffffff"
+        android:pathData="M846,648m-36,0a36,36 0,1 0,72 0a36,36 0,1 0,-72 0" />
+    <path
+        android:fillColor="#ffffff"
+        android:pathData="M184,736H328V852C328,872 312,888 292,888H220C200,888 184,872 184,852V736Z" />
+    <path
+        android:fillColor="#ffffff"
+        android:pathData="M696,736H840V852C840,872 824,888 804,888H732C712,888 696,872 696,852V736Z" />
 </vector>
