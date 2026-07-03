@@ -225,7 +225,8 @@ object FileCacheManager {
         synchronized(fileMap) {
             val files = cacheDir.listFiles() ?: return
             for (file in files) {
-                file.delete()
+                // 用 deleteRecursively 兜住可能存在的子目录，避免漏删导致缓存目录无法真正归零。
+                file.deleteRecursively()
             }
             fileMap.clear()
             totalSize.set(0)

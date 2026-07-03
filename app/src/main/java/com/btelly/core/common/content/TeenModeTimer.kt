@@ -69,6 +69,16 @@ object TeenModeTimer {
         return appSettings.getCachedString(KEY_REST_LIMIT_MIN)?.trim()?.toIntOrNull() ?: 0
     }
 
+    /** 休息总时长（毫秒），供倒计时计算用。 */
+    fun getRestLimitMs(): Long {
+        return getRestLimitMin().toLong() * 60_000L
+    }
+
+    /** 休息开始墙钟戳（毫秒），未进入休息返回 0。供倒计时计算用。 */
+    fun getRestStartMs(): Long {
+        return appSettings.getCachedLong(KEY_REST_START_MS, 0L)
+    }
+
     fun setWatchLimitMin(min: Int) {
         appSettings.putIntAsync(KEY_WATCH_LIMIT_MIN, min.coerceIn(0, 120))
         // 改时长设置：清掉累计和休息戳，避免脏状态。

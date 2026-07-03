@@ -72,6 +72,18 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         private const val STARTUP_TAG = "AppStartup"
     }
 
+    /** 青少年模式：休息遮罩倒计时 Handler，每秒刷新剩余时间。 */
+    private val teenRestHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val teenRestTicker = object : Runnable {
+        override fun run() {
+            updateTeenRestCountdown()
+            // 还有剩余时间才继续，否则 updateTeenRestCountdown 内部会撤掉遮罩并停止
+            if (binding.teenRestOverlay.visibility == View.VISIBLE) {
+                teenRestHandler.postDelayed(this, 1000L)
+            }
+        }
+    }
+
     // tab 顺序固定（与 fragmentFactories 一一对应）：
     // 0 推荐 / 1 分类 / 2 动态 / 3 直播 / 4 CCTV直播 / 5 我的 / 6 搜索。
     // 用 lazy factory 让 4 个非首屏 tab 真正点中时再构造，省去 1.1s 的 onCreate 大段时间。
@@ -923,6 +935,12 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     }
 
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        // 青少年模式：休息遮罩可见时，拦截除返回键外的所有按键，防止操作背后内容
+        if (binding.teenRestOverlay.visibility == View.VISIBLE &&
+            keyCode != android.view.KeyEvent.KEYCODE_BACK
+        ) {
+            return true
+        }
         if (event?.action == android.view.KeyEvent.ACTION_DOWN && keyCode == android.view.KeyEvent.KEYCODE_MENU) {
             val focused = currentFocus
             if (focused != null && isInsideRecyclerView(focused)) {
@@ -944,5 +962,56 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     override fun onSaveInstanceState(outState: Bundle) {
         mainNavigationViewModel.onTabSelected(currentFragmentIndex)
         super.onSaveInstanceState(outState)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshTeenRestOverlay()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        teenRestHandler.removeCallbacks(teenRestTicker)
+    }
+
+    /** 检查青少年模式休息状态：休息中显示遮罩并启动倒计时，否则确保遮罩隐藏。 */
+    private fun refreshTeenRestOverlay() {
+        if (com.btelly.core.common.content.TeenModeTimer.isResting()) {
+            showTeenRestOverlay()
+        } else {
+            hideTeenRestOverlay()
+        }
+    }
+
+    private fun showTeenRestOverlay() {
+        binding.teenRestOverlay.visibility = View.VISIBLE
+        updateTeenRestCountdown()
+        teenRestHandler.removeCallbacks(teenRestTicker)
+        teenRestHandler.postDelayed(teenRestTicker, 1000L)
+    }
+
+    private fun hideTeenRestOverlay() {
+        binding.teenRestOverlay.visibility = View.GONE
+        teenRestHandler.removeCallbacks(teenRestTicker)
+    }
+
+    /** 用墙钟算剩余时间并刷新文字，到期则撤掉遮罩。 */
+    private fun updateTeenRestCountdown() {
+        val restStart = com.btelly.core.common.content.TeenModeTimer.getRestStartMs()
+        val restLimitMs = com.btelly.core.common.content.TeenModeTimer.getRestLimitMs()
+        if (restStart <= 0L || restLimitMs <= 0L) {
+            hideTeenRestOverlay()
+            return
+        }
+        val remainingMs = restLimitMs - (System.currentTimeMillis() - restStart)
+        if (remainingMs <= 0L) {
+            // 休息到期：撤掉遮罩（isResting 下次调用会自动清零累计）
+            hideTeenRestOverlay()
+            return
+        }
+        val totalSec = (remainingMs / 1000L).toInt()
+        val min = totalSec / 60
+        val sec = totalSec % 60
+        binding.teenRestCountdown.text = "还需休息 %02d:%02d".format(min, sec)
     }
 }

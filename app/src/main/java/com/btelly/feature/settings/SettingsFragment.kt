@@ -960,6 +960,11 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             updateSetting(commonSettings, 1, value)
             appSettings.putStringAsync(KEY_CACHE_LIMIT, value)
             FileCacheManager.trimToLimit()
+            // SimpleCache 创建后上限不可改，必须释放对象让下次播放按新上限重建。
+            // 同步失效暖复用快照与挂载源，否则 2 分钟内重播同视频会撞已 release 的 cache。
+            PlayerMediaCache.reset(requireContext())
+            VideoPlayerViewModel.clearCachedPlayback()
+            PlayerInstancePool.clearAttachedSource()
             commonSettings[0].info = formatFileSize(getCurrentCacheSize())
             adapter.notifyItemChanged(0)
         }

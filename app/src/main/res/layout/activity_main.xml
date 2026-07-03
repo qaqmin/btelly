@@ -41,4 +41,35 @@
         android:layout_height="wrap_content"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"/>
+
+    <!-- 青少年模式：休息期间全屏遮罩 + 倒计时 -->
+    <LinearLayout
+        android:id="@+id/teenRestOverlay"
+        android:visibility="gone"
+        android:background="#FF000000"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+        <TextView
+            android:id="@+id/teenRestTitle"
+            android:text="请关闭电视注意休息"
+            android:textColor="#FFFFFF"
+            android:textSize="@dimen/px48"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_marginBottom="@dimen/px60"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+        <TextView
+            android:id="@+id/teenRestCountdown"
+            android:textColor="#FFFFFF"
+            android:textSize="@dimen/px80"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+    </LinearLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -1184,7 +1184,7 @@ object ImageLoader {
             .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
-            .cache(Cache(cacheDir, 128L * 1024L * 1024L))
+            .cache(Cache(cacheDir, 64L * 1024L * 1024L))
             .addNetworkInterceptor { chain ->
                 val response = chain.proceed(chain.request())
                 if (isCacheableImageUrl(chain.request().url.toString())) {
