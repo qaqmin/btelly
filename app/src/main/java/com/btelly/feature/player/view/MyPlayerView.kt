@@ -287,6 +287,17 @@ class MyPlayerView @JvmOverloads constructor(
     private var pendingHoldStartRunnable: Runnable? = null
     private val holdStartDelayMs = 200L
 
+    // --- SeekDiag: 诊断 seek 后画面卡死(纯观测,不改播放逻辑)---
+    // 目标:坐实"async MediaCodec adapter flush 后丢失首帧回调"是不是根因。
+    // 复现后看是否出现 "NO_FIRST_FRAME_AFTER_SEEK" → 视频管线断裂铁证。
+    private var seekDiagStartedAtElapsedMs = 0L
+    private var seekDiagWatchdogRunnable: Runnable? = null
+    private var seekDiagHeartbeatRunnable: Runnable? = null
+    private var seekDiagLastDroppedFrames = 0L
+    private val seekDiagWatchdogTimeoutMs = 3000L
+    private val seekDiagHeartbeatIntervalMs = 500L
+    private val seekDiagHeartbeatDurationMs = 6000L
+
     // --- Tap accumulation (shared by both seek paths) ---
     private var tapAccumulateBaseMs = 0L
     private var tapAccumulateDeltaMs = 0L
@@ -430,6 +441,7 @@ class MyPlayerView @JvmOverloads constructor(
             ) {
                 // seek 后 video 解码追上前不渲染 mask，避免 200ms 错位窗口。
                 dmMaskController.onSeek()
+                armSeekDiag(oldPosition.positionMs, newPosition.positionMs)
             }
         }
 
@@ -443,6 +455,7 @@ class MyPlayerView @JvmOverloads constructor(
         }
 
         override fun onRenderedFirstFrame() {
+            onSeekDiagFirstFrame()
             hasRenderedFirstFrame = true
             suppressControllerShowUntilFirstFrame = false
             if (useLiteEngine) {
@@ -1567,10 +1580,10 @@ class MyPlayerView @JvmOverloads constructor(
     private fun getTimebarSeekIntervalMs(): Long {
         val elapsed = android.os.SystemClock.uptimeMillis() - timebarSeekStartMs
         return when {
-            elapsed < 1000L -> 100L
-            elapsed < 2000L -> 50L
-            elapsed < 3000L -> 25L
-            else -> 10L
+            elapsed < 1000L -> 200L
+            elapsed < 2000L -> 120L
+            elapsed < 3000L -> 60L
+            else -> 30L
         }
     }
 
@@ -2533,6 +2546,94 @@ class MyPlayerView @JvmOverloads constructor(
      * "Exception configuring surface" NPE，反而让首帧无法输出（实测黑屏）。
      * onResume 时机晚于 SurfaceView 完成配置，无此竞态。
      */
+
+    // ==================== SeekDiag: seek 后画面卡死诊断（纯观测）====================
+    // 不改任何播放逻辑，只打日志。坐实"async flush 后首帧回调丢失"假设后即移除。
+    private fun armSeekDiag(oldPosMs: Long, newPosMs: Long) {
+        cancelSeekDiag()
+        val currentPlayer = player ?: return
+        seekDiagStartedAtElapsedMs = SystemClock.elapsedRealtime()
+        val dropped = droppedFramesSnapshot()
+        seekDiagLastDroppedFrames = dropped
+        AppLog.d("SeekDiag",
+            "seek ${oldPosMs}ms→${newPosMs}ms state=${stateName(currentPlayer.playbackState)} " +
+                "playWhenReady=${currentPlayer.playWhenReady} dropped=$dropped")
+        // 看门狗：3s 内没收到首帧 → 视频管线断裂铁证
+        val watchdog = Runnable {
+            val startedAt = seekDiagStartedAtElapsedMs
+            if (startedAt == 0L) return@Runnable
+            val p = player
+            val nowDropped = droppedFramesSnapshot()
+            AppLog.w("SeekDiag",
+                "NO_FIRST_FRAME_AFTER_SEEK ${seekDiagWatchdogTimeoutMs}ms " +
+                    "state=${if (p != null) stateName(p.playbackState) else "null"} " +
+                    "playWhenReady=${p?.playWhenReady} pos=${p?.currentPosition}ms " +
+                    "dropped=+${nowDropped - seekDiagLastDroppedFrames}")
+            seekDiagWatchdogRunnable = null
+        }
+        seekDiagWatchdogRunnable = watchdog
+        postDelayed(watchdog, seekDiagWatchdogTimeoutMs)
+        // 心跳：seek 后 6s 内每 500ms 记录 state/dropped,观察卡死期间解码器挣扎情况
+        scheduleSeekDiagHeartbeat()
+    }
+
+    private fun scheduleSeekDiagHeartbeat() {
+        val startedAt = seekDiagStartedAtElapsedMs
+        if (startedAt == 0L) return
+        val heartbeat = Runnable {
+            val s = seekDiagStartedAtElapsedMs
+            if (s == 0L) return@Runnable
+            val p = player ?: return@Runnable
+            val elapsed = SystemClock.elapsedRealtime() - s
+            if (elapsed > seekDiagHeartbeatDurationMs) {
+                seekDiagHeartbeatRunnable = null
+                return@Runnable
+            }
+            val nowDropped = droppedFramesSnapshot()
+            AppLog.d("SeekDiag",
+                "heartbeat elapsed=${elapsed}ms state=${stateName(p.playbackState)} " +
+                    "pos=${p.currentPosition}ms dropped=+${nowDropped - seekDiagLastDroppedFrames}")
+            seekDiagLastDroppedFrames = nowDropped
+            scheduleSeekDiagHeartbeat()
+        }
+        seekDiagHeartbeatRunnable = heartbeat
+        postDelayed(heartbeat, seekDiagHeartbeatIntervalMs)
+    }
+
+    private fun onSeekDiagFirstFrame() {
+        val startedAt = seekDiagStartedAtElapsedMs
+        if (startedAt == 0L) return
+        val elapsed = SystemClock.elapsedRealtime() - startedAt
+        val currentPlayer = player
+        AppLog.d("SeekDiag",
+            "first_frame_after_seek elapsed=${elapsed}ms " +
+                "state=${if (currentPlayer != null) stateName(currentPlayer.playbackState) else "null"}")
+        cancelSeekDiag()
+    }
+
+    private fun cancelSeekDiag() {
+        seekDiagWatchdogRunnable?.let { removeCallbacks(it) }
+        seekDiagWatchdogRunnable = null
+        seekDiagHeartbeatRunnable?.let { removeCallbacks(it) }
+        seekDiagHeartbeatRunnable = null
+        seekDiagStartedAtElapsedMs = 0L
+    }
+
+    private fun droppedFramesSnapshot(): Long {
+        // dropped frames 在 media3 里分散在各 Renderer 的 DecoderCounters 上,
+        // Player/ExoPlayer 接口不直接暴露。此处返回 -1 表示未知,
+        // 完整 dropped 统计已由 PlaybackPerf 的 "video_dropped_frames" 日志覆盖。
+        return -1L
+    }
+
+    private fun stateName(state: Int): String = when (state) {
+        androidx.media3.common.Player.STATE_IDLE -> "IDLE"
+        androidx.media3.common.Player.STATE_BUFFERING -> "BUFFERING"
+        androidx.media3.common.Player.STATE_READY -> "READY"
+        androidx.media3.common.Player.STATE_ENDED -> "ENDED"
+        else -> "UNKNOWN($state)"
+    }
+
     fun recoverVideoRenderIfNeeded(reason: String) {
         if (surfaceDetachedForBackground) return
         val currentPlayer = player ?: return
@@ -2553,6 +2654,7 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     fun destroy() {
+        cancelSeekDiag()
         hideResumeHint()
         controller?.clearVideoSettingChangeListener()
         val currentPlayer = player
