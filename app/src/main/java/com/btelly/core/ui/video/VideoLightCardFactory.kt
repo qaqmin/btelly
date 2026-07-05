@@ -23,6 +23,7 @@ import android.widget.ImageView
 import androidx.core.content.ContextCompat
 import com.btelly.R
 import com.btelly.core.common.log.VideoCardPerfLogger
+import pl.droidsonroids.gif.GifDrawable
 import kotlin.math.ceil
 
 object VideoLightCardFactory {
@@ -398,6 +399,48 @@ class VideoCardTextLayerView @JvmOverloads constructor(
     private var cachedPlaying = false
     private var cachedDrawLines: List<String> = emptyList()
 
+    // “正在播放” GIF 动画。GIF 在自定义 Canvas 绘制模式下默认只画首帧，
+    // 这里持有 GifDrawable 并通过它的帧回调驱动重绘，让动图真正动起来。
+    private var playingDrawable: GifDrawable? = null
+    private val playingAnimCallback by lazy {
+        object : Drawable.Callback {
+            override fun invalidateDrawable(d: Drawable) {
+                // GIF 每推进一帧会回调这里，触发 View 重绘以画出下一帧。
+                invalidate()
+            }
+
+            override fun scheduleDrawable(d: Drawable, what: Runnable, t: Long) {}
+            override fun unscheduleDrawable(d: Drawable, what: Runnable) {}
+        }
+    }
+
+    private fun ensurePlayingDrawable(): GifDrawable? {
+        playingDrawable?.let { return it }
+        val d = runCatching { GifDrawable(resources, R.drawable.playing) }.getOrNull() ?: return null
+        d.callback = playingAnimCallback
+        playingDrawable = d
+        return d
+    }
+
+    private fun updatePlayingAnimation() {
+        val d = ensurePlayingDrawable()
+        if (playing && isAttachedToWindow) {
+            d?.start()
+        } else {
+            d?.stop()
+        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        updatePlayingAnimation()
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        playingDrawable?.stop()
+    }
+
     fun setTitle(
         text: CharSequence?,
         lines: Int,
@@ -421,6 +464,7 @@ class VideoCardTextLayerView @JvmOverloads constructor(
         } else {
             invalidate()
         }
+        updatePlayingAnimation()
     }
 
     fun setTitleColor(color: Int) {
@@ -523,7 +567,14 @@ class VideoCardTextLayerView @JvmOverloads constructor(
         if (playing) {
             val iconSize = lineHeight.coerceAtMost(metrics.titleIconFallbackSize)
             val iconTop = ((lineHeight - iconSize) / 2f).coerceAtLeast(0f)
-            canvas.drawBitmap(assets.playingIcon(), null, RectF(0f, iconTop, iconSize.toFloat(), iconTop + iconSize), null)
+            val d = playingDrawable
+            if (d != null) {
+                d.setBounds(0, iconTop.toInt(), iconSize, (iconTop + iconSize).toInt())
+                d.draw(canvas)
+            } else {
+                // GIF 解码失败时退化到静态首帧 Bitmap
+                canvas.drawBitmap(assets.playingIcon(), null, RectF(0f, iconTop, iconSize.toFloat(), iconTop + iconSize), null)
+            }
             iconSpace = (iconSize + metrics.playingIconMarginEnd).toFloat()
         }
         lines.forEachIndexed { index, line ->
