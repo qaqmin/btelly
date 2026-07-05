@@ -281,11 +281,16 @@ class OwnerDetailDialog(
     }
 
     private fun focusVideoAt(targetIndex: Int, retries: Int = 6) {
-        if (tvFocusController?.requestFocusPosition(targetIndex) == true) {
+        // allowOutsideFocus=true：对话框刚打开时焦点还在外层容器上，
+        // 不放开这个开关 focusPosition 会被“焦点在 RV 外”直接拦截。
+        if (tvFocusController?.requestFocusPosition(targetIndex, allowOutsideFocus = true) == true) {
             return
         }
         if (retries > 0) {
             binding.recyclerView.post { focusVideoAt(targetIndex, retries - 1) }
+        } else {
+            // 重试耗尽仍未聚焦成功：回退到第一个可见卡片，保证打开时焦点一定落在列表上。
+            tvFocusController?.focusPrimary()
         }
     }
 
