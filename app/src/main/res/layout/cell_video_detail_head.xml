@@ -14,6 +14,7 @@
         app:cardCornerRadius="@dimen/px15"
         app:cardForegroundColor="@android:color/transparent"
         app:cardElevation="0dp"
+        app:enforceMaterialTheme="false"
         app:layout_constraintDimensionRatio="h,16:9"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"

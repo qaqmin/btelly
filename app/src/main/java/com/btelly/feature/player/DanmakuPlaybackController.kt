@@ -845,7 +845,12 @@ internal class DanmakuPlaybackController(
                     )
                 }
                 val emittedItems = if (replace) {
-                    publishedRegularDanmakuKeys = replaceKeys!!
+                    // replace 仅决定引擎层是否清屏重发（setDanmakuData），不能丢掉已发布 keys。
+                    // 之前这里用 replaceKeys 整个覆盖 publishedRegularDanmakuKeys，会把跨段 seek 时
+                    // 已发布段的 keys 清掉，导致该段后续 republish 时去重失效、整段弹幕重复 emit，
+                    // 来回 seek 几次后弹幕大量堆积重复。改为合并累加：首段 init 时集合为空，
+                    // 累加结果与原覆盖等价；跨段 seek 时旧 keys 保留，后续 republish 仍能正确去重。
+                    publishedRegularDanmakuKeys.addAll(replaceKeys!!)
                     normalizedItems
                 } else {
                     normalizedItems.filterIndexed { i, _ -> publishedRegularDanmakuKeys.add(normalizedKeys[i]) }

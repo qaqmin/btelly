@@ -367,8 +367,11 @@ class DanmakuCoreController(
             VipDanmakuTextureCache.preloadStyles(missingStyles)
             withContext(Dispatchers.Main.immediate) {
                 if (prepareGeneration.get() != generation) return@withContext
+                // 仅记录已预加载的纹理，不重跑 applyDataToView()。
+                // 弹幕在首次 injectToView 时已注入引擎，渲染层会按需查询纹理缓存
+                // （未命中走降级渲染），重跑只会把整批弹幕再注入一遍，导致每条弹幕
+                // 在两个轨道上重复出现。
                 preloadedVipTextureKeys = preloadedVipTextureKeys + missingKeys
-                applyDataToView()
             }
         }
     }
@@ -379,11 +382,12 @@ class DanmakuCoreController(
     /** 把预处理结果注入引擎（操作 View，必须在主线程调用）。 */
     private fun injectToView(danmakus: List<Danmaku>, append: Boolean) {
         val view = viewProvider() ?: return
-        if (append && viewHasData()) {
-            view.appendDanmakus(danmakus, alreadySorted = true)
-        } else {
-            view.setDanmakus(danmakus)
-        }
+        // 注入的 danmakus 永远是全量 rawItems 经 preprocess 后的结果（applyDataToViewAsync
+        // 用 rawItems 全量快照做预处理）。因此无论 setData 还是 appendData，都必须走
+        // setDanmakus 全量替换。
+        // 之前 append 路径调 appendDanmakus（引擎层 items.add 增量追加），会把全量列表反复
+        // 追加进引擎 items，导致每次 appendData 后引擎弹幕成倍重复——seek 来回几次就满屏重影。
+        view.setDanmakus(danmakus)
         // 数据已重新注入引擎，清除"切后台 stop"标记。
         dataStopped = false
         AppLog.i(
