@@ -98,6 +98,10 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
                 finish()
                 return
             }
+            // 公益广告触发：启动锁死播放，原 CCTV 进入后台暂停，回来 onResume 重新加载当前频道
+            if (com.btelly.core.common.content.TeenModeTimer.checkAndConsumePsasTrigger()) {
+                com.btelly.core.common.content.PsasRepository.launchRandomPsas(this@MarmotLiveActivity)
+            }
             mainHandler.postDelayed(this, 15_000L)
         }
     }

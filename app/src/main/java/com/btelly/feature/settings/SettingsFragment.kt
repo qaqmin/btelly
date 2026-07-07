@@ -85,6 +85,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val KEY_MINOR_PROTECTION = "minor_protection"
         private const val KEY_WATCH_TIME_LIMIT = "teen_watch_limit_min"
         private const val KEY_REST_TIME_LIMIT = "teen_rest_limit_min"
+        private const val KEY_PSAS_ENABLED = "teen_psas_enabled"
+        private const val KEY_PSAS_INTERVAL = "teen_psas_interval_min"
         private const val KEY_DEFAULT_VIDEO_QUALITY = "default_video_quality"
         private const val KEY_DEFAULT_AUDIO_TRACK = "default_audio_track"
         private const val KEY_DEFAULT_PLAY_SPEED = "default_play_speed"
@@ -210,11 +212,13 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.douyin_mode), "关")
         )
 
-        // 青少年模式分类：青少年保护开关（从通用设置迁移）+ 单次观看时长 + 休息时长
+        // 青少年模式分类：青少年保护开关 + 单次观看时长 + 休息时长 + 公益广告开关 + 公益广告间隔
         teenSettings = mutableListOf(
             SettingModel(getString(R.string.minor_protection), "开"),
             SettingModel(getString(R.string.watch_time_limit), "不限制"),
-            SettingModel(getString(R.string.rest_time_limit), "不限制")
+            SettingModel(getString(R.string.rest_time_limit), "不限制"),
+            SettingModel(getString(R.string.psas_enabled), "关"),
+            SettingModel(getString(R.string.psas_interval), "20分钟")
         )
 
         // 电视直播分类：CCTV 直播开关（从通用设置迁移）+ X5 内核替换
@@ -614,7 +618,30 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
                 1 -> showTeenTimeChoiceDialog(position, KEY_WATCH_TIME_LIMIT)
                 // 2: 休息时长（0=不限制，步进10分钟；为0则整个时间限制关闭）
                 2 -> showTeenTimeChoiceDialog(position, KEY_REST_TIME_LIMIT)
+                // 3: 公益广告开关
+                3 -> toggleSetting(teenSettings, 3, KEY_PSAS_ENABLED) { value ->
+                    appSettings.putStringAsync(KEY_PSAS_ENABLED, value)
+                    com.btelly.core.common.content.TeenModeTimer.resetForLimitChange()
+                }
+                // 4: 公益广告间隔（步进10分钟，必须 < 观看上限）
+                4 -> showPsasIntervalChoiceDialog(position)
             }
+        }
+    }
+
+    /** 公益广告间隔选择：与休息计时独立，间隔可任意设置（0=不播）。 */
+    private fun showPsasIntervalChoiceDialog(position: Int) {
+        showChoiceDialog(
+            title = teenSettings[position].title,
+            currentValue = teenSettings[position].info,
+            options = TEEN_TIME_DISPLAY
+        ) { selected ->
+            val index = TEEN_TIME_DISPLAY.indexOf(selected).coerceAtLeast(0)
+            val rawValue = TEEN_TIME_OPTIONS[index]
+            updateSetting(teenSettings, position, selected)
+            appSettings.putStringAsync(KEY_PSAS_INTERVAL, rawValue)
+            com.btelly.core.common.content.TeenModeTimer.resetForLimitChange()
+            Toast.makeText(requireContext(), "${teenSettings[position].title}：$selected", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -645,6 +672,11 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         val restRaw = appSettings.getCachedString(KEY_REST_TIME_LIMIT)
         teenSettings.getOrNull(1)?.info = formatTeenTimeDisplay(watchRaw)
         teenSettings.getOrNull(2)?.info = formatTeenTimeDisplay(restRaw)
+        // 公益广告开关 + 间隔
+        teenSettings.getOrNull(3)?.info = appSettings.getCachedString(KEY_PSAS_ENABLED) ?: "关"
+        teenSettings.getOrNull(4)?.info = formatTeenTimeDisplay(
+            appSettings.getCachedString(KEY_PSAS_INTERVAL) ?: "20"
+        )
     }
 
     private fun formatTeenTimeDisplay(raw: String?): String {

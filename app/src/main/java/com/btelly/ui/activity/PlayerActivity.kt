@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.TypedValue
+import android.view.KeyEvent
 import android.view.View
 import android.widget.FrameLayout
 import com.btelly.feature.player.sponsor.SponsorProgressMarkerView
@@ -95,6 +96,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         private const val EXTRA_START_EPISODE = "player_start_episode"
         private const val EXTRA_STARTUP_TRACE_ID = "player_startup_trace_id"
         private const val EXTRA_STARTUP_TRACE_START_MS = "player_startup_trace_start_ms"
+        /** 青少年模式-公益广告锁死模式：屏蔽所有操作，播完自动退出。 */
+        private const val EXTRA_PSAS_LOCKED = "player_psas_locked"
         private var pendingPlayQueue: List<VideoModel> = emptyList()
 
         fun start(
@@ -109,7 +112,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             playQueue: List<VideoModel> = emptyList(),
             startEpisodeIndex: Int = -1,
             startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
-            startupTraceStartElapsedMs: Long = 0L
+            startupTraceStartElapsedMs: Long = 0L,
+            psasLocked: Boolean = false
         ) {
             val resolvedAid = aid.takeIf { it > 0L } ?: initialVideo?.aid ?: 0L
             val resolvedBvid = bvid.takeIf { it.isNotBlank() } ?: initialVideo?.bvid.orEmpty()
@@ -118,7 +122,10 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             val resolvedSeasonId = seasonId.takeIf { it > 0L }
                 ?: initialVideo?.playbackSeasonId
                 ?: 0L
-            pendingPlayQueue = playQueue.filter(::isPlayableVideo)
+            // 锁死模式（公益广告）不污染全局播放队列，避免影响下次正常播放
+            if (!psasLocked) {
+                pendingPlayQueue = playQueue.filter(::isPlayableVideo)
+            }
             val intent = Intent(context, PlayerActivity::class.java).apply {
                 if (context !is Activity) {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -133,6 +140,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 putExtra(EXTRA_START_EPISODE, startEpisodeIndex)
                 putExtra(EXTRA_STARTUP_TRACE_ID, startupTraceId)
                 putExtra(EXTRA_STARTUP_TRACE_START_MS, startupTraceStartElapsedMs)
+                if (psasLocked) putExtra(EXTRA_PSAS_LOCKED, true)
             }
             val options = ActivityOptionsCompat.makeCustomAnimation(
                 context, R.anim.slide_in_to_right, R.anim.slide_out_to_left
@@ -266,11 +274,22 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     private val teenModeTicker = object : Runnable {
         override fun run() {
             com.btelly.core.common.content.TeenModeTimer.tick()
+            // 公益广告触发：达间隔且广告列表就绪 → 暂停原播放 + 启动锁死播放
+            if (com.btelly.core.common.content.TeenModeTimer.checkAndConsumePsasTrigger()) {
+                player?.pause()
+                if (com.btelly.core.common.content.PsasRepository.launchRandomPsas(this@PlayerActivity)) {
+                    // 启动成功，本次 tick 结束（onResume 会恢复播放）
+                    teenModeHandler.postDelayed(this, 15_000L)
+                    return
+                }
+            }
             teenModeHandler.postDelayed(this, 15_000L)
         }
     }
 
     private fun startTeenModeTicker() {
+        // 公益广告锁死模式：自身不计入观看时长，也不触发休息/公益广告
+        if (psasLocked) return
         teenModeHandler.removeCallbacks(teenModeTicker)
         teenModeHandler.postDelayed(teenModeTicker, 15_000L)
     }
@@ -299,6 +318,9 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     private var lastKeepScreenOnState: Boolean? = null
     private var exitTime: Long = 0
     private val exitInterval = 2000L
+
+    /** 青少年模式-公益广告锁死模式：屏蔽所有操作，播完自动退出。仅通过 EXTRA_PSAS_LOCKED 进入。 */
+    private var psasLocked: Boolean = false
 
     // 抖音模式（编排逻辑已迁出至 DouyinPlaybackCoordinator）
     private lateinit var douyinCoordinator: DouyinPlaybackCoordinator
@@ -484,6 +506,13 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 Player.STATE_ENDED -> {
                     viewModel.setLoading(false)
                     playerView.stopDanmaku()
+                    // 公益广告锁死模式：播完唯一出口，先停播放器再退出，避免被 repeatMode/连播逻辑重新触发
+                    if (psasLocked) {
+                        player?.repeatMode = Player.REPEAT_MODE_OFF
+                        player?.pause()
+                        finish()
+                        return
+                    }
                     handlePlaybackEnded()
                 }
                 Player.STATE_IDLE -> {
@@ -538,6 +567,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     }
 
     private fun handleIntent(intent: Intent) {
+        psasLocked = intent.getBooleanExtra(EXTRA_PSAS_LOCKED, false)
         val aid = intent.getLongExtra(EXTRA_AID, 0L)
         val bvid = intent.getStringExtra(EXTRA_BVID).orEmpty()
         val cid = intent.getLongExtra(EXTRA_CID, 0L)
@@ -765,7 +795,10 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             textNext = textNext,
             countdownView = countdownView,
             canExecutePendingAction = { player?.playbackState == Player.STATE_ENDED },
-            onExecutePendingSession = { sessionId -> viewModel.playContinuation(sessionId) },
+            onExecutePendingSession = { sessionId ->
+                // 公益广告锁死模式：禁止连播下一个，由 STATE_ENDED 直接 finish
+                if (!psasLocked) viewModel.playContinuation(sessionId)
+            },
             onPendingActionCleared = { viewModel.clearPendingContinuation() }
         )
         overlayUiController = VideoPlayerOverlayController(
@@ -836,6 +869,22 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             it.addAnalyticsListener(playerPerfListener)
         }
         playerView.setPlayer(player)
+        // 公益广告锁死模式：关闭控制器（不显示暂停/进度条/设置面板），隐藏各种按钮，强制不循环
+        if (psasLocked) {
+            playerView.setUseController(false)
+            playerView.showSettingButton(false)
+            playerView.showHideNextPrevious(false)
+            playerView.showHideFfRe(false)
+            playerView.showHideActionButton(false)
+            playerView.showHideEpisodeButton(false)
+            playerView.showHideRelatedButton(false)
+            playerView.showHideDmSwitchButton(false)
+            playerView.showHideLiveSettingButton(false)
+            playerView.showHideSubtitleButton(false)
+            playerView.setRepeatMode(Player.REPEAT_MODE_OFF)
+            player?.repeatMode = Player.REPEAT_MODE_OFF
+            playerView.hideController()
+        }
         playerView.setRenderEventListener(object : MyPlayerView.RenderEventListener {
             override fun onRenderedFirstFrame() {
                 // 统计切后台回来后的黑屏时长（onStart 到首帧渲染）。
@@ -929,6 +978,11 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         playerView.setShowHideOwnerInfo(false)
         playerView.setRepeatMode(Player.REPEAT_MODE_OFF)
         applyPlayerSettings(playerSettings)
+        // 公益广告锁死模式：applyPlayerSettings 之后再次强制不循环（用户可能保存了单集循环设置）
+        if (psasLocked) {
+            playerView.setRepeatMode(Player.REPEAT_MODE_OFF)
+            player?.repeatMode = Player.REPEAT_MODE_OFF
+        }
         syncPlaybackEnvironment()
         playerView.setOnPlayerSettingChange(object : OnPlayerSettingChange {
             override fun onVideoQualityChange(quality: VideoQuality) {
@@ -1003,6 +1057,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     private fun setupBackHandler() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                // 公益广告锁死模式：吞掉返回键，不允许退出（dispatchKeyEvent 已拦截，这里是双重保险）
+                if (psasLocked) return
                 if (cancelResume()) {
                     return
                 }
@@ -1023,6 +1079,24 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 )
             }
         })
+    }
+
+    /**
+     * 公益广告锁死模式：在 Activity 层吞掉所有按键事件，只放行音量/系统键。
+     * 返回键在这里也被吞掉（不放行到 onBackPressedDispatcher）。
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (psasLocked) {
+            // 只放行音量键，让用户能调音量；其余全部吞掉
+            if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
+                event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN ||
+                event.keyCode == KeyEvent.KEYCODE_VOLUME_MUTE
+            ) {
+                return super.dispatchKeyEvent(event)
+            }
+            return true
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     private var preloadHeaderRefreshPosted = false

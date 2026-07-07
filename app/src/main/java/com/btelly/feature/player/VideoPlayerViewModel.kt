@@ -1942,9 +1942,14 @@ class VideoPlayerViewModel(
 
         val episodeItems = episodeCatalogBuilder.buildUgcEpisodes(detail)
         _episodes.value = episodeItems
-        val selectedIndex = episodeItems.indexOfFirst {
-            it.cid == currentCid || (it.bvid.isNotBlank() && it.bvid == currentBvid)
-        }.takeIf { it >= 0 } ?: 0
+        // 分P 选择：优先按 cid 精确匹配。
+        // 注意：不能加 bvid 匹配作为 fallback——多P视频所有分P共用同一个 bvid，
+        // 会导致 indexOfFirst 永远命中第一个分P，覆盖掉调用方传入的目标 cid（公益广告场景踩到）。
+        val selectedIndex = if (currentCid > 0L) {
+            episodeItems.indexOfFirst { it.cid == currentCid }.takeIf { it >= 0 } ?: 0
+        } else {
+            0
+        }
         _selectedEpisodeIndex.value = selectedIndex
         val selectedEpisode = episodeItems.getOrNull(selectedIndex)
         currentCid = selectedEpisode?.cid

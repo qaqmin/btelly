@@ -112,6 +112,12 @@ class BTellyApplication : Application() {
             trace("initImageSettings", startMs) { ImageLoader.prewarmSettings() }
             sessionRuntimeReady.set(true)
             AppLog.i(TAG, "STARTUP sessionRuntimeInit end reason=$reason elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
+            // 青少年模式：后台预加载公益广告分P列表（失败静默，下次 tick 触发时会再拉）
+            CoroutineScope(Dispatchers.IO).launch {
+                runCatching {
+                    com.btelly.core.common.content.PsasRepository.ensureLoaded()
+                }
+            }
         }
     }
 

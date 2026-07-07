@@ -235,6 +235,8 @@
     <string name="teen_mode">青少年模式</string>
     <string name="watch_time_limit">单次观看时长</string>
     <string name="rest_time_limit">休息时长</string>
+    <string name="psas_enabled">开启公益广告</string>
+    <string name="psas_interval">公益广告间隔</string>
     <string name="menu_add_watch_later">加入稍后观看</string>
     <string name="menu_video_card_subtitle">加入稍后观看，或减少你不想再看到的内容</string>
     <string name="menu_live_card_subtitle">减少这场直播，或减少这位主播再次出现在推荐中</string>

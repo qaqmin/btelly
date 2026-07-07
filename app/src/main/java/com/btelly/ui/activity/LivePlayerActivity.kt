@@ -31,6 +31,10 @@ class LivePlayerActivity : BaseActivity<ActivityPlayerBinding>() {
                 finish()
                 return
             }
+            // 公益广告触发：启动锁死播放，原直播进入后台自动暂停，回来 onResume 恢复
+            if (com.btelly.core.common.content.TeenModeTimer.checkAndConsumePsasTrigger()) {
+                com.btelly.core.common.content.PsasRepository.launchRandomPsas(this@LivePlayerActivity)
+            }
             mainHandler.postDelayed(this, 15_000L)
         }
     }

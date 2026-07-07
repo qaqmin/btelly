@@ -27,6 +27,9 @@ object TeenModeTimer {
     private const val KEY_REST_LIMIT_MIN = "teen_rest_limit_min"
     private const val KEY_ACCUMULATED_MS = "teen_accumulated_ms"
     private const val KEY_REST_START_MS = "teen_rest_start_ms"
+    private const val KEY_PSAS_ENABLED = "teen_psas_enabled"
+    private const val KEY_PSAS_INTERVAL_MIN = "teen_psas_interval_min"
+    private const val KEY_PSAS_ACCUMULATED_MS = "teen_psas_accumulated_ms"
 
     /** 时长选项：0 表示不限制，步进 10 分钟，最长 120 分钟。 */
     val TIME_OPTIONS_MIN: List<Int> = (0..120 step 10).toList()
@@ -77,6 +80,47 @@ object TeenModeTimer {
     /** 休息开始墙钟戳（毫秒），未进入休息返回 0。供倒计时计算用。 */
     fun getRestStartMs(): Long {
         return appSettings.getCachedLong(KEY_REST_START_MS, 0L)
+    }
+
+    // ==================== 公益广告（PSAS）====================
+
+    /** 公益广告开关是否开启。 */
+    fun isPsasEnabled(): Boolean {
+        if (!isTimeLimitEnabled()) return false
+        return appSettings.getCachedString(KEY_PSAS_ENABLED) == "开"
+    }
+
+    fun setPsasEnabled(on: Boolean) {
+        appSettings.putStringAsync(KEY_PSAS_ENABLED, if (on) "开" else "关")
+    }
+
+    /** 公益广告间隔（分钟），默认 20；必须 < 观看上限才生效。 */
+    fun getPsasIntervalMin(): Int {
+        return appSettings.getCachedString(KEY_PSAS_INTERVAL_MIN)?.trim()?.toIntOrNull() ?: 20
+    }
+
+    fun setPsasIntervalMin(min: Int) {
+        appSettings.putStringAsync(KEY_PSAS_INTERVAL_MIN, min.coerceIn(0, 120).toString())
+    }
+
+    /**
+     * 检查是否触发公益广告：开关开 + 间隔>0 + 广告累计已达间隔 + 广告列表就绪。
+     * 触发后清零「广告累计」（重新开始计），返回 true 让调用方启动公益广告。
+     * 独立于休息计时：用 KEY_PSAS_ACCUMULATED_MS，不影响休息的累计值。
+     */
+    fun checkAndConsumePsasTrigger(): Boolean {
+        if (!isPsasEnabled()) return false
+        // 广告列表未就绪时不触发（避免白白清零累计，等列表加载好再触发）
+        if (!PsasRepository.isReady()) return false
+        val intervalMin = getPsasIntervalMin()
+        if (intervalMin <= 0) return false
+        val intervalMs = intervalMin.toLong() * 60_000L
+        val psasAccumulated = appSettings.getCachedInt(KEY_PSAS_ACCUMULATED_MS, 0)
+        if (psasAccumulated < intervalMs) return false
+        // 触发：清零广告累计，重新开始计
+        appSettings.putIntAsync(KEY_PSAS_ACCUMULATED_MS, 0)
+        AppLog.i(TAG, "psas triggered, reset psas accumulated. psasAccumulated=$psasAccumulated intervalMs=$intervalMs")
+        return true
     }
 
     fun setWatchLimitMin(min: Int) {
@@ -148,16 +192,26 @@ object TeenModeTimer {
         segmentStartElapsedMs = SystemClock.elapsedRealtime()
     }
 
-    /** 把 [fromElapsedMs] 到现在的实际播放时长累加到持久化累计值，达上限则进入休息。 */
+    /**
+     * 把 [fromElapsedMs] 到现在的实际播放时长同时累加到「休息累计」和「公益广告累计」。
+     * 两套累计独立：休息累计达观看上限→进休息；广告累计达间隔→播广告（由 checkAndConsumePsasTrigger 判断）。
+     * 达休息上限时进入休息，并清零广告累计（休息期间不算观看，重新开始）。
+     */
     private fun settleSegment(fromElapsedMs: Long) {
         val delta = (SystemClock.elapsedRealtime() - fromElapsedMs).coerceAtLeast(0L)
         if (delta <= 0L) return
-        val accumulated = appSettings.getCachedInt(KEY_ACCUMULATED_MS, 0) + delta.toInt()
+        val deltaInt = delta.toInt()
+        // 1) 休息累计
+        val accumulated = appSettings.getCachedInt(KEY_ACCUMULATED_MS, 0) + deltaInt
         val limitMs = getWatchLimitMs()
         appSettings.putIntAsync(KEY_ACCUMULATED_MS, accumulated)
+        // 2) 公益广告累计（独立计数器，和休息互不干扰）
+        val psasAccumulated = appSettings.getCachedInt(KEY_PSAS_ACCUMULATED_MS, 0) + deltaInt
+        appSettings.putIntAsync(KEY_PSAS_ACCUMULATED_MS, psasAccumulated)
         if (limitMs > 0 && accumulated >= limitMs) {
-            // 达上限：写休息开始戳、触发休息状态。
+            // 达休息上限：写休息开始戳、触发休息状态，并清零广告累计（休息后重新计）
             appSettings.putLongAsync(KEY_REST_START_MS, System.currentTimeMillis())
+            appSettings.putIntAsync(KEY_PSAS_ACCUMULATED_MS, 0)
             _restingFlow.value = true
             AppLog.i(TAG, "watch limit reached, enter rest. accumulated=$accumulated")
         }
@@ -178,9 +232,10 @@ object TeenModeTimer {
         val restLimitMs = getRestLimitMin().toLong() * 60_000L
         val elapsed = System.currentTimeMillis() - restStart
         if (elapsed >= restLimitMs) {
-            // 休息到期：清零累计、清休息戳、清计时段起点，恢复观看从头计时。
+            // 休息到期：清零累计、清休息戳、清计时段起点、清广告累计，恢复观看从头计时。
             appSettings.removeAsync(KEY_REST_START_MS)
             appSettings.putIntAsync(KEY_ACCUMULATED_MS, 0)
+            appSettings.putIntAsync(KEY_PSAS_ACCUMULATED_MS, 0)
             segmentStartElapsedMs = null
             _restingFlow.value = false
             AppLog.i(TAG, "rest ended, reset accumulated. elapsed=$elapsed restLimitMs=$restLimitMs")
@@ -210,6 +265,7 @@ object TeenModeTimer {
      */
     fun resetForLimitChange() {
         appSettings.putIntAsync(KEY_ACCUMULATED_MS, 0)
+        appSettings.putIntAsync(KEY_PSAS_ACCUMULATED_MS, 0)
         appSettings.removeAsync(KEY_REST_START_MS)
         segmentStartElapsedMs = null
         _restingFlow.value = false
