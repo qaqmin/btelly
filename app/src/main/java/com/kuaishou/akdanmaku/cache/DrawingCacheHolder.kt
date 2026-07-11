@@ -78,9 +78,11 @@ class DrawingCacheHolder {
 
   fun recycle() {
     if (bitmap == EMPTY_BITMAP) return
+    val oldBitmap = bitmap
     canvas.setBitmap(null)
     bitmap = EMPTY_BITMAP
     width = 0
     height = 0
+    runCatching { if (!oldBitmap.isRecycled) oldBitmap.recycle() }
   }
 }

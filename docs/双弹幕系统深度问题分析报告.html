@@ -27,8 +27,10 @@
   .finding.p0 { border-left:5px solid var(--red); }
   .finding.p1 { border-left:5px solid var(--amber); }
   .finding.p2 { border-left:5px solid var(--blue); }
+  .finding.resolved { border-left:5px solid var(--green); }
   .tag { display:inline-block; margin-right:8px; padding:2px 8px; border-radius:4px; color:#fff; font-size:12px; font-weight:700; }
   .p0 .tag { background:var(--red); } .p1 .tag { background:var(--amber); } .p2 .tag { background:var(--blue); }
+  .resolved .tag { background:var(--green); }
   .kv { display:grid; grid-template-columns:82px 1fr; gap:5px 12px; margin-top:10px; }
   .kv b { color:var(--muted); }
   .ok { color:var(--green); font-weight:700; } .bad { color:var(--red); font-weight:700; }
@@ -75,7 +77,7 @@
       <tr><td class="ok">已解决</td><td>功能优先</td><td>主线程改为借用已发布渲染帧，不再与 Runtime 更新共用大锁；主线程不再调用 renderer 直绘</td><td>架构 / 阻塞</td><td class="ok">并发租约测试通过</td></tr>
       <tr><td class="ok">已解决</td><td>性能优先</td><td>数据级设置重建已并入后台串行准备链</td><td>交互卡顿</td><td class="ok">测试通过</td></tr>
       <tr><td class="ok">已解决</td><td>功能优先</td><td>过期缓存任务不能越过换代、seek 或退场重新挂回 Bitmap</td><td>竞态 / 内存</td><td class="ok">深度复核通过</td></tr>
-      <tr><td>P2</td><td>功能优先</td><td>测量结果表已限制为 8192 条；Bitmap 总量仍不受“缓存池上限”完整约束</td><td>长播内存增长</td><td>测量表已处理，Bitmap 峰值需量化</td></tr>
+      <tr><td class="ok">代码完成</td><td>两套引擎</td><td>测量结果表限制为 8192 条；活动、共享、待释放和池内文字 Bitmap 统一纳入字节预算</td><td>长播内存增长</td><td>预算器测试通过；完整生命周期待真机压力确认</td></tr>
     </table>
   </section>
 
@@ -173,13 +175,13 @@
       </div>
     </article>
 
-    <article class="finding p2">
-      <h3><span class="tag">P2</span>长时间播放的缓存总量没有完整上限</h3>
+    <article class="finding resolved">
+      <h3><span class="tag">代码完成</span>两套引擎的长播 Bitmap 已接入统一字节预算</h3>
       <div class="kv">
         <b>测量表</b><span class="ok"><code>measureSizeCache</code> 已改为按代际清理、最多保留 8192 条的 LRU，不再随唯一弹幕编号无限增长。</span>
-        <b>Bitmap</b><span><code>CACHE_POOL_MAX_MEMORY_SIZE</code> 只限制回收池，不包含正在使用的 Bitmap 和最多 384 个共享 Bitmap，因此“32/50/72MB 上限”不是弹幕 Bitmap 总上限。</span>
-        <b>结果</b><span>普通短视频影响有限；长视频、多次跨段 seek、4K 大字号和低内存电视组合下，常驻内存存在持续抬高风险，可能增加 GC，并与视频解码争用内存。实际峰值和是否触发系统回收仍需真机量化。</span>
-        <b>剩余方向</b><span>所有 Bitmap 持有者统一计入一个字节预算，而不是只限制空闲池。</span>
+        <b>Bitmap</b><span class="ok">代码已将活动弹幕、共享表、渲染帧、待释放队列和回收池接入引擎中立的对象身份预算器；同一文字绘制 Bitmap 只计一次。两套引擎统一按分辨率使用 32/50/72MB 上限，低内存设备减半。VIP 贴图继续由独立的 2MB LRU 管理。</span>
+        <b>超限策略</b><span class="ok">新建前先做预算准入，优先销毁池内空闲对象，再释放共享 LRU；仍被画面引用的 Bitmap 不会被强制回收，空间不足时跳过本次缓存构建。</span>
+        <b>观测</b><span>性能日志新增 Bitmap 总字节、总上限和对象数。单元测试已覆盖预算器身份去重、预算拒绝、预留转交、淘汰顺序和退出时延迟引用排空；尚未用 JVM 单测构造两套 Android Bitmap 管理器的完整活动/共享/池生命周期，因此“release 后总量归零”仍需 2 小时真机压力确认。</span>
       </div>
     </article>
   </section>
@@ -192,7 +194,7 @@
       <tr><td>主线程风险</td><td class="ok">不再等 Runtime 大锁，不再调用 renderer 直绘；缓存缺失跳过本帧</td><td class="ok">Action 不再等待主线程；主线程使用带租约的三缓冲快照</td></tr>
       <tr><td>后台 CPU</td><td>高密度样本旧布局最高 51ms；现已将非紧急帧重建限制为约 30Hz，需真机复测</td><td>安全尾追加成本随新批大小增长；缓存结果已改为 Action 线程提交</td></tr>
       <tr><td>正确性</td><td class="ok">丢批、测量跨代和旧缓存回写已解决</td><td class="ok">丢批、过滤上下文和停止恢复竞态已解决</td></tr>
-      <tr><td>长播内存</td><td>测量表已限量；Bitmap 总预算仍不完整</td><td>分块原始时间线随已访问数据增长</td></tr>
+      <tr><td>长播内存</td><td class="ok">测量表限量；文字 Bitmap 统一字节预算</td><td class="ok">文字 Bitmap 统一字节预算；分块原始时间线仍按窗口策略管理</td></tr>
     </table>
   </section>
 
@@ -209,6 +211,34 @@
   </section>
 
   <section>
+    <h2>七点一、当前功能差异</h2>
+    <table>
+      <tr><th>能力</th><th>功能优先</th><th>性能优先</th><th>结论</th></tr>
+      <tr><td>滚动、顶部、底部弹幕</td><td class="ok">支持</td><td class="ok">支持</td><td>无差异</td></tr>
+      <tr><td>智能过滤、举报词、B站类型开关</td><td class="ok">支持</td><td class="ok">支持</td><td>共用同一预处理规则</td></tr>
+      <tr><td>重复弹幕合并</td><td class="ok">支持</td><td class="ok">支持</td><td>共用同一合并规则</td></tr>
+      <tr><td>VIP 渐变文字</td><td class="ok">支持</td><td class="ok">支持</td><td>共用渐变描述与 2MB 贴图缓存</td></tr>
+      <tr><td>智能防挡</td><td class="ok">支持</td><td class="ok">支持</td><td>由引擎外的蒙版宿主统一裁剪，受同一 App 开关控制</td></tr>
+      <tr><td>轨道间距、透明度、速度、显示区域</td><td class="ok">支持</td><td class="ok">支持</td><td>同一设置快照分别映射到两套引擎</td></tr>
+      <tr><td>直播弹幕</td><td class="ok">支持</td><td>不支持</td><td>当前最明确的功能缺口</td></tr>
+      <tr><td>单条弹幕原始字号</td><td class="ok">保留并叠加全局缩放</td><td>统一使用全局字号</td><td>合并弹幕的字号奖励只会在功能优先中体现</td></tr>
+      <tr><td>高级/脚本弹幕（mode 7/9）</td><td>过滤</td><td>过滤</td><td>两边都不支持，不能算功能优先优势</td></tr>
+      <tr><td>表情、高赞图标、头像等富媒体样式</td><td>当前业务未接入</td><td>未实现</td><td>功能引擎虽保留扩展类型，但当前 App 没有形成可用功能</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>七点二、删除功能优先引擎前的解耦状态</h2>
+    <div class="kv">
+      <b>已拆除：双向类型依赖</b><span class="ok">性能引擎不再引用 Ak 的 VIP 渐变类型、描边常量或控制器函数；Ak 也只依赖明确的 <code>danmaku/common</code> 公共层，不再引用性能引擎实现包。</span>
+      <b>已下沉：公共能力</b><span class="ok">设置快照、协议模式、B站文字样式、智能过滤、重复合并、VIP 贴图缓存、Bitmap 字节预算和数据换代规则统一放入公共层。删除任一引擎都不会删除这些共享能力。</span>
+      <b>已收口：宿主调用</b><span class="ok"><code>MyPlayerView</code> 通过统一控制接口调用数据、设置和播放生命周期，不再在二十多处重复判断引擎。直播使用独立可选能力接口，性能引擎无需空实现。</span>
+      <b>合理保留：选择与视图装配</b><span>宿主仍需在一个位置选择引擎并创建对应 View；这是产品模式选择，不是引擎互相耦合。以后删除功能优先时，只需移除 Ak 包、功能控制器、功能 View 装配和设置中的模式选项。</span>
+      <b>边界检查</b><span class="ok">性能引擎目录对 <code>com.kuaishou.akdanmaku</code> 的代码引用为 0；公共层对 Ak 和两个具体控制器的代码引用为 0。</span>
+    </div>
+  </section>
+
+  <section>
     <h2>八、必须新增的回归与真机指标</h2>
     <table>
       <tr><th>项目</th><th>最低要求</th></tr>
@@ -216,11 +246,11 @@
       <tr><td>连续增量</td><td>两套控制器分别覆盖 set+append、三批 append 任意交错，最终数量、ID、时间顺序均不丢不重</td></tr>
       <tr><td>字号切换</td><td>旧测量缓存不能跨代命中；轨道碰撞使用新宽高</td></tr>
       <tr><td>缓存过期任务</td><td>条目退场或样式代际变化后，旧任务不得写回 Bitmap</td></tr>
-      <tr><td>长播压力</td><td>2 小时高密度视频 + 往返 seek，记录 Java heap、native/graphics、Bitmap 数、GC 次数</td></tr>
+      <tr><td>长播压力</td><td>2 小时高密度视频 + 往返 seek，记录 Java heap、native/graphics、Bitmap 总字节/上限/对象数、GC 次数</td></tr>
       <tr><td>主线程等待</td><td>Runtime 锁与 renderer 锁分别输出 P50/P95/P99；目标 P99 &lt; 1ms</td></tr>
       <tr><td>增量成本</td><td>分别记录主线程复制、后台预处理、引擎提交数量；append 成本应只和新批大小相关</td></tr>
     </table>
-    <p class="note">当前验证：过期的 <code>DanmakuLoadShedderTest</code> 已移除，新增代际、有序归并、三缓冲快照和 Runtime 帧租约测试；全部弹幕相关测试通过。完整 Debug 单测共 130 项，128 通过、1 跳过，另有一个与本改动无关的既有剧集目录测试 <code>ugcSeasonMergesMultiplePagesFromSameArchive</code> 失败。</p>
+    <p class="note">当前验证：新增代际、有序归并、三缓冲快照、Runtime 帧租约、Bitmap 统一预算、退出引用排空和本地智能过滤等级测试；全部弹幕相关测试通过。完整 Debug 单测共 145 项，143 通过、1 跳过，另有一个与本改动无关的既有剧集目录测试 <code>ugcSeasonMergesMultiplePagesFromSameArchive</code> 失败。</p>
   </section>
 
   <section>
@@ -237,8 +267,8 @@
     <h2>十、两套系统的架构优化方案</h2>
     <table>
       <tr><th>系统</th><th>当前架构评价</th><th>目标边界</th><th>改造方式</th></tr>
-      <tr><td>性能优先</td><td>单 Action 线程管理时间线和轨道、主线程消费双缓冲快照，方向合理；但信号量把更新生命周期绑在绘制上，缓存线程还会直接改弹幕对象。</td><td>Action 线程是唯一状态写入者；快照发布不等待主线程；缓存线程只产出结果，不直接改业务状态。</td><td>保留现有引擎，渐进式替换信号量、快照生命周期和缓存回写，不推倒重写。</td></tr>
-      <tr><td>功能优先</td><td>功能分层完整，但控制器和 Runtime 都已成为超大职责集合；时间线、测量、布局、帧管理、绘制和资源释放共享可变对象与粗粒度锁。</td><td>控制器只负责业务数据与分段；Action 线程负责入场、布局和帧构建；主线程只消费不可变渲染帧；缓存以编号和代际返回结果。</td><td>先拆渲染帧边界和大锁，再从 Runtime 内部逐步抽出时间线、入场调度、轨道布局和缓存协调，不在一次改动中重写所有功能。</td></tr>
+      <tr><td>性能优先</td><td class="ok">单 Action 线程持有状态、主线程消费带租约三缓冲快照、缓存线程只产出结果，核心边界已经合理。</td><td>继续保持具体引擎只依赖公共层，不反向依赖功能引擎或播放器 View。</td><td>后续优先补直播和单条字号等真实功能缺口，不再复制 Ak 内部类型。</td></tr>
+      <tr><td>功能优先</td><td>渲染帧租约已解除主线程大锁，Bitmap 预算与释放路径已接入并完成代码复核；但控制器和 Runtime 仍较大，且该引擎计划后续删除。</td><td>停止扩大 Ak 对外接口；只通过统一控制接口和公共数据类型接入宿主。</td><td>除严重 BUG 外不再做大规模内部拆分，把新增通用能力放到公共层或性能引擎。</td></tr>
     </table>
     <p class="note">共同约束：主线程不等待布局、测量和缓存构建；弹幕容纳不下或缓存未就绪时可以丢弃本条/本帧，不得为了“尽量显示”把工作转移到主线程；任何异步结果都必须带播放代际、配置代际和条目标识。</p>
   </section>

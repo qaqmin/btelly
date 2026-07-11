@@ -126,7 +126,11 @@ class DanmakuPlayer(renderer: DanmakuRenderer) {
   val cacheHit: Fraction?
     get() = engine.runtime.cacheHit
 
-  internal fun diagnosticSummary(): String = engine.runtime.diagnosticSummary()
+  internal fun diagnosticSummary(): String {
+    val budget = engine.context.cacheManager.bitmapBudgetSnapshot()
+    return engine.runtime.diagnosticSummary() +
+      " bitmap=${budget.usedBytes / 1024L}/${budget.maxBytes / 1024L}KB#${budget.bitmapCount}"
+  }
 
   private fun postFrameCallback() {
     // Choreographer 绑定到调用线程的 Looper。这里从 updateFrame 在 ActionThread 调用,

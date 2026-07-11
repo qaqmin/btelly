@@ -7,7 +7,7 @@ import android.util.DisplayMetrics
 import android.util.TypedValue
 import android.content.Context
 import com.btelly.core.common.log.AppLog
-import com.btelly.feature.player.danmaku.Danmaku
+import com.btelly.feature.player.danmaku.common.BiliDanmakuStyle
 import com.btelly.feature.player.danmaku.model.DanmakuCacheState
 import com.btelly.feature.player.danmaku.model.DanmakuItem
 import com.btelly.feature.player.danmaku.model.DanmakuKind
@@ -17,6 +17,8 @@ import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+
+private const val DANMAKU_FONT_BORDER_DEFAULT = 0
 
 internal interface DanmakuEngineMainApi {
     fun lastDrawCachedCount(): Int
@@ -115,7 +117,7 @@ internal class DanmakuEngine(
             fontWeight = DanmakuFontWeight.Bold,
             strokeWidthPx = BiliDanmakuStyle.strokeWidthForCache(
                 textSizePx = sp(18f),
-                fontBorder = com.kuaishou.akdanmaku.DanmakuConfig.FONT_BORDER_DEFAULT
+                fontBorder = DANMAKU_FONT_BORDER_DEFAULT
             ),
             speedLevel = 4,
             area = 1f,
@@ -125,7 +127,7 @@ internal class DanmakuEngine(
     @Volatile private var textSizePx: Float = sp(18f)
     @Volatile private var strokeWidthPx: Float = BiliDanmakuStyle.strokeWidthForCache(
         textSizePx = sp(18f),
-        fontBorder = com.kuaishou.akdanmaku.DanmakuConfig.FONT_BORDER_DEFAULT
+        fontBorder = DANMAKU_FONT_BORDER_DEFAULT
     ).toFloat()
     @Volatile private var outlinePadPx: Float = 2f
 
@@ -270,7 +272,7 @@ internal class DanmakuEngine(
         item.cacheGeneration = result.generation
         item.pendingCacheGeneration = -1
         item.cacheState = DanmakuCacheState.Rendered
-        if (old != null && old !== entry && old.release()) {
+        if (old != null && old !== entry) {
             cacheManager.enqueueRelease(old, releaseAtFrameId = currentUiFrameId + 1)
         }
         snapshotDirty = true

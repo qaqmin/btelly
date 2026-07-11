@@ -43,6 +43,8 @@
  ******************************************************************************/
 package com.kuaishou.akdanmaku
 
+import com.btelly.feature.player.danmaku.common.resolveDanmakuBitmapBudgetBytes
+
 import com.kuaishou.akdanmaku.ext.AkLog as Log
 import com.kuaishou.akdanmaku.engine.DanmakuEngine
 import com.kuaishou.akdanmaku.filter.DanmakuDataFilter
@@ -236,19 +238,7 @@ data class DanmakuConfig(
      * 在设备可用内存较低 (<512MB) 时，以上值减半。
      */
     fun computeCachePoolMaxMemorySize(screenWidth: Int, screenHeight: Int): Int {
-      val mb = 1024 * 1024
-      val maxPixels = screenWidth * screenHeight
-
-      val baseSize = when {
-        maxPixels <= 1280 * 720 -> 32 * mb   // <=720p
-        maxPixels <= 1920 * 1080 -> 50 * mb  // <=1080p
-        else -> 72 * mb                       // >1080p
-      }
-
-      // 低内存设备减半
-      val runtime = Runtime.getRuntime()
-      val availableMb = (runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory())) / mb
-      return if (availableMb < 512) baseSize / 2 else baseSize
+      return resolveDanmakuBitmapBudgetBytes(screenWidth, screenHeight).toInt()
     }
 
     /**

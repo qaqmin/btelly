@@ -1,6 +1,8 @@
 package com.btelly.feature.player.danmaku
 
-import com.kuaishou.akdanmaku.data.DanmakuVipGradientStyle
+import com.btelly.feature.player.danmaku.common.BiliDanmakuStyle
+import com.btelly.feature.player.danmaku.common.DanmakuProtocolMode
+import com.btelly.feature.player.danmaku.common.DanmakuVipGradientStyle
 import com.btelly.model.dm.DmModel
 
 /**
@@ -16,7 +18,7 @@ import com.btelly.model.dm.DmModel
 fun DmModel.toDanmaku(allowVipColorful: Boolean = false): Danmaku? {
     if (content.isBlank()) return null
     // mode 7/9 是高级/脚本弹幕，弹幕引擎不支持，过滤掉
-    if (mode == 7 || mode == 9) return null
+    if (mode == DanmakuProtocolMode.ADVANCED || mode == DanmakuProtocolMode.SCRIPT) return null
     if (content.contains("def text", ignoreCase = true)) return null
     // color 规范化：B 站协议 color=0 表示默认白色，这里统一转成 0xFFFFFF，
     // 对齐 akdanmaku 的 toDanmakuColor()（color==0 → Color.WHITE）。

@@ -5,10 +5,13 @@ import com.btelly.core.common.ext.isVipColorfulDanmakuAllowed
 import com.btelly.core.common.log.AppLog
 import com.btelly.feature.player.DanmakuFilterContext
 import com.btelly.feature.player.PlaybackStartupTrace
-import com.btelly.feature.player.view.BiliDanmakuFilterPolicy
-import com.btelly.feature.player.view.DanmakuDuplicateMergePolicy
-import com.btelly.feature.player.view.VipDanmakuTextureCache
-import com.btelly.feature.player.view.nextDanmakuPreparationGeneration
+import com.btelly.feature.player.danmaku.common.BiliDanmakuFilterPolicy
+import com.btelly.feature.player.danmaku.common.BiliDanmakuStyle
+import com.btelly.feature.player.danmaku.common.DanmakuDuplicateMergePolicy
+import com.btelly.feature.player.danmaku.common.DanmakuController
+import com.btelly.feature.player.danmaku.common.DanmakuSettingsSnapshot
+import com.btelly.feature.player.danmaku.common.VipDanmakuTextureCache
+import com.btelly.feature.player.danmaku.common.nextDanmakuPreparationGeneration
 import com.btelly.model.dm.DmModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
@@ -31,13 +34,14 @@ import kotlinx.coroutines.withContext
  *  - 设置映射：把共享的 [DanmakuSettingsSnapshot] 翻译成引擎的 [DanmakuConfig]。
  *  - 播放同步：通过 positionProvider 回调让引擎自驱动，seek 时主动通知。
  *
- * 不支持（性能优先模式）：直播、特殊弹幕（已过滤）、智能过滤、表情/高赞图标。
+ * 不支持（性能优先模式）：直播、特殊/脚本弹幕、表情/高赞图标。
+ * 智能过滤、重复合并和 VIP 渐变与功能优先模式共用引擎中立实现。
  * 智能防挡由引擎外层的中立宿主统一裁剪，不依赖功能优先引擎。
  */
 class DanmakuCoreController(
     private val context: Context,
     private val viewProvider: () -> DanmakuView?
-) {
+) : DanmakuController {
 
     companion object {
         private const val TAG = "BTellyDmCtrl"
@@ -47,6 +51,7 @@ class DanmakuCoreController(
          * 用 25 作基准值才能和 AkDanmaku 视觉一致。
          */
         private const val BILI_BASE_FONT_SIZE = 25f
+        private const val DANMAKU_FONT_BORDER_DEFAULT = 0
     }
 
     /** 屏幕密度，用于对齐 AkDanmaku 字号公式。 */
@@ -109,11 +114,11 @@ class DanmakuCoreController(
         view.setConfigProvider { currentConfig }
     }
 
-    fun setData(
+    override fun setData(
         data: List<DmModel>,
-        filterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY,
-        @Suppress("UNUSED_PARAMETER") startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
-        @Suppress("UNUSED_PARAMETER") startupTraceStartElapsedMs: Long = 0L
+        filterContext: DanmakuFilterContext,
+        @Suppress("UNUSED_PARAMETER") startupTraceId: String,
+        @Suppress("UNUSED_PARAMETER") startupTraceStartElapsedMs: Long
     ) {
         this.filterContext = filterContext
         val taskFilterContext = filterContext
@@ -147,9 +152,9 @@ class DanmakuCoreController(
         }
     }
 
-    fun appendData(
+    override fun appendData(
         data: List<DmModel>,
-        filterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY
+        filterContext: DanmakuFilterContext
     ) {
         if (data.isEmpty()) return
         this.filterContext = filterContext
@@ -197,7 +202,7 @@ class DanmakuCoreController(
         }
     }
 
-    fun applySettings(snapshot: DanmakuSettingsSnapshot) {
+    override fun applySettings(snapshot: DanmakuSettingsSnapshot) {
         if (lastSnapshot == snapshot) return
         val old = lastSnapshot
         lastSnapshot = snapshot
@@ -224,11 +229,11 @@ class DanmakuCoreController(
         }
     }
 
-    fun updatePlaybackSpeed(@Suppress("UNUSED_PARAMETER") speed: Float) {
+    override fun updatePlaybackSpeed(@Suppress("UNUSED_PARAMETER") speed: Float) {
         // 弹幕引擎按 durationMs 推进，播放速度由 positionProvider 推进速率体现，无需额外处理
     }
 
-    fun notifyPlaybackStateChanged(@Suppress("UNUSED_PARAMETER") playbackState: Int, playWhenReady: Boolean) {
+    override fun notifyPlaybackStateChanged(@Suppress("UNUSED_PARAMETER") playbackState: Int, playWhenReady: Boolean) {
         // playWhenReady 作为 isPlaying 的候选值之一（buffering 时 isPlaying=false 会由
         // notifyIsPlayingChanged 覆盖），用 volatile 字段避免事件顺序竞争。
         val wasPlaying = isPlaying
@@ -241,7 +246,7 @@ class DanmakuCoreController(
         }
     }
 
-    fun notifyIsPlayingChanged(playing: Boolean) {
+    override fun notifyIsPlayingChanged(playing: Boolean) {
         // onIsPlayingChanged 是 ExoPlayer 对"实际解码播放中"的权威信号，优先级高于 playWhenReady。
         val wasPlaying = isPlaying
         isPlaying = playing
@@ -251,7 +256,7 @@ class DanmakuCoreController(
     }
 
     @Suppress("UNUSED_PARAMETER")
-    fun notifyPlaybackFirstFrame() {
+    override fun notifyPlaybackFirstFrame() {
         // 首帧渲染是镜像切换/surface 重建后恢复弹幕的关键时机。
         // 此时 isPlaying 可能还是 false（READY/onIsPlayingChanged 尚未回调），
         // 主动 invalidate 触发一次 onDraw，让引擎有机会重启渲染循环；
@@ -268,17 +273,17 @@ class DanmakuCoreController(
         viewProvider()?.invalidate()
     }
 
-    fun setEnabled(enabled: Boolean) {
+    override fun setEnabled(enabled: Boolean) {
         val snap = lastSnapshot ?: return
         applySettings(snap.copy(enabled = enabled))
     }
 
-    fun pause() {
+    override fun pause() {
         playWhenReady = false
         isPlaying = false
     }
 
-    fun resume() {
+    override fun resume() {
         val wasPlaying = isPlaying
         playWhenReady = true
         isPlaying = true
@@ -290,7 +295,7 @@ class DanmakuCoreController(
         if (!wasPlaying) viewProvider()?.invalidate()
     }
 
-    fun stop() {
+    override fun stop() {
         playWhenReady = false
         isPlaying = false
         renderingStopped = true
@@ -303,7 +308,7 @@ class DanmakuCoreController(
         dataStopped = rawItems.isNotEmpty()
     }
 
-    fun resetForPlaybackStart(positionMs: Long) {
+    override fun resetForPlaybackStart(positionMs: Long) {
         prepareJob?.cancel()
         val generation = nextDanmakuPreparationGeneration(prepareGeneration.get(), replace = true)
         prepareGeneration.set(generation)
@@ -316,7 +321,7 @@ class DanmakuCoreController(
         viewProvider()?.notifySeek(positionMs.coerceAtLeast(0L))
     }
 
-    fun syncPosition(positionMs: Long, forceSeek: Boolean) {
+    override fun syncPosition(positionMs: Long, forceSeek: Boolean) {
         if (forceSeek) {
             // seek 后通知引擎重建场景（清旧弹幕，从新位置重新分配）
             viewProvider()?.notifySeek(positionMs.coerceAtLeast(0L))
@@ -324,7 +329,7 @@ class DanmakuCoreController(
         // 非 seek 时靠 positionProvider 自动跟，无需处理
     }
 
-    fun release() {
+    override fun release() {
         stop()
         prepareJob?.cancel()
         preloadTextureJob?.cancel()
@@ -454,10 +459,10 @@ class DanmakuCoreController(
             .distinct()
             .toList()
         if (styles.isEmpty()) return
-        val keys = styles.mapTo(LinkedHashSet()) { it.textureKey() }
+        val keys = styles.mapTo(LinkedHashSet()) { it.textureKey }
         val missingKeys = keys - preloadedVipTextureKeys
         if (missingKeys.isEmpty()) return
-        val missingStyles = styles.filter { it.textureKey() in missingKeys }
+        val missingStyles = styles.filter { it.textureKey in missingKeys }
         val generation = prepareGeneration.get()
         preloadTextureJob?.cancel()
         preloadTextureJob = controllerScope.launch(Dispatchers.IO) {
@@ -472,9 +477,6 @@ class DanmakuCoreController(
             }
         }
     }
-
-    private fun com.kuaishou.akdanmaku.data.DanmakuVipGradientStyle.textureKey(): String =
-        "$fillTextureUrl#$strokeTextureUrl"
 
     /** 把预处理结果注入引擎（操作 View，必须在主线程调用）。 */
     private fun injectToView(danmakus: List<Danmaku>, append: Boolean) {
@@ -505,7 +507,7 @@ class DanmakuCoreController(
 
         val strokeWidthPx = BiliDanmakuStyle.strokeWidthForCache(
             textSizePx = akDanmakuPx,
-            fontBorder = com.kuaishou.akdanmaku.DanmakuConfig.FONT_BORDER_DEFAULT
+            fontBorder = DANMAKU_FONT_BORDER_DEFAULT
         )
 
         return DanmakuConfig(
@@ -531,7 +533,7 @@ class DanmakuCoreController(
             fontWeight = DanmakuFontWeight.Bold,
             strokeWidthPx = BiliDanmakuStyle.strokeWidthForCache(
                 textSizePx = 18f * density,
-                fontBorder = com.kuaishou.akdanmaku.DanmakuConfig.FONT_BORDER_DEFAULT
+                fontBorder = DANMAKU_FONT_BORDER_DEFAULT
             ),
             speedLevel = 4,
             area = 0.5f,

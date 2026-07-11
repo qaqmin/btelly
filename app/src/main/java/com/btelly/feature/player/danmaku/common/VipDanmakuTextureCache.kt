@@ -1,10 +1,9 @@
-package com.btelly.feature.player.view
+package com.btelly.feature.player.danmaku.common
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.util.LruCache
-import com.kuaishou.akdanmaku.data.DanmakuVipGradientStyle
 import com.btelly.network.NetworkManager
 import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.CoroutineScope

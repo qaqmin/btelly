@@ -23,6 +23,8 @@
 
 package com.kuaishou.akdanmaku.data
 
+import com.btelly.feature.player.danmaku.common.DanmakuVipGradientStyle
+
 /**
  *
  * 单个弹幕数据结构

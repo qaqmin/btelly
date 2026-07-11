@@ -140,6 +140,9 @@ internal class DanmakuPlayer(
         val bitmapReused: Long,
         val bitmapPutToPool: Long,
         val bitmapRecycled: Long,
+        val bitmapBytes: Long,
+        val bitmapMaxBytes: Long,
+        val bitmapCount: Int,
     )
 
     fun debugState(): DebugState {
@@ -161,6 +164,9 @@ internal class DanmakuPlayer(
             bitmapReused = stats.bitmapReused,
             bitmapPutToPool = stats.bitmapPutToPool,
             bitmapRecycled = stats.bitmapRecycled,
+            bitmapBytes = stats.bitmapBytes,
+            bitmapMaxBytes = stats.bitmapMaxBytes,
+            bitmapCount = stats.bitmapCount,
         )
     }
 

@@ -14,6 +14,8 @@ import com.btelly.feature.player.shouldResetPublishedDanmakuState
 import com.btelly.feature.player.danmaku.mergeSortedDanmakuModels
 import com.btelly.feature.player.danmaku.canAppendPreparedDanmakuIncrementally
 import com.btelly.feature.player.danmaku.canInjectPreparedDanmaku
+import com.btelly.feature.player.danmaku.common.DanmakuDuplicateMergePolicy
+import com.btelly.feature.player.danmaku.common.nextDanmakuPreparationGeneration
 import com.btelly.model.dm.DmModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

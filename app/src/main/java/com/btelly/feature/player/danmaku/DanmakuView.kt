@@ -7,7 +7,7 @@ import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.View
 import com.btelly.core.common.log.AppLog
-import com.btelly.feature.player.danmaku.Danmaku
+import com.btelly.feature.player.danmaku.common.BiliDanmakuStyle
 import java.util.concurrent.atomic.AtomicLong
 import java.util.Locale
 
@@ -92,6 +92,9 @@ class DanmakuView @JvmOverloads constructor(
         val bitmapReused: Long,
         val bitmapPutToPool: Long,
         val bitmapRecycled: Long,
+        val bitmapBytes: Long,
+        val bitmapMaxBytes: Long,
+        val bitmapCount: Int,
         val invalidateFull: Boolean,
         val invalidateTopPx: Int,
         val invalidateBottomPx: Int,
@@ -138,6 +141,9 @@ class DanmakuView @JvmOverloads constructor(
             bitmapReused = p.bitmapReused,
             bitmapPutToPool = p.bitmapPutToPool,
             bitmapRecycled = p.bitmapRecycled,
+            bitmapBytes = p.bitmapBytes,
+            bitmapMaxBytes = p.bitmapMaxBytes,
+            bitmapCount = p.bitmapCount,
             invalidateFull = invalidateFull,
             invalidateTopPx = invalidateTopPx,
             invalidateBottomPx = invalidateBottomPx,
@@ -316,6 +322,8 @@ class DanmakuView @JvmOverloads constructor(
         val sample = player.perfSample()
         val poolMb = p.poolBytes.toDouble() / (1024.0 * 1024.0)
         val poolMaxMb = p.poolMaxBytes.toDouble() / (1024.0 * 1024.0)
+        val bitmapMb = p.bitmapBytes.toDouble() / (1024.0 * 1024.0)
+        val bitmapMaxMb = p.bitmapMaxBytes.toDouble() / (1024.0 * 1024.0)
         val inv =
             if (invalidateFull) {
                 "full"
@@ -339,6 +347,7 @@ class DanmakuView @JvmOverloads constructor(
                 append(" skip=").append(p.cacheMissSkipped)
                 append(" q=").append(p.cacheQueueDepth)
                 append(" pool=").append(String.format(Locale.US, "%.1f", poolMb)).append('/').append(String.format(Locale.US, "%.0f", poolMaxMb)).append("MB")
+                append(" bitmap=").append(String.format(Locale.US, "%.1f", bitmapMb)).append('/').append(String.format(Locale.US, "%.0f", bitmapMaxMb)).append("MB#").append(p.bitmapCount)
                 append(" actMs=").append(String.format(Locale.US, "%.2f", sample.actMs))
                 append(" age=").append(actAgeMs).append("ms")
                 append(" inv=").append(inv)
@@ -415,7 +424,7 @@ class DanmakuView @JvmOverloads constructor(
                     18f,
                     resources.displayMetrics
                 ),
-                fontBorder = com.kuaishou.akdanmaku.DanmakuConfig.FONT_BORDER_DEFAULT
+                fontBorder = 0
             ),
             speedLevel = 4,
             area = 1f,

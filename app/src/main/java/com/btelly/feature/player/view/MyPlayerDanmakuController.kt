@@ -5,7 +5,7 @@ import android.os.SystemClock
 import androidx.media3.common.Player
 import com.kuaishou.akdanmaku.DanmakuConfig
 import com.kuaishou.akdanmaku.data.DanmakuItemData
-import com.kuaishou.akdanmaku.data.DanmakuVipGradientStyle
+import com.btelly.feature.player.danmaku.common.DanmakuVipGradientStyle
 import com.kuaishou.akdanmaku.filter.DanmakuDataFilter
 import com.kuaishou.akdanmaku.filter.TypeFilter
 import com.kuaishou.akdanmaku.render.SimpleRenderer
@@ -13,8 +13,14 @@ import com.kuaishou.akdanmaku.ui.DanmakuPlayer
 import com.kuaishou.akdanmaku.ui.DanmakuView
 import com.btelly.feature.player.DanmakuFilterContext
 import com.btelly.feature.player.PlaybackStartupTrace
-import com.btelly.feature.player.danmaku.BiliDanmakuStyle
-import com.btelly.feature.player.danmaku.DanmakuSettingsSnapshot
+import com.btelly.feature.player.danmaku.common.BiliDanmakuFilterPolicy
+import com.btelly.feature.player.danmaku.common.BiliDanmakuStyle
+import com.btelly.feature.player.danmaku.common.DanmakuDuplicateMergePolicy
+import com.btelly.feature.player.danmaku.common.DanmakuController
+import com.btelly.feature.player.danmaku.common.DanmakuSettingsSnapshot
+import com.btelly.feature.player.danmaku.common.LiveDanmakuController
+import com.btelly.feature.player.danmaku.common.VipDanmakuTextureCache
+import com.btelly.feature.player.danmaku.common.nextDanmakuPreparationGeneration
 import com.btelly.feature.player.danmaku.DanmakuTrackSpacing
 import com.btelly.core.common.log.AppLog
 import com.btelly.model.dm.DmModel
@@ -33,16 +39,13 @@ import kotlin.math.max
 
 private typealias RawWindowRange = DanmakuWindowRangePolicy.Range
 
-internal fun nextDanmakuPreparationGeneration(current: Long, replace: Boolean): Long =
-    if (replace) current + 1L else current
-
 /**
  * Owns danmaku-specific state so MyPlayerView only coordinates player UI and gestures.
  */
 class MyPlayerDanmakuController(
     private val context: Context,
     private val danmakuViewProvider: () -> DanmakuView?
-) {
+) : DanmakuController, LiveDanmakuController {
 
     companion object {
         private const val TAG = "DanmakuCtrl"
@@ -167,11 +170,11 @@ class MyPlayerDanmakuController(
 
     var playerPositionProvider: (() -> Long)? = null
 
-    fun setData(
+    override fun setData(
         data: List<DmModel>,
-        filterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY,
-        startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
-        startupTraceStartElapsedMs: Long = 0L
+        filterContext: DanmakuFilterContext,
+        startupTraceId: String,
+        startupTraceStartElapsedMs: Long
     ) {
         prepareJob?.cancel()
         windowRefreshJob?.cancel()
@@ -243,9 +246,9 @@ class MyPlayerDanmakuController(
         }
     }
 
-    fun appendData(
+    override fun appendData(
         data: List<DmModel>,
-        filterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY
+        filterContext: DanmakuFilterContext
     ) {
         if (data.isEmpty()) {
             return
@@ -290,7 +293,7 @@ class MyPlayerDanmakuController(
     /**
      * 直播模式：立即启动弹幕引擎（不等待数据），然后用引擎当前时间作为 position 注入弹幕
      */
-    fun startLive() {
+    override fun startLive() {
         AppLog.d(TAG, "startLive: player=${danmakuPlayer != null} started=$isDanmakuStarted")
         isDanmakuStarted = true
         isDanmakuPaused = false
@@ -300,7 +303,7 @@ class MyPlayerDanmakuController(
         AppLog.d(TAG, "startLive: after start player=${danmakuPlayer != null}")
     }
 
-    fun addLiveDanmaku(dm: DmModel) {
+    override fun addLiveDanmaku(dm: DmModel) {
         if (!isDanmakuStarted || danmakuPlayer == null) {
             startLive()
         }
@@ -457,7 +460,7 @@ class MyPlayerDanmakuController(
      * Applies the full setting snapshot in one place so partial UI callbacks do not leave
      * danmaku config in an inconsistent intermediate state.
      */
-    fun applySettings(snapshot: DanmakuSettingsSnapshot) {
+    override fun applySettings(snapshot: DanmakuSettingsSnapshot) {
         if (lastSettingsSnapshot == snapshot) {
             return
         }
@@ -496,14 +499,14 @@ class MyPlayerDanmakuController(
         )
     }
 
-    fun updatePlaybackSpeed(speed: Float) {
+    override fun updatePlaybackSpeed(speed: Float) {
         val resolved = speed.coerceAtLeast(0.1f)
         currentPlaybackSpeed = resolved
         appliedTimerFactor = resolved
         danmakuPlayer?.updatePlaySpeed(resolved)
     }
 
-    fun notifyPlaybackStateChanged(playbackState: Int, playWhenReady: Boolean) {
+    override fun notifyPlaybackStateChanged(playbackState: Int, playWhenReady: Boolean) {
         when (playbackState) {
             Player.STATE_BUFFERING -> {
                 val player = danmakuPlayer
@@ -525,7 +528,7 @@ class MyPlayerDanmakuController(
         }
     }
 
-    fun notifyIsPlayingChanged(isPlaying: Boolean) {
+    override fun notifyIsPlayingChanged(isPlaying: Boolean) {
         if (isPlaying && wasBufferingWhilePlaying) {
             resumeAfterBuffering()
             return
@@ -560,7 +563,7 @@ class MyPlayerDanmakuController(
         startDriftSync()
     }
 
-    fun setEnabled(enabled: Boolean) {
+    override fun setEnabled(enabled: Boolean) {
         lastSettingsSnapshot = lastSettingsSnapshot?.copy(enabled = enabled)
         updateVisibility(enabled)
         val danmakuView = danmakuViewProvider()
@@ -573,7 +576,7 @@ class MyPlayerDanmakuController(
         }
     }
 
-    fun pause() {
+    override fun pause() {
         if (isDanmakuPaused) {
             return
         }
@@ -583,7 +586,7 @@ class MyPlayerDanmakuController(
         danmakuPlayer?.pause()
     }
 
-    fun resume() {
+    override fun resume() {
         if (isDanmakuStarted && !isDanmakuPaused) {
             danmakuPlayer?.let { startPreparedPlayerIfNeeded(it) }
             return
@@ -624,7 +627,7 @@ class MyPlayerDanmakuController(
         startDriftSync()
     }
 
-    fun resetForPlaybackStart(positionMs: Long) {
+    override fun resetForPlaybackStart(positionMs: Long) {
         prepareJob?.cancel()
         preloadTextureJob?.cancel()
         prepareGeneration = nextDanmakuPreparationGeneration(prepareGeneration, replace = true)
@@ -641,7 +644,7 @@ class MyPlayerDanmakuController(
         }
     }
 
-    fun stop() {
+    override fun stop() {
         isDanmakuStarted = false
         isDanmakuPaused = false
         liveEngineStarted = false
@@ -660,7 +663,7 @@ class MyPlayerDanmakuController(
         danmakuPlayer?.stop()
     }
 
-    fun syncPosition(positionMs: Long, forceSeek: Boolean = false) {
+    override fun syncPosition(positionMs: Long, forceSeek: Boolean) {
         val safePosition = positionMs.coerceAtLeast(0L)
         danmakuPositionMs = safePosition
         val player = danmakuPlayer ?: return
@@ -689,7 +692,7 @@ class MyPlayerDanmakuController(
         }
     }
 
-    fun release() {
+    override fun release() {
         prepareJob?.cancel()
         preloadTextureJob?.cancel()
         windowRefreshJob?.cancel()
@@ -760,7 +763,7 @@ class MyPlayerDanmakuController(
         }
     }
 
-    fun notifyPlaybackFirstFrame() {
+    override fun notifyPlaybackFirstFrame() {
         lastFirstFrameRealtimeMs = SystemClock.elapsedRealtime()
         // 修复 bug2：首帧渲染是切后台/surface 重建后恢复弹幕的可靠时机。
         // 若引擎已启动但 timer 处于暂停态（被后台 pause 了），主动恢复重启渲染循环。
@@ -961,7 +964,7 @@ class MyPlayerDanmakuController(
             context = filterContext,
             settings = lastSettingsSnapshot,
             stage = stage
-        ).applySmartFilter(level = smartFilterLevel, stage = stage)
+        )
         val preparedSource = if (mergeDuplicate) {
             DanmakuDuplicateMergePolicy.merge(filtered)
         } else {
@@ -1478,25 +1481,6 @@ class MyPlayerDanmakuController(
 
     private fun hasPreparedData(): Boolean {
         return danmakuTimeline.data.isNotEmpty() || rawDanmakuData.isNotEmpty() || danmakuData.isNotEmpty()
-    }
-
-    private fun List<DmModel>.applySmartFilter(level: Int, stage: String): List<DmModel> {
-        val normalizedLevel = level.normalizeSmartFilterLevel()
-        if (normalizedLevel == SMART_FILTER_LEVEL_OFF || isEmpty()) {
-            return this
-        }
-        // Smart filter uses Bilibili danmaku weight (DanmakuElem field 9, AI-derived).
-        // Aligned with BiliDanmakuFilterPolicy.shouldDropByAi: drop when weight>0 and weight<level;
-        // weight==0 means un-evaluated, keep it.
-        val filtered = filter { item ->
-            val score = item.weight
-            score <= 0 || score >= normalizedLevel
-        }
-        val dropped = size - filtered.size
-        if (dropped > 0) {
-            AppLog.i(TAG, "smart filter stage=$stage level=$normalizedLevel raw=${size} kept=${filtered.size} dropped=$dropped")
-        }
-        return filtered
     }
 
     private data class MergeDuplicateKey(

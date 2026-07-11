@@ -111,7 +111,7 @@ internal class DrawState : State() {
 
   fun recycle() {
     if (drawingCache != DrawingCache.EMPTY_DRAWING_CACHE) {
-      drawingCache.decreaseReference()
+      drawingCache.releaseOwner()
     }
     drawingCache = DrawingCache.EMPTY_DRAWING_CACHE
     layoutGeneration = -1

@@ -1,4 +1,4 @@
-package com.btelly.feature.player.view
+package com.btelly.feature.player.danmaku.common
 
 import com.btelly.model.dm.DmModel
 
@@ -131,7 +131,7 @@ internal object DanmakuDuplicateMergePolicy {
     private fun DmModel.canMergeDuplicate(): Boolean {
         val normalized = content.trim()
         if (normalized.isBlank()) return false
-        if (mode == 7 || mode == 9) return false
+        if (mode == DanmakuProtocolMode.ADVANCED || mode == DanmakuProtocolMode.SCRIPT) return false
         if (normalized.contains("def text", ignoreCase = true)) return false
         return true
     }

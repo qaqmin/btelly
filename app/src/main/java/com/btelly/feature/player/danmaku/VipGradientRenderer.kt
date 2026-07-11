@@ -3,8 +3,9 @@ package com.btelly.feature.player.danmaku
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Shader
-import com.kuaishou.akdanmaku.data.DanmakuVipGradientStyle
-import com.btelly.feature.player.view.VipDanmakuTextureCache
+import com.btelly.feature.player.danmaku.common.BiliDanmakuStyle
+import com.btelly.feature.player.danmaku.common.DanmakuVipGradientStyle
+import com.btelly.feature.player.danmaku.common.VipDanmakuTextureCache
 
 /**
  * VIP 弹幕渲染：只使用 B 站 colorful_src 贴图。

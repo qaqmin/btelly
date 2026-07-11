@@ -87,6 +87,17 @@ class DrawingCachePool(private var maxMemorySize: Int) {
     }
   }
 
+  fun evictAll(): List<DrawingCache> {
+    synchronized(this) {
+      if (caches.isEmpty()) return emptyList()
+      val evicted = caches.toList()
+      caches.clear()
+      bucketMap.clear()
+      memorySize = 0
+      return evicted
+    }
+  }
+
   private fun findReusableCache(width: Int, height: Int): DrawingCache? {
     var best: DrawingCache? = null
     var bestArea = Int.MAX_VALUE

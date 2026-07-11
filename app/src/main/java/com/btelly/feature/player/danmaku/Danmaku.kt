@@ -1,6 +1,6 @@
 package com.btelly.feature.player.danmaku
 
-import com.kuaishou.akdanmaku.data.DanmakuVipGradientStyle
+import com.btelly.feature.player.danmaku.common.DanmakuVipGradientStyle
 
 /**
  * 弹幕引擎内部数据模型（迁移自 上游弹幕库的 Danmaku 数据模型）。

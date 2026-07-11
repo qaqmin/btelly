@@ -1,5 +1,6 @@
 package com.btelly.feature.player.view
 
+import com.btelly.feature.player.danmaku.common.DanmakuDuplicateMergePolicy
 import com.btelly.model.dm.DmModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

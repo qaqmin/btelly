@@ -13,7 +13,12 @@ import android.os.Process
 import com.btelly.core.common.log.AppLog
 import com.btelly.feature.player.danmaku.model.DanmakuItem
 import com.btelly.feature.player.danmaku.model.SharedCacheEntry
-import com.btelly.feature.player.view.VipDanmakuTextureCache
+import com.btelly.feature.player.danmaku.common.BiliDanmakuStyle
+import com.btelly.feature.player.danmaku.common.BitmapMemoryBudget
+import com.btelly.feature.player.danmaku.common.VipDanmakuTextureCache
+import com.btelly.feature.player.danmaku.common.estimatedArgb8888Bytes
+import com.btelly.feature.player.danmaku.common.reclaimUntilBitmapBudgetFits
+import com.btelly.feature.player.danmaku.common.resolveDanmakuBitmapBudgetBytes
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -46,7 +51,6 @@ internal class CacheManager(
         private const val MSG_CLEAR = 2002
         private const val MSG_RELEASE = 2099
 
-        private const val CACHE_POOL_MAX_BYTES: Long = 50L * 1024L * 1024L
         private const val CACHE_POOL_MAX_COUNT: Int = 72
 
         private const val MAX_RELEASE_PER_DRAIN = 24
@@ -65,7 +69,17 @@ internal class CacheManager(
 
     private val handler: Handler = CacheHandler(thread.looper)
 
-    private val pool = BitmapPool(maxBytes = CACHE_POOL_MAX_BYTES, maxCount = CACHE_POOL_MAX_COUNT)
+    private val bitmapBudget = BitmapMemoryBudget(
+        resolveDanmakuBitmapBudgetBytes(
+            screenWidth = appContext.resources.displayMetrics.widthPixels,
+            screenHeight = appContext.resources.displayMetrics.heightPixels,
+        )
+    )
+    private val pool = BitmapPool(
+        maxBytes = bitmapBudget.maxBytes,
+        maxCount = CACHE_POOL_MAX_COUNT,
+        onEvict = ::recycleBitmap,
+    )
 
     /**
      * 共享缓存表：相同内容（text+color+textSize+stroke+typeface）的弹幕共享同一个 SharedCacheEntry。
@@ -80,7 +94,7 @@ internal class CacheManager(
                 // 释放共享表持有的那份引用。若此时已无 item 引用，bitmap 立刻可回收；
                 // 若仍有 item 在用，bitmap 等最后一个 item release 时才回收。
                 if (entry.release()) {
-                    enqueueRelease(entry, releaseAtFrameId = 0)
+                    recycleBitmap(entry.bitmap)
                 }
             }
             return true
@@ -116,14 +130,19 @@ internal class CacheManager(
 
     fun poolSnapshot(): PoolSnapshot = pool.snapshot()
 
-    fun statsSnapshot(): StatsSnapshot =
-        StatsSnapshot(
+    fun statsSnapshot(): StatsSnapshot {
+        val budget = bitmapBudget.snapshot()
+        return StatsSnapshot(
             bitmapCreated = bitmapCreated.get(),
             bitmapReused = bitmapReused.get(),
             bitmapPutToPool = bitmapPutToPool.get(),
             bitmapRecycled = bitmapRecycled.get(),
             sharedHit = sharedHit.get(),
+            bitmapBytes = budget.usedBytes,
+            bitmapMaxBytes = budget.maxBytes,
+            bitmapCount = budget.bitmapCount,
         )
+    }
 
     fun requestBuildCache(
         item: DanmakuItem,
@@ -157,7 +176,7 @@ internal class CacheManager(
             if (bmp.isRecycled) continue
             val pooled = pool.tryPut(bmp)
             if (!pooled) {
-                runCatching { bmp.recycle() }
+                recycleBitmap(bmp)
                 bitmapRecycled.incrementAndGet()
             } else {
                 bitmapPutToPool.incrementAndGet()
@@ -186,15 +205,15 @@ internal class CacheManager(
                 MSG_CLEAR -> {
                     queueDepth.set(0)
                     clearSharedCacheStore()
+                    releaseAllPendingEntries()
                     pool.clear()
-                    releaseQueue.clear()
                 }
                 MSG_RELEASE -> {
                     removeCallbacksAndMessages(null)
                     queueDepth.set(0)
                     clearSharedCacheStore()
+                    releaseAllPendingEntries()
                     pool.clear()
-                    releaseQueue.clear()
                     runCatching { thread.quitSafely() }
                 }
             }
@@ -241,7 +260,7 @@ internal class CacheManager(
         if (shared != null) {
             sharedCacheStore.remove(key)
             if (shared.release()) {
-                enqueueRelease(shared, releaseAtFrameId = 0)
+                recycleBitmap(shared.bitmap)
             }
         }
 
@@ -266,7 +285,7 @@ internal class CacheManager(
         val bmp =
             pool.acquire(minWidth = boxWidth, minHeight = boxHeight)
                 ?.also { bitmapReused.incrementAndGet() }
-                ?: runCatching { Bitmap.createBitmap(boxWidth, boxHeight, Bitmap.Config.ARGB_8888) }.getOrNull()
+                ?: createBitmapWithinBudget(boxWidth, boxHeight)
                     ?.also { bitmapCreated.incrementAndGet() }
                 ?: run {
                     publishResult(req, null)
@@ -332,9 +351,61 @@ internal class CacheManager(
         sharedCacheStore.clear()
         for (entry in entries) {
             if (entry.release()) {
-                enqueueRelease(entry, releaseAtFrameId = 0)
+                recycleBitmap(entry.bitmap)
             }
         }
+    }
+
+    private fun releaseAllPendingEntries() {
+        while (true) {
+            val pending = releaseQueue.poll() ?: return
+            val entry = pending.entry
+            if (!entry.isRecycled && entry.release()) recycleBitmap(entry.bitmap)
+        }
+    }
+
+    private fun createBitmapWithinBudget(width: Int, height: Int): Bitmap? {
+        val estimateBytes = estimatedArgb8888Bytes(width, height)
+        if (!ensureBitmapCapacity(estimateBytes)) return null
+        val reservation = Any()
+        if (!bitmapBudget.trySetBytes(reservation, estimateBytes)) return null
+        val bitmap = runCatching { Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888) }.getOrNull()
+            ?: run {
+                bitmapBudget.release(reservation)
+                return null
+            }
+        val actualBytes = bitmap.allocationByteCount.toLong().coerceAtLeast(0L)
+        if (actualBytes <= 0L || !bitmapBudget.replaceOwner(reservation, bitmap, actualBytes)) {
+            bitmapBudget.release(reservation)
+            runCatching { bitmap.recycle() }
+            return null
+        }
+        return bitmap
+    }
+
+    private fun ensureBitmapCapacity(requiredBytes: Long): Boolean {
+        return reclaimUntilBitmapBudgetFits(
+            budget = bitmapBudget,
+            requiredBytes = requiredBytes,
+            evictPooled = {
+                val pooled = pool.evictOne() ?: return@reclaimUntilBitmapBudgetFits false
+                recycleBitmap(pooled)
+                true
+            },
+            evictShared = {
+                val iterator = sharedCacheStore.entries.iterator()
+                if (!iterator.hasNext()) return@reclaimUntilBitmapBudgetFits false
+                val eldest = iterator.next().value
+                iterator.remove()
+                if (eldest.release()) recycleBitmap(eldest.bitmap)
+                true
+            },
+        )
+    }
+
+    private fun recycleBitmap(bitmap: Bitmap) {
+        bitmapBudget.release(bitmap)
+        runCatching { if (!bitmap.isRecycled) bitmap.recycle() }
     }
 
     /**
@@ -389,6 +460,7 @@ internal class CacheManager(
     private class BitmapPool(
         private val maxBytes: Long,
         private val maxCount: Int,
+        private val onEvict: (Bitmap) -> Unit,
     ) {
         private val pool = ArrayDeque<Bitmap>()
         private var pooledBytes: Long = 0L
@@ -430,9 +502,27 @@ internal class CacheManager(
             while (it.hasNext()) {
                 val b = it.next()
                 it.remove()
-                runCatching { if (!b.isRecycled) b.recycle() }
+                onEvict(b)
             }
             pooledBytes = 0L
+        }
+
+        @Synchronized
+        fun evictOne(): Bitmap? {
+            if (pool.isEmpty()) return null
+            var largest: Bitmap? = null
+            var largestBytes = Long.MIN_VALUE
+            for (bitmap in pool) {
+                val bytes = bitmap.allocationByteCount.toLong().coerceAtLeast(0L)
+                if (bytes > largestBytes) {
+                    largest = bitmap
+                    largestBytes = bytes
+                }
+            }
+            val bitmap = largest ?: return null
+            pool.remove(bitmap)
+            pooledBytes = (pooledBytes - largestBytes.coerceAtLeast(0L)).coerceAtLeast(0L)
+            return bitmap
         }
 
         @Synchronized
@@ -464,5 +554,8 @@ internal class CacheManager(
         val bitmapPutToPool: Long,
         val bitmapRecycled: Long,
         val sharedHit: Long = 0L,
+        val bitmapBytes: Long = 0L,
+        val bitmapMaxBytes: Long = 0L,
+        val bitmapCount: Int = 0,
     )
 }

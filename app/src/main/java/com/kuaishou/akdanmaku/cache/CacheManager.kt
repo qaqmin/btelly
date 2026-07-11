@@ -38,6 +38,9 @@ import com.kuaishou.akdanmaku.ext.endTrace
 import com.kuaishou.akdanmaku.ext.startTrace
 import com.kuaishou.akdanmaku.ui.DanmakuDisplayer
 import com.kuaishou.akdanmaku.utils.Size
+import com.btelly.feature.player.danmaku.common.BitmapMemoryBudget
+import com.btelly.feature.player.danmaku.common.estimatedArgb8888Bytes
+import com.btelly.feature.player.danmaku.common.reclaimUntilBitmapBudgetFits
 import java.util.*
 
 internal class DanmakuMeasureSizeCache(
@@ -110,6 +113,22 @@ internal fun isDanmakuCacheBuildCurrent(
   currentCacheGeneration == taskCacheGeneration &&
   pendingCacheGeneration == taskCacheGeneration
 
+internal class CacheReferenceRelease<T>(
+  val caches: ArrayList<T>,
+  var nextIndex: Int = 0
+)
+
+internal inline fun <T> drainCacheReferenceReleases(
+  releases: Iterable<CacheReferenceRelease<T>>,
+  releaseOwner: (T) -> Unit
+) {
+  for (release in releases) {
+    while (release.nextIndex < release.caches.size) {
+      releaseOwner(release.caches[release.nextIndex++])
+    }
+  }
+}
+
 /**
  * 缓存管理器，用于完成后台缓存绘制与管理缓存相关对象
  *
@@ -129,11 +148,14 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
   }
   private val cacheHandler by lazy { CacheHandler(cacheThread.looper) }
   private var cancelFlag = false
+  @Volatile private var releaseRequested = false
 
   private val measureSizeCache = DanmakuMeasureSizeCache()
   private val pendingMeasureKeys = Collections.synchronizedSet(mutableSetOf<Long>())
   private val pendingBuildKeys = Collections.synchronizedSet(mutableSetOf<Long>())
+  private val pendingReferenceReleases = Collections.synchronizedSet(mutableSetOf<CacheReferenceRelease<DrawingCache>>())
   private var sharedCacheGeneration = -1
+  private val bitmapBudget = BitmapMemoryBudget(DanmakuConfig.CACHE_POOL_MAX_MEMORY_SIZE.toLong())
   private val sharedDrawingCaches = object : LinkedHashMap<Long, DrawingCache>(256, 0.75f, true) {
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, DrawingCache>?): Boolean {
       val shouldRemove = size > MAX_SHARED_DRAWING_CACHE
@@ -160,7 +182,7 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
     config: DanmakuConfig,
     priority: Int = CACHE_PRIORITY_VISIBLE
   ) {
-    if (isReleased) return
+    if (isReleased || releaseRequested) return
     val key = requestKey(item.data.danmakuId, config.cacheGeneration)
     if (!pendingBuildKeys.add(key)) {
       cacheHandler.boostBuild(key, priority)
@@ -176,7 +198,7 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
     priority: Int = CACHE_PRIORITY_VISIBLE,
     buildAfterMeasure: Boolean = false
   ) {
-    if (isReleased) return
+    if (isReleased || releaseRequested) return
     val key = requestKey(item.data.danmakuId, config.measureGeneration)
     if (!pendingMeasureKeys.add(key)) return
     cacheHandler.enqueue(PendingCacheTask.measure(CacheInfo(item, displayer, config, key, buildAfterMeasure), priority))
@@ -191,13 +213,20 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
   }
 
   fun releaseCache(cache: DrawingCache) {
-    if (isReleased || cache == DrawingCache.EMPTY_DRAWING_CACHE) return
+    if (cache == DrawingCache.EMPTY_DRAWING_CACHE) return
+    if (releaseRequested && Looper.myLooper() === cacheThread.looper) {
+      cache.destroy()
+      return
+    }
+    if (isReleased) return
     cacheHandler.obtainMessage(WORKER_MSG_RELEASE_ITEM, cache).sendToTarget()
   }
 
   fun releaseReferenceSnapshot(caches: ArrayList<DrawingCache>, delayMs: Long = CACHE_REFERENCE_RELEASE_DELAY_MS) {
     if (isReleased || caches.isEmpty()) return
-    val message = cacheHandler.obtainMessage(WORKER_MSG_RELEASE_REFERENCES, CacheReferenceRelease(caches))
+    val release = CacheReferenceRelease(caches)
+    pendingReferenceReleases.add(release)
+    val message = cacheHandler.obtainMessage(WORKER_MSG_RELEASE_REFERENCES, release)
     if (delayMs > 0L) {
       cacheHandler.sendMessageDelayed(message, delayMs)
     } else {
@@ -207,6 +236,8 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
 
   fun getDanmakuSize(danmaku: DanmakuItemData): Size? =
     measureSizeCache.get(danmaku.danmakuId, context.config.measureGeneration)
+
+  fun bitmapBudgetSnapshot(): BitmapMemoryBudget.Snapshot = bitmapBudget.snapshot()
 
   fun measureNow(
     item: DanmakuItem,
@@ -226,15 +257,12 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
   }
 
   fun release() {
-    if (isReleased) return
+    if (isReleased || releaseRequested) return
     if (available) {
+      releaseRequested = true
       cancelAllRequests()
-      isReleased = true
-      try {
-        cacheThread.quitSafely()
-      } catch (e: Exception) {
-        Log.e(DanmakuEngine.TAG, "CacheManager.release failed", e)
-      }
+      cacheHandler.sendEmptyMessage(WORKER_MSG_RELEASE_MANAGER)
+      return
     }
     isReleased = true
     available = false
@@ -270,11 +298,6 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
         PendingCacheTask(WORKER_MSG_BUILD_CACHE, info, priority.coerceIn(0, CACHE_PRIORITY_BACKGROUND))
     }
   }
-
-  private class CacheReferenceRelease(
-    val caches: ArrayList<DrawingCache>,
-    var nextIndex: Int = 0
-  )
 
   private class CacheBoost(
     val requestKey: Long,
@@ -328,8 +351,10 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
           (msg.obj as? DrawingCache)?.let { if (!cachePool.release(it)) it.destroy() }
         }
         WORKER_MSG_RELEASE_REFERENCES -> {
-          (msg.obj as? CacheReferenceRelease)?.let(::releaseReferences)
+          @Suppress("UNCHECKED_CAST")
+          (msg.obj as? CacheReferenceRelease<DrawingCache>)?.let(::releaseReferences)
         }
+        WORKER_MSG_RELEASE_MANAGER -> releaseManagerOnCacheThread()
         WORKER_MSG_WARM_UP -> {
           // no-op，只用于触发 cacheHandler/cacheThread 初始化。
         }
@@ -423,15 +448,23 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
       callbackHandler.sendEmptyMessage(MSG_CACHE_RENDER)
     }
 
-    private fun releaseReferences(release: CacheReferenceRelease) {
+    private fun releaseReferences(release: CacheReferenceRelease<DrawingCache>) {
       var released = 0
       while (release.nextIndex < release.caches.size && released < MAX_REFERENCE_RELEASES_PER_TICK) {
-        release.caches[release.nextIndex++].decreaseReference()
+        release.caches[release.nextIndex++].releaseOwner()
         released++
       }
       if (release.nextIndex < release.caches.size) {
-        if (isReleased) return
-        obtainMessage(WORKER_MSG_RELEASE_REFERENCES, release).sendToTarget()
+        if (releaseRequested) {
+          while (release.nextIndex < release.caches.size) {
+            release.caches[release.nextIndex++].releaseOwner()
+          }
+        } else if (!isReleased) {
+          obtainMessage(WORKER_MSG_RELEASE_REFERENCES, release).sendToTarget()
+        }
+      }
+      if (release.nextIndex >= release.caches.size) {
+        pendingReferenceReleases.remove(release)
       }
     }
 
@@ -552,12 +585,15 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
 
         startTrace("CacheManager_checkCache")
         val candidate = cachePool.acquire(dimensions.first, dimensions.second)
-          ?: DrawingCache().build(
-            dimensions.first,
-            dimensions.second,
-            info.displayer.densityDpi,
-            checkSize = true
+          ?: createDrawingCacheWithinBudget(
+            width = dimensions.first,
+            height = dimensions.second,
+            densityDpi = info.displayer.densityDpi
           )
+          ?: run {
+            markCacheBuildErrorIfCurrent(info, item, drawState)
+            return
+          }
         candidate.erase()
         candidate.increaseReference()
         candidate.cacheManager = this@CacheManager
@@ -579,7 +615,7 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
             synchronized(drawState) {
               if (!isCurrentCacheBuild(info, item, drawState)) return@synchronized false
               if (drawState.drawingCache != DrawingCache.EMPTY_DRAWING_CACHE) {
-                drawState.drawingCache.decreaseReference()
+                drawState.drawingCache.releaseOwner()
               }
               drawState.drawingCache = candidate
               drawState.cacheGeneration = info.cacheGeneration
@@ -667,6 +703,78 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
         drawState.drawingCache.height < drawState.height ||
         drawState.drawingCache.width - drawState.width > 5 ||
         drawState.drawingCache.height - drawState.height > 5
+
+    private fun releaseManagerOnCacheThread() {
+      removeCallbacksAndMessages(null)
+      pendingMeasureKeys.clear()
+      pendingBuildKeys.clear()
+      pendingTasks.clear()
+      dispatching = false
+      renderSignPending = false
+      val referenceReleases = synchronized(pendingReferenceReleases) {
+        pendingReferenceReleases.toList().also { pendingReferenceReleases.clear() }
+      }
+      drainCacheReferenceReleases(referenceReleases) { it.releaseOwner() }
+      val shared = sharedDrawingCaches.values.toList()
+      sharedDrawingCaches.clear()
+      shared.forEach(DrawingCache::releaseOwnerAndRecycleIfUnused)
+      cachePool.evictAll().forEach(DrawingCache::destroy)
+      val remaining = bitmapBudget.snapshot()
+      if (remaining.usedBytes != 0L || remaining.bitmapCount != 0) {
+        Log.e(
+          DanmakuEngine.TAG,
+          "CacheManager release left bitmap budget bytes=${remaining.usedBytes} count=${remaining.bitmapCount}",
+          Throwable()
+        )
+      }
+      isReleased = true
+      available = false
+      runCatching { cacheThread.quitSafely() }
+        .onFailure { Log.e(DanmakuEngine.TAG, "CacheManager.release failed", it) }
+    }
+  }
+
+  private fun createDrawingCacheWithinBudget(width: Int, height: Int, densityDpi: Int): DrawingCache? {
+    val estimateBytes = estimatedArgb8888Bytes(width, height)
+    if (!ensureBitmapCapacity(estimateBytes)) return null
+    val cache = DrawingCache().also {
+      it.cacheManager = this
+      it.bitmapBudget = bitmapBudget
+    }
+    if (!bitmapBudget.trySetBytes(cache, estimateBytes)) return null
+    try {
+      cache.build(width, height, densityDpi, checkSize = true)
+    } catch (throwable: Throwable) {
+      Log.e(DanmakuEngine.TAG, "CacheManager bitmap allocation failed", throwable)
+      cache.destroy()
+      return null
+    }
+    val actualBytes = cache.size.toLong().coerceAtLeast(0L)
+    if (actualBytes <= 0L || !bitmapBudget.trySetBytes(cache, actualBytes)) {
+      cache.destroy()
+      return null
+    }
+    return cache
+  }
+
+  private fun ensureBitmapCapacity(requiredBytes: Long): Boolean {
+    return reclaimUntilBitmapBudgetFits(
+      budget = bitmapBudget,
+      requiredBytes = requiredBytes,
+      evictPooled = {
+        val pooled = cachePool.evictAll()
+        pooled.forEach(DrawingCache::destroy)
+        pooled.isNotEmpty()
+      },
+      evictShared = {
+        val iterator = sharedDrawingCaches.entries.iterator()
+        if (!iterator.hasNext()) return@reclaimUntilBitmapBudgetFits false
+        val eldest = iterator.next().value
+        iterator.remove()
+        eldest.releaseOwnerAndRecycleIfUnused()
+        true
+      },
+    )
   }
 
   private fun putSharedDrawingCache(key: Long, cache: DrawingCache) {
@@ -690,14 +798,13 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
   }
 
   private fun releaseSharedDrawingCache(cache: DrawingCache) {
-    cache.decreaseReference()
-    cache.destroy()
+    cache.releaseOwner()
   }
 
   private fun replaceItemDrawingCache(drawState: DrawState, cache: DrawingCache) {
     if (drawState.drawingCache == cache) return
     if (drawState.drawingCache != DrawingCache.EMPTY_DRAWING_CACHE) {
-      drawState.drawingCache.decreaseReference()
+      drawState.drawingCache.releaseOwner()
     }
     cache.increaseReference()
     cache.cacheManager = this
@@ -753,6 +860,7 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
     private const val WORKER_MSG_DRAIN_QUEUE = 8
     private const val WORKER_MSG_RELEASE_REFERENCES = 9
     private const val WORKER_MSG_BOOST_BUILD = 10
+    private const val WORKER_MSG_RELEASE_MANAGER = 11
 
     const val MSG_CACHE_RENDER = -1
     const val MSG_CACHE_MEASURED = 0

@@ -1,9 +1,7 @@
-package com.btelly.feature.player.view
+package com.btelly.feature.player.danmaku.common
 
-import com.kuaishou.akdanmaku.data.DanmakuItemData
 import com.btelly.core.common.log.AppLog
 import com.btelly.feature.player.DanmakuFilterContext
-import com.btelly.feature.player.danmaku.DanmakuSettingsSnapshot
 import com.btelly.model.dm.DmModel
 import com.btelly.model.proto.DanmuWebPlayerConfigProto
 import com.btelly.model.proto.DmRestrictPeriodProto
@@ -34,6 +32,7 @@ internal object BiliDanmakuFilterPolicy {
         val playerConfig = context.playerConfig
         val aiEnabled = context.smartFilterConfig.resolvedEnabled ||
             playerConfig.aiSwitch
+        val localAiLevel = settings?.smartFilterLevel?.coerceAtLeast(0) ?: 0
         val aiLevel = listOf(
             context.smartFilterConfig.resolvedLevel,
             playerConfig.aiLevel,
@@ -56,7 +55,7 @@ internal object BiliDanmakuFilterPolicy {
         val filtered = ArrayList<DmModel>(items.size)
         for (item in items) {
             val content = item.content.trim()
-            if (content.isBlank() || item.mode == 9 || content.contains("def text", ignoreCase = true)) {
+            if (content.isBlank() || item.mode == DanmakuProtocolMode.SCRIPT || content.contains("def text", ignoreCase = true)) {
                 blankOrUnsupported++
                 continue
             }
@@ -68,7 +67,9 @@ internal object BiliDanmakuFilterPolicy {
                 reportDropped++
                 continue
             }
-            if (aiEnabled && aiLevel > 0 && shouldDropByAi(item, aiLevel)) {
+            if ((aiEnabled && aiLevel > 0 && shouldDropByAi(item, aiLevel)) ||
+                shouldDropByLocalAi(item, localAiLevel)
+            ) {
                 aiDropped++
                 continue
             }
@@ -85,7 +86,7 @@ internal object BiliDanmakuFilterPolicy {
                 TAG,
                 "stage=$stage raw=${items.size} kept=${filtered.size} dropped=$dropped " +
                     "blank=$blankOrUnsupported report=$reportDropped restrict=$restrictedDropped " +
-                    "ai=$aiDropped type=$typeDropped aiLevel=$aiLevel cost=${costMs}ms"
+                    "ai=$aiDropped type=$typeDropped serviceAiLevel=$aiLevel localAiLevel=$localAiLevel cost=${costMs}ms"
             )
         }
         return filtered
@@ -98,6 +99,9 @@ internal object BiliDanmakuFilterPolicy {
         val score = scores.maxOrNull() ?: return false
         return score < aiLevel
     }
+
+    private fun shouldDropByLocalAi(item: DmModel, aiLevel: Int): Boolean =
+        aiLevel > 0 && item.weight > 0 && item.weight < aiLevel
 
     private fun DanmuWebPlayerConfigProto.resolveBiliCompatibleAiLevel(): Int {
         if (dmArea in 1..99) return 3
@@ -128,11 +132,11 @@ internal object BiliDanmakuFilterPolicy {
             (item.color != 0 && item.color != 0xFFFFFF)
         if (isColored && !playerConfig.typeColor) return false
         return when (item.mode) {
-            DanmakuItemData.DANMAKU_MODE_CENTER_TOP ->
+            DanmakuProtocolMode.CENTER_TOP ->
                 playerConfig.typeTop && playerConfig.typeTopBottom && settings?.allowTop != false
-            DanmakuItemData.DANMAKU_MODE_CENTER_BOTTOM ->
+            DanmakuProtocolMode.CENTER_BOTTOM ->
                 playerConfig.typeBottom && playerConfig.typeTopBottom && settings?.allowBottom != false
-            7 -> false
+            DanmakuProtocolMode.ADVANCED -> false
             else -> playerConfig.typeScroll
         }
     }

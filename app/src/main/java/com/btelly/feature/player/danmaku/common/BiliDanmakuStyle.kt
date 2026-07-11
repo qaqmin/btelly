@@ -1,4 +1,4 @@
-package com.btelly.feature.player.danmaku
+package com.btelly.feature.player.danmaku.common
 
 import android.graphics.Color
 import kotlin.math.roundToInt

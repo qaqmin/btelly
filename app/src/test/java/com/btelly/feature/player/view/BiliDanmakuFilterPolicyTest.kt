@@ -1,6 +1,7 @@
 package com.btelly.feature.player.view
 
-import com.btelly.feature.player.danmaku.DanmakuSettingsSnapshot
+import com.btelly.feature.player.danmaku.common.BiliDanmakuFilterPolicy
+import com.btelly.feature.player.danmaku.common.DanmakuSettingsSnapshot
 import com.btelly.feature.player.DanmakuFilterContext
 import com.btelly.model.dm.DmModel
 import com.btelly.model.proto.DanmuWebPlayerConfigProto
@@ -90,6 +91,22 @@ class BiliDanmakuFilterPolicyTest {
         assertEquals(listOf(2L), result.map { it.id })
     }
 
+    @Test
+    fun apply_respectsAppSmartFilterLevelWithoutServiceAiSwitch() {
+        val result = BiliDanmakuFilterPolicy.apply(
+            items = listOf(
+                dm(id = 1, content = "未评分", weight = 0),
+                dm(id = 2, content = "低权重", weight = 2),
+                dm(id = 3, content = "正常", weight = 5)
+            ),
+            context = DanmakuFilterContext.EMPTY,
+            settings = settings(smartFilterLevel = 3),
+            stage = "test"
+        )
+
+        assertEquals(listOf(1L, 3L), result.map { it.id })
+    }
+
     private fun dm(
         id: Long,
         progress: Int = 0,
@@ -109,7 +126,8 @@ class BiliDanmakuFilterPolicyTest {
 
     private fun settings(
         allowTop: Boolean = true,
-        allowBottom: Boolean = true
+        allowBottom: Boolean = true,
+        smartFilterLevel: Int = 0
     ): DanmakuSettingsSnapshot =
         DanmakuSettingsSnapshot(
             enabled = true,
@@ -119,7 +137,7 @@ class BiliDanmakuFilterPolicyTest {
             screenArea = 3,
             allowTop = allowTop,
             allowBottom = allowBottom,
-            smartFilterLevel = 0,
+            smartFilterLevel = smartFilterLevel,
             mergeDuplicate = true
         )
 }

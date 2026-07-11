@@ -29,6 +29,7 @@ import android.os.Build
 import com.kuaishou.akdanmaku.ext.AkLog as Log
 import com.kuaishou.akdanmaku.engine.DanmakuEngine
 import com.kuaishou.akdanmaku.ext.EMPTY_BITMAP
+import com.btelly.feature.player.danmaku.common.BitmapMemoryBudget
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -43,6 +44,7 @@ class DrawingCache {
   private var pendingRecycle = false
   private val refCount = AtomicInteger(0)
   internal var cacheManager: CacheManager? = null
+  internal var bitmapBudget: BitmapMemoryBudget? = null
 
   var size = 0
     private set
@@ -107,6 +109,29 @@ class DrawingCache {
     }
   }
 
+  fun releaseOwner(): Int {
+    pendingRecycle = true
+    val count = refCount.decrementAndGet()
+    if (count == 0) {
+      cacheManager?.releaseCache(this)
+    } else if (count < 0) {
+      Log.e(DanmakuEngine.TAG, "DrawingCache reference underflow: $count", Throwable())
+    }
+    return count
+  }
+
+  internal fun releaseOwnerAndRecycleIfUnused(): Boolean {
+    pendingRecycle = true
+    val count = refCount.decrementAndGet()
+    if (count < 0) {
+      Log.e(DanmakuEngine.TAG, "DrawingCache reference underflow: $count", Throwable())
+      return false
+    }
+    if (count != 0) return false
+    recycle()
+    return true
+  }
+
   private fun recycle() {
     synchronized(this) {
       if (Thread.currentThread().name != CacheManager.THREAD_NAME) {
@@ -120,6 +145,7 @@ class DrawingCache {
       pendingRecycle = false
       holder.recycle()
       size = 0
+      bitmapBudget?.release(this)
     }
   }
 
