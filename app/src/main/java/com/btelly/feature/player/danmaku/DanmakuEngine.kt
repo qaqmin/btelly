@@ -12,6 +12,7 @@ import com.btelly.feature.player.danmaku.model.DanmakuCacheState
 import com.btelly.feature.player.danmaku.model.DanmakuItem
 import com.btelly.feature.player.danmaku.model.DanmakuKind
 import com.btelly.feature.player.danmaku.model.RenderSnapshot
+import com.btelly.feature.player.danmaku.model.RenderSnapshotStats
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
@@ -20,16 +21,31 @@ import kotlin.math.roundToInt
 internal interface DanmakuEngineMainApi {
     fun lastDrawCachedCount(): Int
 
-    fun lastDrawFallbackCount(): Int
+    fun lastDrawCacheMissSkippedCount(): Int
 
     fun stepTime(positionMs: Long, uiFrameId: Int)
 
     fun drainReleasedBitmaps(uiFrameId: Int)
 
-    fun renderSnapshot(): RenderSnapshot
+    fun acquireRenderSnapshot(): RenderSnapshot
+
+    fun releaseRenderSnapshot(snapshot: RenderSnapshot)
+
+    fun renderSnapshotStats(): RenderSnapshotStats
 
     fun draw(canvas: Canvas, snapshot: RenderSnapshot, config: DanmakuConfig)
 }
+
+internal fun shouldApplyDmCacheResult(
+    resultGeneration: Int,
+    currentGeneration: Int,
+    pendingGeneration: Int,
+    rendering: Boolean,
+    active: Boolean,
+): Boolean = resultGeneration == currentGeneration &&
+    pendingGeneration == resultGeneration &&
+    rendering &&
+    active
 
 internal interface DanmakuEngineActionApi {
     fun updateViewport(width: Int, height: Int, topInsetPx: Int, bottomInsetPx: Int)
@@ -41,6 +57,8 @@ internal interface DanmakuEngineActionApi {
     fun currentPositionMs(): Long
 
     fun drainReleasedBitmaps(uiFrameId: Int)
+
+    fun applyCacheResult(result: CacheBuildResult)
 
     fun preAct()
 
@@ -117,20 +135,19 @@ internal class DanmakuEngine(
     @Volatile private var debugNextAtMs: Int? = null
 
     @Volatile private var lastDrawCachedCount: Int = 0
-    @Volatile private var lastDrawFallbackCount: Int = 0
+    @Volatile private var lastDrawCacheMissSkippedCount: Int = 0
 
     override fun lastDrawCachedCount(): Int = lastDrawCachedCount
 
-    override fun lastDrawFallbackCount(): Int = lastDrawFallbackCount
+    override fun lastDrawCacheMissSkippedCount(): Int = lastDrawCacheMissSkippedCount
 
     // ---- Time (main writes; action reads) ----
     @Volatile private var currentPositionMs: Long = 0L
     @Volatile private var currentUiFrameId: Int = 0
 
     // ---- Render snapshot (double buffer) ----
-    private val snapshotA = RenderSnapshot()
-    private val snapshotB = RenderSnapshot()
-    @Volatile private var latestSnapshot: RenderSnapshot = snapshotA
+    private val snapshots = Array(3) { RenderSnapshot() }
+    @Volatile private var latestSnapshot: RenderSnapshot = snapshots[0]
     private var snapshotDirty: Boolean = true
     private var rebuildRequested: Boolean = true
 
@@ -150,24 +167,6 @@ internal class DanmakuEngine(
     private var cacheProbeCursor: Int = 0
 
     // ---- Draw (main thread only) ----
-    private val drawFontMetrics = Paint.FontMetrics()
-    // getFontMetrics 结果缓存：只有 textSize/typeface/strokeWidth 变化时才重算，
-    // 避免每帧重复调用 native getFontMetrics（drawMetricsKey 记录决定重算的样式指纹）。
-    private var drawMetricsKey = ""
-    private var drawBaselineOffset = 0f
-    private val drawFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        typeface = Typeface.DEFAULT_BOLD
-        // 对齐 akdanmaku SimpleRenderer：不开 subpixel（TV/OLED 上会把纯色文字边缘拆成 RGB 子像素，
-        // 整体观感发灰、颜色不饱满），仅抗锯齿。
-    }
-    private val drawStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        typeface = Typeface.DEFAULT_BOLD
-        style = Paint.Style.STROKE
-        // 对齐 akdanmaku SimpleRenderer：ROUND 连接比默认 MITER 更圆滑，拐角不生成尖刺，
-        // 占用文字面积更小，彩色像素保留更多；关闭 subpixel 同 drawFill。
-        strokeJoin = Paint.Join.ROUND
-        strokeCap = Paint.Cap.ROUND
-    }
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         // 对齐 akdanmaku drawPaint：关闭 isFilterBitmap，避免 drawBitmap 双线性滤波糊化烘焙好的
         // 锐利文字边缘（边缘被混合稀释 → 颜色发浅/不饱满）。弹幕 bitmap 按整数像素 1:1 绘制，无需滤波。
@@ -217,6 +216,7 @@ internal class DanmakuEngine(
                     }
                     a.cacheState = DanmakuCacheState.Init
                     a.cacheGeneration = -1
+                    a.pendingCacheGeneration = -1
                 }
             }
             rebuildRequested = true
@@ -235,6 +235,45 @@ internal class DanmakuEngine(
 
     override fun drainReleasedBitmaps(uiFrameId: Int) {
         cacheManager.drainReleasedBitmaps(uiFrameId)
+    }
+
+    override fun applyCacheResult(result: CacheBuildResult) {
+        val item = result.item
+        if (!shouldApplyDmCacheResult(
+                resultGeneration = result.generation,
+                currentGeneration = cacheStyleGeneration,
+                pendingGeneration = item.pendingCacheGeneration,
+                rendering = item.cacheState == DanmakuCacheState.Rendering,
+                active = item in active,
+            )) {
+            if (item.pendingCacheGeneration == result.generation) {
+                item.cacheState = DanmakuCacheState.Init
+                item.pendingCacheGeneration = -1
+            }
+            return
+        }
+        val entry = result.entry
+        if (entry == null || !entry.tryAcquire()) {
+            item.cacheState = DanmakuCacheState.Init
+            item.pendingCacheGeneration = -1
+            return
+        }
+        val old = item.cacheEntry
+        if (old === entry) {
+            entry.release()
+            item.cacheGeneration = result.generation
+            item.pendingCacheGeneration = -1
+            item.cacheState = DanmakuCacheState.Rendered
+            return
+        }
+        item.cacheEntry = entry
+        item.cacheGeneration = result.generation
+        item.pendingCacheGeneration = -1
+        item.cacheState = DanmakuCacheState.Rendered
+        if (old != null && old !== entry && old.release()) {
+            cacheManager.enqueueRelease(old, releaseAtFrameId = currentUiFrameId + 1)
+        }
+        snapshotDirty = true
     }
 
     override fun preAct() {
@@ -357,52 +396,45 @@ internal class DanmakuEngine(
         }
     }
 
-    override fun renderSnapshot(): RenderSnapshot =
-        latestSnapshot.also {
-            it.positionMs = currentPositionMs
-            it.pendingCount = debugPendingCount
-            it.nextAtMs = debugNextAtMs
+    override fun acquireRenderSnapshot(): RenderSnapshot {
+        while (true) {
+            val candidate = latestSnapshot
+            if (!candidate.tryAcquireRead()) continue
+            if (candidate === latestSnapshot) return candidate
+            candidate.releaseRead()
         }
+    }
+
+    override fun releaseRenderSnapshot(snapshot: RenderSnapshot) {
+        snapshot.releaseRead()
+    }
+
+    override fun renderSnapshotStats(): RenderSnapshotStats {
+        val snapshot = acquireRenderSnapshot()
+        return try {
+            RenderSnapshotStats(
+                positionMs = currentPositionMs,
+                count = snapshot.count,
+                pendingCount = snapshot.pendingCount,
+                nextAtMs = snapshot.nextAtMs,
+            )
+        } finally {
+            releaseRenderSnapshot(snapshot)
+        }
+    }
 
     override fun draw(canvas: Canvas, snapshot: RenderSnapshot, config: DanmakuConfig) {
         val cfg = config
         if (!cfg.enabled) return
 
-        // Update draw paints lazily (main thread).
-        val ts = textSizePx
-        if (drawFill.textSize != ts) {
-            drawFill.textSize = ts
-            drawStroke.textSize = ts
-        }
-        val desiredTypeface = cfg.fontWeight.typeface
-        if (drawFill.typeface != desiredTypeface) {
-            drawFill.typeface = desiredTypeface
-            drawStroke.typeface = desiredTypeface
-        }
-        if (drawStroke.strokeWidth != strokeWidthPx) {
-            drawStroke.strokeWidth = strokeWidthPx
-        }
-
-        val outlinePad = outlinePadPx
         val opacityAlpha = (cfg.opacity * 255f).roundToInt().coerceIn(0, 255)
         bitmapPaint.alpha = opacityAlpha
-
-        // getFontMetrics 只在 textSize/typeface/strokeWidth 变化时重算，避免每帧冗余 native 调用。
-        // drawFill.textSize/typeface/strokeWidth 在上面的惰性块里已和目标值同步，
-        // 所以这里用它们拼出指纹 key 与缓存对比即可。
-        val metricsKey = "${drawFill.textSize}_${drawFill.typeface}_${drawStroke.strokeWidth}"
-        if (metricsKey != drawMetricsKey) {
-            drawFill.getFontMetrics(drawFontMetrics)
-            drawBaselineOffset = outlinePad - drawFontMetrics.ascent
-            drawMetricsKey = metricsKey
-        }
-        val baselineOffset = drawBaselineOffset
         val styleGen = cacheStyleGeneration
         val width = viewportWidth.coerceAtLeast(0)
         val nowMs = currentPositionMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
         var cachedDrawn = 0
-        var fallbackDrawn = 0
+        var cacheMissSkipped = 0
         for (i in 0 until snapshot.count) {
             val item = snapshot.items[i] ?: continue
             // x 坐标在主线程 draw 时现算（用 draw 当前的 nowMs），保证滚动位置与画面同步。
@@ -421,19 +453,12 @@ internal class DanmakuEngine(
                 cachedDrawn++
                 continue
             }
-            fallbackDrawn++
-            drawTextDirect(
-                canvas = canvas,
-                item = item,
-                x = x,
-                yTop = yTop,
-                outlinePad = outlinePad,
-                baselineOffset = baselineOffset,
-                opacityAlpha = opacityAlpha,
-            )
+            // 性能优先模式不在主线程直接绘制文字。缓存未完成时跳过本帧，
+            // Action 线程会继续提高可见条目的缓存优先级。
+            cacheMissSkipped++
         }
         lastDrawCachedCount = cachedDrawn
-        lastDrawFallbackCount = fallbackDrawn
+        lastDrawCacheMissSkippedCount = cacheMissSkipped
     }
 
     override fun setDanmakus(list: List<Danmaku>) {
@@ -575,31 +600,47 @@ internal class DanmakuEngine(
 
     private fun publishEmptySnapshot() {
         val out = writableSnapshot()
-        out.clear()
-        latestSnapshot = out
-        snapshotDirty = false
+        try {
+            out.clear()
+            latestSnapshot = out
+            snapshotDirty = false
+        } finally {
+            out.endWrite()
+        }
     }
 
-    private fun writableSnapshot(): RenderSnapshot = if (latestSnapshot === snapshotA) snapshotB else snapshotA
+    private fun writableSnapshot(): RenderSnapshot {
+        while (true) {
+            val published = latestSnapshot
+            for (candidate in snapshots) {
+                if (candidate !== published && candidate.tryBeginWrite()) return candidate
+            }
+            Thread.yield()
+        }
+    }
 
     private fun publishSnapshotIfDirty(nowMs: Int) {
         if (!snapshotDirty) return
         val out = writableSnapshot()
-        out.clear()
-        out.ensureCapacity(active.size)
-        out.positionMs = nowMs.toLong()
-        out.pendingCount = pending.size
-        out.nextAtMs = items.getOrNull(index)?.timeMs()
-        var count = 0
-        for (item in active) {
-            out.items[count] = item
-            out.yTop[count] = item.layoutTopPx
-            out.textWidth[count] = item.textWidthPx
-            count++
+        try {
+            out.clear()
+            out.ensureCapacity(active.size)
+            out.positionMs = nowMs.toLong()
+            out.pendingCount = pending.size
+            out.nextAtMs = items.getOrNull(index)?.timeMs()
+            var count = 0
+            for (item in active) {
+                out.items[count] = item
+                out.yTop[count] = item.layoutTopPx
+                out.textWidth[count] = item.textWidthPx
+                count++
+            }
+            out.count = count
+            latestSnapshot = out
+            snapshotDirty = false
+        } finally {
+            out.endWrite()
         }
-        out.count = count
-        latestSnapshot = out
-        snapshotDirty = false
     }
 
     private fun rebuildScene(
@@ -955,6 +996,7 @@ internal class DanmakuEngine(
             if (hasValidCache) continue
             if (item.cacheState == DanmakuCacheState.Rendering) continue
             item.cacheState = DanmakuCacheState.Rendering
+            item.pendingCacheGeneration = style.generation
             cacheManager.requestBuildCache(
                 item = item,
                 textWidthPx = item.textWidthPx,
@@ -974,6 +1016,7 @@ internal class DanmakuEngine(
         }
         item.cacheState = DanmakuCacheState.Init
         item.cacheGeneration = -1
+        item.pendingCacheGeneration = -1
     }
 
     private fun clearLaneReferenceIfMatch(item: DanmakuItem) {
@@ -1107,54 +1150,6 @@ internal class DanmakuEngine(
         item.measuredWidthPx = width
         item.measureGeneration = measureGeneration
         return width
-    }
-
-    private fun drawTextDirect(
-        canvas: Canvas,
-        item: DanmakuItem,
-        x: Float,
-        yTop: Float,
-        outlinePad: Float,
-        baselineOffset: Float,
-        opacityAlpha: Int,
-    ) {
-        val text = item.data.text
-        if (text.isBlank()) return
-
-        val drawStrokeEnabled = strokeWidthPx > 0.01f
-        val textX = x + outlinePad
-        val baseline = yTop + baselineOffset
-        if (item.data.vipGradient) {
-            val drawn = VipGradientRenderer.draw(
-                canvas = canvas,
-                text = text,
-                style = item.data.vipGradientStyle,
-                startX = textX,
-                baselineY = baseline,
-                textSizePx = textSizePx,
-                opacityAlpha = opacityAlpha,
-                fillPaint = drawFill,
-                strokePaint = drawStroke,
-            )
-            if (drawn) return
-            // 贴图未加载：按普通白字弹幕兜底，不卡 VIP 视觉。
-        }
-
-        val rgb = item.data.color and 0xFFFFFF
-        // 对齐 cache 烘焙路径与 akdanmaku：paint.color 用满透明度
-        // （描边用 baseAlpha 230/210，填充用 0xFF），draw 时统一用 paint.alpha 施加整体 opacity。
-        // 这样直绘 fallback 与 cache 命中视觉一致，且调透明度时整体淡化、不会文字描边各褪各的。
-        if (drawStrokeEnabled) {
-            drawStroke.color = BiliDanmakuStyle.resolveStrokeColor(rgb, 255)
-            drawStroke.alpha = opacityAlpha
-        }
-        drawFill.color = (0xFF shl 24) or rgb
-        drawFill.alpha = opacityAlpha
-
-        // 性能优先引擎只支持纯文字滚动弹幕，不渲染内联表情/高赞图标
-        // （电视端弹幕飘过快、观看距离远，表情看不清；用户已在 controller 关闭 showHighLikeIcon）。
-        if (drawStrokeEnabled) canvas.drawText(text, textX, baseline, drawStroke)
-        canvas.drawText(text, textX, baseline, drawFill)
     }
 
     private fun lowerBound(pos: Int): Int {

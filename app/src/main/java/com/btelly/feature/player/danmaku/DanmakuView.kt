@@ -79,7 +79,7 @@ class DanmakuView @JvmOverloads constructor(
         val lastFrameActive: Int,
         val lastFramePending: Int,
         val lastFrameCachedDrawn: Int,
-        val lastFrameFallbackDrawn: Int,
+        val lastFrameCacheMissSkipped: Int,
         val lastFrameRequestsActive: Int,
         val lastFrameRequestsPrefetch: Int,
         val cacheItems: Int,
@@ -115,7 +115,7 @@ class DanmakuView @JvmOverloads constructor(
         debugStats.lastFrameActive = snap.count
         debugStats.lastFramePending = snap.pendingCount
         debugStats.lastFrameCachedDrawn = p.cachedDrawn
-        debugStats.lastFrameFallbackDrawn = p.fallbackDrawn
+        debugStats.lastFrameCacheMissSkipped = p.cacheMissSkipped
         val now = SystemClock.uptimeMillis()
         return DebugStats(
             viewAttached = isAttachedToWindow,
@@ -125,7 +125,7 @@ class DanmakuView @JvmOverloads constructor(
             lastFrameActive = debugStats.lastFrameActive,
             lastFramePending = debugStats.lastFramePending,
             lastFrameCachedDrawn = debugStats.lastFrameCachedDrawn,
-            lastFrameFallbackDrawn = debugStats.lastFrameFallbackDrawn,
+            lastFrameCacheMissSkipped = debugStats.lastFrameCacheMissSkipped,
             lastFrameRequestsActive = 0,
             lastFrameRequestsPrefetch = 0,
             cacheItems = p.cachedDrawn,
@@ -336,7 +336,7 @@ class DanmakuView @JvmOverloads constructor(
                 append(" act=").append(snap.count)
                 append(" pend=").append(snap.pendingCount)
                 append(" hit=").append(p.cachedDrawn).append('/').append(snap.count)
-                append(" fb=").append(p.fallbackDrawn)
+                append(" skip=").append(p.cacheMissSkipped)
                 append(" q=").append(p.cacheQueueDepth)
                 append(" pool=").append(String.format(Locale.US, "%.1f", poolMb)).append('/').append(String.format(Locale.US, "%.0f", poolMaxMb)).append("MB")
                 append(" actMs=").append(String.format(Locale.US, "%.2f", sample.actMs))
@@ -433,7 +433,7 @@ class DanmakuView @JvmOverloads constructor(
         @Volatile var lastFrameActive: Int = 0
         @Volatile var lastFramePending: Int = 0
         @Volatile var lastFrameCachedDrawn: Int = 0
-        @Volatile var lastFrameFallbackDrawn: Int = 0
+        @Volatile var lastFrameCacheMissSkipped: Int = 0
 
         fun reset() {
             lastDrawAtMs.set(0L)
@@ -444,7 +444,7 @@ class DanmakuView @JvmOverloads constructor(
             lastFrameActive = 0
             lastFramePending = 0
             lastFrameCachedDrawn = 0
-            lastFrameFallbackDrawn = 0
+            lastFrameCacheMissSkipped = 0
         }
 
         fun recordDraw(nowUptimeMs: Long, drawNs: Long) {

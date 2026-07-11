@@ -28,11 +28,16 @@ internal data class CacheStyle(
     val generation: Int,
 )
 
+internal data class CacheBuildResult(
+    val item: DanmakuItem,
+    val entry: SharedCacheEntry?,
+    val generation: Int,
+)
+
 internal class CacheManager(
     private val appContext: Context,
     private val density: Float,
-    private val mainLooper: Looper,
-    private val onRenderSign: () -> Unit,
+    private val onCacheResult: (CacheBuildResult) -> Unit,
 ) {
     companion object {
         private const val TAG = "DanmakuCache"
@@ -51,8 +56,6 @@ internal class CacheManager(
         private const val FNV_OFFSET = -3750763034362895579L
         private const val FNV_PRIME = 1099511628211L
     }
-
-    private val mainHandler = Handler(mainLooper)
 
     private val thread: HandlerThread =
         HandlerThread("Danmaku-Cache").apply {
@@ -202,14 +205,10 @@ internal class CacheManager(
         val item = req.item
         val style = req.style
 
-        // Skip if already has a matching cache.
-        val existing = item.cacheEntry
-        if (existing != null && !existing.isRecycled && item.cacheGeneration == style.generation) {
-            item.cacheState = com.btelly.feature.player.danmaku.model.DanmakuCacheState.Rendered
+        if (style.textSizePx <= 0f || !style.textSizePx.isFinite()) {
+            publishResult(req, null)
             return
         }
-
-        if (style.textSizePx <= 0f || !style.textSizePx.isFinite()) return
 
         // 样式 generation 变化时清空共享表（旧 bitmap 内容已不匹配新样式）。
         if (sharedCacheGeneration != style.generation) {
@@ -234,13 +233,8 @@ internal class CacheManager(
         )
         val shared = sharedCacheStore[key]
         if (shared != null && !shared.isRecycled) {
-            // 命中：item 持有一份引用，跳过绘制。
-            shared.acquire()
-            assignEntryToItem(item, shared, style)
             sharedHit.incrementAndGet()
-            mainHandler.post {
-                runCatching { onRenderSign() }.onFailure { AppLog.w(TAG, "renderSign failed", it) }
-            }
+            publishResult(req, shared)
             return
         }
         // 命中失败（bitmap 已回收）时剔除脏条目。
@@ -274,7 +268,10 @@ internal class CacheManager(
                 ?.also { bitmapReused.incrementAndGet() }
                 ?: runCatching { Bitmap.createBitmap(boxWidth, boxHeight, Bitmap.Config.ARGB_8888) }.getOrNull()
                     ?.also { bitmapCreated.incrementAndGet() }
-                ?: return
+                ?: run {
+                    publishResult(req, null)
+                    return
+                }
 
         // Always clear when reusing.
         runCatching { bmp.eraseColor(0x00000000) }
@@ -313,33 +310,18 @@ internal class CacheManager(
             }
         }
 
-        // 构建完成：包成 SharedCacheEntry，item 一份引用 + 共享表一份引用。
+        // 构建完成后只由共享表持有。Action 线程接收结果时再申请 item 引用。
         val entry = SharedCacheEntry(bmp)
-        entry.acquire() // item 持有
-        entry.acquire() // 共享表持有（避免最后一个 item 离场后 bitmap 立刻回收）
+        entry.acquire()
         sharedCacheStore[key] = entry
-        assignEntryToItem(item, entry, style)
-
-        // Signal renderer to refresh. Throttle is intentionally handled by UI frame pacing.
-        mainHandler.post {
-            runCatching { onRenderSign() }.onFailure { AppLog.w(TAG, "renderSign failed", it) }
-        }
+        publishResult(req, entry)
     }
 
-    /**
-     * 把 entry 挂到 item 上，并释放 item 之前持有的旧 entry 引用。
-     * item 在 buildCache 命中/构建完成时调用。
-     */
-    private fun assignEntryToItem(item: DanmakuItem, entry: SharedCacheEntry, style: CacheStyle) {
-        val old = item.cacheEntry
-        item.cacheEntry = entry
-        item.cacheGeneration = style.generation
-        item.cacheState = com.btelly.feature.player.danmaku.model.DanmakuCacheState.Rendered
-        if (old != null && old !== entry) {
-            // 旧 entry 引用 -1，归零则排队回收（帧号 0 立即回收，因为这是 cache 线程内部替换）。
-            if (old.release()) {
-                enqueueRelease(old, releaseAtFrameId = 0)
-            }
+    private fun publishResult(req: CacheRequest, entry: SharedCacheEntry?) {
+        runCatching {
+            onCacheResult(CacheBuildResult(req.item, entry, req.style.generation))
+        }.onFailure {
+            AppLog.w(TAG, "cache result dispatch failed", it)
         }
     }
 

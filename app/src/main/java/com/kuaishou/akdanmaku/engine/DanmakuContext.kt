@@ -106,6 +106,7 @@ internal class DanmakuContext(val renderer: DanmakuRenderer) {
   private val measureRendererWaits = LockWaitHistogram()
   private val drawRendererWaits = LockWaitHistogram()
 
+  @Volatile
   var config = DanmakuConfig()
     private set
 

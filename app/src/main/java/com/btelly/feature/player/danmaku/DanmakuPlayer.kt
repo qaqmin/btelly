@@ -9,8 +9,7 @@ import android.os.SystemClock
 import android.view.Choreographer
 import com.btelly.core.common.log.AppLog
 import com.btelly.feature.player.danmaku.Danmaku
-import com.btelly.feature.player.danmaku.model.RenderSnapshot
-import java.util.concurrent.Semaphore
+import com.btelly.feature.player.danmaku.model.RenderSnapshotStats
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicInteger
@@ -20,7 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * - Choreographer drives frame pacing (vsync).
  * - ActionThread does per-frame act/update.
  * - Main thread does draw.
- * - Semaphore provides backpressure between draw and act to avoid update piling up.
+ * - A leased triple-buffer snapshot keeps draw and act independent without reusing an in-flight frame.
  */
 internal class DanmakuPlayer(
     private val view: DanmakuView,
@@ -37,6 +36,7 @@ internal class DanmakuPlayer(
         private const val MSG_OP_CLEAR = 3106
         private const val MSG_OP_VIEWPORT = 3201
         private const val MSG_OP_CONFIG = 3202
+        private const val MSG_OP_CACHE_RESULT = 3203
         private const val MSG_OP_RELEASE = 3999
     }
 
@@ -44,15 +44,14 @@ internal class DanmakuPlayer(
         CacheManager(
             appContext = view.context.applicationContext,
             density = view.resources.displayMetrics.density,
-            mainLooper = Looper.getMainLooper(),
-            onRenderSign = { view.invalidateDanmakuAreaOnAnimation() },
+            onCacheResult = { result ->
+                actionHandler.obtainMessage(MSG_OP_CACHE_RESULT, result).sendToTarget()
+            },
         )
 
     private val engineMain: DanmakuEngineMainApi
     private val engineAction: DanmakuEngineActionApi
     private val timer = DanmakuTimer()
-
-    private val drawSemaphore = Semaphore(0)
 
     private val actionThread = HandlerThread("Danmaku-Action").apply { start() }
     private val actionHandler = ActionHandler(actionThread.looper)
@@ -97,7 +96,7 @@ internal class DanmakuPlayer(
     @Volatile
     private var latestConfig: DanmakuConfig? = null
 
-    internal fun debugSnapshot(): RenderSnapshot = engineMain.renderSnapshot()
+    internal fun debugSnapshot(): RenderSnapshotStats = engineMain.renderSnapshotStats()
 
     private var lastEnabled: Boolean = true
 
@@ -132,7 +131,7 @@ internal class DanmakuPlayer(
         val updateAvgMs: Float,
         val updateMaxMs: Float,
         val cachedDrawn: Int,
-        val fallbackDrawn: Int,
+        val cacheMissSkipped: Int,
         val cacheQueueDepth: Int,
         val poolCount: Int,
         val poolBytes: Long,
@@ -153,7 +152,7 @@ internal class DanmakuPlayer(
             updateAvgMs = avgMs,
             updateMaxMs = maxMs,
             cachedDrawn = engineMain.lastDrawCachedCount(),
-            fallbackDrawn = engineMain.lastDrawFallbackCount(),
+            cacheMissSkipped = engineMain.lastDrawCacheMissSkippedCount(),
             cacheQueueDepth = cacheManager.queueDepth(),
             poolCount = pool.count,
             poolBytes = pool.bytes,
@@ -179,7 +178,6 @@ internal class DanmakuPlayer(
     fun stop() {
         if (!started) return
         started = false
-        releaseSemaphoreIfNeeded()
         Choreographer.getInstance().removeFrameCallback(frameCallback)
     }
 
@@ -187,7 +185,6 @@ internal class DanmakuPlayer(
         if (released) return
         released = true
         started = false
-        releaseSemaphoreIfNeeded()
         runCatching {
             actionHandler.obtainMessage(MSG_OP_RELEASE).sendToTarget()
         }
@@ -254,7 +251,6 @@ internal class DanmakuPlayer(
         } else if (started) {
             // Freeze danmaku on pause: no need to keep 60fps update loop running.
             started = false
-            releaseSemaphoreIfNeeded()
             Choreographer.getInstance().removeFrameCallback(frameCallback)
         }
 
@@ -272,13 +268,12 @@ internal class DanmakuPlayer(
 
         engineMain.stepTime(positionMs = smoothPos, uiFrameId = frameId)
 
-        // Drain extra permits so we never accumulate >1.
-        drawSemaphore.tryAcquire()
-
-        // Obtain render snapshot first, then release semaphore to allow ActionThread to compute next frame.
-        val snapshot = engineMain.renderSnapshot()
-        releaseSemaphoreIfNeeded()
-        engineMain.draw(canvas, snapshot, config)
+        val snapshot = engineMain.acquireRenderSnapshot()
+        try {
+            engineMain.draw(canvas, snapshot, config)
+        } finally {
+            engineMain.releaseRenderSnapshot(snapshot)
+        }
     }
 
     private fun postFrameCallback() {
@@ -293,12 +288,6 @@ internal class DanmakuPlayer(
         actionHandler.sendEmptyMessage(MSG_OP_CLEAR)
     }
 
-    private fun releaseSemaphoreIfNeeded() {
-        if (drawSemaphore.availablePermits() == 0) {
-            drawSemaphore.release()
-        }
-    }
-
     private inner class ActionHandler(looper: Looper) : Handler(looper) {
         override fun handleMessage(msg: Message) {
             when (msg.what) {
@@ -307,7 +296,6 @@ internal class DanmakuPlayer(
                     postFrameCallback()
                     try {
                         engineAction.preAct()
-                        drawSemaphore.acquire()
                         if (released || !started) return
                         val sampleAct = perfSampleRequested.getAndSet(false)
                         val shouldMeasure = debugEnabled || sampleAct
@@ -389,12 +377,17 @@ internal class DanmakuPlayer(
                     }
                 }
 
+                MSG_OP_CACHE_RESULT -> {
+                    val result = msg.obj as? CacheBuildResult ?: return
+                    engineAction.applyCacheResult(result)
+                    view.invalidateDanmakuAreaOnAnimation()
+                }
+
                 MSG_OP_RELEASE -> {
                     removeCallbacksAndMessages(null)
                     Choreographer.getInstance().removeFrameCallback(frameCallback)
                     started = false
                     runCatching { actionThread.quitSafely() }
-                    runCatching { actionThread.join(80L) }
                     engineAction.release()
                     cacheManager.release()
                 }

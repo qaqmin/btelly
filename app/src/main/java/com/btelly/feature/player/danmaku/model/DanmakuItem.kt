@@ -27,6 +27,7 @@ internal class DanmakuItem(
 
     @Volatile var cacheEntry: SharedCacheEntry? = null
     @Volatile var cacheGeneration: Int = -1
+    @Volatile var pendingCacheGeneration: Int = -1
     @Volatile var cacheState: DanmakuCacheState = DanmakuCacheState.Init
 
     // ---- Active state (action thread only) ----

@@ -9,24 +9,51 @@ package com.kuaishou.akdanmaku.runtime
 import android.os.SystemClock
 import com.kuaishou.akdanmaku.cache.DrawingCache
 import com.kuaishou.akdanmaku.data.DanmakuItem
+import java.util.concurrent.atomic.AtomicInteger
 
 internal class RuntimeFrame {
+  private val accessState = AtomicInteger(WRITING_OR_RECYCLING)
   val commands = CommandBuffer(256)
   val fixedCommands = CommandBuffer(16)
   var retainedCaches = ArrayList<DrawingCache>(256)
     private set
   private var retainedCacheSet = HashSet<DrawingCache>(256)
   var visibilityGeneration: Int = -1
+  var viewportWidth: Int = 0
   var fixedCommandStartIndex: Int = 0
     private set
   private var transitionStartedAtMs: Long = 0L
 
   fun reset(visibilityGeneration: Int) {
+    check(accessState.get() == WRITING_OR_RECYCLING)
     this.visibilityGeneration = visibilityGeneration
+    viewportWidth = 0
     transitionStartedAtMs = 0L
     fixedCommandStartIndex = 0
     commands.clear()
     fixedCommands.clear()
+  }
+
+  fun publish() {
+    check(accessState.compareAndSet(WRITING_OR_RECYCLING, AVAILABLE))
+  }
+
+  fun tryAcquireRead(): Boolean {
+    while (true) {
+      val current = accessState.get()
+      if (current < 0) return false
+      if (accessState.compareAndSet(current, current + 1)) return true
+    }
+  }
+
+  fun releaseRead() {
+    check(accessState.decrementAndGet() >= 0)
+  }
+
+  fun beginRecycleOrContinue(): Boolean {
+    val current = accessState.get()
+    return current == WRITING_OR_RECYCLING ||
+      accessState.compareAndSet(AVAILABLE, WRITING_OR_RECYCLING)
   }
 
   fun markFixedCommandStart(index: Int) {
@@ -84,6 +111,8 @@ internal class RuntimeFrame {
   fun hasRetainedCaches(): Boolean = retainedCaches.isNotEmpty()
 
   private companion object {
+    const val AVAILABLE = 0
+    const val WRITING_OR_RECYCLING = -1
     const val TRANSITION_FRAME_MAX_AGE_MS = 5_000L
   }
 }

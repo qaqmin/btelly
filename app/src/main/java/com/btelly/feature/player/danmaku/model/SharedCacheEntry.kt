@@ -23,6 +23,14 @@ internal class SharedCacheEntry(val bitmap: Bitmap) {
         refCount.incrementAndGet()
     }
 
+    fun tryAcquire(): Boolean {
+        while (true) {
+            val current = refCount.get()
+            if (current <= 0 || bitmap.isRecycled) return false
+            if (refCount.compareAndSet(current, current + 1)) return true
+        }
+    }
+
     /**
      * 引用计数 -1，返回 true 表示归零，调用方应回收 bitmap。
      * 返回 false 表示仍有引用持有，bitmap 必须保持存活。

@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BTelly 双弹幕系统深度问题分析报告</title>
+<style>
+  :root { --bg:#f5f6f8; --paper:#fff; --ink:#20242a; --muted:#606a78; --line:#dce1e7; --red:#c62828; --amber:#a35d00; --blue:#1663a7; --green:#19733b; }
+  * { box-sizing:border-box; }
+  body { margin:0; color:var(--ink); background:var(--bg); font:15px/1.72 "Segoe UI","Microsoft YaHei",sans-serif; }
+  header { padding:42px 24px 34px; color:#fff; background:#17212b; }
+  header>div, main { max-width:1040px; margin:auto; }
+  h1 { margin:0 0 8px; font-size:30px; letter-spacing:0; }
+  header p { margin:0; color:#c8d0d8; }
+  main { padding:28px 22px 70px; }
+  section { margin:0 0 34px; }
+  h2 { margin:0 0 14px; padding-bottom:8px; font-size:21px; border-bottom:2px solid var(--line); }
+  h3 { margin:0 0 9px; font-size:17px; }
+  p { margin:7px 0; }
+  code { padding:1px 5px; border-radius:4px; background:#eef1f4; font:13px Consolas,monospace; }
+  table { width:100%; border-collapse:collapse; background:var(--paper); }
+  th,td { padding:10px 12px; text-align:left; vertical-align:top; border:1px solid var(--line); }
+  th { background:#edf1f5; }
+  .lead,.finding,.note { background:var(--paper); border:1px solid var(--line); border-radius:7px; }
+  .lead { padding:18px 20px; border-left:5px solid var(--blue); }
+  .finding { padding:18px 20px; margin:13px 0; }
+  .finding.p0 { border-left:5px solid var(--red); }
+  .finding.p1 { border-left:5px solid var(--amber); }
+  .finding.p2 { border-left:5px solid var(--blue); }
+  .tag { display:inline-block; margin-right:8px; padding:2px 8px; border-radius:4px; color:#fff; font-size:12px; font-weight:700; }
+  .p0 .tag { background:var(--red); } .p1 .tag { background:var(--amber); } .p2 .tag { background:var(--blue); }
+  .kv { display:grid; grid-template-columns:82px 1fr; gap:5px 12px; margin-top:10px; }
+  .kv b { color:var(--muted); }
+  .ok { color:var(--green); font-weight:700; } .bad { color:var(--red); font-weight:700; }
+  .note { padding:14px 17px; color:var(--muted); }
+  ul,ol { margin:8px 0; padding-left:24px; }
+  footer { color:var(--muted); font-size:12px; }
+  @media(max-width:700px){ h1{font-size:24px}.kv{grid-template-columns:1fr}.kv b{margin-top:5px}th,td{padding:8px} }
+</style>
+</head>
+<body>
+<header><div>
+  <h1>双弹幕系统深度问题分析报告</h1>
+  <p>BTelly 当前代码 · 功能优先 AkDanmaku + 性能优先 上游实现 轻量引擎 · 2026-07-11</p>
+</div></header>
+<main>
+  <section>
+    <div class="lead">
+      <strong>当前结论：</strong>2026-07-11 四轮优化已解决共同更新通道、两个控制器丢批、连续更新全量提交、轻量引擎全量 append、字号测量跨代污染，以及测量/Bitmap 旧任务回写。新压力日志证明缓存命中已达 99.88%，普通绘制中位数仅 1ms；剩余弹幕内部瓶颈收敛为“更新与绘制共用大锁”、“高密度重复布局”和“主线程缓存兜底直绘”。本轮已按性能优先、功能优先的顺序完成架构改造：轻量引擎使用非阻塞三缓冲快照并将缓存结果收口到 Action 线程；功能引擎用可借用渲染帧取消主线程大锁，并将重复构帧限制为约 30Hz。两套引擎都已禁止主线程文字兜底，缓存未就绪时跳过本帧。
+    </div>
+  </section>
+
+  <section>
+    <h2>一、分析范围与可信度</h2>
+    <table>
+      <tr><th>范围</th><th>实际链路</th><th>结论依据</th></tr>
+      <tr><td>功能优先</td><td><code>MyPlayerDanmakuController</code> → <code>com.kuaishou.akdanmaku</code></td><td>控制器、时间窗口、运行时、轨道、绘制缓存、播放器线程</td></tr>
+      <tr><td>性能优先</td><td><code>DanmakuCoreController</code> → <code>feature/player/danmaku</code></td><td>数据预处理、Action 线程、Cache 线程、主线程绘制、Bitmap 生命周期</td></tr>
+      <tr><td>共同上游</td><td><code>DanmakuPlaybackController</code> → <code>PlayerActivity</code></td><td>分段加载、去重、增量发布、UI 提交顺序</td></tr>
+    </table>
+    <p class="note">“确定”表示仅凭现有控制流即可闭环证明；“需量化”表示代码缺陷确定存在，但卡顿毫秒数或内存峰值仍需真机日志确认。本报告没有把缺少数据支撑的猜测写成已复现故障。</p>
+  </section>
+
+  <section>
+    <h2>二、问题总表</h2>
+    <table>
+      <tr><th>优先级</th><th>系统</th><th>问题</th><th>性质</th><th>可信度</th></tr>
+      <tr><td class="ok">已解决</td><td>两套共同上游</td><td>更新改为可重放的完整时间线快照，切集清快照并拒绝旧代际发布</td><td>正确性 BUG</td><td class="ok">测试通过</td></tr>
+      <tr><td class="ok">已解决</td><td>性能优先</td><td>append 继承当前代际并串行等待；新播放和停播恢复增加门禁</td><td>正确性 BUG</td><td class="ok">测试通过</td></tr>
+      <tr><td class="ok">已解决</td><td>功能优先</td><td>append 不再提前让上一批失效；设置重建等待在途增量提交</td><td>正确性 BUG</td><td class="ok">测试通过</td></tr>
+      <tr><td class="ok">已解决</td><td>两套共同上游</td><td>连续批次交付增量；漏批回快照；尾追加分块；可见性流不再比较完整历史</td><td>性能 / 恢复能力</td><td class="ok">测试通过</td></tr>
+      <tr><td class="ok">已解决</td><td>性能优先</td><td>安全尾追加只预处理并 append 新批次，冲突场景才全量重建</td><td>持续性能问题</td><td class="ok">测试通过</td></tr>
+      <tr><td class="ok">已解决</td><td>功能优先</td><td>测量缓存按字号代际隔离，旧任务不能覆盖新代际结果</td><td>正确性 BUG</td><td class="ok">测试通过</td></tr>
+      <tr><td class="ok">已解决</td><td>功能优先</td><td>测量与 Bitmap 提交同换代、seek、清空和过期退场共用原子边界</td><td>竞态</td><td class="ok">深度复核通过</td></tr>
+      <tr><td class="ok">已解决</td><td>功能优先</td><td>主线程改为借用已发布渲染帧，不再与 Runtime 更新共用大锁；主线程不再调用 renderer 直绘</td><td>架构 / 阻塞</td><td class="ok">并发租约测试通过</td></tr>
+      <tr><td class="ok">已解决</td><td>性能优先</td><td>数据级设置重建已并入后台串行准备链</td><td>交互卡顿</td><td class="ok">测试通过</td></tr>
+      <tr><td class="ok">已解决</td><td>功能优先</td><td>过期缓存任务不能越过换代、seek 或退场重新挂回 Bitmap</td><td>竞态 / 内存</td><td class="ok">深度复核通过</td></tr>
+      <tr><td>P2</td><td>功能优先</td><td>测量结果表已限制为 8192 条；Bitmap 总量仍不受“缓存池上限”完整约束</td><td>长播内存增长</td><td>测量表已处理，Bitmap 峰值需量化</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>三、两套引擎共同上游</h2>
+
+    <article class="finding p0">
+      <h3><span class="tag">P0</span>更新通道满时直接丢弃，且调用方完全不知情</h3>
+      <div class="kv">
+        <b>处理状态</b><span class="ok">已解决：StateFlow 同时保存完整恢复点、最新增量、播放代际和批次序号。连续消费者只收增量；新消费者或批次不连续时自动接收完整快照。切集清空恢复点并拒绝旧视频任务回写。</span>
+        <b>触发</b><span>主线程 collector 正在处理一批更新、缓冲区已有一批等待时，第三批到达。发布计算虽在单线程执行，但它不会等待主线程消费。</span>
+        <b>结果</b><span><code>tryEmit</code> 返回 false，整批弹幕在进入 PlayerActivity 和任一引擎前永久消失；日志仍会记录发布完成，因此排查时很容易误判为引擎丢数据。</span>
+        <b>当前机制</b><span>正常连续批次按 append 进入引擎；StateFlow 若合并了中间状态，消费者会从批次序号发现断档并用最新完整快照自愈，不会静默缺段。</span>
+        <b>回归测试</b><span>覆盖连续批次走增量、批次断档走快照、首次订阅走快照和明确 replace 走快照。</span>
+      </div>
+    </article>
+  </section>
+
+  <section>
+    <h2>四、性能优先引擎</h2>
+
+    <article class="finding p0">
+      <h3><span class="tag">P0</span>连续 append 会丢失前一批数据</h3>
+      <div class="kv">
+        <b>处理状态</b><span class="ok">已解决：append 不换代并等待上一 prepareJob；replace/reset 才换代。停播期间只更新 rawItems，不向清空后的引擎注入局部结果。</span>
+        <b>触发</b><span>A 批追加仍在排序或预处理时，B 批追加到达。上游分段发布虽然单线程发出，但控制器收到后立即启动新的并行后台任务，因此仍可重叠。</span>
+        <b>结果</b><span>A 批没有写入 <code>rawItems</code>，B 批只和更旧的数据合并；A 批永久消失。表现为某一小段弹幕明显稀疏，seek 回去也无法恢复。</span>
+        <b>修复方向</b><span>增量任务必须串行归并，或维护待合并队列。代际取消只适用于“全量替换”，不能直接用于需要累积的 append。</span>
+        <b>回归测试</b><span>让 A 在合并后、提交前挂起，再提交 B；最终时间线必须同时包含初始数据、A、B，且顺序正确。</span>
+      </div>
+    </article>
+
+    <article class="finding p1">
+      <h3><span class="tag">P1</span>增量路径实际上是全量重建，越播越重</h3>
+      <div class="kv">
+        <b>处理状态</b><span class="ok">已解决：严格时间尾追加且不会改变旧的 2 秒重复合并结果时，只过滤、合并、转换和 append 新批次；原始时间线也使用分块追加。乱序、过滤上下文变化或跨批同款冲突会自动回退全量重建。</span>
+        <b>复杂度</b><span>如果分 K 批逐步加载到 N 条，总处理量接近 N×K，而不是 N。时间线越大，每次追加产生的临时列表和对象越多。</span>
+        <b>主线程</b><span class="ok">本轮已去掉 append 的万级防御性复制。剩余主要问题转为后台 CPU、临时对象和 Action 线程全量重建。</span>
+        <b>视觉影响</b><span>每次全量替换都会清空当前 active、轨道和缓存引用，再按当前位置重建，容易造成短暂空帧、轨道重排和缓存命中率骤降。</span>
+        <b>修复方向</b><span>预处理只处理新批次；把“显示去重”和“历史去重”设计成可增量状态；引擎使用已有的 <code>appendDanmakus</code>，同时给每次播放数据一个唯一批次标识，避免旧版全量误追加问题复发。</span>
+      </div>
+    </article>
+
+    <article class="finding p0">
+      <h3><span class="tag">P2</span>数据级设置会同步卡住主线程</h3>
+      <div class="kv">
+        <b>处理状态</b><span class="ok">已解决：设置重建与 set/append 共用后台串行准备链，等待在途数据提交后再按最新设置处理；主线程只提交最终结果。</span>
+        <b>原结果</b><span>设置面板操作会随已加载弹幕数量变慢。长视频或高密度视频上，点击开关可能直接丢帧。</span>
+      </div>
+    </article>
+
+    <article class="finding p2">
+      <h3><span class="tag">P2</span>缓存任务缺少有效性校验，退场后仍能回写</h3>
+      <div class="kv">
+        <b>处理状态</b><span class="ok">已解决：缓存线程只生成 <code>CacheBuildResult</code>，回到 Action 线程后再核对样式代际、待提交代际和 active 身份。失效结果不挂回 item，共享 Bitmap 用原子引用申请防止“检查后被回收”。</span>
+        <b>根因</b><span>缓存请求带了 <code>releaseAtFrameId</code>，但 <code>CacheManager.kt:201-327</code> 构建前没有校验条目是否仍 active、缓存代际是否仍是当前值，这个参数本身也从未用于构建结果提交。与此同时，<code>DanmakuEngine.kt:654-665</code> 允许条目在任务完成前退场并重置。</span>
+        <b>结果</b><span>慢设备或缓存队列拥堵时，旧任务可把 Bitmap 重新挂到已退场条目。该条目不再经过正常退场释放流程，Bitmap 会滞留到条目再次入场退场、全量替换或播放器释放，同时产生无效构建。主绘制路径有缓存代际检查，因此不能据此断言会画出旧样式。</span>
+        <b>修复方向</b><span>请求携带 item token + 样式代际；构建前和提交前各校验一次。失效结果直接回池，不写回 item。退场时递增 token。</span>
+      </div>
+    </article>
+  </section>
+
+  <section>
+    <h2>五、功能优先引擎</h2>
+
+    <article class="finding p0">
+      <h3><span class="tag">P0</span>任务虽然串行等待，连续增量仍会丢前一批</h3>
+      <div class="kv">
+        <b>处理状态</b><span class="ok">已解决：append 继承上一任务代际并等待其提交；设置重建也加入同一任务链，不再取消尚未落 timeline 的增量。</span>
+        <b>触发</b><span>A 批 append 尚未提交时 B 批到达；更严重的是，首次 set 尚未提交时紧跟 append，也会让完整 set 失效，最终时间线可能只剩 append 批次。</span>
+        <b>结果</b><span>等待并没有保住 A，只保证 B 在 A 退出后计算。A 不会进入后续时间线，seek 也无法恢复。</span>
+        <b>修复方向</b><span>append 不应让正在执行的累积任务失效。用单消费者队列串行处理 set/append，set 可清空前序队列，append 必须基于上一操作的提交结果继续归并。</span>
+        <b>回归测试</b><span>覆盖 set 未完成时 append、A append 未完成时 B append 两种时序；最终时间线不得丢 set、A 或 B。</span>
+      </div>
+    </article>
+
+    <article class="finding p1">
+      <h3><span class="tag">P1</span>字号变化后复用旧测量结果</h3>
+      <div class="kv">
+        <b>处理状态</b><span class="ok">核心问题已解决：测量表只允许当前 <code>measureGeneration</code> 读写；切换到新代际时常数时间换表，旧尺寸不能跨代命中；同时用 8192 条 LRU 限制长期占用。</span>
+        <b>剩余边界</b><span>测量完成后已再次核对当前任务和配置代际，可拦截绝大多数迟到任务；但检查与条目状态写入之间仍有极窄窗口。彻底解决需要让运行时换代重置与缓存提交共用锁、CAS 或同一线程队列。</span>
+        <b>原结果</b><span>调大字号后，轨道仍可能按旧宽高判断碰撞，导致追尾、重叠或裁切；调小后则可能留出不必要的大间隔。绘制 Bitmap 可以是新字号，但布局尺寸仍是旧值，所以问题不一定表现为“字体没变”。</span>
+        <b>回归测试</b><span>同一编号在旧代际写入宽高，切换新代际后必须 miss；新代际写入后，迟到的旧任务不得覆盖；超过容量时淘汰最旧结果。</span>
+      </div>
+    </article>
+
+    <article class="finding p2">
+      <h3><span class="tag">P2</span>主线程存在等待后台整帧更新和缓存绘制的路径</h3>
+      <div class="kv">
+        <b>第一把锁</b><span><code>DanmakuRuntime.kt:250-255</code> 的 Action 更新和 <code>:370-375</code> 的主线程绘制都锁住整个 Runtime；主线程可能等待一整次布局、测量调度、帧构建和旧帧释放。</span>
+        <b>第二把锁</b><span><code>DanmakuContext.kt:35,60-76</code> 让后台测量/Bitmap 构建与主线程 fallback 直绘共用同一个 <code>rendererLock</code>。缓存线程正在画一条长弹幕时，主线程 fallback 会被阻塞。</span>
+        <b>处理状态</b><span class="ok">已解决主路径：日志中两次绘制峰值 17ms 和 31ms 有 13ms 和 22ms 在等 Runtime 锁，长样本最高等待 68ms。现在主线程通过读租约使用已发布帧，旧帧只在读者离开后回收；Runtime 锁不再包围 draw。</span>
+        <b>修复方向</b><span>Runtime 改为不可变帧快照交换，主线程只读当前帧，不与 Action 共用大锁。渲染器应拆分线程私有 Paint/状态，让缓存绘制与 fallback 直绘不争同一把锁。</span>
+        <b>后续验收</b><span>使用真机重跑同一高密度片段，确认旧的 <code>draw syncWait</code> 已消失，绘制 P99 和视频丢帧同时下降。模拟器 VSync 异常不作为最终结论。</span>
+      </div>
+    </article>
+
+    <article class="finding p2">
+      <h3><span class="tag">P2</span>长时间播放的缓存总量没有完整上限</h3>
+      <div class="kv">
+        <b>测量表</b><span class="ok"><code>measureSizeCache</code> 已改为按代际清理、最多保留 8192 条的 LRU，不再随唯一弹幕编号无限增长。</span>
+        <b>Bitmap</b><span><code>CACHE_POOL_MAX_MEMORY_SIZE</code> 只限制回收池，不包含正在使用的 Bitmap 和最多 384 个共享 Bitmap，因此“32/50/72MB 上限”不是弹幕 Bitmap 总上限。</span>
+        <b>结果</b><span>普通短视频影响有限；长视频、多次跨段 seek、4K 大字号和低内存电视组合下，常驻内存存在持续抬高风险，可能增加 GC，并与视频解码争用内存。实际峰值和是否触发系统回收仍需真机量化。</span>
+        <b>剩余方向</b><span>所有 Bitmap 持有者统一计入一个字节预算，而不是只限制空闲池。</span>
+      </div>
+    </article>
+  </section>
+
+  <section>
+    <h2>六、两套系统的实际性能画像</h2>
+    <table>
+      <tr><th>环节</th><th>功能优先</th><th>性能优先</th></tr>
+      <tr><td>正常逐帧绘制</td><td class="ok">已有窗口化、预算调度和缓存；旧真机数据 0.2-0.6ms，当前不是首要矛盾</td><td class="ok">主线程只按 active 快照计算位置并绘制，正常帧路径较轻</td></tr>
+      <tr><td>主线程风险</td><td class="ok">不再等 Runtime 大锁，不再调用 renderer 直绘；缓存缺失跳过本帧</td><td class="ok">Action 不再等待主线程；主线程使用带租约的三缓冲快照</td></tr>
+      <tr><td>后台 CPU</td><td>高密度样本旧布局最高 51ms；现已将非紧急帧重建限制为约 30Hz，需真机复测</td><td>安全尾追加成本随新批大小增长；缓存结果已改为 Action 线程提交</td></tr>
+      <tr><td>正确性</td><td class="ok">丢批、测量跨代和旧缓存回写已解决</td><td class="ok">丢批、过滤上下文和停止恢复竞态已解决</td></tr>
+      <tr><td>长播内存</td><td>测量表已限量；Bitmap 总预算仍不完整</td><td>分块原始时间线随已访问数据增长</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>七、建议修复顺序</h2>
+    <ol>
+      <li class="ok"><strong>已完成：共同更新通道和两个适配控制器丢批修复。</strong></li>
+      <li class="ok"><strong>已完成：轻量引擎安全尾追加改为真正增量，冲突场景保留全量兜底。</strong></li>
+      <li class="ok"><strong>已完成：功能优先引擎测量缓存按代际隔离并限制容量。</strong></li>
+      <li class="ok"><strong>已完成：性能优先引擎非阻塞快照、Action 缓存提交与主线程跳过策略。</strong></li>
+      <li class="ok"><strong>已完成：功能优先引擎渲染帧租约、无锁绘制、30Hz 构帧与诊断限流。</strong></li>
+      <li><strong>最后做真机对照。</strong>两套引擎分别采集普通、高密度、大字号、频繁 seek 和长播数据，不使用模拟器 VSync 异常作为最终验收依据。</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>八、必须新增的回归与真机指标</h2>
+    <table>
+      <tr><th>项目</th><th>最低要求</th></tr>
+      <tr><td>更新通道反压</td><td>collector 阻塞期间连续发布三批，恢复后仍按顺序收到全部批次</td></tr>
+      <tr><td>连续增量</td><td>两套控制器分别覆盖 set+append、三批 append 任意交错，最终数量、ID、时间顺序均不丢不重</td></tr>
+      <tr><td>字号切换</td><td>旧测量缓存不能跨代命中；轨道碰撞使用新宽高</td></tr>
+      <tr><td>缓存过期任务</td><td>条目退场或样式代际变化后，旧任务不得写回 Bitmap</td></tr>
+      <tr><td>长播压力</td><td>2 小时高密度视频 + 往返 seek，记录 Java heap、native/graphics、Bitmap 数、GC 次数</td></tr>
+      <tr><td>主线程等待</td><td>Runtime 锁与 renderer 锁分别输出 P50/P95/P99；目标 P99 &lt; 1ms</td></tr>
+      <tr><td>增量成本</td><td>分别记录主线程复制、后台预处理、引擎提交数量；append 成本应只和新批大小相关</td></tr>
+    </table>
+    <p class="note">当前验证：过期的 <code>DanmakuLoadShedderTest</code> 已移除，新增代际、有序归并、三缓冲快照和 Runtime 帧租约测试；全部弹幕相关测试通过。完整 Debug 单测共 130 项，128 通过、1 跳过，另有一个与本改动无关的既有剧集目录测试 <code>ugcSeasonMergesMultiplePagesFromSameArchive</code> 失败。</p>
+  </section>
+
+  <section>
+    <h2>九、已排除的旧结论</h2>
+    <ul>
+      <li>功能优先控制器 append 的全量排序已移到后台，并改为线性归并。</li>
+      <li>上游发布去重已移到后台单线程，旧的首次 45ms 主线程发布问题已处理。</li>
+      <li>初始 tail 重复加载已增加覆盖范围二次检查，旧报告的 90% 以上重复丢弃不再是当前结论。</li>
+      <li>普通 draw 本身没有证据表明是主要瓶颈；真正需要量化的是 draw 前等待锁的时间。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>十、两套系统的架构优化方案</h2>
+    <table>
+      <tr><th>系统</th><th>当前架构评价</th><th>目标边界</th><th>改造方式</th></tr>
+      <tr><td>性能优先</td><td>单 Action 线程管理时间线和轨道、主线程消费双缓冲快照，方向合理；但信号量把更新生命周期绑在绘制上，缓存线程还会直接改弹幕对象。</td><td>Action 线程是唯一状态写入者；快照发布不等待主线程；缓存线程只产出结果，不直接改业务状态。</td><td>保留现有引擎，渐进式替换信号量、快照生命周期和缓存回写，不推倒重写。</td></tr>
+      <tr><td>功能优先</td><td>功能分层完整，但控制器和 Runtime 都已成为超大职责集合；时间线、测量、布局、帧管理、绘制和资源释放共享可变对象与粗粒度锁。</td><td>控制器只负责业务数据与分段；Action 线程负责入场、布局和帧构建；主线程只消费不可变渲染帧；缓存以编号和代际返回结果。</td><td>先拆渲染帧边界和大锁，再从 Runtime 内部逐步抽出时间线、入场调度、轨道布局和缓存协调，不在一次改动中重写所有功能。</td></tr>
+    </table>
+    <p class="note">共同约束：主线程不等待布局、测量和缓存构建；弹幕容纳不下或缓存未就绪时可以丢弃本条/本帧，不得为了“尽量显示”把工作转移到主线程；任何异步结果都必须带播放代际、配置代际和条目标识。</p>
+  </section>
+
+  <footer>本报告基于当前代码、回归测试与 2026-07-11 日志样本。日志来自模拟器，其 VSync 时间基准异常只作为环境噪声提示，不用来替代真机验收；未把无日志或无测试支撑的耗时和内存数值写成事实。</footer>
+</main>
+</body>
+</html>

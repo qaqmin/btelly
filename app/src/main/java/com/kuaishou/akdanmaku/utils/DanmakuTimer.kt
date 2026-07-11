@@ -58,6 +58,7 @@ class DanmakuTimer {
   val currentTimeMs: Long
     get() = currentNanoTime / 1_000_000
 
+  @Volatile
   private var currentNanoTime = 0L
 
   fun start(startTimeMs: Long = currentTimeMs, factor: Float = this.factor) {
