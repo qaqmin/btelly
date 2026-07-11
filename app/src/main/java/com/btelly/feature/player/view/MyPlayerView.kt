@@ -56,6 +56,7 @@ import com.btelly.core.common.ext.getDanmakuSmartFilterLevel
 import com.btelly.feature.player.LiveLineInfo
 import com.btelly.feature.player.LiveQualityInfo
 import com.btelly.feature.player.PlaybackStartupTrace
+import com.btelly.feature.player.danmaku.DanmakuSettingsSnapshot
 import com.btelly.feature.player.DanmakuFilterContext
 import com.btelly.feature.player.sponsor.SponsorSegment
 import kotlinx.coroutines.CoroutineScope
@@ -456,6 +457,7 @@ class MyPlayerView @JvmOverloads constructor(
 
         override fun onRenderedFirstFrame() {
             onSeekDiagFirstFrame()
+            dmMaskController.onPositionChanged(player?.currentPosition ?: 0L)
             hasRenderedFirstFrame = true
             suppressControllerShowUntilFirstFrame = false
             if (useLiteEngine) {
@@ -492,7 +494,6 @@ class MyPlayerView @JvmOverloads constructor(
             ImageLoader.loadDrawableRes(it, R.drawable.load_data)
         }
         errorMessageView = findViewById(R.id.exo_error_message)
-        dmkView = findViewById(R.id.dmk_view)
         dmkMaskHost = findViewById(R.id.dmk_mask_host)
         pauseIndicatorView = findViewById(R.id.image_pause_indicator)
 
@@ -603,6 +604,7 @@ class MyPlayerView @JvmOverloads constructor(
                     } else {
                         danmakuController.setEnabled(enabled)
                     }
+                    dmMaskController.setDanmakuVisible(enabled)
                 }
             })
             newController.setOnSeekCommitListener { positionMs ->
@@ -683,6 +685,7 @@ class MyPlayerView @JvmOverloads constructor(
                 } else {
                     danmakuController.setEnabled(enabled)
                 }
+                dmMaskController.setDanmakuVisible(enabled)
             }
 
             override fun onPlaybackSpeedChange(speed: Float) {
@@ -2666,14 +2669,11 @@ class MyPlayerView @JvmOverloads constructor(
         controller?.removeVisibilityListener(controllerComponentListener)
         handler.removeCallbacksAndMessages(null)
         stopUiFrameMonitor()
-        if (useLiteEngine) {
-            liteDanmakuController?.release()
-            liteDanmakuView?.let { removeView(it) }
-            liteDanmakuView = null
-            liteDanmakuController = null
-        } else {
-            danmakuController.release()
-        }
+        liteDanmakuController?.release()
+        liteDanmakuView?.let { view -> (view.parent as? ViewGroup)?.removeView(view) }
+        liteDanmakuView = null
+        liteDanmakuController = null
+        danmakuController.release()
         dmMaskController.dispose()
         maskRetryScope.cancel()
     }
@@ -2756,32 +2756,56 @@ class MyPlayerView @JvmOverloads constructor(
     /**
      * 切换弹幕引擎模式。必须在 setData 之前、播放器 setup 时调用。
      * - lite=false：功能优先（原 AkDanmaku 全功能：防挡/渐变/特殊弹幕）
-     * - lite=true：性能优先（轻量引擎：纯色滚动，无防挡/渐变/特殊；直播不支持）
-     * 原系统不删除，用 GONE 屏蔽；切换需重新进入播放。
+     * - lite=true：性能优先（轻量引擎：纯色滚动 + 智能防挡；无特殊弹幕，直播不支持）
+     * 两套引擎只作为蒙版宿主的可替换子层；切换需重新进入播放。
      */
     fun setDanmakuEngineMode(lite: Boolean) {
-        if (useLiteEngine == lite && liteDanmakuController != null) return
+        val targetReady = if (lite) liteDanmakuController != null else dmkView != null
+        if (useLiteEngine == lite && targetReady) return
+        if (useLiteEngine != lite) {
+            if (useLiteEngine) {
+                liteDanmakuController?.stop()
+            } else {
+                danmakuController.stop()
+            }
+        }
         useLiteEngine = lite
         if (lite) {
             if (liteDanmakuController == null) {
                 val view = com.btelly.feature.player.danmaku.DanmakuView(context).apply {
-                    layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+                    layoutParams = FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
                     isClickable = false
                     isFocusable = false
                 }
-                // 加到 dmkMaskHost 之前（视频之上，控制器之下），用 translationZ 保证层级
-                addView(view)
-                view.translationZ = 1f
+                dmkMaskHost?.addView(view) ?: addView(view)
                 liteDanmakuView = view
                 liteDanmakuController = com.btelly.feature.player.danmaku.DanmakuCoreController(context) { liteDanmakuView }.also {
                     it.playerPositionProvider = { player?.currentPosition ?: 0L }
                 }
             }
-            // 屏蔽原系统（含原 DanmakuView + 特殊弹幕 + 防挡蒙版）
-            dmkMaskHost?.visibility = GONE
         } else {
-            dmkMaskHost?.visibility = VISIBLE
+            dmkView = ensureFunctionalDanmakuView()
         }
+        applyDanmakuLayerVisibility(lite)
+        restoreOverlayZOrder()
+    }
+
+    private fun ensureFunctionalDanmakuView(): DanmakuView? {
+        dmkView?.let { return it }
+        val host = dmkMaskHost ?: return null
+        return DanmakuView(context).apply {
+            layoutParams = FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+            isClickable = false
+            isFocusable = false
+            host.addView(this)
+        }
+    }
+
+    private fun applyDanmakuLayerVisibility(performanceMode: Boolean) {
+        val state = danmakuLayerVisibility(performanceMode)
+        dmkMaskHost?.visibility = if (state.maskHostVisible) VISIBLE else GONE
+        dmkView?.visibility = if (state.functionalVisible) VISIBLE else GONE
+        liteDanmakuView?.visibility = if (state.performanceVisible) VISIBLE else GONE
     }
 
     fun setDanmakuData(
@@ -2794,6 +2818,7 @@ class MyPlayerView @JvmOverloads constructor(
         if (useLiteEngine) {
             liteDanmakuController?.setData(data, filterContext, startupTraceId, startupTraceStartElapsedMs)
         } else {
+            dmkView = ensureFunctionalDanmakuView()
             danmakuController.setData(data, filterContext, startupTraceId, startupTraceStartElapsedMs)
         }
     }
@@ -2831,6 +2856,7 @@ class MyPlayerView @JvmOverloads constructor(
         } else {
             danmakuController.setEnabled(enabled)
         }
+        dmMaskController.setDanmakuVisible(enabled)
     }
 
     fun pauseDanmaku() {
@@ -2860,9 +2886,9 @@ class MyPlayerView @JvmOverloads constructor(
     fun syncDanmakuPosition(positionMs: Long, forceSeek: Boolean = false) {
         if (useLiteEngine) {
             liteDanmakuController?.syncPosition(positionMs, forceSeek)
-            return
+        } else {
+            danmakuController.syncPosition(positionMs, forceSeek)
         }
-        danmakuController.syncPosition(positionMs, forceSeek)
         // 注入 providers 到 host layout（如果尚未注入）
         dmkMaskHost?.let { host ->
             if (host.ptsProvider == null) {
@@ -2893,7 +2919,7 @@ class MyPlayerView @JvmOverloads constructor(
             return false
         }
         val success = loadDmMaskInternal(maskUrl, cid, fps, delayForDanmakuStartup = true)
-        if (success) {
+        if (success && pendingDmMaskRequest == DmMaskRequest(maskUrl, cid, fps)) {
             pendingDmMaskRequest = null
         }
         return success
@@ -2918,6 +2944,10 @@ class MyPlayerView @JvmOverloads constructor(
                 return false
             }
         }
+        if (settingView?.getDmSmartShield() != true) {
+            AppLog.d("DmMask", "loadDmMask abandoned: smart shield disabled, cid=$cid")
+            return false
+        }
         val success = dmMaskController.loadMask(maskUrl, cid, fps)
         if (success) {
             dmkMaskHost?.let { host ->
@@ -2927,7 +2957,7 @@ class MyPlayerView @JvmOverloads constructor(
                 host.isSeeking = maskIsSeekingProvider
                 host.frameQueryReporter = maskFrameQueryReporter
             }
-            dmMaskController.setEnabled(true)
+            dmMaskController.setEnabled(settingView?.getDmSmartShield() ?: false)
             player?.let {
                 dmMaskController.onPlayerClockChanged(
                     it.playbackParameters.speed,
@@ -2949,7 +2979,7 @@ class MyPlayerView @JvmOverloads constructor(
                     delayForDanmakuStartup = true
                 )
                 AppLog.d("DmMask", "retry pending mask: cid=${request.cid} success=$success")
-                if (success) {
+                if (success && pendingDmMaskRequest == request) {
                     pendingDmMaskRequest = null
                 }
             }
@@ -3009,6 +3039,7 @@ class MyPlayerView @JvmOverloads constructor(
 
     private fun syncDanmakuSettings() {
         val snapshot = buildDanmakuSettingsSnapshot()
+        dmMaskController.setDanmakuVisible(snapshot.enabled)
         if (useLiteEngine) {
             liteDanmakuController?.applySettings(snapshot)
         } else {
@@ -3017,8 +3048,8 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     // Keep the mapping from setting panel state to danmaku config in one place.
-    private fun buildDanmakuSettingsSnapshot(): MyPlayerDanmakuController.SettingsSnapshot {
-        return MyPlayerDanmakuController.SettingsSnapshot(
+    private fun buildDanmakuSettingsSnapshot(): DanmakuSettingsSnapshot {
+        return DanmakuSettingsSnapshot(
             enabled = settingView?.getDmEnable() ?: true,
             alpha = settingView?.getDmAlpha() ?: 1f,
             textSize = settingView?.getDmTextScaleParam() ?: 40,

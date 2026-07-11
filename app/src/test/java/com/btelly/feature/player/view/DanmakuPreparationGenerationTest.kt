@@ -104,6 +104,19 @@ class DanmakuPreparationGenerationTest {
   }
 
   @Test
+  fun bothEnginesUseTheIndependentMaskHost() {
+    val functional = danmakuLayerVisibility(performanceMode = false)
+    val performance = danmakuLayerVisibility(performanceMode = true)
+
+    assertTrue(functional.maskHostVisible)
+    assertTrue(functional.functionalVisible)
+    assertFalse(functional.performanceVisible)
+    assertTrue(performance.maskHostVisible)
+    assertFalse(performance.functionalVisible)
+    assertTrue(performance.performanceVisible)
+  }
+
+  @Test
   fun publishedSnapshotSupportsTailAppendAndOutOfOrderMerge() {
     val tailAppended = mergePublishedDanmakuSnapshot(
       existing = listOf(dm(1, 100), dm(2, 200)),

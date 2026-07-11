@@ -7,7 +7,6 @@ import com.btelly.feature.player.DanmakuFilterContext
 import com.btelly.feature.player.PlaybackStartupTrace
 import com.btelly.feature.player.view.BiliDanmakuFilterPolicy
 import com.btelly.feature.player.view.DanmakuDuplicateMergePolicy
-import com.btelly.feature.player.view.MyPlayerDanmakuController
 import com.btelly.feature.player.view.VipDanmakuTextureCache
 import com.btelly.feature.player.view.nextDanmakuPreparationGeneration
 import com.btelly.model.dm.DmModel
@@ -29,10 +28,11 @@ import kotlinx.coroutines.withContext
  * 职责：
  *  - 数据预处理：过滤（[BiliDanmakuFilterPolicy]）+ 合并重复（[DanmakuDuplicateMergePolicy]）
  *    + DmModel→Danmaku 转换（[toDanmakus]）。
- *  - 设置映射：把 [MyPlayerDanmakuController.SettingsSnapshot] 翻译成引擎的 [DanmakuConfig]。
+ *  - 设置映射：把共享的 [DanmakuSettingsSnapshot] 翻译成引擎的 [DanmakuConfig]。
  *  - 播放同步：通过 positionProvider 回调让引擎自驱动，seek 时主动通知。
  *
- * 不支持（性能优先模式）：直播、特殊弹幕（已过滤）、防挡蒙版、智能过滤、表情/高赞图标（已移除，电视端看不清且拖累性能）。
+ * 不支持（性能优先模式）：直播、特殊弹幕（已过滤）、智能过滤、表情/高赞图标。
+ * 智能防挡由引擎外层的中立宿主统一裁剪，不依赖功能优先引擎。
  */
 class DanmakuCoreController(
     private val context: Context,
@@ -57,7 +57,7 @@ class DanmakuCoreController(
     private var rawItems: List<DmModel> = emptyList()
     private var filterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY
     private var appliedFilterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY
-    private var lastSnapshot: MyPlayerDanmakuController.SettingsSnapshot? = null
+    private var lastSnapshot: DanmakuSettingsSnapshot? = null
 
     // 缓存的 DanmakuConfig（由 applySettings 计算，通过 configProvider 喂给引擎）
     @Volatile
@@ -197,7 +197,7 @@ class DanmakuCoreController(
         }
     }
 
-    fun applySettings(snapshot: MyPlayerDanmakuController.SettingsSnapshot) {
+    fun applySettings(snapshot: DanmakuSettingsSnapshot) {
         if (lastSnapshot == snapshot) return
         val old = lastSnapshot
         lastSnapshot = snapshot
@@ -494,7 +494,7 @@ class DanmakuCoreController(
 
     private fun viewHasData(): Boolean = rawItems.isNotEmpty()
 
-    private fun buildConfig(snapshot: MyPlayerDanmakuController.SettingsSnapshot): DanmakuConfig {
+    private fun buildConfig(snapshot: DanmakuSettingsSnapshot): DanmakuConfig {
         // 字号对齐 AkDanmaku SimpleRenderer.updatePaint 公式：
         //   AkDanmaku textSizePx = clamp(biliFontSize, 12, 25) × (density - 0.6) × textSizeScale
         // 弹幕引擎内部 textSizePx = sp(textSizeSp) = textSizeSp × density

@@ -14,6 +14,7 @@ import com.kuaishou.akdanmaku.ui.DanmakuView
 import com.btelly.feature.player.DanmakuFilterContext
 import com.btelly.feature.player.PlaybackStartupTrace
 import com.btelly.feature.player.danmaku.BiliDanmakuStyle
+import com.btelly.feature.player.danmaku.DanmakuSettingsSnapshot
 import com.btelly.feature.player.danmaku.DanmakuTrackSpacing
 import com.btelly.core.common.log.AppLog
 import com.btelly.model.dm.DmModel
@@ -90,19 +91,6 @@ class MyPlayerDanmakuController(
         private const val DANMAKU_PRE_CACHE_TIME_MS = 900L
     }
 
-    data class SettingsSnapshot(
-        val enabled: Boolean,
-        val alpha: Float,
-        val textSize: Int,
-        val speed: Int,
-        val screenArea: Int,
-        val allowTop: Boolean,
-        val allowBottom: Boolean,
-        val smartFilterLevel: Int,
-        val mergeDuplicate: Boolean,
-        val trackSpacing: String = "standard"
-    )
-
     private data class PreparedWindow(
         val data: List<DanmakuItemData>,
         val rawCount: Int,
@@ -154,7 +142,7 @@ class MyPlayerDanmakuController(
     private var mergeDuplicate = true
     private var screenPart = 1.0f
     private var smartFilterLevel = SMART_FILTER_LEVEL_OFF
-    private var lastSettingsSnapshot: SettingsSnapshot? = null
+    private var lastSettingsSnapshot: DanmakuSettingsSnapshot? = null
     private var rawDanmakuSignature: Long = 0L
     private var rawDanmakuCount: Int = 0
     private var preparedDanmakuSignature: Long = 0L
@@ -469,7 +457,7 @@ class MyPlayerDanmakuController(
      * Applies the full setting snapshot in one place so partial UI callbacks do not leave
      * danmaku config in an inconsistent intermediate state.
      */
-    fun applySettings(snapshot: SettingsSnapshot) {
+    fun applySettings(snapshot: DanmakuSettingsSnapshot) {
         if (lastSettingsSnapshot == snapshot) {
             return
         }

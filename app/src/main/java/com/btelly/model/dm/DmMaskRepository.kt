@@ -32,6 +32,8 @@ class DmMaskRepository {
         private val sharedUrlCache = ConcurrentHashMap<Long, String>()
         private val sharedSegmentParseLocks = ConcurrentHashMap<String, Any>()
         private val sharedHeaderLoadLocks = ConcurrentHashMap<Long, Any>()
+        private val activeRangeConnections = ConcurrentHashMap<HttpURLConnection, Any>()
+        private val cancelledRequestOwners = ConcurrentHashMap<Any, Boolean>()
     }
 
     private val cache = sharedCache
@@ -46,25 +48,25 @@ class DmMaskRepository {
      * 加载 mask 头部 + 段索引表，立即返回可用的 [DmMaskData]（段数据未下载）。
      * 总耗时通常 200~500ms（两个小 Range 请求）。
      */
-    suspend fun downloadAndParse(maskUrl: String, cid: Long, fps: Int): DmMaskData? {
+    suspend fun downloadAndParse(maskUrl: String, cid: Long, fps: Int, requestOwner: Any? = null): DmMaskData? {
         cache.get(cid)?.let { return it }
         return withContext(Dispatchers.IO) {
             val lock = headerLoadLocks.getOrPut(cid) { Any() }
             synchronized(lock) {
                 cache.get(cid)?.let { return@withContext it }
-                downloadAndParseLocked(maskUrl, cid, fps)
+                downloadAndParseLocked(maskUrl, cid, fps, requestOwner)
             }
         }
     }
 
-    private fun downloadAndParseLocked(maskUrl: String, cid: Long, fps: Int): DmMaskData? {
+    private fun downloadAndParseLocked(maskUrl: String, cid: Long, fps: Int, requestOwner: Any?): DmMaskData? {
         val startNs = System.nanoTime()
         try {
             val url = if (maskUrl.startsWith("//")) "https:$maskUrl" else maskUrl
             urlCache[cid] = url
 
             // 1. 拉前 16 字节 header → 解析 segmentCount
-            val headerBytes = rangeFetch(url, 0L, (WebmaskParser.HEADER_SIZE - 1).toLong())
+            val headerBytes = rangeFetch(url, 0L, (WebmaskParser.HEADER_SIZE - 1).toLong(), requestOwner)
                 ?: return null
             val segCount = WebmaskParser.parseSegmentCount(headerBytes)
             if (segCount <= 0) return null
@@ -72,7 +74,7 @@ class DmMaskRepository {
             // 2. 拉段索引表 → 解析所有 LazyMaskSegment
             val metaStart = WebmaskParser.HEADER_SIZE.toLong()
             val metaEnd = metaStart + segCount.toLong() * WebmaskParser.META_ENTRY_SIZE - 1L
-            val (metaBytes, totalSize) = rangeFetchWithTotal(url, metaStart, metaEnd)
+            val (metaBytes, totalSize) = rangeFetchWithTotal(url, metaStart, metaEnd, requestOwner)
                 ?: return null
 
             val maskData = WebmaskParser.parseSegmentMeta(metaBytes, segCount, totalSize, fps)
@@ -102,7 +104,12 @@ class DmMaskRepository {
      * 同步：确保指定段的字节数据已下载到 [LazyMaskSegment.segData]。
      * 调用方负责在 IO 线程触发（preloadSegmentFrames 已经在后台线程）。
      */
-    private fun ensureSegmentDataLoaded(cid: Long, segment: LazyMaskSegment, segIndex: Int): Boolean {
+    private fun ensureSegmentDataLoaded(
+        cid: Long,
+        segment: LazyMaskSegment,
+        segIndex: Int,
+        requestOwner: Any?,
+    ): Boolean {
         if (segment.segData != null) return true
         val url = urlCache[cid] ?: run {
             AppLog.e(TAG, "No URL cached for cid=$cid (segment $segIndex)")
@@ -110,7 +117,7 @@ class DmMaskRepository {
         }
         return try {
             val startNs = System.nanoTime()
-            val bytes = rangeFetch(url, segment.byteOffset, segment.byteEnd - 1L)
+            val bytes = rangeFetch(url, segment.byteOffset, segment.byteEnd - 1L, requestOwner)
             if (bytes != null) {
                 segment.segData = bytes
                 val ms = (System.nanoTime() - startNs) / 1_000_000L
@@ -130,7 +137,7 @@ class DmMaskRepository {
      * 后台预解析指定段：自动下载段字节 → 解析帧 → 释放字节数据。
      * 必须在 IO 线程调用。已用 lock 去重，多次同 segIdx 调用安全。
      */
-    fun preloadSegmentFrames(cid: Long, segIndex: Int) {
+    fun preloadSegmentFrames(cid: Long, segIndex: Int, requestOwner: Any? = null) {
         val maskData = cache.get(cid) ?: return
         val segments = maskData.rawSegments
         if (segIndex < 0 || segIndex >= segments.size) return
@@ -144,7 +151,7 @@ class DmMaskRepository {
                 if (segment.cachedFrames != null) return
                 val startedNs = System.nanoTime()
                 // 1. 确保字节数据
-                if (!ensureSegmentDataLoaded(cid, segment, segIndex)) {
+                if (!ensureSegmentDataLoaded(cid, segment, segIndex, requestOwner)) {
                     AppLog.w(TAG, "Webmask segment preload failed: cid=$cid seg=$segIndex noData")
                     return
                 }
@@ -186,19 +193,46 @@ class DmMaskRepository {
         segmentParseLocks.clear()
     }
 
+    fun cancelRequests(requestOwner: Any) {
+        cancelledRequestOwners[requestOwner] = true
+        activeRangeConnections.entries.forEach { entry ->
+            if (entry.value === requestOwner && activeRangeConnections.remove(entry.key, entry.value)) {
+                runCatching { entry.key.disconnect() }
+            }
+        }
+    }
+
+    fun finishRequests(requestOwner: Any) {
+        cancelledRequestOwners.remove(requestOwner)
+    }
+
     // ---- HTTP Range 下载工具 ----
 
     /** Range 拉取 [start, end] 区间字节（闭区间，符合 HTTP 标准）。 */
-    private fun rangeFetch(url: String, start: Long, end: Long): ByteArray? {
-        return rangeFetchWithTotal(url, start, end)?.first
+    private fun rangeFetch(url: String, start: Long, end: Long, requestOwner: Any? = null): ByteArray? {
+        return rangeFetchWithTotal(url, start, end, requestOwner)?.first
     }
 
     /**
      * Range 拉取 + 从响应头提取文件总大小。
      * 200 OK 和 206 Partial Content 都接受（部分 CDN 对 0-N 整文件请求返回 200）。
      */
-    private fun rangeFetchWithTotal(url: String, start: Long, end: Long): Pair<ByteArray, Long>? {
+    private fun rangeFetchWithTotal(
+        url: String,
+        start: Long,
+        end: Long,
+        requestOwner: Any? = null,
+    ): Pair<ByteArray, Long>? {
+        if (requestOwner != null && cancelledRequestOwners.containsKey(requestOwner)) return null
         val conn = openRangeConn(url, start, end)
+        if (requestOwner != null) {
+            activeRangeConnections[conn] = requestOwner
+            if (cancelledRequestOwners.containsKey(requestOwner)) {
+                activeRangeConnections.remove(conn)
+                conn.disconnect()
+                return null
+            }
+        }
         try {
             val code = conn.responseCode
             if (code != HttpURLConnection.HTTP_OK && code != HttpURLConnection.HTTP_PARTIAL) {
@@ -215,6 +249,7 @@ class DmMaskRepository {
                 ?: bytes.size.toLong()
             return Pair(bytes, total)
         } finally {
+            activeRangeConnections.remove(conn)
             conn.disconnect()
         }
     }

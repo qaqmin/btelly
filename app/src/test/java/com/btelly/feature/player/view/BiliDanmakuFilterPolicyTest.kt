@@ -1,5 +1,6 @@
 package com.btelly.feature.player.view
 
+import com.btelly.feature.player.danmaku.DanmakuSettingsSnapshot
 import com.btelly.feature.player.DanmakuFilterContext
 import com.btelly.model.dm.DmModel
 import com.btelly.model.proto.DanmuWebPlayerConfigProto
@@ -109,8 +110,8 @@ class BiliDanmakuFilterPolicyTest {
     private fun settings(
         allowTop: Boolean = true,
         allowBottom: Boolean = true
-    ): MyPlayerDanmakuController.SettingsSnapshot =
-        MyPlayerDanmakuController.SettingsSnapshot(
+    ): DanmakuSettingsSnapshot =
+        DanmakuSettingsSnapshot(
             enabled = true,
             alpha = 1f,
             textSize = 40,

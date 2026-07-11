@@ -41,12 +41,7 @@
         android:id="@+id/dmk_mask_host"
         android:layout_gravity="top"
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
-        <com.kuaishou.akdanmaku.ui.DanmakuView
-            android:id="@+id/dmk_view"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"/>
-    </com.btelly.feature.player.view.DanmakuMaskHostLayout>
+        android:layout_height="match_parent" />
     <com.btelly.feature.player.interaction.InteractionOverlayView
         android:id="@+id/interaction_view"
         android:visibility="gone"

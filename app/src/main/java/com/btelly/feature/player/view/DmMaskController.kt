@@ -9,7 +9,9 @@ import com.btelly.model.dm.DmMaskRepository
 import com.btelly.model.dm.DmMaskTimeline
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -52,6 +54,17 @@ class DmMaskController(
     private var isPlaying: Boolean = false
     private var playbackReady: Boolean = false
     private var enabled: Boolean = false
+    private var danmakuVisible: Boolean = true
+    @Volatile
+    private var contentGeneration: Long = 0L
+
+    @Volatile
+    private var disposed: Boolean = false
+    private var loadRequestOwner: Any = Any()
+    private var preloadRequestOwner: Any = Any()
+
+    @Volatile
+    private var activeLoadRequestOwner: Any? = null
 
     // ---- 时钟 ----
 
@@ -77,7 +90,7 @@ class DmMaskController(
 
     // ---- Seek 状态 ----
 
-    private var seekHardDeadlineMs: Long = 0L
+    private var seekSequence: Long = 0L
 
     // ---- 预加载 ----
 
@@ -87,6 +100,8 @@ class DmMaskController(
     private var preloadingSegIndex: Int = -1
     private var preloadAllowedRealtimeMs: Long = 0L
     private var preloadRetryScheduled: Boolean = false
+    private var deferredPreloadGeneration: Long = 0L
+    private var preloadJob: Job? = null
 
     private val frameInvalidator = FrameInvalidator()
 
@@ -101,77 +116,114 @@ class DmMaskController(
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val preloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val deferredPreloadRunnable = Runnable {
+        preloadRetryScheduled = false
+        if (isCurrentMaskLoad(deferredPreloadGeneration, contentGeneration, disposed) && state == State.ACTIVE) {
+            maybePreload(currentVideoPtsMs())
+        }
+    }
 
     // ========== 公开 API ==========
 
     fun setEnabled(enabled: Boolean) {
+        if (disposed) return
         if (this.enabled == enabled) return
         this.enabled = enabled
         when {
             !enabled -> {
+                cancelLoadRequest()
+                contentGeneration++
                 state = State.IDLE
                 maskHostProvider()?.clearCachedMask()
                 frameInvalidator.stop()
+                stopPreloading()
             }
             currentTimeline != null -> {
-                state = if (isPlaying) State.ACTIVE else State.READY
-                frameInvalidator.start()
-                deferPreload()
-                maybePreload(currentVideoPtsMs())
+                state = if (shouldAnimate()) State.ACTIVE else State.READY
+                updateFrameInvalidator()
+                if (state == State.ACTIVE) {
+                    deferPreload()
+                    maybePreload(currentVideoPtsMs())
+                }
                 invalidateMaskHost()
             }
         }
     }
 
+    fun setDanmakuVisible(visible: Boolean) {
+        if (disposed || danmakuVisible == visible) return
+        danmakuVisible = visible
+        if (state != State.SEEKING && currentTimeline != null && enabled) {
+            state = if (shouldAnimate()) State.ACTIVE else State.READY
+        }
+        updateFrameInvalidator()
+        if (state == State.ACTIVE) {
+            maybePreload(currentVideoPtsMs())
+            invalidateMaskHost()
+        } else {
+            stopPreloading()
+        }
+    }
+
     suspend fun loadMask(maskUrl: String, cid: Long, fps: Int): Boolean {
+        if (disposed) return false
         if (currentCid == cid &&
             currentMaskUrl == maskUrl &&
             currentFps == fps &&
             currentTimeline != null
         ) {
             AppLog.d(TAG, "reuse current mask: cid=$cid fps=$fps")
-            state = if (!enabled) {
-                State.IDLE
-            } else if (isPlaying) {
-                State.ACTIVE
-            } else {
-                State.READY
-            }
+            state = if (!enabled) State.IDLE else if (shouldAnimate()) State.ACTIVE else State.READY
             maskHostProvider()?.let { it.timeline = currentTimeline }
-            if (enabled) {
-                frameInvalidator.start()
+            updateFrameInvalidator()
+            if (state == State.ACTIVE) {
                 invalidateMaskHost()
             }
             return true
         }
+        val requestGeneration = ++contentGeneration
+        val requestRepository = repository
+        cancelLoadRequest()
+        stopPreloading()
+        val requestOwner = loadRequestOwner
         currentCid = cid
         currentMaskUrl = maskUrl
         currentFps = fps
         state = State.IDLE
+        currentTimeline = null
         lastPreloadedSegIndex = -1
         preloadingSegIndex = -1
         deferPreload()
-        maskHostProvider()?.clearCachedMask()
+        maskHostProvider()?.let { host ->
+            host.timeline = null
+            host.clearCachedMask()
+        }
 
-        val data = repository.downloadAndParse(maskUrl, cid, fps)
+        activeLoadRequestOwner = requestOwner
+        val data = try {
+            requestRepository.downloadAndParse(maskUrl, cid, fps, requestOwner)
+        } finally {
+            if (activeLoadRequestOwner === requestOwner) {
+                activeLoadRequestOwner = null
+            }
+            requestRepository.finishRequests(requestOwner)
+        }
+        if (!isCurrentMaskLoad(requestGeneration, contentGeneration, disposed)) {
+            AppLog.d(TAG, "ignore stale mask load: cid=$cid generation=$requestGeneration")
+            return false
+        }
         if (data == null) {
             AppLog.e(TAG, "Mask load failed for cid=$cid")
             return false
         }
 
-        currentTimeline = repository.getTimeline(cid)
+        currentTimeline = requestRepository.getTimeline(cid)
         maskHostProvider()?.let { it.timeline = currentTimeline }
 
-        state = if (!enabled) {
-            State.IDLE
-        } else if (isPlaying) {
-            State.ACTIVE
-        } else {
-            State.READY
-        }
+        state = if (!enabled) State.IDLE else if (shouldAnimate()) State.ACTIVE else State.READY
 
-        if (enabled) {
-            frameInvalidator.start()
+        updateFrameInvalidator()
+        if (state == State.ACTIVE) {
             invalidateMaskHost()
             // 初始遮罩分片加载让位给弹幕首屏测量和第一帧绘制。
             maybePreload(currentVideoPtsMs())
@@ -204,26 +256,36 @@ class DmMaskController(
 
     /** Seek 操作。进入 SEEKING 状态，保留旧遮罩冻结（不清除），等新 segment 加载后自动替换。 */
     fun onSeek() {
+        val sequence = ++seekSequence
         state = State.SEEKING
-        seekHardDeadlineMs = SystemClock.elapsedRealtime() + SEEK_HARD_TIMEOUT_MS
         lastPreloadedSegIndex = -1
+        frameInvalidator.stop()
+        stopPreloading()
+        mainHandler.postDelayed({
+            if (shouldCompleteMaskSeek(disposed, state == State.SEEKING, sequence, seekSequence)) {
+                transitionFromSeeking()
+            }
+        }, SEEK_HARD_TIMEOUT_MS)
         // 不调用 clearCachedMask()：旧遮罩在新 segment 加载完成前继续显示，
         // 避免 seek 后 100~300ms 的无遮罩窗口。
     }
 
     fun setPlaying(playing: Boolean) {
+        if (disposed) return
         if (!playing && isPlaying) {
             clockBasePositionMs = currentVideoPtsMs()
             clockBaseRealtimeMs = SystemClock.elapsedRealtime()
         }
         isPlaying = playing
-        if (playing && state == State.READY && enabled) {
-            state = State.ACTIVE
-            frameInvalidator.start()
+        if (state != State.SEEKING && currentTimeline != null && enabled) {
+            state = if (shouldAnimate()) State.ACTIVE else State.READY
+        }
+        updateFrameInvalidator()
+        if (state == State.ACTIVE) {
             maybePreload(currentVideoPtsMs())
             invalidateMaskHost()
-        } else if (playing && state == State.ACTIVE && enabled) {
-            maybePreload(currentVideoPtsMs())
+        } else {
+            stopPreloading()
         }
     }
 
@@ -235,9 +297,19 @@ class DmMaskController(
     }
 
     fun setPlaybackReady(ready: Boolean) {
+        if (disposed) return
         playbackReady = ready
         if (ready && state == State.SEEKING) {
             transitionFromSeeking()
+        } else if (state != State.SEEKING && currentTimeline != null && enabled) {
+            state = if (shouldAnimate()) State.ACTIVE else State.READY
+            updateFrameInvalidator()
+            if (state == State.ACTIVE) {
+                maybePreload(currentVideoPtsMs())
+                invalidateMaskHost()
+            } else {
+                stopPreloading()
+            }
         }
     }
 
@@ -281,6 +353,8 @@ class DmMaskController(
     }
 
     fun setRepository(repository: DmMaskRepository) {
+        cancelLoadRequest()
+        stopPreloading()
         this.repository = repository
     }
 
@@ -297,6 +371,12 @@ class DmMaskController(
     }
 
     fun release() {
+        cancelLoadRequest()
+        contentGeneration++
+        seekSequence++
+        stopPreloading()
+        mainHandler.removeCallbacksAndMessages(null)
+        preloadRetryScheduled = false
         state = State.IDLE
         currentCid = 0L
         currentMaskUrl = ""
@@ -311,7 +391,10 @@ class DmMaskController(
     }
 
     fun dispose() {
+        if (disposed) return
+        disposed = true
         release()
+        preloadScope.cancel()
     }
 
     // ---- 诊断 API（保持兼容） ----
@@ -344,7 +427,8 @@ class DmMaskController(
     // ========== 内部实现 ==========
 
     private fun transitionFromSeeking() {
-        state = if (enabled && isPlaying) State.ACTIVE else State.READY
+        state = if (shouldAnimate()) State.ACTIVE else State.READY
+        updateFrameInvalidator()
         if (state == State.ACTIVE) {
             deferPreload()
             maybePreload(currentVideoPtsMs())
@@ -383,7 +467,11 @@ class DmMaskController(
 
     private fun preloadAhead(currentSegIdx: Int) {
         val cid = currentCid
+        val generation = contentGeneration
+        val preloadRepository = repository
+        val requestOwner = preloadRequestOwner
         val timeline = currentTimeline ?: return
+        if (preloadJob?.isCompleted == false) return
         if (preloadingSegIndex == currentSegIdx) return
         preloadingSegIndex = currentSegIdx
         val totalSegs = timeline.totalSegments()
@@ -394,18 +482,26 @@ class DmMaskController(
             currentSegIdx + 2
         ).filter { it in 0 until totalSegs }.distinct()
         maybeLogPreload(currentSegIdx, orderedSegments)
-        preloadScope.launch {
+        preloadJob?.cancel()
+        val job = preloadScope.launch {
             try {
                 orderedSegments.forEachIndexed { index, idx ->
+                    if (!isCurrentMaskLoad(generation, contentGeneration, disposed)) return@launch
                     if (index > 0) {
                         delay(PRELOAD_SEGMENT_STAGGER_MS)
                     }
-                    repository.preloadSegmentFrames(cid, idx)
+                    if (!isCurrentMaskLoad(generation, contentGeneration, disposed)) return@launch
+                    preloadRepository.preloadSegmentFrames(cid, idx, requestOwner)
                 }
             } finally {
-                if (preloadingSegIndex == currentSegIdx) preloadingSegIndex = -1
+                preloadRepository.finishRequests(requestOwner)
+                if (generation == contentGeneration && preloadingSegIndex == currentSegIdx) {
+                    preloadingSegIndex = -1
+                }
             }
         }
+        job.invokeOnCompletion { preloadRepository.finishRequests(requestOwner) }
+        preloadJob = job
     }
 
     private fun maybeLogPreload(currentSegIdx: Int, orderedSegments: List<Int>) {
@@ -421,6 +517,7 @@ class DmMaskController(
 
     private fun deferPreload(delayMs: Long = PRELOAD_STARTUP_DELAY_MS) {
         preloadAllowedRealtimeMs = SystemClock.elapsedRealtime() + delayMs
+        mainHandler.removeCallbacks(deferredPreloadRunnable)
         preloadRetryScheduled = false
     }
 
@@ -429,19 +526,48 @@ class DmMaskController(
     }
 
     private fun scheduleDeferredPreload() {
-        if (preloadRetryScheduled) return
+        if (preloadRetryScheduled || disposed) return
         val delayMs = (preloadAllowedRealtimeMs - SystemClock.elapsedRealtime()).coerceAtLeast(1L)
+        deferredPreloadGeneration = contentGeneration
         preloadRetryScheduled = true
-        mainHandler.postDelayed({
-            preloadRetryScheduled = false
-            if (state == State.ACTIVE) {
-                maybePreload(currentVideoPtsMs())
-            }
-        }, delayMs)
+        mainHandler.postDelayed(deferredPreloadRunnable, delayMs)
+    }
+
+    private fun stopPreloading() {
+        mainHandler.removeCallbacks(deferredPreloadRunnable)
+        preloadRetryScheduled = false
+        val runningJob = preloadJob
+        if (runningJob?.isCompleted == false) {
+            runningJob.cancel()
+            repository.cancelRequests(preloadRequestOwner)
+        }
+        preloadRequestOwner = Any()
+        preloadingSegIndex = -1
+    }
+
+    private fun cancelLoadRequest() {
+        activeLoadRequestOwner?.let(repository::cancelRequests)
+        loadRequestOwner = Any()
     }
 
     private fun invalidateMaskHost() {
         maskHostProvider()?.postInvalidateOnAnimation()
+    }
+
+    private fun shouldAnimate(): Boolean = shouldRunMaskFrames(
+        enabled = enabled,
+        danmakuVisible = danmakuVisible,
+        isPlaying = isPlaying,
+        playbackReady = playbackReady,
+        hasTimeline = currentTimeline != null,
+    )
+
+    private fun updateFrameInvalidator() {
+        if (shouldAnimate() && state == State.ACTIVE) {
+            frameInvalidator.start()
+        } else {
+            frameInvalidator.stop()
+        }
     }
 
     // ========== FrameInvalidator ==========
@@ -457,7 +583,7 @@ class DmMaskController(
 
         fun start() {
             mainHandler.post {
-                if (running) return@post
+                if (running || disposed || state != State.ACTIVE || !shouldAnimate()) return@post
                 running = true
                 val ch = choreographer ?: Choreographer.getInstance().also { choreographer = it }
                 ch.postFrameCallback(this)
@@ -474,10 +600,11 @@ class DmMaskController(
 
         override fun doFrame(frameTimeNs: Long) {
             if (!running) return
-            // ACTIVE 状态下每 vsync invalidate mask host，保证遮罩实时更新
-            if (state == State.ACTIVE) {
-                invalidateMaskHost()
+            if (disposed || state != State.ACTIVE || !shouldAnimate()) {
+                running = false
+                return
             }
+            invalidateMaskHost()
             choreographer?.postFrameCallback(this)
         }
     }
