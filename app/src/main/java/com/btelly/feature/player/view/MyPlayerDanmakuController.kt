@@ -32,6 +32,9 @@ import kotlin.math.max
 
 private typealias RawWindowRange = DanmakuWindowRangePolicy.Range
 
+internal fun nextDanmakuPreparationGeneration(current: Long, replace: Boolean): Long =
+    if (replace) current + 1L else current
+
 /**
  * Owns danmaku-specific state so MyPlayerView only coordinates player UI and gestures.
  */
@@ -185,7 +188,8 @@ class MyPlayerDanmakuController(
         prepareJob?.cancel()
         windowRefreshJob?.cancel()
         this.filterContext = filterContext
-        val generation = ++prepareGeneration
+        val generation = nextDanmakuPreparationGeneration(prepareGeneration, replace = true)
+        prepareGeneration = generation
         prepareJob = controllerScope.launch {
             val sortedData = data.sortedBy { it.progress }
             val rawSignature = sortedData.fastRawSignature()
@@ -260,7 +264,9 @@ class MyPlayerDanmakuController(
         }
         this.filterContext = filterContext
         val previousJob = prepareJob
-        val generation = ++prepareGeneration
+        // append 必须继承上一任务的代际并等待其提交。若先换代，上一批会在提交点被判过期，
+        // 当前任务随后只能从旧 timeline 合并，造成整批永久丢失。
+        val generation = nextDanmakuPreparationGeneration(prepareGeneration, replace = false)
         prepareJob = controllerScope.launch {
             previousJob?.join()
             // 主线程只取 timeline 快照（引用拷贝 O(1)）；合并、排序、签名全部在 Default 后台完成，
@@ -633,7 +639,7 @@ class MyPlayerDanmakuController(
     fun resetForPlaybackStart(positionMs: Long) {
         prepareJob?.cancel()
         preloadTextureJob?.cancel()
-        prepareGeneration++
+        prepareGeneration = nextDanmakuPreparationGeneration(prepareGeneration, replace = true)
         stop()
         danmakuTimeline = DanmakuTimeline.EMPTY
         rawDanmakuData = emptyList()
@@ -710,10 +716,12 @@ class MyPlayerDanmakuController(
     }
 
     private fun rebuildAndApplyData() {
-        prepareJob?.cancel()
-        val generation = ++prepareGeneration
+        // 设置重建必须排在在途 append 后面，不能通过换代取消尚未提交到 timeline 的增量。
+        val previousJob = prepareJob
+        val generation = prepareGeneration
         val capturedGeneration = generation
         prepareJob = controllerScope.launch {
+            previousJob?.join()
             delay(200L)
             if (prepareGeneration != capturedGeneration) return@launch
             val allowVipColorful = isVipColorfulDanmakuAllowed()

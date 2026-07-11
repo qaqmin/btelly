@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -469,7 +470,7 @@ class VideoPlayerViewModel(
 
     // ==================== 弹幕系统（转发到 DanmakuPlaybackController）====================
     val danmaku: StateFlow<List<DmModel>> get() = danmakuController.danmaku
-    internal val danmakuUpdates: SharedFlow<DanmakuPlaybackController.DanmakuUpdate> get() = danmakuController.danmakuUpdates
+    internal val danmakuUpdates: Flow<DanmakuPlaybackController.DanmakuUpdate> get() = danmakuController.danmakuUpdates
     internal val dmMaskState: StateFlow<DanmakuPlaybackController.DmMaskState> get() = danmakuController.dmMaskState
     var onDmMaskReady: ((maskUrl: String, cid: Long, fps: Int) -> Unit)?
         get() = danmakuController.onDmMaskReady

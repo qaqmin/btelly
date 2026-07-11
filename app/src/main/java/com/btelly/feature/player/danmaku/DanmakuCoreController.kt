@@ -9,6 +9,7 @@ import com.btelly.feature.player.view.BiliDanmakuFilterPolicy
 import com.btelly.feature.player.view.DanmakuDuplicateMergePolicy
 import com.btelly.feature.player.view.MyPlayerDanmakuController
 import com.btelly.feature.player.view.VipDanmakuTextureCache
+import com.btelly.feature.player.view.nextDanmakuPreparationGeneration
 import com.btelly.model.dm.DmModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
@@ -55,6 +56,7 @@ class DanmakuCoreController(
 
     private var rawItems: List<DmModel> = emptyList()
     private var filterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY
+    private var appliedFilterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY
     private var lastSnapshot: MyPlayerDanmakuController.SettingsSnapshot? = null
 
     // 缓存的 DanmakuConfig（由 applySettings 计算，通过 configProvider 喂给引擎）
@@ -77,8 +79,9 @@ class DanmakuCoreController(
      * 参考 MyPlayerDanmakuController.controllerScope 的模式。
      */
     private val controllerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    /** 数据预处理代际：新数据到来时自增，后台协程完成后校验，过期则丢弃结果（防竞态）。 */
-    private val prepareGeneration = java.util.concurrent.atomic.AtomicInteger(0)
+    /** replace 换代，append 继承当前代际并串行等待，避免连续增量互相作废。 */
+    private val prepareGeneration = java.util.concurrent.atomic.AtomicLong(0L)
+    private var prepareJob: Job? = null
     private var preloadTextureJob: Job? = null
     private var preloadedVipTextureKeys: Set<String> = emptySet()
 
@@ -88,6 +91,10 @@ class DanmakuCoreController(
      */
     @Volatile
     private var dataStopped: Boolean = false
+    @Volatile
+    private var renderingStopped: Boolean = false
+    @Volatile
+    private var resumeDataRequested: Boolean = false
 
     init {
         installProviders()
@@ -109,16 +116,34 @@ class DanmakuCoreController(
         @Suppress("UNUSED_PARAMETER") startupTraceStartElapsedMs: Long = 0L
     ) {
         this.filterContext = filterContext
+        val taskFilterContext = filterContext
         // 排序 + 过滤/合并/转换丢到后台线程，避免大数据（可达 2 万条）阻塞主线程。
         // 代际校验防止"旧数据处理完时新数据已到"的竞态。
-        val generation = prepareGeneration.incrementAndGet()
-        controllerScope.launch {
+        val generation = nextDanmakuPreparationGeneration(prepareGeneration.get(), replace = true)
+        prepareGeneration.set(generation)
+        prepareJob?.cancel()
+        prepareJob = controllerScope.launch {
             val sorted = data.sortedBy { it.progress }
+            val prepared = preprocess(sorted, append = false, filterContext = taskFilterContext)
             withContext(Dispatchers.Main.immediate) {
                 if (prepareGeneration.get() != generation) return@withContext
                 rawItems = sorted
+                appliedFilterContext = taskFilterContext
+                if (canInjectPreparedDanmaku(
+                        renderingStopped = renderingStopped,
+                        restoreStoppedRendering = true,
+                        resumeDataRequested = resumeDataRequested
+                    ) && renderingStopped
+                ) {
+                    injectToView(prepared, append = false)
+                    renderingStopped = false
+                    resumeDataRequested = false
+                } else if (renderingStopped) {
+                    dataStopped = sorted.isNotEmpty()
+                } else {
+                    injectToView(prepared, append = false)
+                }
             }
-            applyDataToViewAsync(generation, append = false)
         }
     }
 
@@ -128,19 +153,47 @@ class DanmakuCoreController(
     ) {
         if (data.isEmpty()) return
         this.filterContext = filterContext
-        val generation = prepareGeneration.incrementAndGet()
-        controllerScope.launch {
+        val taskFilterContext = filterContext
+        val previousJob = prepareJob
+        val generation = nextDanmakuPreparationGeneration(prepareGeneration.get(), replace = false)
+        prepareJob = controllerScope.launch {
+            previousJob?.join()
+            if (prepareGeneration.get() != generation) return@launch
             // 合并需要读 rawItems，在主线程快照避免并发修改。
             val existing = withContext(Dispatchers.Main.immediate) {
                 if (prepareGeneration.get() != generation) return@withContext null
-                rawItems
+                rawItems to appliedFilterContext
             } ?: return@launch
-            val merged = mergeSorted(existing, data)
+            val existingItems = existing.first
+            val existingFilterContext = existing.second
+            val sortedIncoming = if (data.size <= 1) data else data.sortedBy { it.progress }
+            val mergeDuplicate = lastSnapshot?.mergeDuplicate ?: true
+            val mergeSafe = DanmakuDuplicateMergePolicy.canAppendWithoutRebuildingExisting(
+                existingSorted = existingItems,
+                incomingSorted = sortedIncoming,
+                mergeDuplicate = mergeDuplicate
+            )
+            val incremental = canAppendPreparedDanmakuIncrementally(
+                mergeSafe = mergeSafe,
+                existingFilterContext = existingFilterContext,
+                incomingFilterContext = taskFilterContext
+            )
+            val merged = mergeSortedDanmakuModels(existingItems, sortedIncoming, incomingAlreadySorted = true)
+            val prepared = preprocess(
+                items = if (incremental) sortedIncoming else merged,
+                append = incremental,
+                filterContext = taskFilterContext
+            )
             withContext(Dispatchers.Main.immediate) {
                 if (prepareGeneration.get() != generation) return@withContext
                 rawItems = merged
+                appliedFilterContext = taskFilterContext
+                if (renderingStopped) {
+                    dataStopped = merged.isNotEmpty()
+                } else {
+                    injectToView(prepared, append = incremental)
+                }
             }
-            applyDataToViewAsync(generation, append = true)
         }
     }
 
@@ -151,8 +204,8 @@ class DanmakuCoreController(
         currentConfig = buildConfig(snapshot)
         viewProvider()?.visibility = if (snapshot.enabled) android.view.View.VISIBLE else android.view.View.GONE
         if (old == null) {
-            // 首次：必须走完整数据预处理。
-            if (rawItems.isNotEmpty()) applyDataToView()
+            // 首次设置也进入串行重建，避免绕过停播门禁或覆盖在途 append。
+            if (rawItems.isNotEmpty() || prepareJob?.isActive == true) rebuildDataForSettings()
             return
         }
         // 字段级 diff：区分"config 级"与"数据级"设置。
@@ -166,8 +219,8 @@ class DanmakuCoreController(
             old.allowBottom != snapshot.allowBottom ||
             old.mergeDuplicate != snapshot.mergeDuplicate ||
             old.smartFilterLevel != snapshot.smartFilterLevel
-        if (dataLevelChanged && rawItems.isNotEmpty()) {
-            applyDataToView()
+        if (dataLevelChanged && (rawItems.isNotEmpty() || prepareJob?.isActive == true)) {
+            rebuildDataForSettings()
         }
     }
 
@@ -210,8 +263,7 @@ class DanmakuCoreController(
         }
         // 修复 bug2：切后台 stop 清空了引擎数据，切回前台首帧时用保留的 rawItems 恢复弹幕。
         if (dataStopped && rawItems.isNotEmpty()) {
-            dataStopped = false
-            resumeDataFromBackground()
+            requestDataResume()
         }
         viewProvider()?.invalidate()
     }
@@ -230,12 +282,19 @@ class DanmakuCoreController(
         val wasPlaying = isPlaying
         playWhenReady = true
         isPlaying = true
+        renderingStopped = false
+        if (dataStopped && rawItems.isNotEmpty()) {
+            renderingStopped = true
+            requestDataResume()
+        }
         if (!wasPlaying) viewProvider()?.invalidate()
     }
 
     fun stop() {
         playWhenReady = false
         isPlaying = false
+        renderingStopped = true
+        resumeDataRequested = false
         // 仅清引擎 active 数据，保留 rawItems：切后台 stop 后，切回前台播放时
         // notifyIsPlayingChanged/notifyPlaybackFirstFrame 会用 rawItems 重新喂数据恢复弹幕。
         // （此前清 rawItems 导致切后台再回来弹幕永久消失，直到重新播放。）
@@ -245,7 +304,15 @@ class DanmakuCoreController(
     }
 
     fun resetForPlaybackStart(positionMs: Long) {
+        prepareJob?.cancel()
+        val generation = nextDanmakuPreparationGeneration(prepareGeneration.get(), replace = true)
+        prepareGeneration.set(generation)
+        rawItems = emptyList()
+        appliedFilterContext = DanmakuFilterContext.EMPTY
         stop()
+        renderingStopped = false
+        dataStopped = false
+        resumeDataRequested = false
         viewProvider()?.notifySeek(positionMs.coerceAtLeast(0L))
     }
 
@@ -259,6 +326,7 @@ class DanmakuCoreController(
 
     fun release() {
         stop()
+        prepareJob?.cancel()
         preloadTextureJob?.cancel()
         controllerScope.cancel()
     }
@@ -270,8 +338,27 @@ class DanmakuCoreController(
      */
     private fun resumeDataFromBackground() {
         if (rawItems.isEmpty()) return
-        val generation = prepareGeneration.incrementAndGet()
-        controllerScope.launch {
+        val previousJob = prepareJob
+        val generation = nextDanmakuPreparationGeneration(prepareGeneration.get(), replace = false)
+        prepareJob = controllerScope.launch {
+            previousJob?.join()
+            if (prepareGeneration.get() != generation) return@launch
+            applyDataToViewAsync(generation, append = false, restoreStoppedRendering = true)
+        }
+    }
+
+    private fun requestDataResume() {
+        if (resumeDataRequested) return
+        resumeDataRequested = true
+        resumeDataFromBackground()
+    }
+
+    private fun rebuildDataForSettings() {
+        val previousJob = prepareJob
+        val generation = nextDanmakuPreparationGeneration(prepareGeneration.get(), replace = false)
+        prepareJob = controllerScope.launch {
+            previousJob?.join()
+            if (prepareGeneration.get() != generation) return@launch
             applyDataToViewAsync(generation, append = false)
         }
     }
@@ -279,30 +366,23 @@ class DanmakuCoreController(
     // ---- 内部 ----
 
     /**
-     * 同步预处理并注入（数据级设置变更时走这里：数据已在内存，重处理以应用新的过滤/合并设置）。
-     * 仍跑在调用线程（主线程），但设置变更触发的频率远低于首屏加载，可接受。
-     */
-    private fun applyDataToView(append: Boolean = false) {
-        if (rawItems.isEmpty()) {
-            if (!append) viewProvider()?.setDanmakus(emptyList())
-            return
-        }
-        val prepared = preprocess(rawItems, append)
-        injectToView(prepared, append)
-    }
-
-    /**
-     * 异步预处理并注入（setData/appendData 走这里：把重活丢后台）。
+     * 异步预处理并注入（设置重建和后台恢复走这里）。
      * [generation] 用于代际校验，过期结果丢弃。
      */
-    private suspend fun applyDataToViewAsync(generation: Int, append: Boolean) {
+    private suspend fun applyDataToViewAsync(
+        generation: Long,
+        append: Boolean,
+        restoreStoppedRendering: Boolean = false
+    ) {
         // 快照当前数据（在主线程读，避免与 setData/appendData 并发修改 rawItems）。
         val snapshot = withContext(Dispatchers.Main.immediate) {
             if (prepareGeneration.get() != generation) return@withContext null
-            if (rawItems.isEmpty()) return@withContext emptyList<DmModel>()
-            rawItems.toList() // 防御性拷贝，后台处理期间不被并发修改
+            if (rawItems.isEmpty()) return@withContext (emptyList<DmModel>() to filterContext)
+            rawItems.toList() to filterContext
         } ?: return
-        if (snapshot.isEmpty()) {
+        val snapshotItems = snapshot.first
+        val taskFilterContext = snapshot.second
+        if (snapshotItems.isEmpty()) {
             withContext(Dispatchers.Main.immediate) {
                 if (prepareGeneration.get() != generation) return@withContext
                 if (!append) viewProvider()?.setDanmakus(emptyList())
@@ -310,11 +390,27 @@ class DanmakuCoreController(
             return
         }
         // 后台线程：过滤 + 合并 + 转换（重活，可能上万条）。
-        val prepared = preprocess(snapshot, append)
+        val prepared = preprocess(snapshotItems, append, taskFilterContext)
         // 回主线程注入引擎（setDanmakus/appendDanmakus 操作 View，必须主线程）。
         withContext(Dispatchers.Main.immediate) {
             if (prepareGeneration.get() != generation) return@withContext
-            injectToView(prepared, append)
+            val canInject = canInjectPreparedDanmaku(
+                renderingStopped = renderingStopped,
+                restoreStoppedRendering = restoreStoppedRendering,
+                resumeDataRequested = resumeDataRequested
+            )
+            if (restoreStoppedRendering) {
+                if (!canInject) return@withContext
+                injectToView(prepared, append = false)
+                appliedFilterContext = taskFilterContext
+                renderingStopped = false
+                resumeDataRequested = false
+            } else if (!canInject) {
+                dataStopped = snapshotItems.isNotEmpty()
+            } else {
+                injectToView(prepared, append)
+                appliedFilterContext = taskFilterContext
+            }
         }
     }
 
@@ -323,14 +419,15 @@ class DanmakuCoreController(
      */
     private fun preprocess(
         items: List<DmModel>,
-        @Suppress("UNUSED_PARAMETER") append: Boolean
+        append: Boolean,
+        filterContext: DanmakuFilterContext
     ): List<Danmaku> {
         // 1. 过滤（复用现有策略，engine 无关）
         val filtered = BiliDanmakuFilterPolicy.apply(
             items = items,
             context = filterContext,
             settings = lastSnapshot,
-            stage = "danmaku"
+            stage = if (append) "danmaku_append" else "danmaku"
         )
         // 2. 合并重复（复用现有策略）
         val mergeDuplicate = lastSnapshot?.mergeDuplicate ?: true
@@ -382,12 +479,11 @@ class DanmakuCoreController(
     /** 把预处理结果注入引擎（操作 View，必须在主线程调用）。 */
     private fun injectToView(danmakus: List<Danmaku>, append: Boolean) {
         val view = viewProvider() ?: return
-        // 注入的 danmakus 永远是全量 rawItems 经 preprocess 后的结果（applyDataToViewAsync
-        // 用 rawItems 全量快照做预处理）。因此无论 setData 还是 appendData，都必须走
-        // setDanmakus 全量替换。
-        // 之前 append 路径调 appendDanmakus（引擎层 items.add 增量追加），会把全量列表反复
-        // 追加进引擎 items，导致每次 appendData 后引擎弹幕成倍重复——seek 来回几次就满屏重影。
-        view.setDanmakus(danmakus)
+        if (append) {
+            view.appendDanmakus(danmakus, alreadySorted = true)
+        } else {
+            view.setDanmakus(danmakus)
+        }
         // 数据已重新注入引擎，清除"切后台 stop"标记。
         dataStopped = false
         AppLog.i(
@@ -443,25 +539,6 @@ class DanmakuCoreController(
             trackSpacing = DanmakuTrackSpacing.DEFAULT,
         )
 
-    /** 归并两条按 progress 升序的弹幕时间线。 */
-    private fun mergeSorted(existing: List<DmModel>, incoming: List<DmModel>): List<DmModel> {
-        if (incoming.isEmpty()) return existing
-        if (existing.isEmpty()) return incoming.sortedBy { it.progress }
-        val sortedIncoming = if (incoming.size <= 1) incoming else incoming.sortedBy { it.progress }
-        val result = ArrayList<DmModel>(existing.size + sortedIncoming.size)
-        var i = 0; var j = 0
-        while (i < existing.size && j < sortedIncoming.size) {
-            if (existing[i].progress <= sortedIncoming[j].progress) {
-                result.add(existing[i]); i++
-            } else {
-                result.add(sortedIncoming[j]); j++
-            }
-        }
-        while (i < existing.size) { result.add(existing[i]); i++ }
-        while (j < sortedIncoming.size) { result.add(sortedIncoming[j]); j++ }
-        return result
-    }
-
     /**
      * 设置面板 textSize(30-55) → textSizeScale。
      *
@@ -491,5 +568,81 @@ class DanmakuCoreController(
         3 -> 1f / 2f
         7 -> 3f / 4f
         else -> 1f
+    }
+}
+
+/** 归并两条弹幕时间线；existing 必须已按 progress 升序。 */
+internal fun mergeSortedDanmakuModels(
+    existing: List<DmModel>,
+    incoming: List<DmModel>,
+    incomingAlreadySorted: Boolean = false
+): List<DmModel> {
+    if (incoming.isEmpty()) return existing
+    if (existing.isEmpty()) return incoming.sortedBy { it.progress }
+    val sortedIncoming = if (incomingAlreadySorted || incoming.size <= 1) incoming else incoming.sortedBy { it.progress }
+    if (existing.last().progress <= sortedIncoming.first().progress) {
+        return ChunkedDmList.append(existing, sortedIncoming)
+    }
+    val result = ArrayList<DmModel>(existing.size + sortedIncoming.size)
+    var i = 0
+    var j = 0
+    while (i < existing.size && j < sortedIncoming.size) {
+        if (existing[i].progress <= sortedIncoming[j].progress) {
+            result.add(existing[i++])
+        } else {
+            result.add(sortedIncoming[j++])
+        }
+    }
+    while (i < existing.size) result.add(existing[i++])
+    while (j < sortedIncoming.size) result.add(sortedIncoming[j++])
+    return result
+}
+
+internal fun canAppendPreparedDanmakuIncrementally(
+    mergeSafe: Boolean,
+    existingFilterContext: DanmakuFilterContext,
+    incomingFilterContext: DanmakuFilterContext
+): Boolean = mergeSafe && existingFilterContext == incomingFilterContext
+
+internal fun canInjectPreparedDanmaku(
+    renderingStopped: Boolean,
+    restoreStoppedRendering: Boolean,
+    resumeDataRequested: Boolean
+): Boolean = !renderingStopped || (restoreStoppedRendering && resumeDataRequested)
+
+private class ChunkedDmList private constructor(
+    private val chunks: List<List<DmModel>>,
+    private val cumulativeSizes: IntArray,
+    override val size: Int
+) : AbstractList<DmModel>() {
+    override fun get(index: Int): DmModel {
+        if (index < 0 || index >= size) throw IndexOutOfBoundsException("index=$index size=$size")
+        var low = 0
+        var high = cumulativeSizes.lastIndex
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (index < cumulativeSizes[middle]) high = middle else low = middle + 1
+        }
+        val previousSize = if (low == 0) 0 else cumulativeSizes[low - 1]
+        return chunks[low][index - previousSize]
+    }
+
+    override fun iterator(): Iterator<DmModel> = chunks.asSequence().flatten().iterator()
+
+    companion object {
+        fun append(existing: List<DmModel>, incoming: List<DmModel>): List<DmModel> {
+            val chunks = ArrayList<List<DmModel>>(
+                (if (existing is ChunkedDmList) existing.chunks.size else 1) + 1
+            )
+            if (existing is ChunkedDmList) chunks.addAll(existing.chunks) else chunks.add(existing)
+            chunks.add(incoming)
+            val cumulativeSizes = IntArray(chunks.size)
+            var totalSize = 0
+            chunks.forEachIndexed { index, chunk ->
+                totalSize += chunk.size
+                cumulativeSizes[index] = totalSize
+            }
+            return ChunkedDmList(chunks, cumulativeSizes, totalSize)
+        }
     }
 }

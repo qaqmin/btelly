@@ -31,6 +31,38 @@ internal object DanmakuDuplicateMergePolicy {
         return result.sortedBy { it.progress }
     }
 
+    /**
+     * 仅当新批次是时间尾追加，且不会与旧批次尾部形成重复合并组时，旧预处理结果才可保留。
+     * 返回 false 只表示需要全量重建，允许保守误判，不能漏掉真实跨批冲突。
+     */
+    fun canAppendWithoutRebuildingExisting(
+        existingSorted: List<DmModel>,
+        incomingSorted: List<DmModel>,
+        mergeDuplicate: Boolean,
+        windowMs: Int = DEFAULT_WINDOW_MS
+    ): Boolean {
+        if (existingSorted.isEmpty() || incomingSorted.isEmpty()) return false
+        if (existingSorted.last().progress > incomingSorted.first().progress) return false
+        if (!mergeDuplicate || windowMs <= 0) return true
+
+        val tailStartMs = incomingSorted.first().progress - windowMs
+        var low = 0
+        var high = existingSorted.size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (existingSorted[middle].progress < tailStartMs) low = middle + 1 else high = middle
+        }
+        if (low >= existingSorted.size) return true
+        val existingTailKeys = HashSet<MergeKey>(existingSorted.size - low)
+        for (index in low until existingSorted.size) {
+            val item = existingSorted[index]
+            if (item.canMergeDuplicate()) existingTailKeys += item.mergeKey()
+        }
+        return incomingSorted.none { item ->
+            item.canMergeDuplicate() && item.mergeKey() in existingTailKeys
+        }
+    }
+
     private fun flushExpired(
         buckets: LinkedHashMap<MergeKey, MutableList<DmModel>>,
         expireBeforeMs: Int,

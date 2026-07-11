@@ -22,12 +22,14 @@ import com.kuaishou.akdanmaku.data.DanmakuItemData
 import com.kuaishou.akdanmaku.data.ItemState
 import com.kuaishou.akdanmaku.engine.DanmakuContext
 import com.kuaishou.akdanmaku.engine.DanmakuEngine
+import com.kuaishou.akdanmaku.engine.LockWaitHistogram
 import com.kuaishou.akdanmaku.ext.AkLog as Log
 import com.kuaishou.akdanmaku.ext.isOutside
 import com.kuaishou.akdanmaku.ext.isLate
 import com.kuaishou.akdanmaku.ext.isTimeout
 import com.kuaishou.akdanmaku.ui.DanmakuListener
 import com.kuaishou.akdanmaku.utils.Fraction
+import com.kuaishou.akdanmaku.utils.Size
 import kotlin.math.max
 
 /**
@@ -74,6 +76,8 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   @Volatile private var lastDrawLockReleasedAt = 0L
   private var lastDrawStallLogAtMs = 0L
   private var lastZeroFrameLogAtMs = 0L
+  private val updateLockWaits = LockWaitHistogram()
+  private val drawLockWaits = LockWaitHistogram()
   // 卡顿期 now 跳变检测:记录上一拍 now 的单帧间隔,
   // removeExpired 据此跳过滚动弹幕的 timeout 移除,避免还在屏幕中段的弹幕被误杀。
   private var lastUpdateTimeMs = 0L
@@ -147,13 +151,10 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       }
       if (size == null) {
         if (sync) {
-          item.state = ItemState.Error
-          item.pendingMeasureGeneration = -1
-          failed++
+          if (markMeasureErrorIfCurrent(item, config.measureGeneration)) failed++
         } else {
           // 异步：未命中则排进缓存线程，减少第一批 action 帧里的集中测量抖动。
-          item.state = ItemState.Measuring
-          item.pendingMeasureGeneration = config.measureGeneration
+          if (!claimMeasureIfCurrent(item, config.measureGeneration)) continue
           context.cacheManager.requestMeasure(
             item = item,
             displayer = context.displayer,
@@ -166,11 +167,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         }
         continue
       }
-      item.drawState.width = size.width.toFloat()
-      item.drawState.height = size.height.toFloat()
-      item.drawState.measureGeneration = config.measureGeneration
-      item.state = ItemState.Measured
-      item.pendingMeasureGeneration = -1
+      if (!applyMeasuredSizeIfCurrent(item, size, config.measureGeneration)) continue
       if (cachedSize != null) cacheHits++
       if (cachePrimed < MAX_PRIME_CACHE_BUILDS &&
         requestCacheBuildIfNeeded(item, config, CACHE_PRIORITY_VISIBLE)) {
@@ -217,13 +214,21 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     pendingAddItems.clear()
     timelineWindow.clear()
     activeStates.forEach { state ->
-      state.item.cacheRecycle()
-      state.item.reset()
+      synchronized(state.item) {
+        synchronized(state.item.drawState) {
+          state.item.cacheRecycle()
+          state.item.reset()
+        }
+      }
       recycleState(state)
     }
     waitingStates.forEach { state ->
-      state.item.cacheRecycle()
-      state.item.reset()
+      synchronized(state.item) {
+        synchronized(state.item.drawState) {
+          state.item.cacheRecycle()
+          state.item.reset()
+        }
+      }
       recycleState(state)
     }
     activeStates.clear()
@@ -248,11 +253,15 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   }
 
   fun update() {
-    val requestAt = SystemClock.elapsedRealtime()
-    synchronized(this) {
+    val requestAtNs = System.nanoTime()
+    val report = synchronized(this) {
+      val waitNs = System.nanoTime() - requestAtNs
       val startedAt = SystemClock.elapsedRealtime()
-      updateLocked(startedAt, startedAt - requestAt)
+      val lockReport = updateLockWaits.record(waitNs)
+      updateLocked(startedAt, waitNs / 1_000_000L)
+      lockReport
     }
+    report?.let { logRuntimeLockWait("update", it) }
   }
 
   private fun updateLocked(startedAt: Long, syncWaitMs: Long) {
@@ -283,23 +292,31 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     if (config.measureGeneration != measureGeneration) {
       activeStates.forEach { state ->
         val it = state.item
-        it.state = ItemState.Uninitialized
-        it.pendingMeasureGeneration = -1
-        it.drawState.recycle()
+        synchronized(it) {
+          synchronized(it.drawState) {
+            it.state = ItemState.Uninitialized
+            it.pendingMeasureGeneration = -1
+            it.drawState.recycle()
+          }
+        }
         enqueueMeasureState(state)
       }
       waitingStates.forEach { state ->
         val it = state.item
-        it.state = ItemState.Uninitialized
-        it.pendingMeasureGeneration = -1
-        it.drawState.recycle()
+        synchronized(it) {
+          synchronized(it.drawState) {
+            it.state = ItemState.Uninitialized
+            it.pendingMeasureGeneration = -1
+            it.drawState.recycle()
+          }
+        }
         enqueueMeasureState(state)
       }
       measureGeneration = config.measureGeneration
     }
     if (config.cacheGeneration != cacheGeneration) {
-      activeStates.forEach { it.item.cacheRecycle() }
-      waitingStates.forEach { it.item.cacheRecycle() }
+      activeStates.forEach { recycleItemCacheSafely(it.item) }
+      waitingStates.forEach { recycleItemCacheSafely(it.item) }
       cacheGeneration = config.cacheGeneration
     }
     visibilityGeneration = config.visibilityGeneration
@@ -368,11 +385,23 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   }
 
   fun draw(canvas: Canvas, onRenderReady: () -> Unit) {
-    val requestAt = SystemClock.elapsedRealtime()
-    synchronized(this) {
+    val requestAtNs = System.nanoTime()
+    val report = synchronized(this) {
+      val waitNs = System.nanoTime() - requestAtNs
       val drawStartedAt = SystemClock.elapsedRealtime()
-      drawLocked(canvas, onRenderReady, drawStartedAt, drawStartedAt - requestAt)
+      val lockReport = drawLockWaits.record(waitNs)
+      drawLocked(canvas, onRenderReady, drawStartedAt, waitNs / 1_000_000L)
+      lockReport
     }
+    report?.let { logRuntimeLockWait("draw", it) }
+  }
+
+  private fun logRuntimeLockWait(type: String, report: LockWaitHistogram.Snapshot) {
+    Log.i(
+      DanmakuEngine.TAG,
+      "[LockWait] runtime_$type samples=${report.samples} p50<=${report.p50UpperUs}us " +
+        "p95<=${report.p95UpperUs}us p99<=${report.p99UpperUs}us max=${report.maxUs}us"
+    )
   }
 
   private fun drawLocked(
@@ -671,14 +700,12 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     timelineWindow.reset(positionMs, config.durationMs, config.rollingDurationMs)
     activeStates.forEach { state ->
       val item = state.item
-      item.cacheRecycle()
-      item.drawState.layoutGeneration = -1
+      invalidateItemForWindowExit(item)
       recycleState(state)
     }
     waitingStates.forEach { state ->
       val item = state.item
-      item.cacheRecycle()
-      item.drawState.layoutGeneration = -1
+      invalidateItemForWindowExit(item)
       recycleState(state)
     }
     activeStates.clear()
@@ -721,13 +748,64 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
       if (item.isRuntimeTimeout(now)) {
         stateById.remove(item.data.danmakuId)
         removeFromTracks(item)
-        item.cacheRecycle()
+        invalidateItemForWindowExit(item)
         iterator.remove()
         recycleState(state)
         expired++
       }
     }
     return expired
+  }
+
+  private fun invalidateItemForWindowExit(item: DanmakuItem) {
+    synchronized(item) {
+      synchronized(item.drawState) {
+        item.pendingMeasureGeneration = -1
+        item.cacheRecycle()
+        if (item.state == ItemState.Measuring ||
+          !item.drawState.isMeasured(context.config.measureGeneration)) {
+          item.state = ItemState.Uninitialized
+        }
+        item.drawState.layoutGeneration = -1
+      }
+    }
+  }
+
+  private fun claimMeasureIfCurrent(item: DanmakuItem, generation: Int): Boolean =
+    synchronized(item) {
+      if (context.config.measureGeneration != generation) return@synchronized false
+      item.state = ItemState.Measuring
+      item.pendingMeasureGeneration = generation
+      true
+    }
+
+  private fun applyMeasuredSizeIfCurrent(item: DanmakuItem, size: Size, generation: Int): Boolean =
+    synchronized(item) {
+      synchronized(item.drawState) {
+        if (context.config.measureGeneration != generation) return@synchronized false
+        item.drawState.width = size.width.toFloat()
+        item.drawState.height = size.height.toFloat()
+        item.drawState.measureGeneration = generation
+        item.state = ItemState.Measured
+        item.pendingMeasureGeneration = -1
+        true
+      }
+    }
+
+  private fun markMeasureErrorIfCurrent(item: DanmakuItem, generation: Int): Boolean =
+    synchronized(item) {
+      if (context.config.measureGeneration != generation) return@synchronized false
+      item.state = ItemState.Error
+      item.pendingMeasureGeneration = -1
+      true
+    }
+
+  private fun recycleItemCacheSafely(item: DanmakuItem) {
+    synchronized(item) {
+      synchronized(item.drawState) {
+        item.cacheRecycle()
+      }
+    }
   }
 
   private fun enqueueDueItems(now: Long, config: DanmakuConfig): Int {
@@ -831,18 +909,13 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
           enqueueMeasureState(candidate)
           continue
         }
-        item.drawState.width = cachedSize.width.toFloat()
-        item.drawState.height = cachedSize.height.toFloat()
-        item.drawState.measureGeneration = config.measureGeneration
-        item.state = ItemState.Measured
-        item.pendingMeasureGeneration = -1
+        if (!applyMeasuredSizeIfCurrent(item, cachedSize, config.measureGeneration)) continue
         candidate.awaitingMeasure = false
         cacheHits++
         continue
       }
       // 测量可能触发字体、描边和样式初始化，放到缓存线程，避免 action 线程一帧吃掉几百毫秒。
-      item.state = ItemState.Measuring
-      item.pendingMeasureGeneration = config.measureGeneration
+      if (!claimMeasureIfCurrent(item, config.measureGeneration)) continue
       context.cacheManager.requestMeasure(
         item = item,
         displayer = context.displayer,
@@ -940,7 +1013,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
         cacheDeferredCount++
       }
       if (item.state >= ItemState.Rendered && drawState.cacheGeneration != cacheGeneration) {
-        item.cacheRecycle()
+        recycleItemCacheSafely(item)
       }
       val cache = drawState.drawingCache
       if (cache != DrawingCache.EMPTY_DRAWING_CACHE) {
@@ -1081,16 +1154,20 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
     config: DanmakuConfig,
     priority: Int
   ): Boolean {
-    val drawState = item.drawState
-    if (!drawState.isMeasured(config.measureGeneration)) return false
-    if (item.state >= ItemState.Rendering &&
-      item.pendingCacheGeneration == config.cacheGeneration) return false
-    if (item.state >= ItemState.Rendered &&
-      drawState.cacheGeneration == config.cacheGeneration &&
-      drawState.drawingCache != DrawingCache.EMPTY_DRAWING_CACHE &&
-      drawState.drawingCache.get() != null) return false
-    item.state = ItemState.Rendering
-    item.pendingCacheGeneration = config.cacheGeneration
+    val claimed = synchronized(item) {
+      val drawState = item.drawState
+      if (!drawState.isMeasured(config.measureGeneration)) return@synchronized false
+      if (item.state >= ItemState.Rendering &&
+        item.pendingCacheGeneration == config.cacheGeneration) return@synchronized false
+      if (item.state >= ItemState.Rendered &&
+        drawState.cacheGeneration == config.cacheGeneration &&
+        drawState.drawingCache != DrawingCache.EMPTY_DRAWING_CACHE &&
+        drawState.drawingCache.get() != null) return@synchronized false
+      item.state = ItemState.Rendering
+      item.pendingCacheGeneration = config.cacheGeneration
+      true
+    }
+    if (!claimed) return false
     context.cacheManager.requestBuildCache(
       item = item,
       displayer = context.displayer,
@@ -1379,7 +1456,7 @@ internal class DanmakuRuntime(private val context: DanmakuContext) {
   private fun dropActiveState(state: ActiveItemState) {
     val item = state.item
     removeFromTracks(item)
-    item.cacheRecycle()
+    invalidateItemForWindowExit(item)
     recycleState(state)
   }
 

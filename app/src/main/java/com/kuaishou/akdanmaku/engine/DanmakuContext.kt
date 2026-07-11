@@ -20,7 +20,77 @@ import com.kuaishou.akdanmaku.ui.DanmakuDisplayer
 import com.kuaishou.akdanmaku.utils.DanmakuTimer
 import com.kuaishou.akdanmaku.utils.Size
 import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
+
+internal class LockWaitHistogram(
+  private val reportEvery: Long = 512L
+) {
+  data class Snapshot(
+    val samples: Long,
+    val p50UpperUs: Long,
+    val p95UpperUs: Long,
+    val p99UpperUs: Long,
+    val maxUs: Long
+  )
+
+  private val buckets = LongArray(BUCKET_UPPER_NS.size)
+  private var samples = 0L
+  private var maxWaitNs = 0L
+
+  fun record(waitNs: Long): Snapshot? {
+    val safeWaitNs = waitNs.coerceAtLeast(0L)
+    val bucket = BUCKET_UPPER_NS.indexOfFirst { safeWaitNs <= it }
+      .takeIf { it >= 0 } ?: BUCKET_UPPER_NS.lastIndex
+    buckets[bucket]++
+    samples++
+    if (safeWaitNs > maxWaitNs) maxWaitNs = safeWaitNs
+    if (reportEvery <= 0L || samples % reportEvery != 0L) return null
+    val snapshot = Snapshot(
+      samples = samples,
+      p50UpperUs = percentileUpperUs(50),
+      p95UpperUs = percentileUpperUs(95),
+      p99UpperUs = percentileUpperUs(99),
+      maxUs = nanosecondsToUpperMicroseconds(maxWaitNs)
+    )
+    buckets.fill(0L)
+    samples = 0L
+    maxWaitNs = 0L
+    return snapshot
+  }
+
+  private fun percentileUpperUs(percentile: Int): Long {
+    val target = ((samples * percentile) + 99L) / 100L
+    var accumulated = 0L
+    for (index in buckets.indices) {
+      accumulated += buckets[index]
+      if (accumulated >= target) {
+        val upperNs = BUCKET_UPPER_NS[index]
+        return if (upperNs == Long.MAX_VALUE) {
+          nanosecondsToUpperMicroseconds(maxWaitNs)
+        } else {
+          upperNs / 1_000L
+        }
+      }
+    }
+    return nanosecondsToUpperMicroseconds(maxWaitNs)
+  }
+
+  private fun nanosecondsToUpperMicroseconds(nanoseconds: Long): Long =
+    nanoseconds / 1_000L + if (nanoseconds % 1_000L == 0L) 0L else 1L
+
+  companion object {
+    private val BUCKET_UPPER_NS = longArrayOf(
+      50_000L,
+      100_000L,
+      250_000L,
+      500_000L,
+      1_000_000L,
+      2_000_000L,
+      5_000_000L,
+      10_000_000L,
+      Long.MAX_VALUE
+    )
+  }
+}
 
 /**
  * 弹幕运行上下文。
@@ -33,6 +103,8 @@ internal class DanmakuContext(val renderer: DanmakuRenderer) {
   val cacheManager = CacheManager(CacheCallbackHandler(Looper.myLooper()!!), this)
   val filter = DanmakuFilters()
   private val rendererLock = ReentrantLock()
+  private val measureRendererWaits = LockWaitHistogram()
+  private val drawRendererWaits = LockWaitHistogram()
 
   var config = DanmakuConfig()
     private set
@@ -61,7 +133,7 @@ internal class DanmakuContext(val renderer: DanmakuRenderer) {
     item: DanmakuItem,
     displayer: DanmakuDisplayer,
     config: DanmakuConfig
-  ): Size = rendererLock.withLock {
+  ): Size = withRendererLock("measure", measureRendererWaits) {
     renderer.measure(item, displayer, config)
   }
 
@@ -71,9 +143,33 @@ internal class DanmakuContext(val renderer: DanmakuRenderer) {
     displayer: DanmakuDisplayer,
     config: DanmakuConfig
   ) {
-    rendererLock.withLock {
+    withRendererLock("draw", drawRendererWaits) {
       renderer.draw(item, canvas, displayer, config)
     }
+  }
+
+  private inline fun <T> withRendererLock(
+    type: String,
+    stats: LockWaitHistogram,
+    block: () -> T
+  ): T {
+    val requestAtNs = System.nanoTime()
+    rendererLock.lock()
+    val report = stats.record(System.nanoTime() - requestAtNs)
+    return try {
+      block()
+    } finally {
+      rendererLock.unlock()
+      report?.let { logLockWait(type, it) }
+    }
+  }
+
+  private fun logLockWait(type: String, report: LockWaitHistogram.Snapshot) {
+    Log.i(
+      DanmakuEngine.TAG,
+      "[LockWait] renderer_$type samples=${report.samples} p50<=${report.p50UpperUs}us " +
+        "p95<=${report.p95UpperUs}us p99<=${report.p99UpperUs}us max=${report.maxUs}us"
+    )
   }
 
   private fun markGenerationsForChangedValues(current: DanmakuConfig, next: DanmakuConfig) {

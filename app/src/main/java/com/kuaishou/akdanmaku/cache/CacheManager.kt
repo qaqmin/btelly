@@ -39,7 +39,76 @@ import com.kuaishou.akdanmaku.ext.startTrace
 import com.kuaishou.akdanmaku.ui.DanmakuDisplayer
 import com.kuaishou.akdanmaku.utils.Size
 import java.util.*
-import java.util.concurrent.ConcurrentHashMap
+
+internal class DanmakuMeasureSizeCache(
+  private val maxEntries: Int = 8_192
+) {
+  private val lock = Any()
+  private var generation: Int = Int.MIN_VALUE
+  private var values = newValues()
+
+  fun get(danmakuId: Long, measureGeneration: Int): Size? = synchronized(lock) {
+    if (!selectGeneration(measureGeneration)) null else values[danmakuId]
+  }
+
+  fun put(danmakuId: Long, measureGeneration: Int, size: Size) = synchronized(lock) {
+    if (selectGeneration(measureGeneration)) {
+      values[danmakuId] = size
+    }
+  }
+
+  private fun selectGeneration(candidate: Int): Boolean {
+    if (candidate < generation) return false
+    if (candidate > generation) {
+      generation = candidate
+      // 换引用是 O(1)，避免 action 线程首次读取新代际时同步清理数千个旧条目。
+      values = newValues()
+    }
+    return true
+  }
+
+  private fun newValues() = object : LinkedHashMap<Long, Size>(512, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Size>?): Boolean =
+      size > maxEntries
+  }
+}
+
+internal fun shouldCommitDanmakuMeasureResult(
+  pendingGeneration: Int,
+  currentGeneration: Int,
+  taskGeneration: Int
+): Boolean = pendingGeneration == taskGeneration && currentGeneration == taskGeneration
+
+internal inline fun commitDanmakuMeasureResultIfCurrent(
+  lock: Any,
+  pendingGeneration: () -> Int,
+  currentGeneration: () -> Int,
+  taskGeneration: Int,
+  commit: () -> Unit
+): Boolean = synchronized(lock) {
+  if (!shouldCommitDanmakuMeasureResult(
+      pendingGeneration = pendingGeneration(),
+      currentGeneration = currentGeneration(),
+      taskGeneration = taskGeneration
+    )) {
+    false
+  } else {
+    commit()
+    true
+  }
+}
+
+internal fun isDanmakuCacheBuildCurrent(
+  currentMeasureGeneration: Int,
+  currentCacheGeneration: Int,
+  pendingCacheGeneration: Int,
+  taskMeasureGeneration: Int,
+  taskCacheGeneration: Int,
+  measuredForTask: Boolean
+): Boolean = measuredForTask &&
+  currentMeasureGeneration == taskMeasureGeneration &&
+  currentCacheGeneration == taskCacheGeneration &&
+  pendingCacheGeneration == taskCacheGeneration
 
 /**
  * 缓存管理器，用于完成后台缓存绘制与管理缓存相关对象
@@ -61,7 +130,7 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
   private val cacheHandler by lazy { CacheHandler(cacheThread.looper) }
   private var cancelFlag = false
 
-  private val measureSizeCache = ConcurrentHashMap<Long, Size>()
+  private val measureSizeCache = DanmakuMeasureSizeCache()
   private val pendingMeasureKeys = Collections.synchronizedSet(mutableSetOf<Long>())
   private val pendingBuildKeys = Collections.synchronizedSet(mutableSetOf<Long>())
   private var sharedCacheGeneration = -1
@@ -136,7 +205,8 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
     }
   }
 
-  fun getDanmakuSize(danmaku: DanmakuItemData): Size? = measureSizeCache[danmaku.danmakuId]
+  fun getDanmakuSize(danmaku: DanmakuItemData): Size? =
+    measureSizeCache.get(danmaku.danmakuId, context.config.measureGeneration)
 
   fun measureNow(
     item: DanmakuItem,
@@ -144,10 +214,10 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
     config: DanmakuConfig
   ): Size? {
     if (isReleased) return null
-    measureSizeCache[item.data.danmakuId]?.let { return it }
+    measureSizeCache.get(item.data.danmakuId, config.measureGeneration)?.let { return it }
     return try {
       val size = context.measureRenderer(item, displayer, config)
-      measureSizeCache[item.data.danmakuId] = size
+      measureSizeCache.put(item.data.danmakuId, config.measureGeneration, size)
       size
     } catch (e: Exception) {
       Log.e(DanmakuEngine.TAG, "CacheManager.measureNow failed", e)
@@ -375,17 +445,35 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
         if (!drawState.isMeasured(info.measureGeneration)) {
           try {
             val size = context.measureRenderer(item, info.displayer, config)
-            drawState.width = size.width.toFloat()
-            drawState.height = size.height.toFloat()
-            drawState.measureGeneration = info.measureGeneration
-            measureSizeCache[item.data.danmakuId] = size
-            item.state = ItemState.Measured
-            item.pendingMeasureGeneration = -1
-            enqueueBuildAfterMeasureIfNeeded(info, priority = CACHE_PRIORITY_VISIBLE)
+            // measureRenderer 可能耗时；期间配置换代后 Runtime 会重置 pending 标记并重新排队。
+            // 旧任务不得覆盖新任务的条目状态，即使代际缓存本身已经拒绝旧结果。
+            val committed = commitDanmakuMeasureResultIfCurrent(
+              lock = item,
+              pendingGeneration = { item.pendingMeasureGeneration },
+              currentGeneration = { context.config.measureGeneration },
+              taskGeneration = info.measureGeneration
+            ) {
+              drawState.width = size.width.toFloat()
+              drawState.height = size.height.toFloat()
+              drawState.measureGeneration = info.measureGeneration
+              measureSizeCache.put(item.data.danmakuId, info.measureGeneration, size)
+              item.state = ItemState.Measured
+              item.pendingMeasureGeneration = -1
+            }
+            if (committed) {
+              enqueueBuildAfterMeasureIfNeeded(info, priority = CACHE_PRIORITY_VISIBLE)
+            }
           } catch (e: Exception) {
             Log.e(DanmakuEngine.TAG, "CacheManager.measure failed", e)
-            item.state = ItemState.Error
-            item.pendingMeasureGeneration = -1
+            commitDanmakuMeasureResultIfCurrent(
+              lock = item,
+              pendingGeneration = { item.pendingMeasureGeneration },
+              currentGeneration = { context.config.measureGeneration },
+              taskGeneration = info.measureGeneration
+            ) {
+              item.state = ItemState.Error
+              item.pendingMeasureGeneration = -1
+            }
           }
         }
         endTrace()
@@ -398,17 +486,21 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
       if (!info.buildAfterMeasure || isReleased) return
       val item = info.item
       val drawState = item.drawState
-      if (!drawState.isMeasured(info.measureGeneration)) return
-      if (item.state >= ItemState.Rendering &&
-        item.pendingCacheGeneration == info.cacheGeneration) return
-      if (item.state >= ItemState.Rendered &&
-        drawState.cacheGeneration == info.cacheGeneration &&
-        drawState.drawingCache != DrawingCache.EMPTY_DRAWING_CACHE &&
-        drawState.drawingCache.get() != null) return
-      val buildKey = requestKey(item.data.danmakuId, info.cacheGeneration)
+      val buildKey = synchronized(item) {
+        if (context.config.measureGeneration != info.measureGeneration ||
+          context.config.cacheGeneration != info.cacheGeneration ||
+          !drawState.isMeasured(info.measureGeneration)) return
+        if (item.state >= ItemState.Rendering &&
+          item.pendingCacheGeneration == info.cacheGeneration) return
+        if (item.state >= ItemState.Rendered &&
+          drawState.cacheGeneration == info.cacheGeneration &&
+          drawState.drawingCache != DrawingCache.EMPTY_DRAWING_CACHE &&
+          drawState.drawingCache.get() != null) return
+        item.state = ItemState.Rendering
+        item.pendingCacheGeneration = info.cacheGeneration
+        requestKey(item.data.danmakuId, info.cacheGeneration)
+      }
       if (!pendingBuildKeys.add(buildKey)) return
-      item.state = ItemState.Rendering
-      item.pendingCacheGeneration = info.cacheGeneration
       pendingTasks.add(
         CacheTask(
           what = WORKER_MSG_BUILD_CACHE,
@@ -425,10 +517,11 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
         val config = info.config
         val item = info.item
         val drawState = item.drawState
-        if (!drawState.isMeasured(info.measureGeneration)) {
-          item.state = ItemState.Uninitialized
-          item.pendingCacheGeneration = -1
-          return
+        val dimensions = synchronized(item) {
+          synchronized(drawState) {
+            if (!isCurrentCacheBuild(info, item, drawState)) return
+            drawState.width.toInt() to drawState.height.toInt()
+          }
         }
         if (sharedCacheGeneration != info.cacheGeneration) {
           clearSharedDrawingCaches()
@@ -444,60 +537,65 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
           }
         }
         if (sharedCache != null) {
-          replaceItemDrawingCache(drawState, sharedCache)
-          item.state = ItemState.Rendered
-          item.drawState.cacheGeneration = info.cacheGeneration
-          item.pendingCacheGeneration = -1
+          synchronized(item) {
+            synchronized(drawState) {
+              if (!isCurrentCacheBuild(info, item, drawState)) return
+              replaceItemDrawingCache(drawState, sharedCache)
+              item.state = ItemState.Rendered
+              drawState.cacheGeneration = info.cacheGeneration
+              item.pendingCacheGeneration = -1
+            }
+          }
           endTrace()
           return
         }
 
         startTrace("CacheManager_checkCache")
-        if (drawState.drawingCache.get() == null ||
-          drawState.drawingCache == DrawingCache.EMPTY_DRAWING_CACHE ||
-          isSizeJustified(drawState)
-        ) {
-          if (drawState.drawingCache != DrawingCache.EMPTY_DRAWING_CACHE && drawState.drawingCache.get() != null) {
-            drawState.drawingCache.decreaseReference()
-          }
-          drawState.drawingCache =
-            cachePool.acquire(drawState.width.toInt(), drawState.height.toInt())
-              ?: DrawingCache().build(
-                drawState.width.toInt(),
-                drawState.height.toInt(),
-                info.displayer.densityDpi,
-                checkSize = true
-              )
-          drawState.drawingCache.erase()
-          drawState.drawingCache.increaseReference()
-          drawState.drawingCache.cacheManager = this@CacheManager
-        }
+        val candidate = cachePool.acquire(dimensions.first, dimensions.second)
+          ?: DrawingCache().build(
+            dimensions.first,
+            dimensions.second,
+            info.displayer.densityDpi,
+            checkSize = true
+          )
+        candidate.erase()
+        candidate.increaseReference()
+        candidate.cacheManager = this@CacheManager
         endTrace()
 
         startTrace("CacheManager_drawCache")
-        val holder = drawState.drawingCache.get()
+        val holder = candidate.get()
         if (holder == null) {
-          cachePool.release(drawState.drawingCache)
-          drawState.drawingCache = DrawingCache.EMPTY_DRAWING_CACHE
-          item.state = ItemState.Error
-          item.pendingCacheGeneration = -1
+          releaseUncommittedCache(candidate)
+          markCacheBuildErrorIfCurrent(info, item, drawState)
           return
         }
-        synchronized(drawState) {
-          try {
+        try {
+          synchronized(item) {
             item.drawingIntoCache = true
-            context.drawRenderer(item, holder.canvas, info.displayer, config)
-            item.state = ItemState.Rendered
-            item.drawState.cacheGeneration = info.cacheGeneration
-            item.pendingCacheGeneration = -1
-            if (sharedKey != null) {
-              putSharedDrawingCache(sharedKey, drawState.drawingCache)
+          }
+          context.drawRenderer(item, holder.canvas, info.displayer, config)
+          val committed = synchronized(item) {
+            synchronized(drawState) {
+              if (!isCurrentCacheBuild(info, item, drawState)) return@synchronized false
+              if (drawState.drawingCache != DrawingCache.EMPTY_DRAWING_CACHE) {
+                drawState.drawingCache.decreaseReference()
+              }
+              drawState.drawingCache = candidate
+              drawState.cacheGeneration = info.cacheGeneration
+              item.state = ItemState.Rendered
+              item.pendingCacheGeneration = -1
+              if (sharedKey != null) putSharedDrawingCache(sharedKey, candidate)
+              true
             }
-          } catch (e: Exception) {
-            Log.e(DanmakuEngine.TAG, "CacheManager.draw failed", e)
-            item.state = ItemState.Error
-            item.pendingCacheGeneration = -1
-          } finally {
+          }
+          if (!committed) releaseUncommittedCache(candidate)
+        } catch (e: Exception) {
+          Log.e(DanmakuEngine.TAG, "CacheManager.draw failed", e)
+          releaseUncommittedCache(candidate)
+          markCacheBuildErrorIfCurrent(info, item, drawState)
+        } finally {
+          synchronized(item) {
             item.drawingIntoCache = false
           }
         }
@@ -507,6 +605,31 @@ internal class CacheManager(private val callbackHandler: Handler, private val co
       } finally {
         pendingBuildKeys.remove(info.requestKey)
       }
+    }
+
+    private fun isCurrentCacheBuild(info: CacheInfo, item: DanmakuItem, drawState: DrawState): Boolean =
+      isDanmakuCacheBuildCurrent(
+        currentMeasureGeneration = context.config.measureGeneration,
+        currentCacheGeneration = context.config.cacheGeneration,
+        pendingCacheGeneration = item.pendingCacheGeneration,
+        taskMeasureGeneration = info.measureGeneration,
+        taskCacheGeneration = info.cacheGeneration,
+        measuredForTask = drawState.isMeasured(info.measureGeneration)
+      )
+
+    private fun markCacheBuildErrorIfCurrent(info: CacheInfo, item: DanmakuItem, drawState: DrawState) {
+      synchronized(item) {
+        synchronized(drawState) {
+          if (!isCurrentCacheBuild(info, item, drawState)) return
+          item.state = ItemState.Error
+          item.pendingCacheGeneration = -1
+        }
+      }
+    }
+
+    private fun releaseUncommittedCache(cache: DrawingCache) {
+      cache.decreaseReference()
+      if (!cachePool.release(cache)) cache.destroy()
     }
 
     private fun isTaskCurrent(task: CacheTask): Boolean =

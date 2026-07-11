@@ -11,11 +11,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -65,6 +67,15 @@ internal class DanmakuPlaybackController(
         val filterContext: DanmakuFilterContext = DanmakuFilterContext.EMPTY
     )
 
+    private data class PublishedDanmakuState(
+        val generation: Long,
+        val sequence: Long,
+        val snapshotItems: List<DmModel>,
+        val deltaItems: List<DmModel>,
+        val replace: Boolean,
+        val filterContext: DanmakuFilterContext
+    )
+
     /** 智能蒙版加载状态。 */
     sealed class DmMaskState {
         object Idle : DmMaskState()
@@ -78,6 +89,7 @@ internal class DanmakuPlaybackController(
     )
 
     companion object {
+        private const val TAG = "DanmakuPlayback"
         private const val FIRST_FRAME_DM_MASK_LOAD_DELAY_MS = 2_500L
         private const val FIRST_DANMAKU_PARTIAL_END_MS = 120_000L
         private const val FIRST_DANMAKU_INITIAL_PARSE_END_MS = 60_000L
@@ -107,7 +119,6 @@ internal class DanmakuPlaybackController(
                 return size > 4
             }
         }
-        private val DANMAKU_AVAILABLE_MARKER = listOf(DmModel(content = "__danmaku_available__"))
         private const val DOUYIN_DANMAKU_SEGMENT_CACHE_TTL_MS = 120_000L
     }
 
@@ -115,8 +126,40 @@ internal class DanmakuPlaybackController(
     private val _danmaku = MutableStateFlow<List<DmModel>>(emptyList())
     val danmaku: StateFlow<List<DmModel>> = _danmaku
 
-    private val _danmakuUpdates = MutableSharedFlow<DanmakuUpdate>(extraBufferCapacity = 1)
-    val danmakuUpdates: SharedFlow<DanmakuUpdate> = _danmakuUpdates
+    // StateFlow 保存完整恢复点，同时保留最新增量。连续消费者只收增量；新页面或漏批消费者
+    // 自动回退到完整快照，因此不再为了可恢复性让每一批都触发全量引擎重建。
+    private val _publishedDanmakuState = MutableStateFlow(
+        PublishedDanmakuState(
+            generation = 0L,
+            sequence = 0L,
+            snapshotItems = emptyList(),
+            deltaItems = emptyList(),
+            replace = true,
+            filterContext = defaultFilterContext
+        )
+    )
+    val danmakuUpdates: Flow<DanmakuUpdate> = flow {
+        var previousGeneration: Long? = null
+        var previousSequence: Long? = null
+        _publishedDanmakuState.collect { state ->
+            val append = shouldAppendDanmakuUpdate(
+                previousGeneration = previousGeneration,
+                previousSequence = previousSequence,
+                currentGeneration = state.generation,
+                currentSequence = state.sequence,
+                replace = state.replace
+            )
+            emit(
+                DanmakuUpdate(
+                    items = if (append) state.deltaItems else state.snapshotItems,
+                    replace = !append,
+                    filterContext = state.filterContext
+                )
+            )
+            previousGeneration = state.generation
+            previousSequence = state.sequence
+        }
+    }
 
     private val _dmMaskState = MutableStateFlow<DmMaskState>(DmMaskState.Idle)
     val dmMaskState: StateFlow<DmMaskState> = _dmMaskState
@@ -147,6 +190,12 @@ internal class DanmakuPlaybackController(
     // 弹幕发布专用单线程后台 dispatcher：保证多次发布的计算/emit 顺序（replace 先于 append），
     // 同时把去重、排序、identityKey 预算移出主线程（P1：init 发布 3000 条曾主线程耗时 37ms）。
     private val danmakuPublishDispatcher = Dispatchers.Default.limitedParallelism(1)
+    private val danmakuPublishMutex = Mutex()
+    private var publishedDanmakuStateGeneration: Long = 0L
+    private var publishedDanmakuSequence: Long = 0L
+    private var publishedDanmakuSnapshot: List<DmModel> = emptyList()
+    @Volatile
+    private var danmakuPublishGeneration: Long = 0L
     private var currentDanmakuSegmentIndex: Int = -1
     private var danmakuTotalSegments: Int = 0
     private var currentDanmakuFilterContext: DanmakuFilterContext = defaultFilterContext
@@ -166,6 +215,7 @@ internal class DanmakuPlaybackController(
 
     /** 新一次播放开始时重置 trace 标记（避免上一视频的 trace 误命中）。 */
     fun resetStartupTraceState() {
+        invalidatePendingPublishes()
         firstDanmakuTraceLoggedId = PlaybackStartupTrace.NO_TRACE
         firstDanmakuSegmentTraceLoggedId = PlaybackStartupTrace.NO_TRACE
     }
@@ -439,6 +489,7 @@ internal class DanmakuPlaybackController(
      */
     fun clear() {
         danmakuLoadJob?.cancel()
+        invalidatePendingPublishes()
         // segment preload 和 view preload 不在此取消：
         // 它们是为下一条播放预加载的，clear 只是清理当前播放的弹幕状态。
         // 新的 preload 启动时会自行取消旧 job（见 preloadInitialSegment）。
@@ -448,12 +499,36 @@ internal class DanmakuPlaybackController(
         danmakuLoadingSegments.clear()
         danmakuPublishedSegments.clear()
         danmakuPublishPendingSegments.clear()
-        publishedRegularDanmakuKeys.clear()
         currentDanmakuSegmentIndex = -1
         danmakuTotalSegments = 0
         currentDanmakuFilterContext = defaultFilterContext
         lastDanmakuSyncPositionMs = 0L
         loadedDanmakuCid = 0L
+    }
+
+    private fun invalidatePendingPublishes() {
+        val generation = ++danmakuPublishGeneration
+        _danmaku.value = emptyList()
+        _publishedDanmakuState.value = PublishedDanmakuState(
+            generation = generation,
+            sequence = 0L,
+            snapshotItems = emptyList(),
+            deltaItems = emptyList(),
+            replace = true,
+            filterContext = defaultFilterContext
+        )
+        scope.launch(danmakuPublishDispatcher) {
+            danmakuPublishMutex.withLock {
+                if (shouldResetPublishedDanmakuState(
+                        queuedGeneration = generation,
+                        currentGeneration = danmakuPublishGeneration,
+                        publishedGeneration = publishedDanmakuStateGeneration
+                    )
+                ) {
+                    resetPublishedDanmakuState(generation)
+                }
+            }
+        }
     }
 
     /**
@@ -826,71 +901,86 @@ internal class DanmakuPlaybackController(
     }
 
     private fun publishDanmaku(items: List<DmModel>, replace: Boolean) {
+        val publishGeneration = danmakuPublishGeneration
         scope.launch(danmakuPublishDispatcher) {
-            // 后台单线程：去重 + 排序 + 预算 identityKey（P1 主线程开销大头，3000 条曾耗时 37ms）。
-            val normalizedItems = items.distinctRegularDanmaku()
-            val normalizedKeys = normalizedItems.map { it.danmakuIdentityKey() }
-            // replace 路径：后台构建好完整 HashSet，主线程整体替换（O(1) 引用赋值），
-            // 避免万级 addAll 卡主线程。
-            val replaceKeys = if (replace) HashSet(normalizedKeys) else null
-            withContext(Dispatchers.Main.immediate) {
-                val mainStartedAtMs = SystemClock.elapsedRealtime()
-                if (replace && normalizedItems.isNotEmpty() && firstDanmakuTraceLoggedId != context.startupTraceId) {
-                    firstDanmakuTraceLoggedId = context.startupTraceId
-                    PlaybackStartupTrace.log(
-                        traceId = context.startupTraceId,
-                        startElapsedMs = context.startupTraceStartElapsedMs,
-                        step = "first_danmaku_published",
-                        message = "count=${normalizedItems.size} cid=${context.currentCid}"
-                    )
+            danmakuPublishMutex.withLock {
+                if (publishGeneration != danmakuPublishGeneration) return@withLock
+                if (publishedDanmakuStateGeneration != publishGeneration) {
+                    resetPublishedDanmakuState(publishGeneration)
+                }
+
+                val startedAtMs = SystemClock.elapsedRealtime()
+                val normalizedItems = items.distinctRegularDanmaku()
+                val normalizedKeys = normalizedItems.map { it.danmakuIdentityKey() }
+                val snapshotAdditions = normalizedItems.filterIndexed { index, _ ->
+                    normalizedKeys[index] !in publishedRegularDanmakuKeys
                 }
                 val emittedItems = if (replace) {
-                    // replace 仅决定引擎层是否清屏重发（setDanmakuData），不能丢掉已发布 keys。
-                    // 之前这里用 replaceKeys 整个覆盖 publishedRegularDanmakuKeys，会把跨段 seek 时
-                    // 已发布段的 keys 清掉，导致该段后续 republish 时去重失效、整段弹幕重复 emit，
-                    // 来回 seek 几次后弹幕大量堆积重复。改为合并累加：首段 init 时集合为空，
-                    // 累加结果与原覆盖等价；跨段 seek 时旧 keys 保留，后续 republish 仍能正确去重。
-                    publishedRegularDanmakuKeys.addAll(replaceKeys!!)
+                    publishedRegularDanmakuKeys.addAll(normalizedKeys)
                     normalizedItems
                 } else {
-                    normalizedItems.filterIndexed { i, _ -> publishedRegularDanmakuKeys.add(normalizedKeys[i]) }
-                }
-                if (!replace && emittedItems.size != normalizedItems.size) {
-                    PlaybackStartupTrace.log(
-                        traceId = context.startupTraceId,
-                        startElapsedMs = context.startupTraceStartElapsedMs,
-                        step = "danmaku_publish_dedup",
-                        message = "input=${normalizedItems.size} emitted=${emittedItems.size} dropped=${normalizedItems.size - emittedItems.size}"
-                    )
-                }
-                _danmaku.value = if (replace) {
-                    if (normalizedItems.isEmpty()) emptyList() else DANMAKU_AVAILABLE_MARKER
-                } else {
-                    if (_danmaku.value.orEmpty().isNotEmpty() || emittedItems.isNotEmpty()) {
-                        DANMAKU_AVAILABLE_MARKER
-                    } else {
-                        emptyList()
+                    normalizedItems.filterIndexed { index, _ ->
+                        publishedRegularDanmakuKeys.add(normalizedKeys[index])
                     }
                 }
-                logDanmakuPublishPerf(
-                    type = "regular",
-                    replace = replace,
-                    inputCount = items.size,
-                    normalizedCount = normalizedItems.size,
-                    emittedCount = emittedItems.size,
-                    totalPublishedKeys = publishedRegularDanmakuKeys.size,
-                    startedAtMs = mainStartedAtMs
-                )
-                if (!replace && emittedItems.isEmpty()) {
-                    return@withContext
+                if (!replace && emittedItems.isEmpty()) return@withLock
+
+                // 完整恢复点仍然保留，但线性归并在发布后台串行完成，不再占用主线程。
+                val snapshotItems = mergePublishedDanmakuSnapshot(publishedDanmakuSnapshot, snapshotAdditions)
+                if (publishGeneration != danmakuPublishGeneration) return@withLock
+                publishedDanmakuSnapshot = snapshotItems
+                val sequence = ++publishedDanmakuSequence
+                val totalPublishedKeys = publishedRegularDanmakuKeys.size
+
+                withContext(Dispatchers.Main.immediate) {
+                    if (publishGeneration != danmakuPublishGeneration) return@withContext
+                    if (replace && normalizedItems.isNotEmpty() && firstDanmakuTraceLoggedId != context.startupTraceId) {
+                        firstDanmakuTraceLoggedId = context.startupTraceId
+                        PlaybackStartupTrace.log(
+                            traceId = context.startupTraceId,
+                            startElapsedMs = context.startupTraceStartElapsedMs,
+                            step = "first_danmaku_published",
+                            message = "count=${normalizedItems.size} cid=${context.currentCid}"
+                        )
+                    }
+                    if (!replace && emittedItems.size != normalizedItems.size) {
+                        PlaybackStartupTrace.log(
+                            traceId = context.startupTraceId,
+                            startElapsedMs = context.startupTraceStartElapsedMs,
+                            step = "danmaku_publish_dedup",
+                            message = "input=${normalizedItems.size} emitted=${emittedItems.size} dropped=${normalizedItems.size - emittedItems.size}"
+                        )
+                    }
+                    // 该流只驱动开关可见性；完整恢复时间线由 _publishedDanmakuState 持有。
+                    // 使用固定标记避免 StateFlow 在主线程比较不断增长的历史列表。
+                    _danmaku.value = danmakuAvailabilityState(snapshotItems.isNotEmpty())
+                    logDanmakuPublishPerf(
+                        type = "regular",
+                        replace = replace,
+                        inputCount = items.size,
+                        normalizedCount = normalizedItems.size,
+                        emittedCount = emittedItems.size,
+                        totalPublishedKeys = totalPublishedKeys,
+                        startedAtMs = startedAtMs
+                    )
+                    _publishedDanmakuState.value = PublishedDanmakuState(
+                        generation = publishGeneration,
+                        sequence = sequence,
+                        snapshotItems = snapshotItems,
+                        deltaItems = emittedItems,
+                        replace = replace,
+                        filterContext = currentDanmakuFilterContext
+                    )
                 }
-                _danmakuUpdates.tryEmit(DanmakuUpdate(
-                    items = emittedItems,
-                    replace = replace,
-                    filterContext = currentDanmakuFilterContext
-                ))
             }
         }
+    }
+
+    private fun resetPublishedDanmakuState(generation: Long) {
+        publishedDanmakuStateGeneration = generation
+        publishedDanmakuSequence = 0L
+        publishedDanmakuSnapshot = emptyList()
+        publishedRegularDanmakuKeys = HashSet()
     }
 
     private fun logDanmakuPublishPerf(
@@ -1269,3 +1359,106 @@ internal class DanmakuPlaybackController(
         }
     }
 }
+
+private val DANMAKU_AVAILABLE_MARKER = listOf(DmModel(content = "__danmaku_available__"))
+
+internal fun danmakuAvailabilityState(hasDanmaku: Boolean): List<DmModel> =
+    if (hasDanmaku) DANMAKU_AVAILABLE_MARKER else emptyList()
+
+private class ChunkedDanmakuList private constructor(
+    private val chunks: List<List<DmModel>>,
+    private val cumulativeSizes: IntArray,
+    override val size: Int
+) : AbstractList<DmModel>() {
+
+    override fun get(index: Int): DmModel {
+        if (index < 0 || index >= size) throw IndexOutOfBoundsException("index=$index size=$size")
+        var low = 0
+        var high = cumulativeSizes.lastIndex
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (index < cumulativeSizes[middle]) high = middle else low = middle + 1
+        }
+        val previousSize = if (low == 0) 0 else cumulativeSizes[low - 1]
+        return chunks[low][index - previousSize]
+    }
+
+    override fun iterator(): Iterator<DmModel> = object : Iterator<DmModel> {
+        private var chunkIndex = 0
+        private var itemIndex = 0
+
+        override fun hasNext(): Boolean = chunkIndex < chunks.size
+
+        override fun next(): DmModel {
+            if (!hasNext()) throw NoSuchElementException()
+            val item = chunks[chunkIndex][itemIndex++]
+            if (itemIndex >= chunks[chunkIndex].size) {
+                chunkIndex++
+                itemIndex = 0
+            }
+            return item
+        }
+    }
+
+    companion object {
+        fun append(existing: List<DmModel>, incoming: List<DmModel>): List<DmModel> {
+            val chunks = ArrayList<List<DmModel>>(
+                (if (existing is ChunkedDanmakuList) existing.chunks.size else 1) + 1
+            )
+            if (existing is ChunkedDanmakuList) {
+                chunks.addAll(existing.chunks)
+            } else {
+                chunks.add(existing)
+            }
+            chunks.add(incoming)
+            val cumulativeSizes = IntArray(chunks.size)
+            var totalSize = 0
+            chunks.forEachIndexed { index, chunk ->
+                totalSize += chunk.size
+                cumulativeSizes[index] = totalSize
+            }
+            return ChunkedDanmakuList(chunks, cumulativeSizes, totalSize)
+        }
+    }
+}
+
+internal fun mergePublishedDanmakuSnapshot(
+    existing: List<DmModel>,
+    incoming: List<DmModel>
+): List<DmModel> {
+    if (incoming.isEmpty()) return existing
+    if (existing.isEmpty()) return incoming
+    if (existing.last().progress <= incoming.first().progress) {
+        return ChunkedDanmakuList.append(existing, incoming)
+    }
+    val result = ArrayList<DmModel>(existing.size + incoming.size)
+    var existingIndex = 0
+    var incomingIndex = 0
+    while (existingIndex < existing.size && incomingIndex < incoming.size) {
+        if (existing[existingIndex].progress <= incoming[incomingIndex].progress) {
+            result.add(existing[existingIndex++])
+        } else {
+            result.add(incoming[incomingIndex++])
+        }
+    }
+    while (existingIndex < existing.size) result.add(existing[existingIndex++])
+    while (incomingIndex < incoming.size) result.add(incoming[incomingIndex++])
+    return result
+}
+
+internal fun shouldAppendDanmakuUpdate(
+    previousGeneration: Long?,
+    previousSequence: Long?,
+    currentGeneration: Long,
+    currentSequence: Long,
+    replace: Boolean
+): Boolean = !replace &&
+    previousGeneration == currentGeneration &&
+    previousSequence != null &&
+    currentSequence == previousSequence + 1L
+
+internal fun shouldResetPublishedDanmakuState(
+    queuedGeneration: Long,
+    currentGeneration: Long,
+    publishedGeneration: Long
+): Boolean = queuedGeneration == currentGeneration && publishedGeneration < queuedGeneration
