@@ -55,6 +55,9 @@ internal fun cacheReadyStartTime(motionStarted: Boolean, currentStartTimeMs: Int
 internal fun isCacheWaitExpired(motionStarted: Boolean, admittedAtMs: Int, nowMs: Int, timeoutMs: Int): Boolean =
     !motionStarted && nowMs - admittedAtMs >= timeoutMs
 
+internal fun adjustedTimelineIndexAfterPrefixTrim(index: Int, droppedCount: Int): Int =
+    (index - droppedCount).coerceAtLeast(0)
+
 internal interface DanmakuEngineActionApi {
     fun updateViewport(width: Int, height: Int, topInsetPx: Int, bottomInsetPx: Int)
 
@@ -527,9 +530,9 @@ internal class DanmakuEngine(
         if (maxItems <= 0) return
         val drop = items.size - maxItems
         if (drop <= 0) return
-        items = items.subList(drop, items.size).toMutableList()
-        index = (index - drop).coerceAtLeast(0)
-        rebuildRequested = true
+        items.subList(0, drop).clear()
+        index = adjustedTimelineIndexAfterPrefixTrim(index, drop)
+        debugNextAtMs = items.getOrNull(index)?.timeMs()
         }
     }
 

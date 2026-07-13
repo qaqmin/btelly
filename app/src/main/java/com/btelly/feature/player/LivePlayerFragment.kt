@@ -8,6 +8,8 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -153,6 +155,8 @@ class LivePlayerFragment : Fragment() {
     }
 
     private fun setupPlayer() {
+        // 直播统一使用性能优先引擎，不再依赖功能优先引擎的直播实现。
+        binding.playerView.setDanmakuEngineMode(true)
         val liveHeaders = mapOf(
             "Origin" to "https://live.bilibili.com/",
             "Referer" to if (roomId > 0L) {
@@ -355,8 +359,10 @@ class LivePlayerFragment : Fragment() {
 
         // 实时弹幕：用引擎当前时间作为 position 注入
         viewLifecycleOwner.lifecycleScope.launch {
-            viewModel.liveDanmaku.collect { dmModel ->
-                binding.playerView.addLiveDanmaku(dmModel)
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.liveDanmaku.collect { dmModel ->
+                    binding.playerView.addLiveDanmaku(dmModel)
+                }
             }
         }
     }

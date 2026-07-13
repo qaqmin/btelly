@@ -1,6 +1,7 @@
 package com.btelly.feature.player.danmaku
 
 import android.content.Context
+import android.os.SystemClock
 import com.btelly.core.common.ext.isVipColorfulDanmakuAllowed
 import com.btelly.core.common.log.AppLog
 import com.btelly.feature.player.DanmakuFilterContext
@@ -10,6 +11,8 @@ import com.btelly.feature.player.danmaku.common.BiliDanmakuStyle
 import com.btelly.feature.player.danmaku.common.DanmakuDuplicateMergePolicy
 import com.btelly.feature.player.danmaku.common.DanmakuController
 import com.btelly.feature.player.danmaku.common.DanmakuSettingsSnapshot
+import com.btelly.feature.player.danmaku.common.LiveDanmakuBatcher
+import com.btelly.feature.player.danmaku.common.LiveDanmakuController
 import com.btelly.feature.player.danmaku.common.VipDanmakuTextureCache
 import com.btelly.feature.player.danmaku.common.nextDanmakuPreparationGeneration
 import com.btelly.model.dm.DmModel
@@ -18,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -34,14 +38,14 @@ import kotlinx.coroutines.withContext
  *  - 设置映射：把共享的 [DanmakuSettingsSnapshot] 翻译成引擎的 [DanmakuConfig]。
  *  - 播放同步：通过 positionProvider 回调让引擎自驱动，seek 时主动通知。
  *
- * 不支持（性能优先模式）：直播、特殊/脚本弹幕、表情/高赞图标。
+ * 不支持（性能优先模式）：特殊/脚本弹幕、表情/高赞图标。
  * 智能过滤、重复合并和 VIP 渐变与功能优先模式共用引擎中立实现。
  * 智能防挡由引擎外层的中立宿主统一裁剪，不依赖功能优先引擎。
  */
 class DanmakuCoreController(
     private val context: Context,
     private val viewProvider: () -> DanmakuView?
-) : DanmakuController {
+) : DanmakuController, LiveDanmakuController {
 
     companion object {
         private const val TAG = "BTellyDmCtrl"
@@ -52,6 +56,8 @@ class DanmakuCoreController(
          */
         private const val BILI_BASE_FONT_SIZE = 25f
         private const val DANMAKU_FONT_BORDER_DEFAULT = 0
+        private const val LIVE_HISTORY_MAX_ITEMS = 2_000
+        private const val LIVE_EMIT_BATCH_MS = 50L
     }
 
     /** 屏幕密度，用于对齐 AkDanmaku 字号公式。 */
@@ -89,6 +95,12 @@ class DanmakuCoreController(
     private var prepareJob: Job? = null
     private var preloadTextureJob: Job? = null
     private var preloadedVipTextureKeys: Set<String> = emptySet()
+    private val liveBatcher = LiveDanmakuBatcher()
+    private var liveFlushJob: Job? = null
+    private var liveEmissionJob: Job? = null
+    private val liveEmissionBuffer = ArrayList<DmModel>(32)
+    private var liveMode: Boolean = false
+    private var livePaused: Boolean = false
 
     /**
      * 引擎数据是否已被 stop 清空（切后台）。stop() 置 true；重新喂数据后置 false。
@@ -120,6 +132,7 @@ class DanmakuCoreController(
         @Suppress("UNUSED_PARAMETER") startupTraceId: String,
         @Suppress("UNUSED_PARAMETER") startupTraceStartElapsedMs: Long
     ) {
+        resetLiveState()
         this.filterContext = filterContext
         val taskFilterContext = filterContext
         // 排序 + 过滤/合并/转换丢到后台线程，避免大数据（可达 2 万条）阻塞主线程。
@@ -202,12 +215,60 @@ class DanmakuCoreController(
         }
     }
 
+    override fun startLive() {
+        prepareJob?.cancel()
+        prepareGeneration.incrementAndGet()
+        rawItems = emptyList()
+        appliedFilterContext = DanmakuFilterContext.EMPTY
+        resetLiveState()
+        liveMode = true
+        livePaused = false
+        renderingStopped = false
+        dataStopped = false
+        resumeDataRequested = false
+        viewProvider()?.setDanmakus(emptyList())
+        viewProvider()?.invalidate()
+    }
+
+    override fun addLiveDanmaku(dm: DmModel) {
+        if (!liveMode) startLive()
+        if (livePaused) return
+        val snapshot = lastSnapshot ?: return
+        if (!snapshot.enabled) return
+        val nowMs = SystemClock.uptimeMillis()
+        emitLiveDanmakus(
+            liveBatcher.offer(
+                item = dm,
+                nowMs = nowMs,
+                mergeEnabled = snapshot.mergeDuplicate,
+                displayCapacity = estimateLiveDisplayCapacity(),
+            )
+        )
+        if (snapshot.mergeDuplicate && liveBatcher.pendingCount() > 0) {
+            scheduleLiveFlush()
+        }
+    }
+
     override fun applySettings(snapshot: DanmakuSettingsSnapshot) {
         if (lastSnapshot == snapshot) return
         val old = lastSnapshot
         lastSnapshot = snapshot
         currentConfig = buildConfig(snapshot)
         viewProvider()?.visibility = if (snapshot.enabled) android.view.View.VISIBLE else android.view.View.GONE
+        if (liveMode) {
+            if (!snapshot.enabled) {
+                clearLiveQueues()
+            } else if (old != null && old.mergeDuplicate != snapshot.mergeDuplicate) {
+                liveFlushJob?.cancel()
+                liveFlushJob = null
+                emitLiveDanmakus(
+                    liveBatcher.flushAll(
+                        nowMs = SystemClock.uptimeMillis(),
+                        displayCapacity = estimateLiveDisplayCapacity(),
+                    )
+                )
+            }
+        }
         if (old == null) {
             // 首次设置也进入串行重建，避免绕过停播门禁或覆盖在途 append。
             if (rawItems.isNotEmpty() || prepareJob?.isActive == true) rebuildDataForSettings()
@@ -281,6 +342,10 @@ class DanmakuCoreController(
     override fun pause() {
         playWhenReady = false
         isPlaying = false
+        if (liveMode) {
+            livePaused = true
+            clearLiveQueues()
+        }
     }
 
     override fun resume() {
@@ -288,6 +353,7 @@ class DanmakuCoreController(
         playWhenReady = true
         isPlaying = true
         renderingStopped = false
+        livePaused = false
         if (dataStopped && rawItems.isNotEmpty()) {
             renderingStopped = true
             requestDataResume()
@@ -296,6 +362,7 @@ class DanmakuCoreController(
     }
 
     override fun stop() {
+        resetLiveState()
         playWhenReady = false
         isPlaying = false
         renderingStopped = true
@@ -334,6 +401,82 @@ class DanmakuCoreController(
         prepareJob?.cancel()
         preloadTextureJob?.cancel()
         controllerScope.cancel()
+    }
+
+    private fun scheduleLiveFlush() {
+        if (liveFlushJob?.isActive == true) return
+        val delayMs = liveBatcher.nextFlushDelayMs(SystemClock.uptimeMillis()) ?: return
+        liveFlushJob = controllerScope.launch(Dispatchers.Main.immediate) {
+            delay(delayMs)
+            liveFlushJob = null
+            if (!liveMode) return@launch
+            emitLiveDanmakus(
+                liveBatcher.flushExpired(
+                    nowMs = SystemClock.uptimeMillis(),
+                    displayCapacity = estimateLiveDisplayCapacity(),
+                )
+            )
+            scheduleLiveFlush()
+        }
+    }
+
+    private fun emitLiveDanmakus(items: List<DmModel>) {
+        if (items.isEmpty() || !liveMode || !currentConfig.enabled) return
+        liveEmissionBuffer.addAll(items)
+        if (liveEmissionJob?.isActive == true) return
+        liveEmissionJob = controllerScope.launch(Dispatchers.Main.immediate) {
+            delay(LIVE_EMIT_BATCH_MS)
+            liveEmissionJob = null
+            flushLiveEmissionBuffer()
+        }
+    }
+
+    private fun flushLiveEmissionBuffer() {
+        if (liveEmissionBuffer.isEmpty()) return
+        if (!liveMode || !currentConfig.enabled) {
+            liveEmissionBuffer.clear()
+            return
+        }
+        val positionMs = (playerPositionProvider?.invoke() ?: 0L)
+            .coerceAtLeast(0L)
+            .coerceAtMost(Int.MAX_VALUE.toLong())
+            .toInt()
+        val danmakus = ArrayList<Danmaku>(liveEmissionBuffer.size)
+        for (item in liveEmissionBuffer) {
+            item.copy(
+                progress = positionMs,
+                mode = com.btelly.feature.player.danmaku.common.DanmakuProtocolMode.ROLLING,
+            ).toDanmaku(allowVipColorful = false)?.let(danmakus::add)
+        }
+        liveEmissionBuffer.clear()
+        viewProvider()?.appendDanmakus(
+            list = danmakus,
+            maxItems = LIVE_HISTORY_MAX_ITEMS,
+            alreadySorted = true,
+        )
+    }
+
+    private fun estimateLiveDisplayCapacity(): Int {
+        val visibleHeight = context.resources.displayMetrics.heightPixels * currentConfig.area
+        val trackHeight = (currentConfig.textSizeSp * density * currentConfig.trackSpacing.factor)
+            .coerceAtLeast(24f)
+        val tracks = (visibleHeight / trackHeight).toInt().coerceAtLeast(3)
+        return (tracks * 2).coerceIn(6, 160)
+    }
+
+    private fun resetLiveState() {
+        liveMode = false
+        livePaused = false
+        clearLiveQueues()
+    }
+
+    private fun clearLiveQueues() {
+        liveFlushJob?.cancel()
+        liveFlushJob = null
+        liveEmissionJob?.cancel()
+        liveEmissionJob = null
+        liveEmissionBuffer.clear()
+        liveBatcher.clear()
     }
 
     /**

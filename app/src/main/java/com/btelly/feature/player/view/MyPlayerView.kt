@@ -2731,7 +2731,7 @@ class MyPlayerView @JvmOverloads constructor(
     /**
      * 切换弹幕引擎模式。必须在 setData 之前、播放器 setup 时调用。
      * - lite=false：功能优先（AkDanmaku：点播 + 直播）
-     * - lite=true：性能优先（轻量引擎：点播；直播不支持）
+     * - lite=true：性能优先（轻量引擎：点播 + 直播）
      * 两边都支持滚动/顶部/底部、智能过滤、重复合并、VIP 渐变和智能防挡；特殊/脚本弹幕都会过滤。
      * 两套引擎只作为蒙版宿主的可替换子层；切换需重新进入播放。
      */
@@ -2801,9 +2801,10 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     fun startLiveDanmaku() {
+        syncDanmakuSettings()
         val controller = activeLiveDanmakuController()
         if (controller == null) {
-            com.btelly.core.common.log.AppLog.w("LiteDmCtrl", "轻量引擎不支持直播弹幕，请切换为功能优先")
+            AppLog.w("DanmakuCtrl", "当前弹幕引擎不支持直播弹幕")
             return
         }
         controller.startLive()

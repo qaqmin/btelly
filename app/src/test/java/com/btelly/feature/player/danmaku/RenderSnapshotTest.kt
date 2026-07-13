@@ -57,4 +57,10 @@ class RenderSnapshotTest {
         assertTrue(isCacheWaitExpired(false, admittedAtMs = 1_000, nowMs = 2_600, timeoutMs = 1_600))
         assertFalse(isCacheWaitExpired(true, admittedAtMs = 1_000, nowMs = 9_000, timeoutMs = 1_600))
     }
+
+    @Test
+    fun trimmingConsumedLiveHistoryOnlyAdjustsTimelineIndex() {
+        assertEquals(1_900, adjustedTimelineIndexAfterPrefixTrim(index = 2_000, droppedCount = 100))
+        assertEquals(0, adjustedTimelineIndexAfterPrefixTrim(index = 40, droppedCount = 100))
+    }
 }
