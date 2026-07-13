@@ -58,6 +58,29 @@ internal fun isCacheWaitExpired(motionStarted: Boolean, admittedAtMs: Int, nowMs
 internal fun adjustedTimelineIndexAfterPrefixTrim(index: Int, droppedCount: Int): Int =
     (index - droppedCount).coerceAtLeast(0)
 
+internal fun writeDanmakuRenderOrder(
+    active: List<DanmakuItem>,
+    snapshot: RenderSnapshot,
+) {
+    snapshot.ensureCapacity(active.size)
+    var count = 0
+    for (item in active) {
+        if (item.kind != DanmakuKind.SCROLL) continue
+        snapshot.items[count] = item
+        snapshot.yTop[count] = item.layoutTopPx
+        snapshot.textWidth[count] = item.textWidthPx
+        count++
+    }
+    for (item in active) {
+        if (item.kind == DanmakuKind.SCROLL) continue
+        snapshot.items[count] = item
+        snapshot.yTop[count] = item.layoutTopPx
+        snapshot.textWidth[count] = item.textWidthPx
+        count++
+    }
+    snapshot.count = count
+}
+
 internal interface DanmakuEngineActionApi {
     fun updateViewport(width: Int, height: Int, topInsetPx: Int, bottomInsetPx: Int)
 
@@ -643,18 +666,10 @@ internal class DanmakuEngine(
         val out = writableSnapshot()
         try {
             out.clear()
-            out.ensureCapacity(active.size)
             out.positionMs = nowMs.toLong()
             out.pendingCount = pending.size
             out.nextAtMs = items.getOrNull(index)?.timeMs()
-            var count = 0
-            for (item in active) {
-                out.items[count] = item
-                out.yTop[count] = item.layoutTopPx
-                out.textWidth[count] = item.textWidthPx
-                count++
-            }
-            out.count = count
+            writeDanmakuRenderOrder(active, out)
             latestSnapshot = out
             snapshotDirty = false
         } finally {

@@ -1,5 +1,7 @@
 package com.btelly.feature.player.danmaku
 
+import com.btelly.feature.player.danmaku.model.DanmakuItem
+import com.btelly.feature.player.danmaku.model.DanmakuKind
 import com.btelly.feature.player.danmaku.model.RenderSnapshot
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -63,4 +65,32 @@ class RenderSnapshotTest {
         assertEquals(1_900, adjustedTimelineIndexAfterPrefixTrim(index = 2_000, droppedCount = 100))
         assertEquals(0, adjustedTimelineIndexAfterPrefixTrim(index = 40, droppedCount = 100))
     }
+
+    @Test
+    fun fixedDanmakusAreWrittenAfterRollingDanmakus() {
+        val top = item(DanmakuKind.TOP, "top")
+        val rolling = item(DanmakuKind.SCROLL, "rolling")
+        val bottom = item(DanmakuKind.BOTTOM, "bottom")
+        val laterRolling = item(DanmakuKind.SCROLL, "later rolling")
+        val snapshot = RenderSnapshot()
+
+        writeDanmakuRenderOrder(listOf(top, rolling, bottom, laterRolling), snapshot)
+
+        assertEquals(
+            listOf("rolling", "later rolling", "top", "bottom"),
+            (0 until snapshot.count).map { snapshot.items[it]?.data?.text },
+        )
+    }
+
+    private fun item(kind: DanmakuKind, text: String): DanmakuItem =
+        DanmakuItem(
+            Danmaku(
+                timeMs = 0,
+                mode = 1,
+                text = text,
+                color = 0xFFFFFF,
+                fontSize = 25,
+                weight = 0,
+            )
+        ).also { it.kind = kind }
 }
