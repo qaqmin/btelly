@@ -35,6 +35,17 @@ class DanmakuPublishDeduplicatePolicyTest {
     }
 
     @Test
+    fun distinctBatchKeepsIdentityKeysAlignedAfterSorting() {
+        val later = dm(id = 2L, progress = 2_000, content = "later")
+        val earlier = dm(id = 1L, progress = 1_000, content = "earlier")
+
+        val result = listOf(later, earlier).distinctRegularDanmakuBatch()
+
+        assertEquals(listOf(earlier, later), result.items)
+        assertEquals(listOf("id:1", "id:2"), result.identityKeys)
+    }
+
+    @Test
     fun appendStyleFilteringDropsExistingItemsFromFullTailResponse() {
         val current = listOf(
             dm(id = 1L, progress = 1_000, content = "old"),

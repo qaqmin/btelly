@@ -49,6 +49,12 @@ internal fun shouldApplyDmCacheResult(
     rendering &&
     active
 
+internal fun cacheReadyStartTime(motionStarted: Boolean, currentStartTimeMs: Int, nowMs: Int): Int =
+    if (motionStarted) currentStartTimeMs else nowMs
+
+internal fun isCacheWaitExpired(motionStarted: Boolean, admittedAtMs: Int, nowMs: Int, timeoutMs: Int): Boolean =
+    !motionStarted && nowMs - admittedAtMs >= timeoutMs
+
 internal interface DanmakuEngineActionApi {
     fun updateViewport(width: Int, height: Int, topInsetPx: Int, bottomInsetPx: Int)
 
@@ -261,6 +267,14 @@ internal class DanmakuEngine(
             return
         }
         val old = item.cacheEntry
+        if (!item.motionStarted) {
+            item.startTimeMs = cacheReadyStartTime(
+                motionStarted = false,
+                currentStartTimeMs = item.startTimeMs,
+                nowMs = currentPositionMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            )
+            item.motionStarted = true
+        }
         if (old === entry) {
             entry.release()
             item.cacheGeneration = result.generation
@@ -1034,6 +1048,15 @@ internal class DanmakuEngine(
         width: Int,
         nowMs: Int,
     ): Boolean {
+        if (isCacheWaitExpired(
+                motionStarted = item.motionStarted,
+                admittedAtMs = item.startTimeMs,
+                nowMs = nowMs,
+                timeoutMs = MAX_CACHE_WAIT_MS,
+            )) {
+            return true
+        }
+        if (!item.motionStarted) return false
         val elapsed = nowMs - item.startTimeMs
         if (elapsed >= item.durationMs) return true
         if (item.kind != DanmakuKind.SCROLL) return false
@@ -1053,6 +1076,8 @@ internal class DanmakuEngine(
         pxNew: Float,
         marginPx: Float,
     ): Boolean {
+        // 尚未有可绘制缓存的前一条弹幕仍占用轨道；它开始运动前不能在后面塞新弹幕。
+        if (!front.motionStarted) return false
         val elapsedPrev = nowMs - front.startTimeMs
         val prevRemaining = front.durationMs - elapsedPrev
         if (prevRemaining <= 0) return true
@@ -1080,6 +1105,7 @@ internal class DanmakuEngine(
         item.pxPerMs = pxPerMs
         item.durationMs = durationMs
         item.startTimeMs = startTimeMs
+        item.motionStarted = false
         item.layoutTopPx = layoutTopPx
         active.add(item)
         snapshotDirty = true
@@ -1214,6 +1240,7 @@ internal class DanmakuEngine(
         private const val MAX_CACHE_REQUESTS_PER_FRAME = 8
         private const val MAX_CACHE_SCAN_PER_FRAME = 16
         private const val MAX_CACHE_QUEUE_DEPTH = 48
+        private const val MAX_CACHE_WAIT_MS = 1_600
 
     }
 

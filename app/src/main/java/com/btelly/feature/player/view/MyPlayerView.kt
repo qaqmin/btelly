@@ -593,6 +593,7 @@ class MyPlayerView @JvmOverloads constructor(
                     }
                     activeDanmakuController()?.setEnabled(enabled)
                     dmMaskController.setDanmakuVisible(enabled)
+                    updateVideoFrameRateStrategy(enabled)
                 }
             })
             newController.setOnSeekCommitListener { positionMs ->
@@ -670,6 +671,7 @@ class MyPlayerView @JvmOverloads constructor(
                 controller?.dmEnableButtonChange(enabled)
                 activeDanmakuController()?.setEnabled(enabled)
                 dmMaskController.setDanmakuVisible(enabled)
+                updateVideoFrameRateStrategy(enabled)
             }
 
             override fun onPlaybackSpeedChange(speed: Float) {
@@ -776,6 +778,7 @@ class MyPlayerView @JvmOverloads constructor(
             closeShutter()
         }
         this.player = player
+        updateVideoFrameRateStrategy(buildDanmakuSettingsSnapshot().enabled)
         player?.addListener(componentListener)
         // player 切换会带来新的播放参数，立即同步当前速度，避免 mask 在拿到首个
         // PARAMETERS_CHANGED 事件前用旧速度推算。
@@ -2816,6 +2819,7 @@ class MyPlayerView @JvmOverloads constructor(
         }
         activeDanmakuController()?.setEnabled(enabled)
         dmMaskController.setDanmakuVisible(enabled)
+        updateVideoFrameRateStrategy(enabled)
     }
 
     fun pauseDanmaku() {
@@ -2983,7 +2987,20 @@ class MyPlayerView @JvmOverloads constructor(
     private fun syncDanmakuSettings() {
         val snapshot = buildDanmakuSettingsSnapshot()
         dmMaskController.setDanmakuVisible(snapshot.enabled)
+        updateVideoFrameRateStrategy(snapshot.enabled)
         activeDanmakuController()?.applySettings(snapshot)
+    }
+
+    private fun updateVideoFrameRateStrategy(danmakuEnabled: Boolean) {
+        // 弹幕是独立 UI 覆盖层。29.97fps 视频若让 Surface 切到约 30Hz，两套引擎都会
+        // 出现运动拖影；关闭弹幕后恢复 Media3 默认策略，保留 24/25/50fps 视频匹配。
+        player?.setVideoChangeFrameRateStrategy(
+            if (danmakuEnabled) {
+                C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
+            } else {
+                C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS
+            }
+        )
     }
 
     // Keep the mapping from setting panel state to danmaku config in one place.

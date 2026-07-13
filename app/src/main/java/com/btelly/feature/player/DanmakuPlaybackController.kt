@@ -910,8 +910,10 @@ internal class DanmakuPlaybackController(
                 }
 
                 val startedAtMs = SystemClock.elapsedRealtime()
-                val normalizedItems = items.distinctRegularDanmaku()
-                val normalizedKeys = normalizedItems.map { it.danmakuIdentityKey() }
+                // 去重时同时保留 identity key，避免万级弹幕在发布阶段重复构造大量字符串。
+                val normalizedBatch = items.distinctRegularDanmakuBatch()
+                val normalizedItems = normalizedBatch.items
+                val normalizedKeys = normalizedBatch.identityKeys
                 val snapshotAdditions = normalizedItems.filterIndexed { index, _ ->
                     normalizedKeys[index] !in publishedRegularDanmakuKeys
                 }

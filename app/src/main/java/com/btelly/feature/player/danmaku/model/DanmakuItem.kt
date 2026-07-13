@@ -33,7 +33,8 @@ internal class DanmakuItem(
     // ---- Active state (action thread only) ----
     var kind: DanmakuKind = DanmakuKind.SCROLL
     var lane: Int = 0
-    var startTimeMs: Int = 0
+    @Volatile var startTimeMs: Int = 0
+    @Volatile var motionStarted: Boolean = false
     var durationMs: Int = 0
     var pxPerMs: Float = 0f
     var textWidthPx: Float = 0f
