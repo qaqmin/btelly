@@ -30,7 +30,7 @@ class VideoPlayerEpisodeCatalogBuilder(
         val ugcEpisodes = view.ugcSeason?.sections
             .orEmpty()
             .flatMap { it.episodes.orEmpty() }
-            .flatMap { episode -> episode.expandPages() }
+            .expandArchivePages()
 
         if (ugcEpisodes.isNotEmpty()) {
             return ugcEpisodes
@@ -142,20 +142,61 @@ class VideoPlayerEpisodeCatalogBuilder(
         )
     }
 
-    private fun UgcEpisode.expandPages(): List<VideoPlayerViewModel.PlayableEpisode> {
-        // 收集该稿件的所有分P：优先用 pages，其次用 pageInfo，最后退回稿件自身。
-        val candidatePages = pages.orEmpty().ifEmpty { pageInfo?.let { listOf(it) }.orEmpty() }
-        val archiveTitle = arc?.title?.takeIf { it.isNotBlank() }
-            ?: title.takeIf { it.isNotBlank() }
+    private fun List<UgcEpisode>.expandArchivePages(): List<VideoPlayerViewModel.PlayableEpisode> {
+        if (isEmpty()) return emptyList()
+        val archiveGroups = LinkedHashMap<String, MutableList<UgcEpisode>>()
+        forEachIndexed { index, episode ->
+            archiveGroups.getOrPut(episode.archiveKey(index)) { ArrayList() }.add(episode)
+        }
+        return archiveGroups.values.flatMap { it.toPlayablePages() }
+    }
+
+    private fun UgcEpisode.archiveKey(index: Int): String =
+        when {
+            displayBvid.isNotBlank() -> "bvid:$displayBvid"
+            displayAid > 0L -> "aid:$displayAid"
+            else -> "episode:$index"
+        }
+
+    private fun List<UgcEpisode>.toPlayablePages(): List<VideoPlayerViewModel.PlayableEpisode> {
+        val representative = first()
+        val pagesByKey = LinkedHashMap<String, VideoPvModel>()
+        var fallbackPageIndex = 0
+        for (episode in this) {
+            val pages = episode.pages.orEmpty().ifEmpty {
+                episode.pageInfo?.let(::listOf).orEmpty()
+            }
+            for (page in pages) {
+                val key = when {
+                    page.page > 0 -> "page:${page.page}"
+                    page.cid > 0L -> "cid:${page.cid}"
+                    !page.part.isNullOrBlank() -> "part:${page.part.trim()}"
+                    else -> "fallback:${fallbackPageIndex++}"
+                }
+                val existing = pagesByKey[key]
+                if (existing == null || existing.cid <= 0L && page.cid > 0L) {
+                    pagesByKey[key] = page
+                }
+            }
+        }
+        val candidatePages = pagesByKey.values.sortedWith(
+            compareBy<VideoPvModel> { it.page.takeIf { page -> page > 0 } ?: Int.MAX_VALUE }
+                .thenBy { it.cid.takeIf { cid -> cid > 0L } ?: Long.MAX_VALUE }
+        )
+        val archiveTitle = asSequence()
+            .mapNotNull { it.arc?.title?.takeIf(String::isNotBlank) }
+            .firstOrNull()
+            ?: asSequence().mapNotNull { it.title.takeIf(String::isNotBlank) }.firstOrNull()
             ?: candidatePages.firstOrNull()?.part?.takeIf { it.isNotBlank() }
-        val archiveAid = displayAid
-        val archiveBvid = displayBvid
-        val archiveCover = displayCover
+        val archiveAid = firstOrNull { it.displayAid > 0L }?.displayAid ?: 0L
+        val archiveBvid = firstOrNull { it.displayBvid.isNotBlank() }?.displayBvid.orEmpty()
+        val archiveCover = firstOrNull { it.displayCover.isNotBlank() }?.displayCover.orEmpty()
+        val archiveCid = firstOrNull { it.displayCid > 0L }?.displayCid ?: representative.displayCid
 
         // 单P（或拿不到分P信息）：维持"一个稿件一项"的形态，标题用稿件名。
         if (candidatePages.size <= 1) {
             val page = candidatePages.firstOrNull()
-            val cid = page?.cid?.takeIf { it > 0L } ?: displayCid
+            val cid = page?.cid?.takeIf { it > 0L } ?: archiveCid
             val fallbackTitle = archiveTitle ?: "P1"
             return listOf(
                 VideoPlayerViewModel.PlayableEpisode(
@@ -182,7 +223,7 @@ class VideoPlayerEpisodeCatalogBuilder(
                 else -> "$baseName · P$pageNo"
             }
             VideoPlayerViewModel.PlayableEpisode(
-                cid = page.cid.takeIf { it > 0L } ?: displayCid,
+                cid = page.cid.takeIf { it > 0L } ?: archiveCid,
                 title = displayTitle,
                 panelTitle = displayTitle,
                 subtitle = "共 ${candidatePages.size} P",

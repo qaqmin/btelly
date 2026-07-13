@@ -18,7 +18,7 @@ class VideoPlayerEpisodeCatalogBuilderTest {
     private val builder = VideoPlayerEpisodeCatalogBuilder(unusedApiService())
 
     @Test
-    fun ugcSeasonMergesMultiplePagesFromSameArchive() = runBlocking {
+    fun ugcSeasonMergesAndSortsSplitPagesFromSameArchive() = runBlocking {
         val detail = VideoDetailModel(
             view = VideoView(
                 aid = 1L,
@@ -61,12 +61,15 @@ class VideoPlayerEpisodeCatalogBuilderTest {
 
         val episodes = builder.buildUgcEpisodes(detail)
 
-        assertEquals(2, episodes.size)
+        assertEquals(3, episodes.size)
         assertEquals(1001L, episodes[0].cid)
-        assertEquals("Archive A", episodes[0].title)
-        assertEquals("Archive A", episodes[0].panelTitle)
-        assertEquals(2001L, episodes[1].cid)
-        assertEquals("Archive B", episodes[1].title)
+        assertEquals("Archive A · P1", episodes[0].title)
+        assertEquals("Archive A · P1", episodes[0].panelTitle)
+        assertEquals("共 2 P", episodes[0].subtitle)
+        assertEquals(1002L, episodes[1].cid)
+        assertEquals("Archive A · P2", episodes[1].title)
+        assertEquals(2001L, episodes[2].cid)
+        assertEquals("Archive B", episodes[2].title)
     }
 
     private fun ugcEpisode(
