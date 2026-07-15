@@ -1,12 +1,11 @@
 package com.btelly.feature.live
 
 import android.view.LayoutInflater
-import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.R
-import com.btelly.databinding.CellUserBinding
+import com.btelly.databinding.CellLiveAreaBinding
 import com.btelly.model.live.LiveAreaCategory
 import com.btelly.core.ui.focus.VideoCardFocusHelper
 
@@ -33,7 +32,7 @@ class LiveAreaAdapter(
         items.getOrNull(position)?.id ?: RecyclerView.NO_ID
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val binding = CellUserBinding.inflate(
+        val binding = CellLiveAreaBinding.inflate(
             LayoutInflater.from(parent.context),
             parent,
             false
@@ -46,11 +45,10 @@ class LiveAreaAdapter(
     }
 
     inner class ViewHolder(
-        private val binding: CellUserBinding
+        private val binding: CellLiveAreaBinding
     ) : RecyclerView.ViewHolder(binding.root) {
 
         init {
-            binding.textSub.visibility = View.GONE
             binding.imageView.setBorderEnabled(false)
             binding.root.setOnClickListener {
                 val position = bindingAdapterPosition
@@ -65,7 +63,7 @@ class LiveAreaAdapter(
         }
 
         fun bind(item: LiveAreaCategory) {
-            binding.textView.text = item.title.ifBlank { item.name }
+            binding.root.contentDescription = item.title.ifBlank { item.name }
             ImageLoader.loadSmallSquare(
                 imageView = binding.imageView,
                 url = item.pic,
