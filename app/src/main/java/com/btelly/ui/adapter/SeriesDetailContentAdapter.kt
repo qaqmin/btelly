@@ -364,7 +364,7 @@ class SeriesDetailContentAdapter(
         fun bind(items: List<EpisodeModel>) {
             binding.topTitle.setText(R.string.episodes)
             this.items = items
-            inReverseOrder = false
+            inReverseOrder = true
             binding.buttonOrder.visibility = if (items.size > 1) View.VISIBLE else View.GONE
             if (binding.buttonOrder.visibility != View.VISIBLE) {
                 orderButtonFocused = false
@@ -374,8 +374,12 @@ class SeriesDetailContentAdapter(
 
         private fun bindEpisodes() {
             adapter.submitList(items)
-            binding.textOrder.setText(R.string.positive_sequence)
-            (binding.recyclerView.layoutManager as? LinearLayoutManager)?.reverseLayout = false
+            binding.textOrder.setText(R.string.negative_sequence)
+            (binding.recyclerView.layoutManager as? LinearLayoutManager)?.reverseLayout = true
+            // 反序默认定位到最新一集
+            if (items.isNotEmpty()) {
+                binding.recyclerView.scrollToPosition(items.size - 1)
+            }
         }
 
         fun requestStoredFocus(): Boolean {
