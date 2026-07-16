@@ -891,6 +891,7 @@ class VideoPlayerViewModel(
             currentPlayInfo = null
             currentSubtitleData = null
             currentGraphVersion = 0L
+            AppLog.i(TAG, "subtitle_trace reset_by_loadVideoInfo cid=$currentCid bvid=$currentBvid")
             loadedPlayerExtrasCid = 0L
             pendingPlayerExtrasCid = 0L
             requestedQualityId = preferredQualityId.takeIf { it > 0 } ?: currentSettings.defaultVideoQualityId
@@ -1035,6 +1036,7 @@ class VideoPlayerViewModel(
         currentSubtitleCueIndex = 0
         _selectedSubtitleIndex.value = -1
         _currentSubtitleText.value = null
+        AppLog.i(TAG, "subtitle_trace reset_by_selectEpisode cid=$currentCid bvid=$currentBvid")
         _interactionModel.value = null
         _interactionHiddenVars.value = null
         interactionEngine.reset()
@@ -1095,6 +1097,7 @@ class VideoPlayerViewModel(
         clearPreloadedPlaybackIfDifferent(currentPlayRequestIdentity(), cancelJob = false)
         loadPlayUrl(preferLastPlayTime = false)
         loadInteractionInfo(edgeId)
+        AppLog.i(TAG, "subtitle_trace reset_by_playInteractionChoice cid=$currentCid bvid=$currentBvid")
         loadVideoSnapshot()
     }
 
@@ -1157,12 +1160,46 @@ class VideoPlayerViewModel(
             currentSubtitleData = null
             currentSubtitleCueIndex = 0
             _currentSubtitleText.value = null
+            AppLog.i(TAG, "subtitle_trace select_off cid=$currentCid bvid=$currentBvid")
             return
         }
-        val subtitle = _subtitles.value.orEmpty().getOrNull(index) ?: return
+        val subtitle = _subtitles.value.orEmpty().getOrNull(index) ?: run {
+            AppLog.w(
+                TAG,
+                "subtitle_trace select_no_track cid=$currentCid bvid=$currentBvid " +
+                    "index=$index size=${_subtitles.value.orEmpty().size}"
+            )
+            return
+        }
+        // [诊断] 记录发起加载时的归属；loadSubtitleData 走网络，期间用户若切到下一视频，
+        // 旧请求返回仍会把旧字幕写回 currentSubtitleData —— 这是切视频字幕串台的最可疑入口。
+        // 同时打印当前全部轨道摘要，用于确认用户点的这个轨道最终来自 detail 还是 playerInfo。
+        val reqCid = currentCid
+        val reqBvid = currentBvid
+        AppLog.i(
+            TAG,
+            "subtitle_trace select_enter cid=$reqCid bvid=$reqBvid index=$index " +
+                "lan=${subtitle.lan} url=${subtitle.subtitleUrl} " +
+                "allTracks=${subtitleTracksSummary(_subtitles.value)}"
+        )
         viewModelScope.launch {
-            currentSubtitleData = loadSubtitleData(subtitle)
+            val loaded = loadSubtitleData(subtitle)
+            if (reqCid != currentCid || reqBvid != currentBvid) {
+                // [诊断] 命中竞态：请求期间已切到别的视频，但下方仍会把旧字幕写回 currentSubtitleData。
+                AppLog.w(
+                    TAG,
+                    "subtitle_trace RACE_DETECTED reqCid=$reqCid reqBvid=$reqBvid " +
+                        "curCid=$currentCid curBvid=$currentBvid index=$index " +
+                        "cues=${loaded?.body?.size ?: 0}"
+                )
+            }
+            currentSubtitleData = loaded
             currentSubtitleCueIndex = 0
+            AppLog.i(
+                TAG,
+                "subtitle_trace data_set cid=$currentCid bvid=$currentBvid " +
+                    "index=$index cues=${loaded?.body?.size ?: 0}"
+            )
             updateSubtitleText(_currentPosition.value ?: 0L)
         }
     }
@@ -1661,6 +1698,7 @@ class VideoPlayerViewModel(
         _currentCidLive.value = currentCid
         _relatedVideos.value = emptyList()
         _subtitles.value = emptyList()
+        AppLog.i(TAG, "subtitle_trace tracks_clear_source=pgc cid=$currentCid bvid=$currentBvid")
 
 
         if (currentCid <= 0L) {
@@ -1804,9 +1842,18 @@ class VideoPlayerViewModel(
                             it.cid == detailIdentity.cid || (it.bvid.isNotBlank() && it.bvid == detailIdentity.bvid)
                         }.takeIf { it >= 0 } ?: 0
                         val related = detail.related.orEmpty()
-                        _subtitles.value = detail.view?.subtitle?.list
+                        val detailSubtitleTracks = detail.view?.subtitle?.list
                             ?.map { it.toSubtitleInfoModel() }
                             .orEmpty()
+                        _subtitles.value = detailSubtitleTracks
+                        AppLog.i(
+                            TAG,
+                            "subtitle_trace tracks_set_source=detail_hot cid=$currentCid bvid=$currentBvid " +
+                                "detailCid=${detail.view?.cid} detailBvid=${detail.view?.bvid} " +
+                                "count=${detailSubtitleTracks.size} " +
+                                "stale=${detailIdentity.cid != currentCid} " +
+                                "tracks=${subtitleTracksSummary(detailSubtitleTracks)}"
+                        )
                         if (related.isNotEmpty()) {
                             _relatedVideos.value = related
                         }
@@ -1883,9 +1930,18 @@ class VideoPlayerViewModel(
                             it.cid == detailIdentity.cid || (it.bvid.isNotBlank() && it.bvid == detailIdentity.bvid)
                         }.takeIf { it >= 0 } ?: 0
                         val related = detail.related.orEmpty()
-                        _subtitles.value = detail.view?.subtitle?.list
+                        val detailSubtitleTracks = detail.view?.subtitle?.list
                             ?.map { it.toSubtitleInfoModel() }
                             .orEmpty()
+                        _subtitles.value = detailSubtitleTracks
+                        AppLog.i(
+                            TAG,
+                            "subtitle_trace tracks_set_source=detail_cached cid=$currentCid bvid=$currentBvid " +
+                                "detailCid=${detail.view?.cid} detailBvid=${detail.view?.bvid} " +
+                                "count=${detailSubtitleTracks.size} " +
+                                "stale=${detailIdentity.cid != currentCid} " +
+                                "tracks=${subtitleTracksSummary(detailSubtitleTracks)}"
+                        )
                         if (related.isNotEmpty()) {
                             _relatedVideos.value = related
                         }
@@ -1988,9 +2044,17 @@ class VideoPlayerViewModel(
         }
 
         val related = detail.related.orEmpty()
-        _subtitles.value = detail.view?.subtitle?.list
+        val detailSubtitleTracks = detail.view?.subtitle?.list
             ?.map { it.toSubtitleInfoModel() }
             .orEmpty()
+        _subtitles.value = detailSubtitleTracks
+        AppLog.i(
+            TAG,
+            "subtitle_trace tracks_set_source=detail_sync cid=$currentCid bvid=$currentBvid " +
+                "detailCid=${detail.view?.cid} detailBvid=${detail.view?.bvid} " +
+                "count=${detailSubtitleTracks.size} " +
+                "tracks=${subtitleTracksSummary(detailSubtitleTracks)}"
+        )
         maybeAutoSelectSubtitle()
         val resolvedIdentity = currentPlayRequestIdentity()
         val canReuse = preparedPlaybackDeferred != null &&
@@ -2662,11 +2726,35 @@ class VideoPlayerViewModel(
                 // 都属于上一个视频，整体丢弃，避免字幕/蒙版/互动数据串台。
                 // 与下方 snapshot 分支的陈旧性校验保持一致。
                 if (currentCid != cid || currentAid != aid || currentBvid != bvid) {
+                    AppLog.w(
+                        TAG,
+                        "subtitle_trace tracks_drop_source=playerInfo_stale " +
+                            "reqCid=$cid reqBvid=$bvid curCid=$currentCid curBvid=$currentBvid"
+                    )
                     return@let
                 }
                 val subtitleTracks = wrapper.subtitle?.subtitles.orEmpty()
                 if (subtitleTracks.isNotEmpty()) {
+                    // [诊断] playerInfo 覆盖前，对比 detail 之前给的轨道与 playerInfo 现在给的轨道。
+                    // overwrite=true 表示 detail 已给出非空轨道、即将被 playerInfo 覆盖 ——
+                    // 复现"字幕串台"时重点看这里：若 detailTracks 与 playerInfoTracks 的 url 尾段对不上，
+                    // 说明 playerInfo 返回了别的内容（服务端串台），覆盖导致用户拿到错的字幕。
+                    val beforeOverwrite = _subtitles.value.orEmpty()
+                    val overwrite = beforeOverwrite.isNotEmpty()
+                    AppLog.i(
+                        TAG,
+                        "subtitle_trace tracks_compare cid=$currentCid bvid=$currentBvid " +
+                            "overwrite=$overwrite detailCount=${beforeOverwrite.size} " +
+                            "playerInfoCount=${subtitleTracks.size} " +
+                            "detailTracks=${subtitleTracksSummary(beforeOverwrite)} " +
+                            "playerInfoTracks=${subtitleTracksSummary(subtitleTracks)}"
+                    )
                     _subtitles.value = subtitleTracks
+                    AppLog.i(
+                        TAG,
+                        "subtitle_trace tracks_set_source=playerInfo cid=$currentCid bvid=$currentBvid " +
+                            "count=${subtitleTracks.size}"
+                    )
                     maybeAutoSelectSubtitle()
                 }
                 val interaction = wrapper.interaction
@@ -2811,7 +2899,11 @@ class VideoPlayerViewModel(
     private suspend fun loadSubtitleData(track: SubtitleInfoModel): SubtitleData? =
         withContext(Dispatchers.IO) {
             val normalizedUrl = normalizeUrl(track.subtitleUrl)
-            subtitleCache[normalizedUrl]?.let { return@withContext it }
+            subtitleCache[normalizedUrl]?.let {
+                AppLog.i(TAG, "subtitle_trace load_cache_hit url=$normalizedUrl cues=${it.body?.size ?: 0}")
+                return@withContext it
+            }
+            AppLog.i(TAG, "subtitle_trace load_net_start url=$normalizedUrl lan=${track.lan}")
 
             runCatching {
                 val request = Request.Builder()
@@ -2833,18 +2925,35 @@ class VideoPlayerViewModel(
                 }
             }.getOrNull()?.also {
                 subtitleCache[normalizedUrl] = it
+                // [诊断] 打印首条 cue 的内容，用于判断接口返回的字幕文本是否属于当前视频。
+                // 如果这里的内容就已经是别的视频的台词，说明是服务端返回错（URL/cid 都对但内容错），
+                // 客户端无法修复；如果内容对但用户仍觉错，则疑点在时间轴/显示环节。
+                val firstCue = it.body?.firstOrNull()
+                AppLog.i(
+                    TAG,
+                    "subtitle_trace load_net_ok url=$normalizedUrl cues=${it.body?.size ?: 0} " +
+                        "firstFrom=${firstCue?.from} firstTo=${firstCue?.to} " +
+                        "firstText=${firstCue?.content?.replace('\n', ' ')?.take(40)}"
+                )
+            }.also {
+                if (it == null) {
+                    AppLog.w(TAG, "subtitle_trace load_net_empty url=$normalizedUrl lan=${track.lan}")
+                }
             }
         }
 
     private fun maybeAutoSelectSubtitle() {
         if (!shouldAutoSelectSubtitle) {
+            AppLog.i(TAG, "subtitle_trace auto_select_skip reason=disabled cid=$currentCid bvid=$currentBvid")
             return
         }
         val subtitles = _subtitles.value.orEmpty()
         if (subtitles.isEmpty()) {
+            AppLog.i(TAG, "subtitle_trace auto_select_skip reason=empty cid=$currentCid bvid=$currentBvid")
             return
         }
         shouldAutoSelectSubtitle = false
+        AppLog.i(TAG, "subtitle_trace auto_select cid=$currentCid bvid=$currentBvid size=${subtitles.size}")
         selectSubtitle(0)
     }
 
@@ -2860,6 +2969,17 @@ class VideoPlayerViewModel(
         val positionSeconds = positionMs / 1000f
         val cue = data.findCueAt(positionSeconds)
         val subtitleText = cue?.content
+        // [诊断] 命中切换时打印位置 + cue 区间 + 内容,确认时间轴是否对齐。
+        // 若 from/to 与 position 相差很远,说明时间轴错位(疑点在 findCueAt 或服务端时间轴);
+        // 若区间对齐但内容不符当前画面,疑点在服务端返回的字幕文本本身。
+        if (cue != null && _currentSubtitleText.value != subtitleText) {
+            AppLog.i(
+                TAG,
+                "subtitle_trace show posMs=$positionMs cueFrom=${cue.from} cueTo=${cue.to} " +
+                    "deltaSec=${(positionSeconds - cue.from)} cid=$currentCid " +
+                    "text=${cue.content.replace('\n', ' ').take(40)}"
+            )
+        }
         if (_currentSubtitleText.value != subtitleText) {
             _currentSubtitleText.value = subtitleText
         }
@@ -2890,6 +3010,17 @@ class VideoPlayerViewModel(
             rawUrl.startsWith("//") -> "https:$rawUrl"
             rawUrl.startsWith("http://") || rawUrl.startsWith("https://") -> rawUrl
             else -> "https://$rawUrl"
+        }
+    }
+
+    // [诊断] 把字幕轨道列表压缩成 "lan=url尾段" 的短摘要，便于在日志里对照
+    // detail 与 playerInfo 两个接口返回的轨道是否一致、是否串台。
+    // url 只取最后一个 '/' 之后的部分并截断，避免日志被超长 url 淹没。
+    private fun subtitleTracksSummary(tracks: List<SubtitleInfoModel>?): String {
+        if (tracks.isNullOrEmpty()) return "[]"
+        return tracks.joinToString(prefix = "[", postfix = "]", separator = ",") { t ->
+            val tail = t.subtitleUrl.substringAfterLast('/').take(32)
+            "${t.lan}=$tail"
         }
     }
 
