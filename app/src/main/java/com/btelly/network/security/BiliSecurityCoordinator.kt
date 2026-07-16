@@ -87,18 +87,49 @@ class BiliSecurityCoordinator(
     suspend fun ensureHealthyForPlay() {
         ensureHealthyMutex.withLock {
             val now = System.currentTimeMillis()
-            if (now - lastEnsureHealthyForPlayMs < 60_000L) return@withLock
+            val elapsedSinceLastCheckMs = now - lastEnsureHealthyForPlayMs
+            if (elapsedSinceLastCheckMs < 60_000L) {
+                AppLog.d(tag, "playback_diag security_check skipped ageMs=$elapsedSinceLastCheckMs")
+                return@withLock
+            }
 
+            val checkStartedAtMs = System.currentTimeMillis()
+            AppLog.i(tag, "playback_diag security_check started ageMs=$elapsedSinceLastCheckMs")
             coroutineScope {
-                launch { ensureWebFingerprintCookies() }
-                launch { ensureBiliTicket() }
-                launch { ensureBuvidActiveOncePerDay() }
+                launch {
+                    val startedAtMs = System.currentTimeMillis()
+                    ensureWebFingerprintCookies()
+                    AppLog.i(
+                        tag,
+                        "playback_diag security_check component=fingerprint durationMs=${System.currentTimeMillis() - startedAtMs}"
+                    )
+                }
+                launch {
+                    val startedAtMs = System.currentTimeMillis()
+                    ensureBiliTicket()
+                    AppLog.i(
+                        tag,
+                        "playback_diag security_check component=ticket durationMs=${System.currentTimeMillis() - startedAtMs}"
+                    )
+                }
+                launch {
+                    val startedAtMs = System.currentTimeMillis()
+                    ensureBuvidActiveOncePerDay()
+                    AppLog.i(
+                        tag,
+                        "playback_diag security_check component=buvid_active durationMs=${System.currentTimeMillis() - startedAtMs}"
+                    )
+                }
             }
             securityScope.launch {
                 refreshCookieIfServerSaysNeeded()
             }
 
             lastEnsureHealthyForPlayMs = System.currentTimeMillis()
+            AppLog.i(
+                tag,
+                "playback_diag security_check ready durationMs=${lastEnsureHealthyForPlayMs - checkStartedAtMs}"
+            )
         }
     }
 

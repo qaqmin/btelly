@@ -72,8 +72,13 @@ class VideoPlayerPlayInfoGateway(
         allowWbi: Boolean = true,
         seasonId: Long = 0L
     ): PlayInfoResult? {
+        val requestStartedAtMs = SystemClock.elapsedRealtime()
         if (epId != null && epId > 0L) {
-            return requestPgcPlayInfo(
+            AppLog.i(
+                logTag,
+                "playback_diag playinfo started type=pgc cid=$cid epId=$epId qn=$qualityId"
+            )
+            val result = requestPgcPlayInfo(
                 aid = aid,
                 bvid = bvid,
                 cid = cid,
@@ -83,12 +88,27 @@ class VideoPlayerPlayInfoGateway(
                 fourk = fourk,
                 seasonId = seasonId
             )
+            AppLog.i(
+                logTag,
+                "playback_diag playinfo finished type=pgc cid=$cid totalMs=${SystemClock.elapsedRealtime() - requestStartedAtMs} " +
+                    "code=${result?.code ?: "none"} playable=${hasPlayableMedia(result?.data)}"
+            )
+            return result
         }
 
         val resolvedBvid = bvid?.takeIf { it.isNotBlank() }
         if (resolvedBvid == null && (aid ?: 0L) <= 0L) return null
 
+        AppLog.i(
+            logTag,
+            "playback_diag playinfo started cid=$cid qn=$qualityId hasBvid=${resolvedBvid != null}"
+        )
+        val securityStartedAtMs = SystemClock.elapsedRealtime()
         securityGateway.ensureHealthyForPlay()
+        AppLog.i(
+            logTag,
+            "playback_diag playinfo security_ready cid=$cid durationMs=${SystemClock.elapsedRealtime() - securityStartedAtMs}"
+        )
 
         val primaryResult = requestPrimaryPlayInfo(
             aid = aid,
@@ -101,6 +121,10 @@ class VideoPlayerPlayInfoGateway(
         )
 
         if (primaryResult != null && hasPlayableMedia(primaryResult.data)) {
+            AppLog.i(
+                logTag,
+                "playback_diag playinfo ready cid=$cid source=primary totalMs=${SystemClock.elapsedRealtime() - requestStartedAtMs}"
+            )
             return primaryResult
         }
 
@@ -154,14 +178,28 @@ class VideoPlayerPlayInfoGateway(
         // 并行发起 WBI 和 Normal 请求，可播放结果先到先用，避免慢 WBI 拖住冷启动。
         return coroutineScope {
             val wbiDeferred = async<PlayInfoResult?> {
-                runCatching {
+                val startedAtMs = SystemClock.elapsedRealtime()
+                val result = runCatching {
                     requestWbiPlayInfo(aid, bvid, cid, qualityId, fnval, fourk)
                 }.getOrNull()
+                AppLog.i(
+                    logTag,
+                    "playback_diag playinfo_attempt source=wbi cid=$cid durationMs=${SystemClock.elapsedRealtime() - startedAtMs} " +
+                        "code=${result?.code ?: "none"} playable=${hasPlayableMedia(result?.data)}"
+                )
+                result
             }
             val normalDeferred = async<PlayInfoResult?> {
-                runCatching {
+                val startedAtMs = SystemClock.elapsedRealtime()
+                val result = runCatching {
                     requestNormalPlayInfo(aid, bvid, cid, qualityId, fnval, fourk)
                 }.getOrNull()
+                AppLog.i(
+                    logTag,
+                    "playback_diag playinfo_attempt source=normal cid=$cid durationMs=${SystemClock.elapsedRealtime() - startedAtMs} " +
+                        "code=${result?.code ?: "none"} playable=${hasPlayableMedia(result?.data)}"
+                )
+                result
             }
 
             var wbiResult: PlayInfoResult? = null
@@ -180,6 +218,10 @@ class VideoPlayerPlayInfoGateway(
                     "normal" -> normalResult = result
                 }
                 if (result != null && hasPlayableMedia(result.data)) {
+                    AppLog.i(
+                        logTag,
+                        "playback_diag playinfo_attempt winner=$source cid=$cid code=${result.code}"
+                    )
                     pending.forEach { it.second.cancel() }
                     return@coroutineScope result
                 }

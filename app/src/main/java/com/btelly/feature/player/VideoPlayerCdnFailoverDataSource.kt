@@ -1,9 +1,11 @@
 package com.btelly.feature.player
 
 import android.net.Uri
+import android.os.SystemClock
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
+import com.btelly.core.common.log.AppLog
 import java.io.IOException
 
 internal class VideoPlayerCdnFailoverState(
@@ -11,6 +13,7 @@ internal class VideoPlayerCdnFailoverState(
 ) {
     @Volatile
     private var preferredIndex: Int = 0
+    private var diagnosticOpenCount: Int = 0
 
     @Synchronized
     fun preferredIndex(): Int {
@@ -23,6 +26,9 @@ internal class VideoPlayerCdnFailoverState(
         val lastIndex = candidates.lastIndex.coerceAtLeast(0)
         preferredIndex = index.coerceIn(0, lastIndex)
     }
+
+    @Synchronized
+    fun nextDiagnosticOpenCount(): Int = ++diagnosticOpenCount
 }
 
 internal class VideoPlayerCdnFailoverDataSourceFactory(
@@ -58,6 +64,16 @@ internal class VideoPlayerCdnFailoverDataSource(
         }
 
         val startIndex = state.preferredIndex()
+        val openCount = state.nextDiagnosticOpenCount()
+        val logOpen = openCount <= 2
+        val openStartedAtMs = SystemClock.elapsedRealtime()
+        if (logOpen) {
+            AppLog.i(
+                "PlaybackCdn",
+                "playback_diag cdn_open started sequence=$openCount candidates=${candidates.size} " +
+                    "startIndex=$startIndex position=${dataSpec.position}"
+            )
+        }
         var lastException: IOException? = null
         for (attempt in candidates.indices) {
             val index = (startIndex + attempt) % candidates.size
@@ -71,10 +87,22 @@ internal class VideoPlayerCdnFailoverDataSource(
                 val openedLength = upstreamSource.open(candidateSpec)
                 upstream = upstreamSource
                 state.markPreferred(index)
+                if (logOpen) {
+                    AppLog.i(
+                        "PlaybackCdn",
+                        "playback_diag cdn_open ready sequence=$openCount attempt=${attempt + 1} host=${candidateUri.host.orEmpty()} " +
+                            "durationMs=${SystemClock.elapsedRealtime() - openStartedAtMs}"
+                    )
+                }
                 return openedLength
             } catch (error: IOException) {
                 runCatching { upstreamSource.close() }
                 lastException = error
+                AppLog.w(
+                    "PlaybackCdn",
+                    "playback_diag cdn_open failed sequence=$openCount attempt=${attempt + 1} host=${candidateUri.host.orEmpty()} " +
+                        "durationMs=${SystemClock.elapsedRealtime() - openStartedAtMs} error=${error.javaClass.simpleName}:${error.message}"
+                )
             }
         }
 
