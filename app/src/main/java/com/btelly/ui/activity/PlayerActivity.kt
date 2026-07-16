@@ -394,8 +394,10 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             decoderName: String,
             elapsedInitializationMs: Long
         ) {
+            // 仅记录首次初始化时刻用于 render 统计。解码器可能因 reattach/硬解探测被重建,
+            // 若每次都覆盖 videoDecoderInitMs 会导致 render = 首帧 - 偏早时刻 = 虚高。
             val trace = playerPerfTrace
-            if (trace != null) {
+            if (trace != null && trace.videoDecoderInitMs == 0L) {
                 trace.videoDecoderInitMs = System.currentTimeMillis()
                 AppLog.i("VideoPlayerViewModel", "PLAYER_PERF [C] video decoder ($decoderName) hw=${elapsedInitializationMs}ms +${trace.videoDecoderInitMs - trace.prepareMs}ms")
             }
@@ -902,7 +904,12 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                     val buffer = if (trace.firstLoadStartedMs > 0 && trace.firstLoadCompletedMs > 0) trace.firstLoadCompletedMs - trace.firstLoadStartedMs else -1
                     val decoder = if (trace.firstLoadCompletedMs > 0 && trace.videoDecoderInitMs > 0) trace.videoDecoderInitMs - trace.firstLoadCompletedMs else -1
                     val render = if (trace.videoDecoderInitMs > 0) trace.firstFrameMs - trace.videoDecoderInitMs else -1
-                    AppLog.i("VideoPlayerViewModel", "PLAYER_PERF breakdown: total=${total}ms cdn=${cdn}ms buffer=${buffer}ms decoder=${decoder}ms render=${render}ms")
+                    // endToEnd = card_click→首帧(基于 elapsedRealtime，与 PLAYBACK_TRACE 同源)。
+                    // 它与 total(prepare→首帧) 的差值即为 card_click→prepare 的盲区(playinfo+媒源构建)。
+                    val endToEndMs = if (activeStartupTraceStartElapsedMs > 0L) {
+                        SystemClock.elapsedRealtime() - activeStartupTraceStartElapsedMs
+                    } else -1L
+                    AppLog.i("VideoPlayerViewModel", "PLAYER_PERF breakdown: total=${total}ms cdn=${cdn}ms buffer=${buffer}ms decoder=${decoder}ms render=${render}ms endToEnd=${endToEndMs}ms blindSpot=${endToEndMs - total}ms")
                     playerPerfTrace = null
                 }
                 if (!activeStartupFirstFrameLogged) {
@@ -1162,6 +1169,13 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 activeStartupFirstFrameLogged = false
                 pendingRelatedVideosBeforeFirstFrame = null
                 playerPerfTrace = PlayerPerfTrace(prepareMs = System.currentTimeMillis())
+                // 锚定 breakdown 起点(prepare)相对 card_click 的偏移，暴露 card_click→prepare 的盲区。
+                // 该区间含 playinfo 网络请求 + DASH 解析 + 媒源构建，是 breakdown total 未覆盖的部分。
+                PlaybackStartupTrace.log(
+                    traceId = activeStartupTraceId,
+                    startElapsedMs = activeStartupTraceStartElapsedMs,
+                    step = "prepare_cold_start"
+                )
                 suppressPlaybackEnvironmentSync = true
                 try {
                     currentPlayer.playWhenReady = false

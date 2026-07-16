@@ -141,8 +141,16 @@ class BiliSecurityCoordinator(
     suspend fun prewarmWebSession(forceUaRefresh: Boolean = false): Boolean {
         return prewarmMutex.withLock {
             val now = System.currentTimeMillis()
+            // 去重条件：距上次 prewarm < 5min，或距上次 ensureHealthyForPlay < 5min。
+            // 后者覆盖"UGC 首播只调 ensureHealthyForPlay 不调 prewarm，导致会话首次 PGC
+            // 因 lastPrewarmTimestampMs=0 而冷启动 500ms+"的场景——ensureHealthy 已完成
+            // fingerprint/ticket/buvid 检查，baseline cookie 此时就绪，prewarm 的
+            // mainpage+nav 请求此时是冗余的，可直接跳过。wbi key 有独立 24h 去重，
+            // 不依赖 prewarm 的 nav 调用。
+            val recentlyPrewarmed = now - lastPrewarmTimestampMs < PREWARM_INTERVAL_MS
+            val recentlyHealthChecked = now - lastEnsureHealthyForPlayMs < PREWARM_INTERVAL_MS
             if (!forceUaRefresh &&
-                now - lastPrewarmTimestampMs < PREWARM_INTERVAL_MS &&
+                (recentlyPrewarmed || recentlyHealthChecked) &&
                 hasBaselineIdentityCookies()
             ) {
                 return@withLock true
