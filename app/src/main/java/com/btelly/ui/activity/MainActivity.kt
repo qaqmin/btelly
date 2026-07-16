@@ -22,6 +22,7 @@ import com.btelly.R
 import com.btelly.BTellyApplication
 import com.btelly.databinding.ActivityMainBinding
 import com.btelly.event.AppEventHub
+import com.btelly.network.NetworkManager
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.UserRepository
 import com.btelly.core.ui.base.BaseActivity
@@ -605,8 +606,19 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
             .addTask("imageCdnPrewarm", AppStartupScheduler.Phase.DELAYED, delayMs = 2500L) {
                 ImageLoader.prewarmCdn()
             }
-            .addTask("playerPrewarm", AppStartupScheduler.Phase.DELAYED, delayMs = 3500L) {
+            // player 与 security 预热放 IDLE 阶段：首页 firstPreDraw 后的空闲间隙立即触发，
+            // 远早于 DELAYED 3-3.5s。实测用户常在启动后 3s 左右点视频，DELAYED 3s/3.5s 会
+            // 导致预热赶不上首播（security 仍串行阻塞 playinfo ~120ms，player 仍冷建 ~56ms）。
+            // IDLE 在主线程空闲时跑，不抢首页渲染。
+            .addTask("playerPrewarm", AppStartupScheduler.Phase.IDLE) {
                 PlayerInstancePool.prewarm(this@MainActivity)
+            }
+            .addTask("securityPrewarm", AppStartupScheduler.Phase.IDLE) {
+                lifecycleScope.launch {
+                    withContext(Dispatchers.IO) {
+                        runCatching { NetworkManager.ensureHealthyForPlay() }
+                    }
+                }
             }
             .addTask("wbiKeys", AppStartupScheduler.Phase.IDLE) {
                 lifecycleScope.launch {
