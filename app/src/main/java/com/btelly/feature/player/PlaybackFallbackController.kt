@@ -73,6 +73,7 @@ internal class PlaybackFallbackController(
         val streamFallbackPlan: VideoPlayerStreamResolver.StreamFallbackPlan?
         val fallbackRouteIndex: Int
         val fallbackCdnIndex: Int
+        val cdnStates: List<VideoPlayerCdnFailoverState>
 
         // ===== 共享状态写（提议新值，由 VM 主线程落地） =====
         fun onDashSessionUpdated(session: VideoPlaybackSession?)
@@ -81,6 +82,7 @@ internal class PlaybackFallbackController(
             routeIndex: Int,
             cdnIndex: Int
         )
+        fun onCdnStatesUpdated(states: List<VideoPlayerCdnFailoverState>)
 
         // ===== VM 私有方法转发 =====
         fun currentPlayRequestIdentity(): VmPlayRequestIdentity?
@@ -178,13 +180,15 @@ internal class PlaybackFallbackController(
     /** 卡顿回调入口，返回是否已派发新 fallback。 */
     fun handlePlaybackStall(positionMs: Long, stalledMs: Long): Boolean {
         lastPlaybackPositionMs = positionMs.coerceAtLeast(0L)
+        // 卡顿降权：把当前正在用的 CDN host 记一条惩罚性 TTFB，让后续视频的 sortUrlsByLatency
+        // 把它排到 candidates 末尾，避免重复踩坑。借助 CdnLatencyProfile 的 5 条淘汰机制自动稀释，
+        // 一次卡顿不会判死刑。放在 fallback 重建之前，确保本次重建的 state 也是基于降权后的排序。
+        context.cdnStates.forEach { it.penalizeCurrentHost() }
         val handled =
             trySwitchToCodec(VideoCodecEnum.AVC, lastPlaybackPositionMs, reason = "stall_${stalledMs}ms_prefer_avc") ||
                 tryNextCdnInCurrentCodec(lastPlaybackPositionMs, reason = "stall_${stalledMs}ms") ||
                 tryRefreshPlayInfo(reason = "stall_${stalledMs}ms_refresh") ||
                 trySwitchCodec(lastPlaybackPositionMs, reason = "stall_${stalledMs}ms_codec_switch")
-        if (handled) {
-        }
         return handled
     }
 
@@ -535,6 +539,7 @@ internal class PlaybackFallbackController(
                 durationMs = plan.durationMs,
                 minBufferTimeMs = plan.minBufferTimeMs
             )
+            context.onCdnStatesUpdated(selection.cdnFailoverStates)
             context.clearError()
             context.emitPlaybackRequest(VmPlaybackRequest(
                 mediaSource = selection.mediaSource,
@@ -574,9 +579,11 @@ internal class PlaybackFallbackController(
         }
         fallbackAttemptCount += 1
         try {
-            val mediaSource = dashMediaSourceFactory.createMediaSource(route)
-            // 原子写：写 currentDashSession（经回调）+ 写 selectedCodec + 发 PlaybackRequest。
+            val sourceWithState = dashMediaSourceFactory.createMediaSourceWithCdnState(route)
+            val mediaSource = sourceWithState.mediaSource
+            // 原子写：写 currentDashSession（经回调）+ 写 selectedCodec + 写 cdnStates + 发 PlaybackRequest。
             context.setSelectedCodec(route.codec)
+            context.onCdnStatesUpdated(sourceWithState.cdnFailoverStates)
             context.onDashSessionUpdated(session.copy(
                 currentRoute = route,
                 actualCodec = route.codec,

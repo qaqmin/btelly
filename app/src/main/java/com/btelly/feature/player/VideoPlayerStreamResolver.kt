@@ -44,7 +44,8 @@ internal class VideoPlayerStreamResolver(
     data class MediaSourceSelection(
         val mediaSource: MediaSource,
         val availableCodecs: List<VideoCodecEnum>,
-        val selectedCodec: VideoCodecEnum?
+        val selectedCodec: VideoCodecEnum?,
+        val cdnFailoverStates: List<VideoPlayerCdnFailoverState> = emptyList()
     )
 
     data class RepresentationDescriptor(
@@ -339,24 +340,27 @@ internal class VideoPlayerStreamResolver(
                     )
                 )
             }.orEmpty()
-            val mediaSource = createMediaSource(
+            val sourceWithState = createMediaSource(
                 videoUrls = videoUrls,
                 audioUrls = audioUrls,
                 videoMimeType = selectedVideo.realMimeType,
                 audioMimeType = selectedAudio?.realMimeType.orEmpty()
             )
             return MediaSourceSelection(
-                mediaSource = mediaSource,
+                mediaSource = sourceWithState.mediaSource,
                 availableCodecs = availableCodecs,
-                selectedCodec = resolvedCodec
+                selectedCodec = resolvedCodec,
+                cdnFailoverStates = sourceWithState.cdnFailoverStates
             )
         }
 
         val durl = playInfo.durl?.firstOrNull()?.url ?: return null
+        val progressiveSource = createProgressiveSource(listOf(durl), "video/mp4")
         return MediaSourceSelection(
-            mediaSource = createProgressiveSource(listOf(durl), "video/mp4"),
+            mediaSource = progressiveSource.mediaSource,
             availableCodecs = emptyList(),
-            selectedCodec = null
+            selectedCodec = null,
+            cdnFailoverStates = progressiveSource.cdnFailoverStates
         )
     }
 
@@ -417,16 +421,17 @@ internal class VideoPlayerStreamResolver(
         durationMs: Long,
         minBufferTimeMs: Long
     ): MediaSourceSelection {
-        val mediaSource = createMediaSource(
+        val sourceWithState = createMediaSource(
             videoUrls = CdnLatencyProfile.sortUrlsByLatency(prioritizeUrl(route.videoUrls, videoUrl)),
             audioUrls = CdnLatencyProfile.sortUrlsByLatency(prioritizeUrl(route.audioUrls, audioUrl)),
             videoMimeType = route.videoDescriptor.mimeType,
             audioMimeType = route.audioDescriptor?.mimeType.orEmpty()
         )
         return MediaSourceSelection(
-            mediaSource = mediaSource,
+            mediaSource = sourceWithState.mediaSource,
             availableCodecs = availableCodecs,
-            selectedCodec = selectedCodec
+            selectedCodec = selectedCodec,
+            cdnFailoverStates = sourceWithState.cdnFailoverStates
         )
     }
 
@@ -631,8 +636,7 @@ internal class VideoPlayerStreamResolver(
         audioUrls: List<String>,
         videoMimeType: String,
         audioMimeType: String
-    ): MediaSource {
-        val buildStartMs = System.currentTimeMillis()
+    ): MediaSourceWithCdnState {
         val normalizedVideoUrls = videoUrls
             .map(urlNormalizer)
             .filter { it.isNotBlank() }
@@ -641,13 +645,12 @@ internal class VideoPlayerStreamResolver(
             .map(urlNormalizer)
             .filter { it.isNotBlank() }
             .distinct()
-        val source = createProgressivePairSource(
+        return createProgressivePairSource(
             videoUrls = normalizedVideoUrls,
             audioUrls = normalizedAudioUrls,
             videoMimeType = videoMimeType.ifBlank { "video/mp4" },
             audioMimeType = audioMimeType.ifBlank { "audio/mp4" }
         )
-        return source
     }
 
     private fun createProgressivePairSource(
@@ -655,46 +658,65 @@ internal class VideoPlayerStreamResolver(
         audioUrls: List<String>,
         videoMimeType: String,
         audioMimeType: String
-    ): MediaSource {
+    ): MediaSourceWithCdnState {
         val videoSource = createProgressiveSource(videoUrls, videoMimeType)
         val audioSource = audioUrls
             .takeIf { it.isNotEmpty() }
             ?.let { createProgressiveSource(it, audioMimeType) }
-        return if (audioSource != null) {
-            MergingMediaSource(true, videoSource, audioSource)
+        val mediaSource = if (audioSource != null) {
+            MergingMediaSource(true, videoSource.mediaSource, audioSource.mediaSource)
         } else {
-            videoSource
+            videoSource.mediaSource
         }
+        return MediaSourceWithCdnState(
+            mediaSource = mediaSource,
+            cdnFailoverStates = buildList {
+                addAll(videoSource.cdnFailoverStates)
+                addAll(audioSource?.cdnFailoverStates.orEmpty())
+            }
+        )
     }
 
-    private fun createProgressiveSource(urls: List<String>, mimeType: String): MediaSource {
+    private fun createProgressiveSource(urls: List<String>, mimeType: String): MediaSourceWithCdnState {
         val primaryUrl = urls.firstOrNull()
             ?: error("No media url candidates available")
-        val sourceFactory = createCandidateAwareFactory(urls)
+        val (sourceFactory, state) = createCandidateAwareFactory(urls)
         val mediaItem = MediaItem.Builder()
             .setUri(primaryUrl)
             .setMimeType(mimeType.takeIf { it.isNotBlank() })
             .build()
-        return ProgressiveMediaSource.Factory(sourceFactory)
+        val mediaSource = ProgressiveMediaSource.Factory(sourceFactory)
             .setLoadErrorHandlingPolicy(loadErrorPolicy)
             .createMediaSource(mediaItem)
+        return MediaSourceWithCdnState(
+            mediaSource = mediaSource,
+            cdnFailoverStates = listOfNotNull(state)
+        )
     }
 
-    private fun createCandidateAwareFactory(urls: List<String>): DataSource.Factory {
+    private fun createCandidateAwareFactory(urls: List<String>): Pair<DataSource.Factory, VideoPlayerCdnFailoverState?> {
         val candidates = urls
             .map(urlNormalizer)
             .filter { it.isNotBlank() }
             .distinct()
         if (candidates.size <= 1) {
-            return dataSourceFactory
+            return dataSourceFactory to null
         }
+        val state = VideoPlayerCdnFailoverState(candidates = candidates.map(Uri::parse))
         return VideoPlayerCdnFailoverDataSourceFactory(
             upstreamFactory = dataSourceFactory,
-            state = VideoPlayerCdnFailoverState(
-                candidates = candidates.map(Uri::parse)
-            )
-        )
+            state = state
+        ) to state
     }
+
+    /**
+     * createMediaSource 的带 CDN state 返回版本：把本次创建的 failover state 一并吐出，
+     * 供外层在卡顿时调用 penalizeCurrentHost 降权。
+     */
+    data class MediaSourceWithCdnState(
+        val mediaSource: MediaSource,
+        val cdnFailoverStates: List<VideoPlayerCdnFailoverState>
+    )
 
     private fun prioritizeUrl(urls: List<String>, preferredUrl: String?): List<String> {
         val normalizedUrls = urls

@@ -29,6 +29,23 @@ internal class VideoPlayerCdnFailoverState(
 
     @Synchronized
     fun nextDiagnosticOpenCount(): Int = ++diagnosticOpenCount
+
+    /**
+     * 卡顿降权：把当前正在用的 CDN host 记一条惩罚性 TTFB 到延迟画像。
+     * 借助 CdnLatencyProfile "每 host 保留最近 5 条" 的淘汰机制自动稀释——
+     * 一次卡顿只占 1/5，后续正常 open 会把均值拉回，不会判死刑。
+     */
+    @Synchronized
+    fun penalizeCurrentHost() {
+        val index = preferredIndex()
+        val url = candidates.getOrNull(index)?.toString() ?: return
+        CdnLatencyProfile.recordTtfb(url, PENALTY_TTFB_MS)
+    }
+
+    companion object {
+        // 远大于正常 TTFB(~200ms)，足以把卡顿过的 host 排到 candidates 末尾。
+        private const val PENALTY_TTFB_MS = 10_000L
+    }
 }
 
 internal class VideoPlayerCdnFailoverDataSourceFactory(
@@ -83,10 +100,19 @@ internal class VideoPlayerCdnFailoverDataSource(
             val candidateSpec = dataSpec.buildUpon()
                 .setUri(candidateUri)
                 .build()
+            // 单候选计时：TTFB 只计本次尝试的 open 耗时，不含前面失败候选的累计时间。
+            val candidateStartedAtMs = SystemClock.elapsedRealtime()
             try {
                 val openedLength = upstreamSource.open(candidateSpec)
                 upstream = upstreamSource
                 state.markPreferred(index)
+                // 采集 TTFB 到延迟画像：open 成功 = 该 CDN 在当前网络下确实可达。
+                // 数据沉淀进 CdnLatencyProfile（进程级单例），跨视频复用，让后续播放的
+                // sortUrlsByLatency 能把实测快的 host 排到 candidates 前面。
+                CdnLatencyProfile.recordTtfb(
+                    candidateUri.toString(),
+                    SystemClock.elapsedRealtime() - candidateStartedAtMs
+                )
                 if (logOpen) {
                     AppLog.i(
                         "PlaybackCdn",

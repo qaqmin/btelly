@@ -288,7 +288,8 @@ class VideoPlayerViewModel(
         val continuationIntentId: String?,
         val requestDurationMs: Long,
         val startupTraceId: String,
-        val startupTraceStartElapsedMs: Long
+        val startupTraceStartElapsedMs: Long,
+        val cdnStates: List<VideoPlayerCdnFailoverState> = emptyList()
     )
 
     private data class PreloadedPlayback(
@@ -610,6 +611,8 @@ class VideoPlayerViewModel(
             get() = this@VideoPlayerViewModel.currentStreamFallbackPlan
         override val fallbackRouteIndex: Int get() = this@VideoPlayerViewModel.fallbackRouteIndex
         override val fallbackCdnIndex: Int get() = this@VideoPlayerViewModel.fallbackCdnIndex
+        override val cdnStates: List<VideoPlayerCdnFailoverState>
+            get() = this@VideoPlayerViewModel.currentCdnStates
 
         // ===== 共享状态写（提议新值，由 VM 主线程落地） =====
         override fun onDashSessionUpdated(session: VideoPlaybackSession?) {
@@ -624,6 +627,10 @@ class VideoPlayerViewModel(
             this@VideoPlayerViewModel.currentStreamFallbackPlan = plan
             this@VideoPlayerViewModel.fallbackRouteIndex = routeIndex
             this@VideoPlayerViewModel.fallbackCdnIndex = cdnIndex
+        }
+
+        override fun onCdnStatesUpdated(states: List<VideoPlayerCdnFailoverState>) {
+            this@VideoPlayerViewModel.currentCdnStates = states
         }
 
         // ===== VM 私有方法转发 =====
@@ -696,6 +703,9 @@ class VideoPlayerViewModel(
     private var currentStreamFallbackPlan: VideoPlayerStreamResolver.StreamFallbackPlan? = null
     private var fallbackRouteIndex: Int = 0
     private var fallbackCdnIndex: Int = 0
+    // 当前激活播放使用的 CDN failover state（video + audio 各一个，最多 2 个）。
+    // 卡顿时由 PlaybackFallbackController 通过 FallbackContext 读取并调 penalizeCurrentHost 降权。
+    private var currentCdnStates: List<VideoPlayerCdnFailoverState> = emptyList()
     private var preloadedPlayback: PreloadedPlayback? = null
     private var preloadingIdentity: PlayRequestIdentity? = null
     private var preloadJob: Job? = null
@@ -1456,7 +1466,9 @@ class VideoPlayerViewModel(
                 val route = dashRoutePlan.routes.first()
                 val sessionExpiryMs = resolveSessionExpiryMs(route)
                 try {
-                    dashMediaSource = dashMediaSourceFactory.createMediaSource(route)
+                    val sourceWithState = dashMediaSourceFactory.createMediaSourceWithCdnState(route)
+                    dashMediaSource = sourceWithState.mediaSource
+                    currentCdnStates = sourceWithState.cdnFailoverStates
                     currentDashSession = VideoPlaybackSession(
                         identity = currentDashSession?.identity ?: SessionIdentity(
                             aid = currentAid,
@@ -1481,14 +1493,21 @@ class VideoPlayerViewModel(
             }
         }
 
-        val mediaSource = dashMediaSource ?: streamResolver.buildMediaSource(
-            playInfo = playInfo,
-            selectedQualityId = selectionSnapshot.selectedQualityId,
-            selectedAudioId = selectionSnapshot.selectedAudioId,
-            selectedCodec = selectionSnapshot.selectedCodec
-        )?.mediaSource ?: run {
+        val progressiveSelection = if (dashMediaSource == null) {
+            streamResolver.buildMediaSource(
+                playInfo = playInfo,
+                selectedQualityId = selectionSnapshot.selectedQualityId,
+                selectedAudioId = selectionSnapshot.selectedAudioId,
+                selectedCodec = selectionSnapshot.selectedCodec
+            )
+        } else null
+        val mediaSource = dashMediaSource ?: progressiveSelection?.mediaSource ?: run {
             _error.value = "当前清晰度/音轨组合不可播放"
             return
+        }
+        // progressive 兜底路径也需要接管 CDN state；DASH 路径已在上面回填。
+        if (progressiveSelection != null) {
+            currentCdnStates = progressiveSelection.cdnFailoverStates
         }
         applySelectionSnapshot(selectionSnapshot)
         _playbackRequest.value = PlaybackRequest(
@@ -2146,6 +2165,7 @@ class VideoPlayerViewModel(
 
             var dashMediaSource: MediaSource? = null
             var preparedDashSession: VideoPlaybackSession? = null
+            var preparedCdnStates: List<VideoPlayerCdnFailoverState> = emptyList()
             if (dashPlaybackEnabled) {
                 val dashRoutePlan = streamResolver.resolveDashRoutePlan(
                     playInfo = initialPlayInfo,
@@ -2163,7 +2183,9 @@ class VideoPlayerViewModel(
 
                     val sessionExpiryMs = resolveSessionExpiryMs(firstRoute)
                     try {
-                        dashMediaSource = dashMediaSourceFactory.createMediaSource(firstRoute)
+                        val sourceWithState = dashMediaSourceFactory.createMediaSourceWithCdnState(firstRoute)
+                        dashMediaSource = sourceWithState.mediaSource
+                        preparedCdnStates = sourceWithState.cdnFailoverStates
                         preparedDashSession = VideoPlaybackSession(
                             identity = SessionIdentity(
                                 aid = identity.aid,
@@ -2186,22 +2208,25 @@ class VideoPlayerViewModel(
                         AppLog.e(TAG, "dashMediaSource:failed cid=${identity.cid} error=${e.message}", e)
                         dashMediaSource = null
                         preparedDashSession = null
+                        preparedCdnStates = emptyList()
                     }
                 }
             }
 
-            val mediaSource: MediaSource = dashMediaSource ?: run {
-                val progressiveSelection = streamResolver.buildMediaSource(
+            val progressiveSelection = if (dashMediaSource == null) {
+                streamResolver.buildMediaSource(
                     playInfo = initialPlayInfo,
                     selectedQualityId = resolvedQualityId,
                     selectedAudioId = selectionSnapshot.selectedAudioId,
                     selectedCodec = selectionSnapshot.selectedCodec
                 )
-                progressiveSelection?.mediaSource ?: run {
-                    AppLog.e(TAG, "loadPlayUrl mediaSource missing: cid=${identity.cid}")
-                    return@withContext null
-                }
+            } else null
+            val mediaSource: MediaSource = dashMediaSource ?: progressiveSelection?.mediaSource ?: run {
+                AppLog.e(TAG, "loadPlayUrl mediaSource missing: cid=${identity.cid}")
+                return@withContext null
             }
+            // progressive 兜底路径接管 CDN state；DASH 路径的 state 已在 preparedCdnStates 中。
+            val preparedCdnStatesFinal = preparedCdnStates.ifEmpty { progressiveSelection?.cdnFailoverStates.orEmpty() }
 
             // 互动视频不使用进度恢复，始终从头开始
             val effectivePreferLastPlayTime = preferLastPlayTime && !interactionVideo
@@ -2237,7 +2262,8 @@ class VideoPlayerViewModel(
                 continuationIntentId = continuationIntentId,
                 requestDurationMs = System.currentTimeMillis() - requestStartMs,
                 startupTraceId = startupTraceId,
-                startupTraceStartElapsedMs = startupTraceStartElapsedMs
+                startupTraceStartElapsedMs = startupTraceStartElapsedMs,
+                cdnStates = preparedCdnStatesFinal
             )
         }
     }
@@ -2250,6 +2276,7 @@ class VideoPlayerViewModel(
         clearPreloadedPlayback(cancelJob = false)
         currentPlayInfo = preparedPlayback.playInfo
         currentDashSession = preparedPlayback.dashSession
+        currentCdnStates = preparedPlayback.cdnStates
         applySelectionSnapshot(preparedPlayback.selectionSnapshot)
         if (preparedPlayback.resumeHintPositionMs != null) {
             didApplyLastPlayPosition = true
