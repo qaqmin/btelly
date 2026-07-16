@@ -751,9 +751,27 @@ class VideoPlayerPlayInfoGateway(
         fourk: Int,
         seasonId: Long = 0L
     ): PlayInfoResult? {
+        // PGC 前置调用耗时埋点：三者均为冷启动可能的真实网络请求源，
+        // 各自记录 durationMs 以便定位 totalMs 中有多少花在前置而非 playurl 本身。
+        // 与 UGC 的 security_ready 日志对齐，统一用 playback_diag 前缀方便筛查。
+        val healthyStartedAtMs = SystemClock.elapsedRealtime()
         securityGateway.ensureHealthyForPlay()
+        AppLog.i(
+            logTag,
+            "playback_diag pgc_prelude step=ensureHealthy cid=$cid epId=$epId durationMs=${SystemClock.elapsedRealtime() - healthyStartedAtMs}"
+        )
+        val prewarmStartedAtMs = SystemClock.elapsedRealtime()
         securityGateway.prewarmWebSession()
+        AppLog.i(
+            logTag,
+            "playback_diag pgc_prelude step=prewarmWebSession cid=$cid epId=$epId durationMs=${SystemClock.elapsedRealtime() - prewarmStartedAtMs}"
+        )
+        val wbiStartedAtMs = SystemClock.elapsedRealtime()
         ensureWbiKeys()
+        AppLog.i(
+            logTag,
+            "playback_diag pgc_prelude step=ensureWbiKeys cid=$cid epId=$epId durationMs=${SystemClock.elapsedRealtime() - wbiStartedAtMs} hasWbi=${hasWbiKeys()}"
+        )
         val hasWbi = hasWbiKeys()
 
         val baseAttempts = listOf(
@@ -795,8 +813,15 @@ class VideoPlayerPlayInfoGateway(
         var lastResponse: Base2Response<PgcV2Result>? = null
         attempts.forEachIndexed { index, (label, params) ->
             if (index > 0) {
+                // 串行降级链：前一个 attempt 失败后才强制刷新 UA，此处单独计时以暴露其开销。
+                val forceUaStartedAtMs = SystemClock.elapsedRealtime()
                 securityGateway.prewarmWebSession(forceUaRefresh = true)
+                AppLog.i(
+                    logTag,
+                    "playback_diag pgc_prelude step=forceUaRefresh cid=$cid epId=$epId before=$label durationMs=${SystemClock.elapsedRealtime() - forceUaStartedAtMs}"
+                )
             }
+            val attemptStartedAtMs = SystemClock.elapsedRealtime()
             val response = runCatching {
                 apiService.getVideoPlayPgcInfo(params)
             }.onFailure { throwable ->
@@ -806,19 +831,37 @@ class VideoPlayerPlayInfoGateway(
                     throwable
                 )
             }.getOrNull()
+            // PGC attempt 级埋点：对齐 UGC 的 playinfo_attempt，补齐 PGC 成功路径零日志的黑盒。
+            // 记录每个 attempt 的 label/durationMs/code/playable，可据此判断 totalMs 是单次慢还是多次重试。
+            AppLog.i(
+                logTag,
+                "playback_diag playinfo_attempt source=$label cid=$cid epId=$epId attempt=${index + 1}/${attempts.size} " +
+                    "durationMs=${SystemClock.elapsedRealtime() - attemptStartedAtMs} " +
+                    "code=${response?.code ?: "none"} playable=${response?.let { it.isSuccess && it.result?.videoInfo != null } ?: false}"
+            )
             lastResponse = response
             if (response != null) {
                 if (response.isSuccess && response.result?.videoInfo != null) {
+                    AppLog.i(
+                        logTag,
+                        "playback_diag playinfo_attempt winner=$label cid=$cid epId=$epId code=${response.code} attemptsUsed=${index + 1}"
+                    )
                     return response.toPlayInfoResult()
                 }
                 if (!shouldRetryPgcPlayInfo(response)) {
+                    AppLog.i(
+                        logTag,
+                        "playback_diag playinfo_attempt terminal=$label cid=$cid epId=$epId code=${response.code} msg=${response.message} reason=not_retryable"
+                    )
                     return response.toPlayInfoResult()
                 }
             }
         }
 
-        if (lastResponse != null) {
-        }
+        AppLog.w(
+            logTag,
+            "playback_diag playinfo_attempt exhausted cid=$cid epId=$epId attempts=${attempts.size} lastCode=${lastResponse?.code}"
+        )
 
         return lastResponse?.toPlayInfoResult()
     }
