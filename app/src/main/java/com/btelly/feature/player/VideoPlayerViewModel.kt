@@ -2630,6 +2630,13 @@ class VideoPlayerViewModel(
             }
 
             playerInfoDeferred.await()?.let { wrapper ->
+                // playerInfo 整包归属校验：首帧后此请求会延迟 750ms+网络往返才返回，
+                // 期间用户若切到下一视频，旧请求返回的整个数据包（字幕轨道、互动视频、弹幕蒙版）
+                // 都属于上一个视频，整体丢弃，避免字幕/蒙版/互动数据串台。
+                // 与下方 snapshot 分支的陈旧性校验保持一致。
+                if (currentCid != cid || currentAid != aid || currentBvid != bvid) {
+                    return@let
+                }
                 val subtitleTracks = wrapper.subtitle?.subtitles.orEmpty()
                 if (subtitleTracks.isNotEmpty()) {
                     _subtitles.value = subtitleTracks
