@@ -50,6 +50,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import okhttp3.CacheControl
 import okhttp3.Request
 import java.net.URL
 import kotlinx.coroutines.withContext
@@ -72,6 +73,11 @@ class VideoPlayerViewModel(
     context: Context,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
+
+    private data class SubtitleLoadResult(
+        val data: SubtitleData?,
+        val httpCode: Int? = null
+    )
 
     enum class EpisodeCatalogSource {
         PAGES,
@@ -513,6 +519,9 @@ class VideoPlayerViewModel(
     private var currentPlayInfo: PlayInfoModel? = null
     private var currentSubtitleData: SubtitleData? = null
     private var currentSubtitleCueIndex: Int = 0
+    private var subtitleLoadToken: Long = 0L
+    private var subtitleOwnerBvid: String? = null
+    private var subtitleOwnerCid: Long = 0L
     private var currentGraphVersion: Long = 0L
     private var currentSettings: PlayerSettings = PlayerSettingsStore.load(appContext)
     private var shouldAutoSelectSubtitle = currentSettings.showSubtitleByDefault
@@ -864,7 +873,10 @@ class VideoPlayerViewModel(
         viewModelScope.launch {
             _isLoading.value = true
             currentPlayInfo = null
+            subtitleLoadToken++
             currentSubtitleData = null
+            subtitleOwnerBvid = null
+            subtitleOwnerCid = 0L
             currentGraphVersion = 0L
             AppLog.i(TAG, "subtitle_trace reset_by_loadVideoInfo cid=$currentCid bvid=$currentBvid")
             loadedPlayerExtrasCid = 0L
@@ -1006,7 +1018,10 @@ class VideoPlayerViewModel(
         currentBvid = episode.bvid.takeIf { it.isNotBlank() } ?: targetBvid ?: currentBvid.orEmpty()
         currentSeasonId = targetSeasonId ?: currentSeasonId
         currentEpId = targetEpId ?: currentEpId
+        subtitleLoadToken++
         currentSubtitleData = null
+        subtitleOwnerBvid = null
+        subtitleOwnerCid = 0L
         currentSubtitleCueIndex = 0
         _selectedSubtitleIndex.value = -1
         _currentSubtitleText.value = null
@@ -1062,7 +1077,10 @@ class VideoPlayerViewModel(
         didApplyLastPlayPosition = false
         currentSeasonId = null
         currentEpId = null
+        subtitleLoadToken++
         currentSubtitleData = null
+        subtitleOwnerBvid = null
+        subtitleOwnerCid = 0L
         currentSubtitleCueIndex = 0
         _selectedSubtitleIndex.value = -1
         _currentSubtitleText.value = null
@@ -1127,10 +1145,13 @@ class VideoPlayerViewModel(
     }
 
     fun selectSubtitle(index: Int) {
+        val requestToken = ++subtitleLoadToken
         _selectedSubtitleIndex.value = index
         savedStateHandle[SAVED_SUBTITLE_INDEX] = index
         if (index < 0) {
             currentSubtitleData = null
+            subtitleOwnerBvid = null
+            subtitleOwnerCid = 0L
             currentSubtitleCueIndex = 0
             _currentSubtitleText.value = null
             AppLog.i(TAG, "subtitle_trace select_off cid=$currentCid bvid=$currentBvid")
@@ -1155,18 +1176,46 @@ class VideoPlayerViewModel(
                 "allTracks=${subtitleTracksSummary(_subtitles.value)}"
         )
         viewModelScope.launch {
-            val loaded = loadSubtitleData(subtitle)
-            if (!isSubtitleRequestCurrent(reqCid, reqBvid, currentCid, currentBvid)) {
-                // 请求期间切到了另一个视频，不能把旧视频字幕写回当前播放状态。
+            var loadedResult = loadSubtitleData(subtitle, reqBvid, reqCid)
+            if (shouldRefreshSubtitleTrack(subtitle, loadedResult.httpCode)) {
+                val refreshedTracks = playInfoGateway.requestPlayerInfoData(
+                    aid = currentAid,
+                    bvid = reqBvid,
+                    cid = reqCid,
+                    cacheBustTimestamp = System.currentTimeMillis()
+                )?.subtitle?.subtitles.orEmpty()
+                val refreshedTrack = refreshedSubtitleTrackFor(subtitle, refreshedTracks)
+                if (refreshedTrack != null) {
+                    AppLog.i(
+                        TAG,
+                        "subtitle_trace load_retry_fresh_track cid=$reqCid bvid=$reqBvid " +
+                            "code=${loadedResult.httpCode} lan=${refreshedTrack.lan}"
+                    )
+                    loadedResult = loadSubtitleData(refreshedTrack, reqBvid, reqCid)
+                }
+            }
+            val loaded = loadedResult.data
+            if (!shouldApplySubtitleLoadResult(
+                    activeToken = subtitleLoadToken,
+                    resultToken = requestToken,
+                    requestCid = reqCid,
+                    requestBvid = reqBvid,
+                    currentCid = currentCid,
+                    currentBvid = currentBvid
+                )
+            ) {
                 AppLog.w(
                     TAG,
                     "subtitle_trace data_drop_stale reqCid=$reqCid reqBvid=$reqBvid " +
-                        "curCid=$currentCid curBvid=$currentBvid index=$index " +
+                        "curCid=$currentCid curBvid=$currentBvid index=$index token=$requestToken " +
+                        "activeToken=$subtitleLoadToken " +
                         "cues=${loaded?.body?.size ?: 0}"
                 )
                 return@launch
             }
             currentSubtitleData = loaded
+            subtitleOwnerBvid = reqBvid
+            subtitleOwnerCid = reqCid
             currentSubtitleCueIndex = 0
             AppLog.i(
                 TAG,
@@ -2157,8 +2206,7 @@ class VideoPlayerViewModel(
             val resolvedQualityId = fallbackController.resolvePlayableQualityId(
                 requestedQualityId = effectiveRequestedQualityId,
                 playInfo = initialPlayInfo,
-                availableQualities = initialQualities,
-                reason = "initial_request"
+                availableQualities = initialQualities
             )
 
             var selectionSnapshot = streamResolver.resolveSelections(
@@ -2664,7 +2712,7 @@ class VideoPlayerViewModel(
                 )
             }
 
-            playerInfoDeferred.await()?.let { wrapper ->
+            playerInfoDeferred.await()?.let { initialWrapper ->
                 // playerInfo 整包归属校验：首帧后，这个请求会延迟 750ms 加网络往返后返回。
                 // 如果请求期间切换视频，返回的数据包属于旧视频，应整体丢弃，避免字幕、蒙版和互动数据串台。
                 // 与下方 snapshot 分支的陈旧性校验保持一致。
@@ -2676,10 +2724,39 @@ class VideoPlayerViewModel(
                     )
                     return@let
                 }
-                val subtitleTracks = wrapper.subtitle?.subtitles.orEmpty()
+                var wrapper = initialWrapper
+                var subtitleTracks = wrapper.subtitle?.subtitles.orEmpty()
+                var detailTracks = _subtitles.value
+                var trustedTracks = trustedPlayerInfoSubtitleTracks(detailTracks, subtitleTracks)
+                if (shouldRetryPlayerInfoSubtitleTracks(detailTracks, subtitleTracks)) {
+                    AppLog.w(
+                        TAG,
+                        "subtitle_trace tracks_retry_source=playerInfo cid=$cid bvid=$bvid " +
+                            "playerInfoCount=${subtitleTracks.size}"
+                    )
+                    delay(1_000.milliseconds)
+                    val retryWrapper = playInfoGateway.requestPlayerInfoData(
+                        aid = aid,
+                        bvid = bvid,
+                        cid = cid,
+                        cacheBustTimestamp = System.currentTimeMillis()
+                    )
+                    if (currentCid != cid || currentAid != aid || currentBvid != bvid) {
+                        AppLog.w(
+                            TAG,
+                            "subtitle_trace tracks_drop_source=playerInfo_retry_stale " +
+                                "reqCid=$cid reqBvid=$bvid curCid=$currentCid curBvid=$currentBvid"
+                        )
+                        return@let
+                    }
+                    if (retryWrapper != null) {
+                        wrapper = retryWrapper
+                        subtitleTracks = wrapper.subtitle?.subtitles.orEmpty()
+                        detailTracks = _subtitles.value
+                        trustedTracks = trustedPlayerInfoSubtitleTracks(detailTracks, subtitleTracks)
+                    }
+                }
                 if (subtitleTracks.isNotEmpty()) {
-                    val detailTracks = _subtitles.value
-                    val trustedTracks = trustedPlayerInfoSubtitleTracks(detailTracks, subtitleTracks)
                     AppLog.i(
                         TAG,
                         "subtitle_trace tracks_compare cid=$currentCid bvid=$currentBvid " +
@@ -2844,19 +2921,31 @@ class VideoPlayerViewModel(
         return selectionSnapshot.takeIf { it.selectedQualityId != null || it.selectedAudioId != null || it.selectedCodec != null }
     }
 
-    private suspend fun loadSubtitleData(track: SubtitleInfoModel): SubtitleData? =
+    private suspend fun loadSubtitleData(
+        track: SubtitleInfoModel,
+        bvid: String?,
+        cid: Long
+    ): SubtitleLoadResult =
         withContext(Dispatchers.IO) {
-            val normalizedUrl = normalizeUrl(track.subtitleUrl)
-            subtitleCache[normalizedUrl]?.let {
-                AppLog.i(TAG, "subtitle_trace load_cache_hit url=$normalizedUrl cues=${it.body?.size ?: 0}")
-                return@withContext it
+            if (!isTrustedBilibiliSubtitleUrl(track.subtitleUrl)) {
+                AppLog.w(TAG, "subtitle_trace load_drop_untrusted_url lan=${track.lan} cid=$cid bvid=$bvid")
+                return@withContext SubtitleLoadResult(data = null)
+            }
+            val normalizedUrl = normalizeBilibiliSubtitleUrl(track.subtitleUrl)
+            val cacheKey = buildSubtitleCueCacheKey(bvid, cid, track, normalizedUrl)
+            subtitleCache[cacheKey]?.let {
+                AppLog.i(TAG, "subtitle_trace load_cache_hit key=$cacheKey cues=${it.body?.size ?: 0}")
+                return@withContext SubtitleLoadResult(data = it)
             }
             AppLog.i(TAG, "subtitle_trace load_net_start url=$normalizedUrl lan=${track.lan}")
 
             runCatching {
                 val request = Request.Builder()
                     .url(normalizedUrl)
+                    .cacheControl(CacheControl.FORCE_NETWORK)
                     .header("Referer", "https://www.bilibili.com")
+                    .header("Cache-Control", "no-cache")
+                    .header("Pragma", "no-cache")
                     .header(
                         "User-Agent",
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
@@ -2865,27 +2954,33 @@ class VideoPlayerViewModel(
                     .build()
                 okHttpClient.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
-                        return@use null
+                        return@use SubtitleLoadResult(data = null, httpCode = response.code)
                     }
-                    response.body?.charStream()?.use { reader ->
-                        gson.fromJson(reader, SubtitleData::class.java)
-                    }
+                    SubtitleLoadResult(
+                        data = response.body?.charStream()?.use { reader ->
+                            gson.fromJson(reader, SubtitleData::class.java)
+                        }
+                    )
                 }
-            }.getOrNull()?.also {
-                subtitleCache[normalizedUrl] = it
+            }.getOrElse { SubtitleLoadResult(data = null) }.also { result ->
+                result.data?.let { subtitleData ->
+                    subtitleCache[cacheKey] = subtitleData
                 // [诊断] 打印首条 cue 的内容，用于判断接口返回的字幕文本是否属于当前视频。
                 // 如果这里的内容就已经是别的视频的台词，说明是服务端返回错（URL/cid 都对但内容错），
                 // 客户端无法修复；如果内容对但用户仍觉错，则疑点在时间轴/显示环节。
-                val firstCue = it.body?.firstOrNull()
-                AppLog.i(
-                    TAG,
-                    "subtitle_trace load_net_ok url=$normalizedUrl cues=${it.body?.size ?: 0} " +
-                        "firstFrom=${firstCue?.from} firstTo=${firstCue?.to} " +
-                        "firstText=${firstCue?.content?.replace('\n', ' ')?.take(40)}"
-                )
-            }.also {
-                if (it == null) {
-                    AppLog.w(TAG, "subtitle_trace load_net_empty url=$normalizedUrl lan=${track.lan}")
+                    val firstCue = subtitleData.body?.firstOrNull()
+                    AppLog.i(
+                        TAG,
+                        "subtitle_trace load_net_ok url=$normalizedUrl cues=${subtitleData.body?.size ?: 0} " +
+                            "firstFrom=${firstCue?.from} firstTo=${firstCue?.to} " +
+                            "firstText=${firstCue?.content?.replace('\n', ' ')?.take(40)}"
+                    )
+                }
+                if (result.data == null) {
+                    AppLog.w(
+                        TAG,
+                        "subtitle_trace load_net_empty url=$normalizedUrl lan=${track.lan} code=${result.httpCode}"
+                    )
                 }
             }
         }
@@ -2906,6 +3001,11 @@ class VideoPlayerViewModel(
     }
 
     private fun updateSubtitleText(positionMs: Long) {
+        if (subtitleOwnerBvid != currentBvid || subtitleOwnerCid != currentCid) {
+            currentSubtitleCueIndex = 0
+            _currentSubtitleText.value = null
+            return
+        }
         val data = currentSubtitleData?.body.orEmpty()
         if (_selectedSubtitleIndex.value < 0 || data.isEmpty()) {
             currentSubtitleCueIndex = 0
@@ -2967,8 +3067,7 @@ class VideoPlayerViewModel(
     private fun subtitleTracksSummary(tracks: List<SubtitleInfoModel>?): String {
         if (tracks.isNullOrEmpty()) return "[]"
         return tracks.joinToString(prefix = "[", postfix = "]", separator = ",") { t ->
-            val tail = t.subtitleUrl.substringAfterLast('/').take(32)
-            "${t.lan}=$tail"
+            subtitleTrackBindingKey(t)
         }
     }
 
@@ -2990,6 +3089,7 @@ class VideoPlayerViewModel(
     private fun DetailSubtitleItem.toSubtitleInfoModel(): SubtitleInfoModel {
         return SubtitleInfoModel(
             id = id,
+            idStr = "",
             lan = lan,
             lanDoc = lanDoc,
             isLock = isLock,

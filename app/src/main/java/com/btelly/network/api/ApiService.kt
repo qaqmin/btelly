@@ -194,7 +194,8 @@ interface ApiService {
     suspend fun getPlayerInfo(
         @Query("aid") aid: Long?,
         @Query("bvid") bvid: String?,
-        @Query("cid") cid: Long
+        @Query("cid") cid: Long,
+        @Query("ts") cacheBustTimestamp: Long? = null
     ): BaseResponse<PlayerInfoDataWrapper>
 
     @GET("x/player/videoshot")

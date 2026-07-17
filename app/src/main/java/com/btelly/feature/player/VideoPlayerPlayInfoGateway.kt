@@ -458,36 +458,34 @@ class VideoPlayerPlayInfoGateway(
     suspend fun requestPlayerInfoData(
         aid: Long?,
         bvid: String?,
-        cid: Long
+        cid: Long,
+        cacheBustTimestamp: Long? = null
     ): PlayerInfoDataWrapper? {
+        ensureWbiKeys()
+        if (hasWbiKeys()) {
+            val params = mutableMapOf("cid" to cid.toString())
+            aid?.let { params["avid"] = it.toString() }
+            bvid?.takeIf { it.isNotBlank() }?.let { params["bvid"] = it }
+            val wbiResponse = runCatching {
+                apiService.getPlayerInfoWbi(buildWbiParams(params))
+            }.onFailure { throwable ->
+                AppLog.e(logTag, "loadPlayerInfoData wbi exception: ${throwable.message}", throwable)
+            }.getOrNull()
+            wbiResponse?.data?.takeIf { wbiResponse.isSuccess }?.let { return it }
+        }
+
         val normalResponse = runCatching {
             apiService.getPlayerInfo(
                 aid = aid,
                 bvid = bvid,
-                cid = cid
+                cid = cid,
+                cacheBustTimestamp = cacheBustTimestamp
             )
         }.onFailure { throwable ->
             AppLog.e(logTag, "loadPlayerInfoData normal exception: ${throwable.message}", throwable)
         }.getOrNull()
-        if (normalResponse != null) {
-        }
         normalResponse?.data?.takeIf { normalResponse.isSuccess }?.let { return it }
-
-        ensureWbiKeys()
-        if (!hasWbiKeys()) {
-            return null
-        }
-        val params = mutableMapOf("cid" to cid.toString())
-        aid?.let { params["avid"] = it.toString() }
-        bvid?.takeIf { it.isNotBlank() }?.let { params["bvid"] = it }
-        val wbiResponse = runCatching {
-            apiService.getPlayerInfoWbi(buildWbiParams(params))
-        }.onFailure { throwable ->
-            AppLog.e(logTag, "loadPlayerInfoData wbi exception: ${throwable.message}", throwable)
-        }.getOrNull()
-        if (wbiResponse != null) {
-        }
-        return wbiResponse?.takeIf { it.isSuccess }?.data
+        return null
     }
 
     suspend fun requestVideoSnapshot(

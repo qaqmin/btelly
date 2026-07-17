@@ -1,3 +1,5 @@
+@file:Suppress("SpellCheckingInspection")
+
 package com.btelly.feature.player
 
 import androidx.media3.common.PlaybackException
@@ -149,19 +151,19 @@ internal class PlaybackFallbackController(
 
         val handled = when (errorType) {
             PlaybackErrorType.DECODER -> {
-                trySwitchToCodec(VideoCodecEnum.AVC, lastPlaybackPositionMs, reason = "decoder_error_prefer_avc") ||
+                trySwitchToAvc(lastPlaybackPositionMs, reason = "decoder_error_prefer_avc") ||
                     trySwitchCodec(lastPlaybackPositionMs, reason = "decoder_error") ||
                     tryNextCdnInCurrentCodec(lastPlaybackPositionMs, reason = "decoder_error_cdn_retry") ||
                     tryRefreshPlayInfo(reason = "decoder_error_refresh")
             }
             PlaybackErrorType.NETWORK -> {
-                trySwitchToCodec(VideoCodecEnum.AVC, lastPlaybackPositionMs, reason = "network_error_prefer_avc") ||
+                trySwitchToAvc(lastPlaybackPositionMs, reason = "network_error_prefer_avc") ||
                     tryNextCdnInCurrentCodec(lastPlaybackPositionMs, reason = "network_error") ||
                     tryRefreshPlayInfo(reason = "network_error_refresh") ||
                     trySwitchCodec(lastPlaybackPositionMs, reason = "network_error_codec_switch")
             }
             PlaybackErrorType.UNKNOWN -> {
-                trySwitchToCodec(VideoCodecEnum.AVC, lastPlaybackPositionMs, reason = "unknown_error_prefer_avc") ||
+                trySwitchToAvc(lastPlaybackPositionMs, reason = "unknown_error_prefer_avc") ||
                     tryNextCdnInCurrentCodec(lastPlaybackPositionMs, reason = "unknown_error") ||
                     trySwitchCodec(lastPlaybackPositionMs, reason = "unknown_error_codec_switch") ||
                     tryRefreshPlayInfo(reason = "unknown_error_refresh")
@@ -185,7 +187,7 @@ internal class PlaybackFallbackController(
         // 一次卡顿不会判死刑。放在 fallback 重建之前，确保本次重建的 state 也是基于降权后的排序。
         context.cdnStates.forEach { it.penalizeCurrentHost() }
         val handled =
-            trySwitchToCodec(VideoCodecEnum.AVC, lastPlaybackPositionMs, reason = "stall_${stalledMs}ms_prefer_avc") ||
+            trySwitchToAvc(lastPlaybackPositionMs, reason = "stall_${stalledMs}ms_prefer_avc") ||
                 tryNextCdnInCurrentCodec(lastPlaybackPositionMs, reason = "stall_${stalledMs}ms") ||
                 tryRefreshPlayInfo(reason = "stall_${stalledMs}ms_refresh") ||
                 trySwitchCodec(lastPlaybackPositionMs, reason = "stall_${stalledMs}ms_codec_switch")
@@ -258,8 +260,6 @@ internal class PlaybackFallbackController(
             )
             val playInfo = response.data
             if (response.isSuccess && hasPlayableMedia(playInfo)) {
-                if (qualityId != requestedQualityId) {
-                }
                 if (response.isTryLookBypass) {
                     if (!suppressUiSignals) {
                         context.emitRiskControlTryLookBypass()
@@ -319,8 +319,7 @@ internal class PlaybackFallbackController(
     fun resolvePlayableQualityId(
         requestedQualityId: Int,
         playInfo: PlayInfoModel,
-        availableQualities: List<VideoQuality>,
-        reason: String
+        availableQualities: List<VideoQuality>
     ): Int {
         val streamQualityIds = playInfo.dash?.video
             .orEmpty()
@@ -355,6 +354,11 @@ internal class PlaybackFallbackController(
     fun loadPlayUrlWithCurrentContext(reason: String): Boolean {
         val identity = context.currentPlayRequestIdentity() ?: return false
         val lockedQualityId = context.requestedQualityId ?: context.selectedQualityId ?: 80
+        AppLog.i(
+            TAG,
+            "fallback:refresh reason=$reason cid=${identity.cid} quality=$lockedQualityId " +
+                "position=$lastPlaybackPositionMs"
+        )
         scope.launch {
             val preparedPlayback = context.requestPreparedPlayback(
                 identity = identity,
@@ -458,28 +462,27 @@ internal class PlaybackFallbackController(
         return false
     }
 
-    private fun trySwitchToCodec(
-        targetCodec: VideoCodecEnum,
+    private fun trySwitchToAvc(
         positionMs: Long,
         reason: String
     ): Boolean {
         val dashSession = context.dashSession
         if (dashSession != null && context.useDashPlayback) {
             val routePlan = dashSession.routePlan ?: return false
-            if (dashSession.actualCodec == targetCodec) {
+            if (dashSession.actualCodec == VideoCodecEnum.AVC) {
                 return false
             }
-            val routeIndex = routePlan.routes.indexOfFirst { it.codec == targetCodec }
+            val routeIndex = routePlan.routes.indexOfFirst { it.codec == VideoCodecEnum.AVC }
             if (routeIndex < 0) {
                 return false
             }
             return tryDispatchDashPlaybackAttempt(routeIndex, positionMs, reason)
         }
         val plan = context.streamFallbackPlan ?: return false
-        if (context.selectedCodec == targetCodec) {
+        if (context.selectedCodec == VideoCodecEnum.AVC) {
             return false
         }
-        val routeIndex = plan.routes.indexOfFirst { it.codec == targetCodec }
+        val routeIndex = plan.routes.indexOfFirst { it.codec == VideoCodecEnum.AVC }
         if (routeIndex < 0) {
             return false
         }
@@ -523,6 +526,10 @@ internal class PlaybackFallbackController(
                 continue
             }
             fallbackAttemptCount += 1
+            AppLog.i(
+                TAG,
+                "fallback:progressive reason=$reason route=$routeIndex cdn=$cdnIndex codec=${route.codec}"
+            )
             // 原子写：写共享状态（routeIndex/cdnIndex/selectedCodec）+ 发 PlaybackRequest。
             context.onStreamFallbackPlanUpdated(
                 plan = plan,
@@ -579,6 +586,7 @@ internal class PlaybackFallbackController(
         }
         fallbackAttemptCount += 1
         try {
+            AppLog.i(TAG, "fallback:dash reason=$reason route=$routeIndex codec=${route.codec}")
             val sourceWithState = dashMediaSourceFactory.createMediaSourceWithCdnState(route)
             val mediaSource = sourceWithState.mediaSource
             // 原子写：写 currentDashSession（经回调）+ 写 selectedCodec + 写 cdnStates + 发 PlaybackRequest。
