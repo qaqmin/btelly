@@ -788,13 +788,24 @@ class MyPlayerControlView @JvmOverloads constructor(
 
     fun handleDpadWhenSuperNotHandled(event: KeyEvent): Boolean {
         if (simpleKeyPressEnabled) return false
-        return focusCoordinator.handleDpadWhenSuperNotHandled(event, findFocus())
+        val focused = findFocus()
+        // 进度条按上键 → 聚焦到标题（原生 nextFocusUp 在自定义 TimeBar 上不可靠，这里显式接管）
+        if (event.action == KeyEvent.ACTION_DOWN &&
+            event.keyCode == KeyEvent.KEYCODE_DPAD_UP &&
+            focused === timeBar && titleContainer.isFocusable
+        ) {
+            if (titleContainer.requestFocus()) {
+                return true
+            }
+        }
+        return focusCoordinator.handleDpadWhenSuperNotHandled(event, focused)
     }
 
     fun setSimpleKeyPressEnabled(enabled: Boolean) {
         simpleKeyPressEnabled = enabled
         titleContainer.isClickable = !enabled
-        titleContainer.isFocusable = false
+        // 简单按键模式下标题不参与焦点（与点击一致）；默认模式下允许遥控器聚焦到标题打开简介
+        titleContainer.isFocusable = !enabled
     }
 
     fun focusButtonByKeyDown(event: KeyEvent) {

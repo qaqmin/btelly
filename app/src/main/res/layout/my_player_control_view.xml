@@ -31,8 +31,12 @@
         <androidx.appcompat.widget.LinearLayoutCompat
             android:orientation="vertical"
             android:id="@+id/view_title"
-            android:focusable="false"
-            android:focusableInTouchMode="false"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:clickable="true"
+            android:background="@drawable/cell_background"
+            android:nextFocusDown="@id/exo_progress"
+            android:nextFocusUp="@id/view_title"
             android:paddingLeft="@dimen/px25"
             android:paddingRight="@dimen/px25"
             android:layout_width="match_parent"
@@ -72,7 +76,7 @@
         <com.btelly.feature.player.view.DefaultTimeBar
             android:id="@+id/exo_progress"
             android:nextFocusDown="@+id/button_play"
-            android:nextFocusUp="@id/exo_progress"
+            android:nextFocusUp="@id/view_title"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/px5"
