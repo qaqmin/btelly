@@ -29,7 +29,7 @@ class AppSettingsDataStore(private val context: Context) {
 
     private val dataStore: DataStore<Preferences> get() = context.appDataStore
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val cache = ConcurrentHashMap<String, Any?>()
+    private val cache = ConcurrentHashMap<String, Any>()
     private val cacheInitialized = AtomicBoolean(false)
     private var initJob: kotlinx.coroutines.Job? = null
 
@@ -41,7 +41,7 @@ class AppSettingsDataStore(private val context: Context) {
      * 非阻塞：启动后台协程从 DataStore 读取全部设置到 [cache]。
      * DataStore 首次 `data.first()` 在电视上约 30~80ms（磁盘 IO + XML 解析），
      * 放到后台不阻塞 app.onCreate 主线程。
-     * [getCachedXxx] 在 cache miss 时会同步 fallback，保证正确性。
+     * `getCached...` 在 cache miss 时会同步 fallback，保证正确性。
      */
     fun initCache() {
         if (cacheInitialized.get()) return
@@ -141,14 +141,6 @@ class AppSettingsDataStore(private val context: Context) {
         return (dataStore.data.first()[longPreferencesKey(key)] ?: defaultValue).also { cache[key] = it }
     }
 
-    suspend fun getStringSet(key: String, defaultValue: Set<String> = emptySet()): Set<String> {
-        cache[key]?.let {
-            @Suppress("UNCHECKED_CAST")
-            return it as? Set<String> ?: defaultValue
-        }
-        return (dataStore.data.first()[stringSetPreferencesKey(key)] ?: defaultValue).also { cache[key] = it }
-    }
-
     fun getStringFlow(key: String, defaultValue: String? = null): Flow<String?> {
         return dataStore.data.map { it[stringPreferencesKey(key)] ?: defaultValue }
     }
@@ -157,36 +149,11 @@ class AppSettingsDataStore(private val context: Context) {
         return dataStore.data.map { it[intPreferencesKey(key)] ?: defaultValue }
     }
 
-    fun getStringSetFlow(key: String, defaultValue: Set<String> = emptySet()): Flow<Set<String>> {
-        return dataStore.data.map { it[stringSetPreferencesKey(key)] ?: defaultValue }
-    }
-
     suspend fun putString(key: String, value: String?) {
         if (value != null) cache[key] = value else cache.remove(key)
         dataStore.edit { prefs ->
             if (value != null) prefs[stringPreferencesKey(key)] = value
             else prefs.remove(stringPreferencesKey(key))
-        }
-    }
-
-    suspend fun putInt(key: String, value: Int) {
-        cache[key] = value
-        dataStore.edit { prefs ->
-            prefs[intPreferencesKey(key)] = value
-        }
-    }
-
-    suspend fun putBoolean(key: String, value: Boolean) {
-        cache[key] = value
-        dataStore.edit { prefs ->
-            prefs[booleanPreferencesKey(key)] = value
-        }
-    }
-
-    suspend fun putStringSet(key: String, value: Set<String>) {
-        cache[key] = value
-        dataStore.edit { prefs ->
-            prefs[stringSetPreferencesKey(key)] = value
         }
     }
 
@@ -269,11 +236,4 @@ class AppSettingsDataStore(private val context: Context) {
         }
     }
 
-    fun clearAll() {
-        cache.clear()
-        cacheInitialized.set(false)
-        scope.launch {
-            dataStore.edit { it.clear() }
-        }
-    }
 }

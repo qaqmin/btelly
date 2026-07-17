@@ -199,7 +199,7 @@ object VideoCodecSupport {
             return false
         }
         if (context == null) {
-            return decoderOk
+            return true
         }
         val result = hasHdrDisplaySupport(context)
         cachedHdrSupported = result

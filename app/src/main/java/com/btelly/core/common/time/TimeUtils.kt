@@ -21,14 +21,6 @@ object TimeUtils {
         }
     }
 
-    fun formatShortDate(timestamp: Long): String {
-        return if (timestamp > 0) {
-            SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(timestamp * 1000))
-        } else {
-            ""
-        }
-    }
-
     fun formatDuration(seconds: Long): String {
         val hours = seconds / 3600
         val minutes = (seconds % 3600) / 60

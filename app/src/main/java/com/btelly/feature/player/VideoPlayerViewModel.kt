@@ -3,15 +3,10 @@
 package com.btelly.feature.player
 
 import android.content.Context
-import android.net.Uri
-import android.os.SystemClock
-import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.delay
 import androidx.lifecycle.viewModelScope
@@ -20,11 +15,8 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.source.MediaSource
 import com.google.gson.Gson
-import com.btelly.R
 import com.btelly.core.common.media.VideoCodecSupport
 
-import com.btelly.model.dm.DmColorfulStyleParser
-import com.btelly.model.dm.DmMaskInfo
 import com.btelly.model.dm.DmMaskRepository
 import com.btelly.model.dm.DmModel
 import com.btelly.model.interaction.InteractionModel
@@ -33,8 +25,6 @@ import com.btelly.feature.player.interaction.InteractionEngine
 import com.btelly.feature.player.interaction.InteractionRepository
 import com.btelly.model.player.PlayInfoModel
 import com.btelly.model.player.VideoSnapshotData
-import com.btelly.model.proto.DmProtoParser
-import com.btelly.model.proto.DmWebViewReplyProto
 import com.btelly.model.subtitle.SubtitleData
 import com.btelly.model.subtitle.SubtitleInfoModel
 import com.btelly.model.subtitle.SubtitleItem
@@ -48,7 +38,6 @@ import com.btelly.network.api.ApiService
 import com.btelly.network.security.NetworkSecurityGateway
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.network.response.Base2Response
-import com.btelly.network.WbiGenerator
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.feature.player.cache.PlayerMediaCache
@@ -62,12 +51,12 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.io.IOException
 import java.net.URL
 import kotlinx.coroutines.withContext
 import org.koin.mp.KoinPlatform
 import java.util.concurrent.TimeUnit
 import java.util.UUID
+import kotlin.time.Duration.Companion.milliseconds
 import com.btelly.feature.player.sponsor.SponsorBlockUseCase
 import com.btelly.feature.player.sponsor.SponsorSegment
 
@@ -122,7 +111,7 @@ class VideoPlayerViewModel(
             }
         }
 
-        // 同视频零开销复用：缓存最近一次完整准备好的播放状态
+        // 同视频复用：缓存最近一次已准备完成的播放状态。
         @UnstableApi
         internal data class CachedPlayback(
             val bvid: String?,
@@ -183,12 +172,6 @@ class VideoPlayerViewModel(
         @Synchronized
         fun clearCachedPlayback() {
             cachedPlaybacks.clear()
-        }
-
-        @Synchronized
-        fun hasCachedPlayback(): Boolean {
-            trimExpiredCachedPlaybacks()
-            return cachedPlaybacks.isNotEmpty()
         }
 
         private fun cachePlaybackKey(bvid: String?, cid: Long): String {
@@ -324,7 +307,7 @@ class VideoPlayerViewModel(
             .getOrNull()
             ?.getCachedString("ipv4_only") != "关"
     }
-    private val playerOkHttpClient = okhttp3.OkHttpClient.Builder()
+    private val playerOkHttpClient = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .connectionPool(okhttp3.ConnectionPool(5, 30, TimeUnit.SECONDS))
@@ -472,7 +455,6 @@ class VideoPlayerViewModel(
     // ==================== 弹幕系统（转发到 DanmakuPlaybackController）====================
     val danmaku: StateFlow<List<DmModel>> get() = danmakuController.danmaku
     internal val danmakuUpdates: Flow<DanmakuPlaybackController.DanmakuUpdate> get() = danmakuController.danmakuUpdates
-    internal val dmMaskState: StateFlow<DanmakuPlaybackController.DmMaskState> get() = danmakuController.dmMaskState
     var onDmMaskReady: ((maskUrl: String, cid: Long, fps: Int) -> Unit)?
         get() = danmakuController.onDmMaskReady
         set(value) { danmakuController.onDmMaskReady = value }
@@ -500,9 +482,6 @@ class VideoPlayerViewModel(
 
     private val _videoSnapshot = MutableStateFlow<VideoSnapshotData?>(null)
     val videoSnapshot: StateFlow<VideoSnapshotData?> = _videoSnapshot
-
-    private val _currentCidLive = MutableStateFlow(0L)
-    val currentCidLive: StateFlow<Long> = _currentCidLive
 
     private val _riskControlVVoucher = MutableStateFlow<String?>(null)
     val riskControlVVoucher: StateFlow<String?> = _riskControlVVoucher
@@ -749,11 +728,11 @@ class VideoPlayerViewModel(
         savedStateHandle[SAVED_CID] = cid
         savedStateHandle[SAVED_EP_ID] = currentEpId ?: 0L
         savedStateHandle[SAVED_SEASON_ID] = currentSeasonId ?: 0L
-        savedStateHandle[SAVED_EPISODE_INDEX] = _selectedEpisodeIndex.value ?: 0
+        savedStateHandle[SAVED_EPISODE_INDEX] = _selectedEpisodeIndex.value
         savedStateHandle[SAVED_SEEK_POSITION_MS] = pendingSeekPositionMs.coerceAtLeast(0L)
         savedStateHandle[SAVED_QUALITY_ID] = requestedQualityId ?: selectedQualityId ?: 0
         savedStateHandle[SAVED_AUDIO_QUALITY_ID] = requestedAudioId ?: selectedAudioId ?: 0
-        savedStateHandle[SAVED_SUBTITLE_INDEX] = _selectedSubtitleIndex.value ?: -1
+        savedStateHandle[SAVED_SUBTITLE_INDEX] = _selectedSubtitleIndex.value
     }
 
     fun consumeSavedSnapshot(): SavedPlayerSnapshot? {
@@ -865,10 +844,6 @@ class VideoPlayerViewModel(
         pendingPlayWhenReady = true
         launchStartEpisodeIndex = startEpisodeIndex
         val loadGeneration = ++videoLoadGeneration
-        val chainStartMs = System.currentTimeMillis()
-        val isSameVideoReplay = cid > 0L && isRecentlyPlayed(cid)
-        if (isSameVideoReplay) {
-        }
         // 先清理上一条播放的预加载，再启动当前视频弹幕预热；否则后续初始化会把刚启动的弹幕预热取消掉。
         clearPreloadedPlaybackIfDifferent(currentPlayRequestIdentity(), cancelJob = true)
         viewModelScope.launch {
@@ -955,39 +930,39 @@ class VideoPlayerViewModel(
     }
 
     fun playPrevious() {
-        val episodes = _episodes.value.orEmpty()
-        val targetIndex = (_selectedEpisodeIndex.value ?: 0) - 1
+        val episodes = _episodes.value
+        val targetIndex = _selectedEpisodeIndex.value - 1
         if (targetIndex in episodes.indices) {
             playEpisode(targetIndex)
         }
     }
 
     fun hasPreviousEpisode(): Boolean {
-        val previousIndex = (_selectedEpisodeIndex.value ?: 0) - 1
-        return previousIndex in _episodes.value.orEmpty().indices
+        val previousIndex = _selectedEpisodeIndex.value - 1
+        return previousIndex in _episodes.value.indices
     }
 
     fun playNext(preferLastPlayTime: Boolean = true) {
-        val episodes = _episodes.value.orEmpty()
-        val targetIndex = (_selectedEpisodeIndex.value ?: 0) + 1
+        val episodes = _episodes.value
+        val targetIndex = _selectedEpisodeIndex.value + 1
         if (targetIndex in episodes.indices) {
             playEpisode(targetIndex, preferLastPlayTime = preferLastPlayTime)
         }
     }
 
     fun hasNextEpisode(): Boolean {
-        val episodes = _episodes.value.orEmpty()
-        val nextIndex = (_selectedEpisodeIndex.value ?: 0) + 1
+        val episodes = _episodes.value
+        val nextIndex = _selectedEpisodeIndex.value + 1
         return nextIndex in episodes.indices
     }
 
     fun getNextEpisode(): PlayableEpisode? {
-        val nextIndex = (_selectedEpisodeIndex.value ?: 0) + 1
-        return _episodes.value.orEmpty().getOrNull(nextIndex)
+        val nextIndex = _selectedEpisodeIndex.value + 1
+        return _episodes.value.getOrNull(nextIndex)
     }
 
     fun playEpisode(index: Int, preferLastPlayTime: Boolean = true) {
-        val episode = _episodes.value.orEmpty().getOrNull(index) ?: return
+        val episode = _episodes.value.getOrNull(index) ?: return
         reportPlaybackHeartbeat()
         savePlayerSnapshot()
         val targetBvid = episode.bvid.takeIf { it.isNotBlank() }
@@ -1027,7 +1002,6 @@ class VideoPlayerViewModel(
         pendingPlayWhenReady = true
         didApplyLastPlayPosition = false
         currentCid = episode.cid
-        _currentCidLive.value = currentCid
         currentAid = episode.aid.takeIf { it > 0 } ?: currentAid
         currentBvid = episode.bvid.takeIf { it.isNotBlank() } ?: targetBvid ?: currentBvid.orEmpty()
         currentSeasonId = targetSeasonId ?: currentSeasonId
@@ -1083,7 +1057,6 @@ class VideoPlayerViewModel(
         AppLog.d(TAG, "playInteractionChoice: cid=$cid, edgeId=$edgeId")
         reportPlaybackHeartbeat()
         currentCid = cid
-        _currentCidLive.value = cid
         pendingSeekPositionMs = 0L
         pendingPlayWhenReady = true
         didApplyLastPlayPosition = false
@@ -1149,7 +1122,7 @@ class VideoPlayerViewModel(
             TAG,
             "software decoder detected (no auto-downgrade): decoder=$decoderName " +
                 "quality=$currentQualityId codec=${selectedCodec ?: requestedCodec} " +
-                "pos=${currentPositionMs}ms"
+                "pos=${currentPositionMs}ms playWhenReady=$playWhenReady"
         )
     }
 
@@ -1163,17 +1136,16 @@ class VideoPlayerViewModel(
             AppLog.i(TAG, "subtitle_trace select_off cid=$currentCid bvid=$currentBvid")
             return
         }
-        val subtitle = _subtitles.value.orEmpty().getOrNull(index) ?: run {
+        val subtitle = _subtitles.value.getOrNull(index) ?: run {
             AppLog.w(
                 TAG,
                 "subtitle_trace select_no_track cid=$currentCid bvid=$currentBvid " +
-                    "index=$index size=${_subtitles.value.orEmpty().size}"
+                    "index=$index size=${_subtitles.value.size}"
             )
             return
         }
-        // [诊断] 记录发起加载时的归属；loadSubtitleData 走网络，期间用户若切到下一视频，
-        // 旧请求返回仍会把旧字幕写回 currentSubtitleData —— 这是切视频字幕串台的最可疑入口。
-        // 同时打印当前全部轨道摘要，用于确认用户点的这个轨道最终来自 detail 还是 playerInfo。
+        // [诊断] loadSubtitleData 需要网络请求。请求期间切换视频时，旧结果可能写入当前字幕状态。
+        // 记录请求归属和轨道摘要，便于确认轨道来自 detail 还是 playerInfo。
         val reqCid = currentCid
         val reqBvid = currentBvid
         AppLog.i(
@@ -1184,14 +1156,15 @@ class VideoPlayerViewModel(
         )
         viewModelScope.launch {
             val loaded = loadSubtitleData(subtitle)
-            if (reqCid != currentCid || reqBvid != currentBvid) {
-                // [诊断] 命中竞态：请求期间已切到别的视频，但下方仍会把旧字幕写回 currentSubtitleData。
+            if (!isSubtitleRequestCurrent(reqCid, reqBvid, currentCid, currentBvid)) {
+                // 请求期间切到了另一个视频，不能把旧视频字幕写回当前播放状态。
                 AppLog.w(
                     TAG,
-                    "subtitle_trace RACE_DETECTED reqCid=$reqCid reqBvid=$reqBvid " +
+                    "subtitle_trace data_drop_stale reqCid=$reqCid reqBvid=$reqBvid " +
                         "curCid=$currentCid curBvid=$currentBvid index=$index " +
                         "cues=${loaded?.body?.size ?: 0}"
                 )
+                return@launch
             }
             currentSubtitleData = loaded
             currentSubtitleCueIndex = 0
@@ -1200,7 +1173,7 @@ class VideoPlayerViewModel(
                 "subtitle_trace data_set cid=$currentCid bvid=$currentBvid " +
                     "index=$index cues=${loaded?.body?.size ?: 0}"
             )
-            updateSubtitleText(_currentPosition.value ?: 0L)
+            updateSubtitleText(_currentPosition.value)
         }
     }
 
@@ -1224,7 +1197,7 @@ class VideoPlayerViewModel(
         }
         updateSubtitleText(sanitizedPositionMs)
         checkSponsorBlock(sanitizedPositionMs)
-        // 弹幕分段同步：seek 跳变检测 → 补全目标位置弹幕；更新 lastSync；分段切换加载。
+        // 弹幕分段同步：检测 seek 跳变并补齐目标位置弹幕，同时更新 lastSync 和加载分段。
         // 整体由 controller 封装，pendingSeekPositionMs 已在上方写入。
         danmakuController.onPositionChanged(sanitizedPositionMs)
     }
@@ -1312,7 +1285,7 @@ class VideoPlayerViewModel(
     ) {
         // 优先按原分集下标播放；如果列表已刷新导致下标不可信，则退回到 intent 里的精确身份。
         val episodeIndex = intent.episodeIndex
-        val episode = episodeIndex?.let { _episodes.value.orEmpty().getOrNull(it) }
+        val episode = episodeIndex?.let { _episodes.value.getOrNull(it) }
         if (episode != null && episode.matches(identity)) {
             playEpisode(episodeIndex, preferLastPlayTime = intent.preferLastPlayTime)
             return
@@ -1333,12 +1306,9 @@ class VideoPlayerViewModel(
     }
 
     private fun PlayableEpisode.matches(identity: PlayRequestIdentity): Boolean {
-        if (cid != identity.cid) return false
-        val targetEpId = identity.epId
-        if (targetEpId != null && epId != targetEpId) return false
-        val targetBvid = identity.bvid
-        if (!targetBvid.isNullOrBlank() && bvid.isNotBlank() && bvid != targetBvid) return false
-        return true
+        return cid == identity.cid &&
+            (identity.epId == null || epId == identity.epId) &&
+            (identity.bvid.isNullOrBlank() || bvid.isBlank() || bvid == identity.bvid)
     }
 
     fun preloadPlayback(target: PlaybackPreloadTarget?) {
@@ -1585,9 +1555,6 @@ class VideoPlayerViewModel(
                     preferLastPlayTime = preferLastPlayTime,
                     replaceInPlace = replaceInPlace
                 )
-                if (preparedPlayback != null) {
-                } else {
-                }
                 val resolvedPlayback = preparedPlayback ?: requestPreparedPlayback(
                     identity = identity,
                     preferLastPlayTime = preferLastPlayTime,
@@ -1695,7 +1662,6 @@ class VideoPlayerViewModel(
         )
         _episodes.value = episodeItems
         _selectedEpisodeIndex.value = selectedIndex
-        _currentCidLive.value = currentCid
         _relatedVideos.value = emptyList()
         _subtitles.value = emptyList()
         AppLog.i(TAG, "subtitle_trace tracks_clear_source=pgc cid=$currentCid bvid=$currentBvid")
@@ -1749,27 +1715,27 @@ class VideoPlayerViewModel(
         // if we still have a valid cached PlayInfo.  This avoids one HTTP
         // round-trip and allows the early-PlayInfo async to finish faster
         // because it will hit the PlayInfo cache.
-        val isSameVideoReplay = initialIdentity != null &&
+        if (initialIdentity != null &&
             initialIdentity.cid > 0L &&
             isRecentlyPlayed(initialIdentity.cid) &&
             !initialIdentity.bvid.isNullOrBlank() &&
             !activePlaybackIntentId.startsWith("douyin:")
-
-        if (isSameVideoReplay) {
+        ) {
+            val replayBvid = initialIdentity.bvid
             // Check PlayInfo cache for interaction flag (set by x/player/v2 on first play)
             val cachedIsSteinsGate = VideoPlayerPlayInfoCache.isSteinsGate(
-                initialIdentity!!.bvid.orEmpty(), initialIdentity.cid
+                replayBvid, initialIdentity.cid
             )
             if (cachedIsSteinsGate) isSteinsGateVideo = true
 
             // ── Zero-overhead reuse: same bvid+cid, player still has MediaSource ──
-            val cachedPlayback = getCachedPlayback(initialIdentity!!.bvid, initialIdentity.cid)
+            val cachedPlayback = getCachedPlayback(replayBvid, initialIdentity.cid)
             // 双重确认：VM 缓存命中只是"我有这个视频的复用快照"，不代表 player 实例当前
             // 挂的就是它（VM 缓存容量 2，player 单例只能挂 1 个，退出看别的视频后 player
             // 已被覆盖）。必须向 PlayerInstancePool 查询 player 实际挂载状态——它是唯一的
             // 事实源。不一致则放弃暖路径，fall through 到下方 cachedPlayInfo 分支重建源。
             val playerHasSameSource = PlayerInstancePool.isAttachedSource(
-                initialIdentity.bvid, initialIdentity.cid
+                replayBvid, initialIdentity.cid
             )
             if (cachedPlayback != null && playerHasSameSource) {
                 // 诊断：对照"请求身份"与"VM 缓存命中内容"，防止跨视频串台。
@@ -1778,7 +1744,7 @@ class VideoPlayerViewModel(
                 }.getOrNull()
                 AppLog.w(
                     TAG,
-                    "zero_overhead_reuse_hit reqBvid=${initialIdentity.bvid} reqCid=${initialIdentity.cid} " +
+                    "zero_overhead_reuse_hit reqBvid=$replayBvid reqCid=${initialIdentity.cid} " +
                         "cacheBvid=${cachedPlayback.bvid} cacheCid=${cachedPlayback.cid} " +
                         "cacheUri=${cachedUri?.substringAfterLast('/')}"
                 )
@@ -1786,7 +1752,7 @@ class VideoPlayerViewModel(
                     traceId = currentStartupTraceId,
                     startElapsedMs = currentStartupTraceStartElapsedMs,
                     step = "zero_overhead_reuse",
-                    message = "bvid=${initialIdentity.bvid} cid=${initialIdentity.cid} " +
+                    message = "bvid=$replayBvid cid=${initialIdentity.cid} " +
                         "cacheBvid=${cachedPlayback.bvid} cacheCid=${cachedPlayback.cid} " +
                         "cacheUri=${cachedUri?.substringAfterLast('/')}"
                 )
@@ -1795,7 +1761,7 @@ class VideoPlayerViewModel(
                 val playInfo = cachedPlayback.playInfo
                 val resumePositionMs = if (preferLastPlayTime && !isSteinsGateVideo && currentGraphVersion <= 0L) {
                     val cachedResume = VideoPlayerPlayInfoCache.get(
-                        initialIdentity.bvid.orEmpty(), initialIdentity.cid
+                        replayBvid, initialIdentity.cid
                     )?.lastPlayTime?.takeIf { it > 5000L }
                     val serverResume = playInfo.lastPlayTime.takeIf { it > 5000L && playInfo.lastPlayCid == initialIdentity.cid }
                     (cachedResume ?: serverResume ?: pendingSeekPositionMs)
@@ -1805,7 +1771,7 @@ class VideoPlayerViewModel(
                 _playbackRequest.value = PlaybackRequest(
                     mediaSource = cachedPlayback.mediaSource,
                     aid = initialIdentity.aid,
-                    bvid = initialIdentity.bvid,
+                    bvid = replayBvid,
                     cid = initialIdentity.cid,
                     seekPositionMs = effectiveSeekMs,
                     playWhenReady = true,
@@ -1824,11 +1790,9 @@ class VideoPlayerViewModel(
                 // 热起播不能被详情接口拖慢，但后台回写必须确认仍是同一次起播。
                 val detailAid = currentAid
                 val detailBvid = currentBvid
-                val detailIdentity = initialIdentity
-                val detailLoadGeneration = loadGeneration
                 viewModelScope.launch {
                     val detailResponse = apiService.getVideoDetail(detailAid, detailBvid)
-                    if (!isActiveVideoLoad(detailLoadGeneration) || currentCid != detailIdentity.cid) {
+                    if (!isActiveVideoLoad(loadGeneration) || currentCid != initialIdentity.cid) {
                         return@launch
                     }
                     if (detailResponse.isSuccess && detailResponse.data != null) {
@@ -1839,7 +1803,7 @@ class VideoPlayerViewModel(
                         val episodeItems = episodeCatalogBuilder.buildUgcEpisodes(detail)
                         _episodes.value = episodeItems
                         _selectedEpisodeIndex.value = episodeItems.indexOfFirst {
-                            it.cid == detailIdentity.cid || (it.bvid.isNotBlank() && it.bvid == detailIdentity.bvid)
+                            it.cid == initialIdentity.cid || (it.bvid.isNotBlank() && it.bvid == replayBvid)
                         }.takeIf { it >= 0 } ?: 0
                         val related = detail.related.orEmpty()
                         val detailSubtitleTracks = detail.view?.subtitle?.list
@@ -1851,7 +1815,7 @@ class VideoPlayerViewModel(
                             "subtitle_trace tracks_set_source=detail_hot cid=$currentCid bvid=$currentBvid " +
                                 "detailCid=${detail.view?.cid} detailBvid=${detail.view?.bvid} " +
                                 "count=${detailSubtitleTracks.size} " +
-                                "stale=${detailIdentity.cid != currentCid} " +
+                                "stale=${initialIdentity.cid != currentCid} " +
                                 "tracks=${subtitleTracksSummary(detailSubtitleTracks)}"
                         )
                         if (related.isNotEmpty()) {
@@ -1868,24 +1832,23 @@ class VideoPlayerViewModel(
 
             // 诊断：VM 缓存命中但 player 挂载的不是同一视频，放弃暖路径。
             // 会 fall through 到下方 cachedPlayInfo 分支重建 MediaSource（省 getPlayUrl）。
-            if (cachedPlayback != null && !playerHasSameSource) {
+            if (cachedPlayback != null) {
                 AppLog.w(
                     TAG,
                     "zero_overhead_reuse_skip reason=player_source_mismatch " +
-                        "reqBvid=${initialIdentity.bvid} reqCid=${initialIdentity.cid} " +
+                        "reqBvid=$replayBvid reqCid=${initialIdentity.cid} " +
                         "(VM 缓存命中但 player 挂的是别的视频，降级走 setMediaSource 冷路径)"
                 )
                 PlaybackStartupTrace.log(
                     traceId = currentStartupTraceId,
                     startElapsedMs = currentStartupTraceStartElapsedMs,
                     step = "zero_overhead_reuse_skip",
-                    message = "reason=player_source_mismatch bvid=${initialIdentity.bvid} cid=${initialIdentity.cid}"
+                    message = "reason=player_source_mismatch bvid=$replayBvid cid=${initialIdentity.cid}"
                 )
             }
 
-            val cachedPlayInfo = initialIdentity!!.bvid!!.let { bvid ->
-                VideoPlayerPlayInfoCache.get(bvid = bvid, cid = initialIdentity.cid)
-            }?.takeIf { fallbackController.hasPlayableMedia(it) }
+            val cachedPlayInfo = VideoPlayerPlayInfoCache.get(bvid = replayBvid, cid = initialIdentity.cid)
+                ?.takeIf { fallbackController.hasPlayableMedia(it) }
 
             if (cachedPlayInfo != null) {
 
@@ -1912,11 +1875,9 @@ class VideoPlayerViewModel(
                 // 热起播不能被详情接口拖慢，但后台回写必须确认仍是同一次起播。
                 val detailAid = currentAid
                 val detailBvid = currentBvid
-                val detailIdentity = initialIdentity
-                val detailLoadGeneration = loadGeneration
                 viewModelScope.launch {
                     val detailResponse = apiService.getVideoDetail(detailAid, detailBvid)
-                    if (!isActiveVideoLoad(detailLoadGeneration) || currentCid != detailIdentity.cid) {
+                    if (!isActiveVideoLoad(loadGeneration) || currentCid != initialIdentity.cid) {
                         return@launch
                     }
                     if (detailResponse.isSuccess && detailResponse.data != null) {
@@ -1927,7 +1888,7 @@ class VideoPlayerViewModel(
                         val episodeItems = episodeCatalogBuilder.buildUgcEpisodes(detail)
                         _episodes.value = episodeItems
                         _selectedEpisodeIndex.value = episodeItems.indexOfFirst {
-                            it.cid == detailIdentity.cid || (it.bvid.isNotBlank() && it.bvid == detailIdentity.bvid)
+                            it.cid == initialIdentity.cid || (it.bvid.isNotBlank() && it.bvid == replayBvid)
                         }.takeIf { it >= 0 } ?: 0
                         val related = detail.related.orEmpty()
                         val detailSubtitleTracks = detail.view?.subtitle?.list
@@ -1939,7 +1900,7 @@ class VideoPlayerViewModel(
                             "subtitle_trace tracks_set_source=detail_cached cid=$currentCid bvid=$currentBvid " +
                                 "detailCid=${detail.view?.cid} detailBvid=${detail.view?.bvid} " +
                                 "count=${detailSubtitleTracks.size} " +
-                                "stale=${detailIdentity.cid != currentCid} " +
+                                "stale=${initialIdentity.cid != currentCid} " +
                                 "tracks=${subtitleTracksSummary(detailSubtitleTracks)}"
                         )
                         if (related.isNotEmpty()) {
@@ -1948,7 +1909,6 @@ class VideoPlayerViewModel(
                     }
                 }
                 return@coroutineScope
-            } else {
             }
         }
         // ── End same-video replay hot path ──────────────────────────
@@ -1972,8 +1932,6 @@ class VideoPlayerViewModel(
                     )
                 }
             }
-        if (preparedPlaybackDeferred == null && initialIdentity != null) {
-        }
         var detailResponse = apiService.getVideoDetail(currentAid, currentBvid)
         // bvid 为空且 /view/detail 失败时，回退到 /view?aid= 接口
         if (!detailResponse.isSuccess && currentBvid.isNullOrBlank() && (currentAid ?: 0L) > 0L) {
@@ -2033,7 +1991,6 @@ class VideoPlayerViewModel(
             ?: currentCid
         currentAid = selectedEpisode?.aid?.takeIf { it > 0L } ?: currentAid
         currentBvid = selectedEpisode?.bvid?.takeIf { it.isNotBlank() } ?: currentBvid
-        _currentCidLive.value = currentCid
 
         // 提前启动弹幕 view 请求，和 PlayInfo 并行
         danmakuController.preloadViewIfNeeded(loadGeneration)
@@ -2060,12 +2017,8 @@ class VideoPlayerViewModel(
         val canReuse = preparedPlaybackDeferred != null &&
             canReusePreparedPlayback(initialIdentity, resolvedIdentity)
         val preparedPlayback = initialPreloadedPlayback ?: if (canReuse) {
-            preparedPlaybackDeferred!!.await()
-        } else {
-            if (preparedPlaybackDeferred != null) {
-            }
-            null
-        }
+            preparedPlaybackDeferred.await()
+        } else null
         if (!isActiveVideoLoad(loadGeneration)) {
             return@coroutineScope
         }
@@ -2139,16 +2092,8 @@ class VideoPlayerViewModel(
             ?.takeIf { !replaceInPlace && it.isNotBlank() && identity.epId == null }
             ?.let { bvid -> VideoPlayerPlayInfoCache.get(bvid = bvid, cid = identity.cid) }
             ?.takeIf { fallbackController.hasPlayableMedia(it) }
-        val usedCachedPlayInfo = cachedPlayInfo != null
-        if (usedCachedPlayInfo) {
-        }
-
-        if (cachedPlayInfo != null) {
-        } else {
-        }
-
-        val (initialPlayInfo, effectiveRequestedQualityId) = if (usedCachedPlayInfo) {
-            cachedPlayInfo!! to preferredQualityId
+        val (initialPlayInfo, effectiveRequestedQualityId) = if (cachedPlayInfo != null) {
+            cachedPlayInfo to preferredQualityId
         } else {
             val playInfoFetch = fallbackController.requestPlayInfoWithQualityFallback(
                 identity = identity,
@@ -2192,7 +2137,7 @@ class VideoPlayerViewModel(
             traceId = currentStartupTraceId,
             startElapsedMs = currentStartupTraceStartElapsedMs,
             step = "playinfo_ready",
-            message = "cid=${identity.cid} cached=$usedCachedPlayInfo quality=$effectiveRequestedQualityId durationMs=${System.currentTimeMillis() - requestStartMs}"
+            message = "cid=${identity.cid} cached=${cachedPlayInfo != null} quality=$effectiveRequestedQualityId durationMs=${System.currentTimeMillis() - requestStartMs}"
         )
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -2431,8 +2376,7 @@ class VideoPlayerViewModel(
             }
         }
 
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-            val fbStartMs = System.currentTimeMillis()
+        viewModelScope.launch(Dispatchers.Default) {
             val plan = streamResolver.buildStreamFallbackPlan(
                 playInfo = preparedPlayback.playInfo,
                 lockedQualityId = requestedQualityId
@@ -2448,7 +2392,7 @@ class VideoPlayerViewModel(
                 ?.indexOfFirst { it.codec == (requestedCodec ?: preparedPlayback.selectionSnapshot.selectedCodec) }
                 ?.takeIf { it >= 0 }
                 ?: 0
-            withContext(kotlinx.coroutines.Dispatchers.Main) {
+            withContext(Dispatchers.Main) {
                 currentStreamFallbackPlan = plan
                 fallbackRouteIndex = routeIdx
                 fallbackCdnIndex = 0
@@ -2476,7 +2420,7 @@ class VideoPlayerViewModel(
         scheduleDeferredSponsorLoadAfterFirstFrame(cid)
         viewModelScope.launch {
             // 首帧后先把弹幕链路放出去，心跳/扩展信息延后一个很短的窗口，降低首显附近主线程抖动。
-            delay(FIRST_FRAME_DEFERRED_WORK_DELAY_MS)
+            delay(FIRST_FRAME_DEFERRED_WORK_DELAY_MS.milliseconds)
             if (currentCid != cid) return@launch
             markRecentlyPlayed(cid)
             reportPlaybackHeartbeat(playType = PlaybackHeartbeatReporter.PLAY_TYPE_START)
@@ -2518,7 +2462,7 @@ class VideoPlayerViewModel(
         if (generation <= 0L) return
         sponsorLoadJob?.cancel()
         sponsorLoadJob = viewModelScope.launch {
-            delay(FIRST_FRAME_SPONSOR_LOAD_DELAY_MS)
+            delay(FIRST_FRAME_SPONSOR_LOAD_DELAY_MS.milliseconds)
             if (!isActiveVideoLoad(generation) || currentCid != targetCid) {
                 return@launch
             }
@@ -2591,9 +2535,9 @@ class VideoPlayerViewModel(
                 traceId = currentStartupTraceId,
                 startElapsedMs = currentStartupTraceStartElapsedMs,
                 step = "playback_preload_absent",
-                message = "requested=$identity preferLast=$preferLastPlayTime replace=$replaceInPlace"
+                message = "requested=$identity"
             )
-            AppLog.i(TAG, "playback_preload_absent requested=$identity preferLast=$preferLastPlayTime replace=$replaceInPlace")
+            AppLog.i(TAG, "playback_preload_absent requested=$identity")
             return null
         }
         if (preloaded.preparedPlayback.identity != identity) {
@@ -2704,7 +2648,7 @@ class VideoPlayerViewModel(
             val aid = currentAid
             val bvid = currentBvid
             val playerInfoDeferred = async {
-                delay(750L)
+                delay(750.milliseconds)
                 playInfoGateway.requestPlayerInfoData(
                     aid = aid,
                     bvid = bvid,
@@ -2712,7 +2656,7 @@ class VideoPlayerViewModel(
                 )
             }
             val snapshotDeferred = async {
-                delay(2_500L)
+                delay(2_500.milliseconds)
                 playInfoGateway.requestVideoSnapshot(
                     aid = aid,
                     bvid = bvid,
@@ -2721,9 +2665,8 @@ class VideoPlayerViewModel(
             }
 
             playerInfoDeferred.await()?.let { wrapper ->
-                // playerInfo 整包归属校验：首帧后此请求会延迟 750ms+网络往返才返回，
-                // 期间用户若切到下一视频，旧请求返回的整个数据包（字幕轨道、互动视频、弹幕蒙版）
-                // 都属于上一个视频，整体丢弃，避免字幕/蒙版/互动数据串台。
+                // playerInfo 整包归属校验：首帧后，这个请求会延迟 750ms 加网络往返后返回。
+                // 如果请求期间切换视频，返回的数据包属于旧视频，应整体丢弃，避免字幕、蒙版和互动数据串台。
                 // 与下方 snapshot 分支的陈旧性校验保持一致。
                 if (currentCid != cid || currentAid != aid || currentBvid != bvid) {
                     AppLog.w(
@@ -2735,27 +2678,32 @@ class VideoPlayerViewModel(
                 }
                 val subtitleTracks = wrapper.subtitle?.subtitles.orEmpty()
                 if (subtitleTracks.isNotEmpty()) {
-                    // [诊断] playerInfo 覆盖前，对比 detail 之前给的轨道与 playerInfo 现在给的轨道。
-                    // overwrite=true 表示 detail 已给出非空轨道、即将被 playerInfo 覆盖 ——
-                    // 复现"字幕串台"时重点看这里：若 detailTracks 与 playerInfoTracks 的 url 尾段对不上，
-                    // 说明 playerInfo 返回了别的内容（服务端串台），覆盖导致用户拿到错的字幕。
-                    val beforeOverwrite = _subtitles.value.orEmpty()
-                    val overwrite = beforeOverwrite.isNotEmpty()
+                    val detailTracks = _subtitles.value
+                    val trustedTracks = trustedPlayerInfoSubtitleTracks(detailTracks, subtitleTracks)
                     AppLog.i(
                         TAG,
                         "subtitle_trace tracks_compare cid=$currentCid bvid=$currentBvid " +
-                            "overwrite=$overwrite detailCount=${beforeOverwrite.size} " +
+                            "detailCount=${detailTracks.size} " +
                             "playerInfoCount=${subtitleTracks.size} " +
-                            "detailTracks=${subtitleTracksSummary(beforeOverwrite)} " +
+                            "trustedCount=${trustedTracks.size} " +
+                            "detailTracks=${subtitleTracksSummary(detailTracks)} " +
                             "playerInfoTracks=${subtitleTracksSummary(subtitleTracks)}"
                     )
-                    _subtitles.value = subtitleTracks
-                    AppLog.i(
-                        TAG,
-                        "subtitle_trace tracks_set_source=playerInfo cid=$currentCid bvid=$currentBvid " +
-                            "count=${subtitleTracks.size}"
-                    )
-                    maybeAutoSelectSubtitle()
+                    if (trustedTracks.isNotEmpty()) {
+                        _subtitles.value = trustedTracks
+                        AppLog.i(
+                            TAG,
+                            "subtitle_trace tracks_set_source=playerInfo cid=$currentCid bvid=$currentBvid " +
+                                "count=${trustedTracks.size}"
+                        )
+                        maybeAutoSelectSubtitle()
+                    } else {
+                        AppLog.w(
+                            TAG,
+                            "subtitle_trace tracks_drop_source=playerInfo_unmatched cid=$currentCid " +
+                                "bvid=$currentBvid"
+                        )
+                    }
                 }
                 val interaction = wrapper.interaction
                 if (interaction != null && interaction.graphVersion > 0L && !currentBvid.isNullOrBlank() && (currentAid ?: 0L) > 0L) {
@@ -2851,7 +2799,7 @@ class VideoPlayerViewModel(
             _interactionModel.value = model
             _interactionHiddenVars.value = model.hiddenVars
 
-            // 预加载可见选项的下一跳节点
+            // 预加载可见选项对应的下一跳节点。
             val questions = model.edges?.questions
             if (!questions.isNullOrEmpty()) {
                 val visibleChoices = interactionEngine.getVisibleChoices(questions)
@@ -2947,7 +2895,7 @@ class VideoPlayerViewModel(
             AppLog.i(TAG, "subtitle_trace auto_select_skip reason=disabled cid=$currentCid bvid=$currentBvid")
             return
         }
-        val subtitles = _subtitles.value.orEmpty()
+        val subtitles = _subtitles.value
         if (subtitles.isEmpty()) {
             AppLog.i(TAG, "subtitle_trace auto_select_skip reason=empty cid=$currentCid bvid=$currentBvid")
             return
@@ -2959,7 +2907,7 @@ class VideoPlayerViewModel(
 
     private fun updateSubtitleText(positionMs: Long) {
         val data = currentSubtitleData?.body.orEmpty()
-        if ((_selectedSubtitleIndex.value ?: -1) < 0 || data.isEmpty()) {
+        if (_selectedSubtitleIndex.value < 0 || data.isEmpty()) {
             currentSubtitleCueIndex = 0
             if (_currentSubtitleText.value != null) {
                 _currentSubtitleText.value = null
@@ -3069,15 +3017,13 @@ class VideoPlayerViewModel(
 
     private suspend fun preconnectCdnHosts(videoUrls: List<String>, audioUrls: List<String>) {
         val uniqueHosts = mutableSetOf<String>()
-        val startTime = System.currentTimeMillis()
-
         for (url in videoUrls + audioUrls) {
             try {
                 val host = URL(url).host
                 if (host.isNotBlank()) {
                     uniqueHosts.add(host)
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 continue
             }
         }
@@ -3090,22 +3036,16 @@ class VideoPlayerViewModel(
             uniqueHosts.forEach { host ->
                 launch(Dispatchers.IO) {
                     runCatching {
-                        val preconnectStart = System.currentTimeMillis()
                         val request = Request.Builder()
                             .url("https://$host")
                             .head()
                             .build()
-                        val call = playerOkHttpClient.newCall(request)
-                        val response = call.execute()
-                        response.close()
-                        val elapsed = System.currentTimeMillis() - preconnectStart
-                    }.onFailure { e ->
+                        playerOkHttpClient.newCall(request).execute().use { }
                     }
                 }
             }
         }
 
-        val totalElapsed = System.currentTimeMillis() - startTime
     }
 
     private suspend fun triggerCdnPreconnectForRoute(route: DashRoute?) {
@@ -3114,7 +3054,7 @@ class VideoPlayerViewModel(
             val allUrls = route.videoUrls + route.audioUrls
             if (allUrls.isEmpty()) return
             preconnectCdnHosts(route.videoUrls, route.audioUrls)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
         }
     }
 
@@ -3126,7 +3066,7 @@ class VideoPlayerViewModel(
             val allUrls = videoUrls + audioUrls
             if (allUrls.isEmpty()) return
             preconnectCdnHosts(videoUrls, audioUrls)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
         }
     }
 
@@ -3157,18 +3097,6 @@ class VideoPlayerViewModel(
                 _sponsorSkipState.value = SponsorSkipUiState.ShowButton(result.segment)
             }
         }
-    }
-
-    fun sponsorSkip(): Long? {
-        val targetMs = sponsorBlockUseCase.skipCurrent() ?: return null
-        _sponsorSkipState.value = SponsorSkipUiState.Hidden
-        pendingSeekPositionMs = targetMs
-        return targetMs
-    }
-
-    fun sponsorDismiss() {
-        sponsorBlockUseCase.dismissCurrent()
-        _sponsorSkipState.value = SponsorSkipUiState.Hidden
     }
 
     fun sponsorUserSeek(positionMs: Long) {

@@ -1,6 +1,7 @@
+@file:Suppress("SpellCheckingInspection")
+
 package com.btelly.core.common.content
 
-import android.content.Context
 import android.os.SystemClock
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.settings.AppSettingsDataStore
@@ -13,7 +14,7 @@ import org.koin.mp.KoinPlatform
  * 青少年模式 - 观看/休息时长计时器（单例）。
  *
  * 设计要点：
- * - [teen_accumulated_ms] 是**持久化的累计观看毫秒**，每段播放结束立即写回 DataStore，
+ * - `teen_accumulated_ms` 是**持久化的累计观看毫秒**，每段播放结束后立即写回 DataStore，
  *   关 APP / 杀进程 / 重启后继续累加。
  * - 播放段计时用 [SystemClock.elapsedRealtime]：只关心"实际播放了多久"，抗改系统时间。
  * - 休息判定用墙钟 [System.currentTimeMillis]：孩子改系统时间或杀进程都绕不过休息。
@@ -30,9 +31,6 @@ object TeenModeTimer {
     private const val KEY_PSAS_ENABLED = "teen_psas_enabled"
     private const val KEY_PSAS_INTERVAL_MIN = "teen_psas_interval_min"
     private const val KEY_PSAS_ACCUMULATED_MS = "teen_psas_accumulated_ms"
-
-    /** 时长选项：0 表示不限制，步进 10 分钟，最长 120 分钟。 */
-    val TIME_OPTIONS_MIN: List<Int> = (0..120 step 10).toList()
 
     private val appSettings: AppSettingsDataStore get() = KoinPlatform.getKoin().get()
 
@@ -90,17 +88,9 @@ object TeenModeTimer {
         return appSettings.getCachedString(KEY_PSAS_ENABLED) == "开"
     }
 
-    fun setPsasEnabled(on: Boolean) {
-        appSettings.putStringAsync(KEY_PSAS_ENABLED, if (on) "开" else "关")
-    }
-
     /** 公益广告间隔（分钟），默认 20；必须 < 观看上限才生效。 */
     fun getPsasIntervalMin(): Int {
         return appSettings.getCachedString(KEY_PSAS_INTERVAL_MIN)?.trim()?.toIntOrNull() ?: 20
-    }
-
-    fun setPsasIntervalMin(min: Int) {
-        appSettings.putStringAsync(KEY_PSAS_INTERVAL_MIN, min.coerceIn(0, 120).toString())
     }
 
     /**
@@ -123,31 +113,9 @@ object TeenModeTimer {
         return true
     }
 
-    fun setWatchLimitMin(min: Int) {
-        appSettings.putIntAsync(KEY_WATCH_LIMIT_MIN, min.coerceIn(0, 120))
-        // 改时长设置：清掉累计和休息戳，避免脏状态。
-        resetForLimitChange()
-    }
-
-    fun setRestLimitMin(min: Int) {
-        appSettings.putIntAsync(KEY_REST_LIMIT_MIN, min.coerceIn(0, 120))
-        resetForLimitChange()
-    }
-
-    /** 持久化保存观看上限（设置页直接写 String 的兼容入口）。 */
-    fun saveWatchLimitString(value: String) {
-        appSettings.putStringAsync(KEY_WATCH_LIMIT_MIN, value)
-        resetForLimitChange()
-    }
-
-    fun saveRestLimitString(value: String) {
-        appSettings.putStringAsync(KEY_REST_LIMIT_MIN, value)
-        resetForLimitChange()
-    }
-
     /**
      * 播放开始（isPlaying 变 true）。
-     * 若已在休息状态则不重新计时，避免休息期间后台播放偷跑时长。
+     * 已进入休息状态时不重新计时，避免后台播放在休息期间累计时长。
      */
     fun onPlayStart() {
         if (!isTimeLimitEnabled()) return
@@ -208,7 +176,7 @@ object TeenModeTimer {
         // 2) 公益广告累计（独立计数器，和休息互不干扰）
         val psasAccumulated = appSettings.getCachedInt(KEY_PSAS_ACCUMULATED_MS, 0) + deltaInt
         appSettings.putIntAsync(KEY_PSAS_ACCUMULATED_MS, psasAccumulated)
-        if (limitMs > 0 && accumulated >= limitMs) {
+        if (limitMs in 1..accumulated.toLong()) {
             // 达休息上限：写休息开始戳、触发休息状态，并清零广告累计（休息后重新计）
             appSettings.putLongAsync(KEY_REST_START_MS, System.currentTimeMillis())
             appSettings.putIntAsync(KEY_PSAS_ACCUMULATED_MS, 0)
@@ -249,7 +217,7 @@ object TeenModeTimer {
      * 入口拦截：休息中返回带剩余时间的提示文案，否则返回 null 放行。
      * 剩余分钟向上取整（不足 1 分钟按 1 分钟显示）。
      */
-    fun consumeBlockReason(context: Context): String? {
+    fun consumeBlockReason(): String? {
         if (!isResting()) return null
         val restStart = appSettings.getCachedLong(KEY_REST_START_MS, 0L)
         val restLimitMs = getRestLimitMin().toLong() * 60_000L
@@ -260,7 +228,7 @@ object TeenModeTimer {
     }
 
     /**
-     * 用户修改时长设置时调用：清掉累计观看时长与休息戳，避免脏状态。
+     * 修改时长设置时调用：清掉累计观看时长与休息戳，避免脏状态。
      * 例如把上限调大后，旧累计值可能已超新上限，会立刻误触发休息。
      */
     fun resetForLimitChange() {

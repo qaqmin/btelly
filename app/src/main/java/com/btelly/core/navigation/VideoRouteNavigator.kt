@@ -36,7 +36,7 @@ object VideoRouteNavigator {
         )
         AppLog.d(TAG, "openVideo: bvid=${video.bvid}, aid=${video.aid}, title=${video.title}, forcePlayer=$forcePlayer")
         // 青少年模式：休息期间拦截视频入口
-        com.btelly.core.common.content.TeenModeTimer.consumeBlockReason(context)?.let {
+        com.btelly.core.common.content.TeenModeTimer.consumeBlockReason()?.let {
             context.toast(it)
             return
         }

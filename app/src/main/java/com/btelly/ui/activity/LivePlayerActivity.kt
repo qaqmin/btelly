@@ -77,7 +77,7 @@ class LivePlayerActivity : BaseActivity<ActivityPlayerBinding>() {
 
         fun start(context: Context, roomId: Long) {
             // 青少年模式：休息期间拦截直播入口
-            com.btelly.core.common.content.TeenModeTimer.consumeBlockReason(context)?.let {
+            com.btelly.core.common.content.TeenModeTimer.consumeBlockReason()?.let {
                 context.toast(it)
                 return
             }

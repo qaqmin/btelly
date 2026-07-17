@@ -1,31 +1,15 @@
+@file:Suppress("SpellCheckingInspection")
+
 package com.btelly.core.model.id
 
 @JvmInline
-value class Aid(val value: Long) {
-    fun isValid(): Boolean = value > 0L
-    fun orNull(): Long? = value.takeIf { it > 0L }
-}
+value class Aid(val value: Long)
 
 @JvmInline
-value class Cid(val value: Long) {
-    fun isValid(): Boolean = value > 0L
-    fun orNull(): Long? = value.takeIf { it > 0L }
-}
+value class Cid(val value: Long)
 
 @JvmInline
-value class EpId(val value: Long) {
-    fun isValid(): Boolean = value > 0L
-    fun orNull(): Long? = value.takeIf { it > 0L }
-}
+value class EpId(val value: Long)
 
 @JvmInline
-value class Mid(val value: Long) {
-    fun isValid(): Boolean = value > 0L
-    fun orNull(): Long? = value.takeIf { it > 0L }
-}
-
-@JvmInline
-value class Bvid(val value: String) {
-    fun isValid(): Boolean = value.isNotBlank()
-    fun orNull(): String? = value.takeIf { it.isNotBlank() }
-}
+value class Bvid(val value: String)

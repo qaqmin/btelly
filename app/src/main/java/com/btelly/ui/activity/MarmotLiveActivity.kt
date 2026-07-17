@@ -65,7 +65,7 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
         /** 启动入口。 */
         fun start(context: Context) {
             // 青少年模式：休息期间拦截 TV 直播入口
-            com.btelly.core.common.content.TeenModeTimer.consumeBlockReason(context)?.let {
+            com.btelly.core.common.content.TeenModeTimer.consumeBlockReason()?.let {
                 context.toast(it)
                 return
             }

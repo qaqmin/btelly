@@ -1,3 +1,5 @@
+@file:Suppress("SpellCheckingInspection")
+
 package com.btelly.core.common.update
 
 import android.content.Context
@@ -6,6 +8,7 @@ import androidx.core.content.FileProvider
 import com.btelly.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -21,8 +24,8 @@ import java.net.InetAddress
 import java.net.UnknownHostException
 import java.util.Locale
 import java.util.concurrent.TimeUnit
-import kotlin.coroutines.coroutineContext
 import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.milliseconds
 
 object ApkUpdater {
 
@@ -116,7 +119,7 @@ object ApkUpdater {
                         attempt < maxAttempts &&
                             (t is IOException || t.message?.startsWith("HTTP ") == true)
                     if (!shouldRetry) throw t
-                    delay(400L * attempt)
+                    delay((400L * attempt).milliseconds)
                 }
             }
             throw lastError ?: IllegalStateException("fetch latest release failed")
@@ -180,7 +183,7 @@ object ApkUpdater {
         var lastError: Throwable? = null
         val maxAttempts = 3
         for (attempt in 1..maxAttempts) {
-            coroutineContext.ensureActive()
+            currentCoroutineContext().ensureActive()
             if (attempt == 1) onProgress(Progress.Connecting)
             try {
                 return downloadApkToCacheOnce(context, url, onProgress)
@@ -189,7 +192,7 @@ object ApkUpdater {
                 lastError = t
                 if (attempt < maxAttempts) {
                     onProgress(Progress.Retrying(attempt, maxAttempts))
-                    delay(1500L * attempt)
+                    delay((1_500L * attempt).milliseconds)
                 }
             }
         }
