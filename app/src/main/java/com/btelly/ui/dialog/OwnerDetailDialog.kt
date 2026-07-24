@@ -1,6 +1,7 @@
 package com.btelly.ui.dialog
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import android.view.LayoutInflater
 import android.view.Window
@@ -11,8 +12,10 @@ import com.btelly.R
 import com.btelly.core.common.log.AppLog
 import com.btelly.databinding.DialogOwnerDetailBinding
 import com.btelly.event.AppEventHub
+import com.btelly.model.BaseResponse
 import com.btelly.model.user.CheckRelationModel
 import com.btelly.model.video.Owner
+import com.btelly.model.video.UserDynamicResponse
 import com.btelly.model.video.VideoModel
 import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.UserRepository
@@ -27,8 +30,10 @@ import com.btelly.core.ui.focus.tv.TvDataChangeReason
 import com.btelly.core.ui.focus.tv.TvListFocusController
 import com.btelly.core.ui.image.ImageLoader
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
@@ -65,6 +70,11 @@ class OwnerDetailDialog(
     private var isLoading = false
     private var tvFocusController: TvListFocusController? = null
     private var searchingCurrentVideo = false
+
+    // 预取：一页数据回来后立即在后台发起下一页请求，把 1.5s 的网络往返
+    // 藏进用户浏览过程。滚动/焦点触底时若已有预取在飞则直接 await，免去等待。
+    private var prefetchJob: Deferred<BaseResponse<UserDynamicResponse>>? = null
+    private var prefetchPage: Int = 0
 
     init {
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -105,9 +115,16 @@ class OwnerDetailDialog(
                 val lastVisibleItem = (layoutManager as? androidx.recyclerview.widget.GridLayoutManager)
                     ?.findLastVisibleItemPosition() ?: return
                 val totalItems = recyclerView.adapter?.itemCount ?: return
-                if (!isLoading && hasMore && lastVisibleItem >= totalItems - 3) {
-                    currentPage++
-                    loadOwnerVideos()
+                // 提前约一屏触发：3 列网格一屏约 6 卡，提前消费已在飞的下一页预取。
+                // 必须 post 到下一帧：预取命中时数据几乎同步返回，若在 onScrolled 里直接
+                // addData 会撞 RecyclerView 的 assertNotInLayoutOrScroll 检查。
+                if (!isLoading && hasMore && lastVisibleItem >= totalItems - 6) {
+                    recyclerView.post {
+                        if (!isLoading && hasMore) {
+                            currentPage++
+                            loadOwnerVideos()
+                        }
+                    }
                 }
             }
         })
@@ -181,19 +198,39 @@ class OwnerDetailDialog(
 
     private fun loadOwnerVideos() {
         if (isLoading || !hasMore) return
+        val pageToLoad = currentPage
+        // 若后台已有这一页的预取在飞，直接消费它，省掉一整次网络往返。
+        val prefetchHit = prefetchJob != null && prefetchPage == pageToLoad
         isLoading = true
-        if (currentPage == 1) {
+        if (pageToLoad == 1) {
             binding.progressBar.isVisible = true
         }
         scope.launch {
-            val result = userRepository.getUserDynamic(owner.mid, page = currentPage, pageSize = 20)
+            val startMs = SystemClock.elapsedRealtime()
+            val existingPrefetch = prefetchJob
+            if (!prefetchHit) {
+                // 页码不符或没有预取：丢弃陈旧预取，本次直接发请求。
+                prefetchJob = null
+                existingPrefetch?.cancel()
+            }
+            val result = if (prefetchHit && existingPrefetch != null) {
+                prefetchJob = null
+                runCatching { existingPrefetch.await() }
+            } else {
+                userRepository.getUserDynamic(owner.mid, page = pageToLoad, pageSize = 20)
+            }
             result.onSuccess { response ->
+                AppLog.i(
+                    "OwnerDetailDialog",
+                    "owner page=$pageToLoad end elapsed=${SystemClock.elapsedRealtime() - startMs}ms " +
+                        "items=${response.data?.archives?.size ?: 0} hasMore=${response.data?.hasMore} prefetchHit=$prefetchHit"
+                )
                 binding.progressBar.isVisible = false
                 isLoading = false
                 if (response.isSuccess) {
                     val videos = ContentFilter.filterVideos(binding.root.context, response.data?.archives.orEmpty())
                     hasMore = response.data?.hasMore ?: false
-                    if (currentPage == 1) {
+                    if (pageToLoad == 1) {
                         val found = scrollToCurrentVideo(videos)
                         videoAdapter.setData(videos) {
                             tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
@@ -218,6 +255,9 @@ class OwnerDetailDialog(
                     if (!hasMore) {
                         videoAdapter.setShowLoadMore(false)
                     }
+                    // 当前页渲染成功后，立即在后台预取下一页，把网络往返藏进用户浏览过程。
+                    // 递归搜索路径也会消费它，让"从旧视频打开"的串行循环每步都更快。
+                    schedulePrefetch(currentPage + 1)
                     if (searchingCurrentVideo && hasMore && currentPage < 10) {
                         currentPage++
                         loadOwnerVideos()
@@ -226,11 +266,30 @@ class OwnerDetailDialog(
                     toast(response.message)
                 }
             }.onFailure {
+                AppLog.w(
+                    "OwnerDetailDialog",
+                    "owner page=$pageToLoad failed elapsed=${SystemClock.elapsedRealtime() - startMs}ms " +
+                        "prefetchHit=$prefetchHit err=${it.message}"
+                )
                 binding.progressBar.isVisible = false
                 isLoading = false
                 currentPage--
                 toast(it.message ?: "加载失败")
             }
+        }
+    }
+
+    /**
+     * 后台预取下一页，结果暂存在 [prefetchJob]。下一次 [loadOwnerVideos] 触底时优先消费它，
+     * 命中即可省掉一整次网络往返。预取失败对当前列表无影响（消费时才暴露为失败）。
+     */
+    private fun schedulePrefetch(nextPage: Int) {
+        if (!hasMore) return
+        if (nextPage == prefetchPage && prefetchJob != null) return
+        prefetchJob?.cancel()
+        prefetchPage = nextPage
+        prefetchJob = scope.async {
+            userRepository.getUserDynamic(owner.mid, page = nextPage, pageSize = 20).getOrThrow()
         }
     }
 
@@ -364,6 +423,7 @@ class OwnerDetailDialog(
     override fun dismiss() {
         tvFocusController?.release()
         tvFocusController = null
+        prefetchJob = null
         scope.cancel()
         super.dismiss()
     }

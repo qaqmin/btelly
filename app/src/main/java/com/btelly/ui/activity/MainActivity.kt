@@ -71,6 +71,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         private const val CCTV_TAB_INDEX = 4
         private const val SEARCH_TAB_INDEX = 6
         private const val STARTUP_TAG = "AppStartup"
+        private const val TEEN_REST_DIAG_TAG = "TeenRestDiag"
     }
 
     /** 青少年模式：休息遮罩倒计时 Handler，每秒刷新剩余时间。 */
@@ -977,18 +978,29 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     }
 
     override fun onResume() {
+        AppLog.i(TEEN_REST_DIAG_TAG, "onResume start")
         super.onResume()
+        AppLog.i(TEEN_REST_DIAG_TAG, "onResume after super, before refresh")
         refreshTeenRestOverlay()
     }
 
     override fun onPause() {
         super.onPause()
         teenRestHandler.removeCallbacks(teenRestTicker)
+        AppLog.i(TEEN_REST_DIAG_TAG, "onPause")
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        AppLog.i(TEEN_REST_DIAG_TAG, "onWindowFocusChanged hasFocus=$hasFocus")
+        dumpTeenRestOverlayState("onWindowFocusChanged($hasFocus)")
     }
 
     /** 检查青少年模式休息状态：休息中显示遮罩并启动倒计时，否则确保遮罩隐藏。 */
     private fun refreshTeenRestOverlay() {
-        if (com.btelly.core.common.content.TeenModeTimer.isResting()) {
+        val resting = com.btelly.core.common.content.TeenModeTimer.isResting()
+        AppLog.i(TEEN_REST_DIAG_TAG, "refreshTeenRestOverlay isResting=$resting")
+        if (resting) {
             showTeenRestOverlay()
         } else {
             hideTeenRestOverlay()
@@ -1000,11 +1012,15 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         updateTeenRestCountdown()
         teenRestHandler.removeCallbacks(teenRestTicker)
         teenRestHandler.postDelayed(teenRestTicker, 1000L)
+        // 延迟一帧后再 dump 一次，看 measure/layout 后的真实尺寸（排除未触发布局）
+        binding.teenRestOverlay.post { dumpTeenRestOverlayState("showTeenRestOverlay+postFrame") }
+        dumpTeenRestOverlayState("showTeenRestOverlay")
     }
 
     private fun hideTeenRestOverlay() {
         binding.teenRestOverlay.visibility = View.GONE
         teenRestHandler.removeCallbacks(teenRestTicker)
+        dumpTeenRestOverlayState("hideTeenRestOverlay")
     }
 
     /** 用墙钟算剩余时间并刷新文字，到期则撤掉遮罩。 */
@@ -1012,12 +1028,14 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         val restStart = com.btelly.core.common.content.TeenModeTimer.getRestStartMs()
         val restLimitMs = com.btelly.core.common.content.TeenModeTimer.getRestLimitMs()
         if (restStart <= 0L || restLimitMs <= 0L) {
+            AppLog.i(TEEN_REST_DIAG_TAG, "updateTeenRestCountdown early-return: restStart=$restStart restLimitMs=$restLimitMs")
             hideTeenRestOverlay()
             return
         }
         val remainingMs = restLimitMs - (System.currentTimeMillis() - restStart)
         if (remainingMs <= 0L) {
             // 休息到期：撤掉遮罩（isResting 下次调用会自动清零累计）
+            AppLog.i(TEEN_REST_DIAG_TAG, "updateTeenRestCountdown rest expired, remainingMs=$remainingMs")
             hideTeenRestOverlay()
             return
         }
@@ -1025,5 +1043,66 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         val min = totalSec / 60
         val sec = totalSec % 60
         binding.teenRestCountdown.text = "还需休息 %02d:%02d".format(min, sec)
+    }
+
+    /**
+     * 诊断专用：dump 遮罩及其两个 TextView 的可见性/尺寸/绘制状态，以及它在 DecorView 中的层级。
+     * 只读，不改动任何状态。用于定位"纯黑屏、倒计时不显示"问题。
+     */
+    private fun dumpTeenRestOverlayState(reason: String) {
+        try {
+            val overlay = binding.teenRestOverlay
+            val title = binding.teenRestTitle
+            val countdown = binding.teenRestCountdown
+            val sb = StringBuilder()
+            sb.append("dump[$reason]: ")
+            sb.append("overlay{vis=").append(visibilityName(overlay.visibility))
+                .append(",shown=").append(overlay.isShown)
+                .append(",w=").append(overlay.width).append(",h=").append(overlay.height)
+                .append(",alpha=").append(overlay.alpha)
+                .append(",bg=").append(overlay.background?.javaClass?.simpleName)
+                .append(",layer=").append(findViewLayerIndex(overlay)).append("}")
+            sb.append(" title{vis=").append(visibilityName(title.visibility))
+                .append(",shown=").append(title.isShown)
+                .append(",w=").append(title.width).append(",h=").append(title.height)
+                .append(",text=").append(title.text).append("}")
+            sb.append(" countdown{vis=").append(visibilityName(countdown.visibility))
+                .append(",shown=").append(countdown.isShown)
+                .append(",w=").append(countdown.width).append(",h=").append(countdown.height)
+                .append(",text=").append(countdown.text).append("}")
+            // window 层状态
+            val decor = window.decorView
+            sb.append(" decor{childCount=").append((decor as? android.view.ViewGroup)?.childCount ?: -1)
+                .append(",decorHasFocus=").append(decor.hasWindowFocus())
+                .append(",actionBarShown=").append(supportActionBar?.isShowing ?: "null").append("}")
+            AppLog.i(TEEN_REST_DIAG_TAG, sb.toString())
+        } catch (t: Throwable) {
+            AppLog.e(TEEN_REST_DIAG_TAG, "dump failed: ${t.javaClass.simpleName}: ${t.message}")
+        }
+    }
+
+    private fun visibilityName(v: Int): String = when (v) {
+        View.VISIBLE -> "VISIBLE"
+        View.INVISIBLE -> "INVISIBLE"
+        View.GONE -> "GONE"
+        else -> v.toString()
+    }
+
+    /** 返回 overlay 在 DecorView 树中"自顶向下"的 z 序索引（0=最底层）。值越大越靠上层。 */
+    private fun findViewLayerIndex(target: View): Int {
+        val decor = window.decorView
+        val flat = ArrayList<View>()
+        flattenDescendants(decor as? android.view.ViewGroup, flat)
+        flat.forEachIndexed { idx, v -> if (v === target) return idx }
+        return -1
+    }
+
+    private fun flattenDescendants(group: android.view.ViewGroup?, out: ArrayList<View>) {
+        if (group == null) return
+        for (i in 0 until group.childCount) {
+            val c = group.getChildAt(i)
+            out.add(c)
+            if (c is android.view.ViewGroup) flattenDescendants(c, out)
+        }
     }
 }

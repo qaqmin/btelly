@@ -66,6 +66,9 @@ class VideoCardMenuDialog(
         (video.aid > 0L || video.bvid.isNotBlank())
     private val supportsHistoryRecordDelete = onHistoryRecordDeleted != null &&
         video.historyRecordKid.isNotBlank()
+    // UP 主信息是否就绪：owner 缺失或 mid<=0 时（如关注/动态页扁平结构未带 owner），
+    // “UP主主页”不可跳转、“不感兴趣UP”也无法生效，统一由此字段兜底显隐与可用性。
+    private val supportsUpSpace = video.owner?.let { it.mid > 0L } == true
 
     init {
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -79,12 +82,14 @@ class VideoCardMenuDialog(
         refreshFavoriteState()
         setOnShowListener {
             binding.root.post {
-                if (supportsHistoryRecordDelete) {
-                    binding.buttonDeleteHistoryRecord.requestFocus()
-                } else if (supportsWatchLater) {
-                    binding.buttonWatchLater.requestFocus()
-                } else {
-                    binding.buttonUpSpace.requestFocus()
+                val target = when {
+                    supportsHistoryRecordDelete -> R.id.button_delete_history_record
+                    supportsWatchLater -> R.id.button_watch_later
+                    supportsUpSpace -> R.id.button_up_space
+                    else -> 0
+                }
+                if (target != 0) {
+                    findViewById<View>(target)?.requestFocus()
                 }
             }
         }
@@ -546,17 +551,8 @@ class VideoCardMenuDialog(
         binding.buttonDeleteHistoryRecord.visibility =
             if (supportsHistoryRecordDelete) View.VISIBLE else View.GONE
         binding.buttonWatchLater.visibility = if (supportsWatchLater) View.VISIBLE else View.GONE
-        binding.buttonDeleteHistoryRecord.nextFocusDownId = when {
-            supportsWatchLater -> R.id.button_watch_later
-            else -> R.id.button_up_space
-        }
-        binding.buttonWatchLater.nextFocusUpId =
-            if (supportsHistoryRecordDelete) R.id.button_delete_history_record else View.NO_ID
-        binding.buttonUpSpace.nextFocusUpId = when {
-            supportsWatchLater -> R.id.button_watch_later
-            supportsHistoryRecordDelete -> R.id.button_delete_history_record
-            else -> View.NO_ID
-        }
+        binding.buttonUpSpace.visibility = if (supportsUpSpace) View.VISIBLE else View.GONE
+        recomputeFocusChain()
         binding.textFavoriteSummary.text = context.getString(R.string.menu_favorite_summary)
         binding.textSubtitle.text = context.getString(
             if (isLiveFeedbackCard) {
@@ -582,6 +578,27 @@ class VideoCardMenuDialog(
         renderWatchLaterState()
         renderFavoriteState()
         renderDislikeUpState()
+    }
+
+    /**
+     * 根据“删除历史/稍后再看/UP主主页”三者的实际显隐，重连纵向 nextFocus 关系，
+     * 避免某个按钮被 GONE 后方向键焦点悬空或落到隐藏项上。
+     */
+    private fun recomputeFocusChain() {
+        val focusableButtons = buildList {
+            if (supportsHistoryRecordDelete) add(R.id.button_delete_history_record)
+            if (supportsWatchLater) add(R.id.button_watch_later)
+            if (supportsUpSpace) add(R.id.button_up_space)
+        }
+        val indexById = focusableButtons.withIndex().associate { (i, id) -> id to i }
+        for (id in focusableButtons) {
+            val view = findViewById<View>(id) ?: continue
+            val idx = indexById.getValue(id)
+            view.nextFocusDownId =
+                focusableButtons.getOrNull(idx + 1) ?: View.NO_ID
+            view.nextFocusUpId =
+                focusableButtons.getOrNull(idx - 1) ?: View.NO_ID
+        }
     }
 
     private fun renderDislikeUpState() {
@@ -664,9 +681,7 @@ class VideoCardMenuDialog(
         dismiss()
     }
 
-    private fun canDislikeUp(): Boolean {
-        return video.owner?.mid?.let { it > 0L } == true
-    }
+    private fun canDislikeUp(): Boolean = supportsUpSpace
 
     private fun formatDialogTitle(title: String): String {
         val trimmed = title.trim()
