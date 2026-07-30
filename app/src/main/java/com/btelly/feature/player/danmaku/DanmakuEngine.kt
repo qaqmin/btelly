@@ -184,6 +184,14 @@ internal class DanmakuEngine(
     @Volatile private var latestSnapshot: RenderSnapshot = snapshots[0]
     private var snapshotDirty: Boolean = true
     private var rebuildRequested: Boolean = true
+    // rebuildScene 触发来源（配合诊断日志定位"弹幕重复入场/半路消失"根因）。
+    private var rebuildReason: String? = "init"
+
+    /** 统一标记需要 rebuild，并记录来源，便于日志区分是 viewport/config/数据/几何哪类变化触发。 */
+    private fun requestRebuild(reason: String) {
+        rebuildRequested = true
+        rebuildReason = reason
+    }
 
     // ---- Layout state (action thread only) ----
     private val actionFontMetrics = Paint.FontMetrics()
@@ -211,7 +219,7 @@ internal class DanmakuEngine(
         viewportHeight = height.coerceAtLeast(0)
         viewportTopInsetPx = topInsetPx.coerceAtLeast(0)
         viewportBottomInsetPx = bottomInsetPx.coerceAtLeast(0)
-        rebuildRequested = true
+        requestRebuild("viewport")
     }
 
     override fun updateConfig(newConfig: DanmakuConfig) {
@@ -253,7 +261,7 @@ internal class DanmakuEngine(
                     a.pendingCacheGeneration = -1
                 }
             }
-            rebuildRequested = true
+            requestRebuild("config")
         }
     }
 
@@ -284,22 +292,43 @@ internal class DanmakuEngine(
                 item.cacheState = DanmakuCacheState.Init
                 item.pendingCacheGeneration = -1
             }
+            // 结果被拒（generation过期/已不在active/状态不匹配），缓存白建了。
+            android.util.Log.w(
+                TAG,
+                "cacheResult REJECT t=${item.timeMs()}ms text='${item.data.text.take(12)}' " +
+                    "gen=${result.generation}/${cacheStyleGeneration} active=${item in active} " +
+                    "state=${item.cacheState} pending=${item.pendingCacheGeneration}"
+            )
             return
         }
         val entry = result.entry
         if (entry == null || !entry.tryAcquire()) {
             item.cacheState = DanmakuCacheState.Init
             item.pendingCacheGeneration = -1
+            // entry 为空=内存不足建图失败；tryAcquire 失败=bitmap已被回收。
+            android.util.Log.w(
+                TAG,
+                "cacheResult FAIL t=${item.timeMs()}ms text='${item.data.text.take(12)}' " +
+                    "entryNull=${entry == null} recycled=${entry?.isRecycled}"
+            )
             return
         }
         val old = item.cacheEntry
         if (!item.motionStarted) {
+            val prevStart = item.startTimeMs
             item.startTimeMs = cacheReadyStartTime(
                 motionStarted = false,
                 currentStartTimeMs = item.startTimeMs,
                 nowMs = currentPositionMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
             )
             item.motionStarted = true
+            // 缓存就绪，startTimeMs 重锚到当前播放位置。admit→ready 的等待时长若接近 MAX_CACHE_WAIT_MS，
+            // 说明缓存构建接近超时边缘，下一步可能被 pruneExpired 误杀。
+            android.util.Log.w(
+                TAG,
+                "cacheReady t=${item.timeMs()}ms text='${item.data.text.take(12)}' " +
+                    "admit=${prevStart}ms→start=${item.startTimeMs}ms waited=${item.startTimeMs - prevStart}ms lane=${item.lane}"
+            )
         }
         if (old === entry) {
             entry.release()
@@ -387,7 +416,7 @@ internal class DanmakuEngine(
                 configuredTopInsetPx = topInset
                 configuredUsableHeightPx = usableHeight
                 configuredMaxYTopPx = maxYTop
-                rebuildRequested = true
+                requestRebuild("geometry")
             }
 
             val rollingDurationMs = computeRollingDurationMs(speedLevel = cfg.speedLevel)
@@ -404,6 +433,7 @@ internal class DanmakuEngine(
                     laneHeight = laneHeight,
                     topInset = topInset,
                     maxYTop = maxYTop,
+                    reason = rebuildReason ?: "rebuildFlag",
                 )
             } else {
                 pruneExpired(width = width, nowMs = nowMs)
@@ -477,6 +507,11 @@ internal class DanmakuEngine(
 
         var cachedDrawn = 0
         var cacheMissSkipped = 0
+        // 缓存缺失分类统计：定位"半路消失"到底是无缓存、bitmap 被回收还是样式代际不匹配。
+        var missNoEntry = 0
+        var missRecycled = 0
+        var missGenMismatch = 0
+        var missMotionWait = 0
         for (i in 0 until snapshot.count) {
             val item = snapshot.items[i] ?: continue
             // x 坐标在主线程 draw 时现算（用 draw 当前的 nowMs），保证滚动位置与画面同步。
@@ -498,9 +533,24 @@ internal class DanmakuEngine(
             // 性能优先模式不在主线程直接绘制文字。缓存未完成时跳过本帧，
             // Action 线程会继续提高可见条目的缓存优先级。
             cacheMissSkipped++
+            when {
+                entry == null && !item.motionStarted -> missMotionWait++
+                entry == null -> missNoEntry++
+                entry.isRecycled -> missRecycled++
+                else -> missGenMismatch++
+            }
         }
         lastDrawCachedCount = cachedDrawn
         lastDrawCacheMissSkippedCount = cacheMissSkipped
+        // 仅在有缓存缺失时输出（正常帧不刷屏）。missing>0 说明弹幕在屏幕上但没画出来 → "半路消失"。
+        if (cacheMissSkipped > 0) {
+            android.util.Log.w(
+                TAG,
+                "draw miss=$cacheMissSkipped/$snapshot.count hit=$cachedDrawn " +
+                    "wait=$missMotionWait noEntry=$missNoEntry recycled=$missRecycled genMismatch=$missGenMismatch " +
+                    "gen=$styleGen now=${nowMs}ms"
+            )
+        }
     }
 
     override fun setDanmakus(list: List<Danmaku>) {
@@ -514,9 +564,10 @@ internal class DanmakuEngine(
                     .mapTo(ArrayList(list.size.coerceAtLeast(0))) { DanmakuItem(it) }
             index = 0
             lastNowMs = 0
-            rebuildRequested = true
+            requestRebuild("setDanmakus")
             debugPendingCount = 0
             debugNextAtMs = items.firstOrNull()?.timeMs()
+            android.util.Log.w(TAG, "setDanmakus count=${items.size}")
             publishEmptySnapshot()
         }
     }
@@ -535,16 +586,27 @@ internal class DanmakuEngine(
                 list.sortedBy { it.timeMs }
             }
         val lastTime = items.lastOrNull()?.timeMs() ?: Int.MIN_VALUE
-        if (newItems.firstOrNull()?.timeMs ?: Int.MIN_VALUE >= lastTime) {
+        val firstIncoming = newItems.firstOrNull()?.timeMs ?: Int.MIN_VALUE
+        if (firstIncoming >= lastTime) {
             for (d in newItems) items.add(DanmakuItem(d))
             debugNextAtMs = items.getOrNull(index)?.timeMs()
+            android.util.Log.w(
+                TAG,
+                "append(ok) add=${newItems.size} firstIn=$firstIncoming lastExist=$lastTime items=${items.size}"
+            )
             return
         }
-        // Rare: merge & reset.
+        // 时间倒序：新批次首条早于已注入末条（分段补全/seek回看时出现）。
+        // 会触发 rebuild + seek，把已滚过的弹幕重新入场——"重复"的可疑来源。
+        android.util.Log.w(
+            TAG,
+            "append(out-of-order!) add=${newItems.size} firstIn=$firstIncoming lastExist=$lastTime " +
+                "items=${items.size} → sort+rebuild+seek"
+        )
         for (d in newItems) items.add(DanmakuItem(d))
         items.sortBy { it.timeMs() }
-        rebuildRequested = true
-        seekTo(currentPositionMs)
+        requestRebuild("append-out-of-order")
+        seekTo(currentPositionMs, reason = "append-out-of-order")
         }
     }
 
@@ -576,18 +638,22 @@ internal class DanmakuEngine(
             resetLaneState()
             pending.clear()
             lastNowMs = 0
-            rebuildRequested = true
+            requestRebuild("trim-clear")
             publishEmptySnapshot()
             return
         }
         items = items.subList(start, end).toMutableList()
         index = (index - start).coerceIn(0, items.size)
-        rebuildRequested = true
-        seekTo(currentPositionMs)
+        requestRebuild("trim-range")
+        seekTo(currentPositionMs, reason = "trim-range")
         }
     }
 
     override fun seekTo(positionMs: Long) {
+        seekTo(positionMs, reason = "seek")
+    }
+
+    private fun seekTo(positionMs: Long, reason: String) {
         synchronized(actionStateLock) {
             val pos = positionMs.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
             rebuildScene(
@@ -600,6 +666,7 @@ internal class DanmakuEngine(
                 laneHeight = configuredLaneHeightPx.takeIf { it > 0f } ?: max(18f, textSizePx * 1.15f),
                 topInset = configuredTopInsetPx,
                 maxYTop = configuredMaxYTopPx.coerceAtLeast(configuredTopInsetPx.toFloat()),
+                reason = reason,
             )
             publishSnapshotIfDirty(pos)
         }
@@ -610,7 +677,7 @@ internal class DanmakuEngine(
             clearActives()
             pending.clear()
             resetLaneState()
-            rebuildRequested = true
+            requestRebuild("clear")
             debugPendingCount = 0
             debugNextAtMs = null
             publishEmptySnapshot()
@@ -687,7 +754,9 @@ internal class DanmakuEngine(
         laneHeight: Float,
         topInset: Int,
         maxYTop: Float,
+        reason: String,
     ) {
+        val activeBefore = active.size
         clearActives()
         pending.clear()
         ensureLaneBuffers(laneCount)
@@ -701,12 +770,16 @@ internal class DanmakuEngine(
             snapshotDirty = true
             return
         }
-        index = lowerBound((nowMs - max(rollingDurationMs, fixedDurationMs)).coerceAtLeast(0))
+        // 重新入场的起点：nowMs 往前回退一个最长滚动/固定时长，这部分弹幕会重新从右侧入场。
+        // 这正是"前一条滚过去又来一条相同"的来源——记录它以便定位是否被异常频繁触发。
+        val admitSinceMs = (nowMs - max(rollingDurationMs, fixedDurationMs)).coerceAtLeast(0)
+        index = lowerBound(admitSinceMs)
+        var admitted = 0
         while (index < items.size && items[index].timeMs() <= nowMs) {
             val item = items[index]
             index++
             if (item.data.text.isBlank()) continue
-            if (item.timeMs() < nowMs - max(rollingDurationMs, fixedDurationMs)) continue
+            if (item.timeMs() < admitSinceMs) continue
             tryAdmitItem(
                 item = item,
                 nowMs = nowMs,
@@ -720,10 +793,17 @@ internal class DanmakuEngine(
                 maxYTop = maxYTop,
                 allowPending = false,
             )
+            admitted++
         }
         debugPendingCount = pending.size
         debugNextAtMs = items.getOrNull(index)?.timeMs()
         snapshotDirty = true
+        android.util.Log.w(
+            TAG,
+            "rebuildScene reason=$reason now=${nowMs}ms width=$width lanes=$laneCount " +
+                "items=${items.size} activeBefore=$activeBefore activeAfter=${active.size} " +
+                "reAdmit=$admitted since=${admitSinceMs}ms"
+        )
     }
 
     private fun pruneExpired(width: Int, nowMs: Int) {
@@ -731,10 +811,22 @@ internal class DanmakuEngine(
         val size = active.size
         var write = 0
         val releaseAt = currentUiFrameId + 1
+        var droppedTimeout = 0
+        var droppedNormal = 0
         for (read in 0 until size) {
             val a = active[read]
-            val keep = !isExpired(a, width = width, nowMs = nowMs)
-            if (!keep) {
+            val reason = expireReason(a, width = width, nowMs = nowMs)
+            if (reason != null) {
+                if (reason == "cacheWaitTimeout") droppedTimeout++ else droppedNormal++
+                // cacheWaitTimeout = 缓存超时丢弃（弹幕从未可见），是"半路消失"的可疑来源，单独详记。
+                if (reason == "cacheWaitTimeout") {
+                    android.util.Log.w(
+                        TAG,
+                        "pruneExpired DROP cacheTimeout t=${a.timeMs()}ms text='${a.data.text.take(12)}' " +
+                            "start=${a.startTimeMs}ms now=${nowMs}ms age=${nowMs - a.startTimeMs}ms " +
+                            "motion=${a.motionStarted} lane=${a.lane} dur=${a.durationMs}ms"
+                    )
+                }
                 clearLaneReferenceIfMatch(a)
                 releaseItemCache(a, releaseAtFrameId = releaseAt)
                 snapshotDirty = true
@@ -745,6 +837,13 @@ internal class DanmakuEngine(
         }
         if (write < size) {
             active.subList(write, size).clear()
+            if (droppedTimeout > 0 || droppedNormal > 0) {
+                android.util.Log.w(
+                    TAG,
+                    "pruneExpired removed=${size - write} timeout=$droppedTimeout normal=$droppedNormal " +
+                        "now=${nowMs}ms remain=${active.size}"
+                )
+            }
         }
         if (cacheProbeCursor >= active.size) cacheProbeCursor = 0
     }
@@ -1065,20 +1164,36 @@ internal class DanmakuEngine(
         item: DanmakuItem,
         width: Int,
         nowMs: Int,
-    ): Boolean {
+    ): Boolean = expireReason(item, width, nowMs) != null
+
+    /**
+     * 返回过期原因，null 表示未过期。拆出来是为了让 pruneExpired 的日志能区分：
+     * - cacheWaitTimeout：缓存等待超时（MAX_CACHE_WAIT_MS 内没拿到缓存）→ 弹幕从未可见就被丢
+     * - duration：已运动满 durationMs（正常退场）
+     * - scrolledOut：滚动弹幕已完全离开屏幕左侧（正常退场）
+     */
+    private fun expireReason(
+        item: DanmakuItem,
+        width: Int,
+        nowMs: Int,
+    ): String? {
         if (isCacheWaitExpired(
                 motionStarted = item.motionStarted,
                 admittedAtMs = item.startTimeMs,
                 nowMs = nowMs,
                 timeoutMs = MAX_CACHE_WAIT_MS,
             )) {
-            return true
+            return "cacheWaitTimeout"
         }
-        if (!item.motionStarted) return false
+        if (!item.motionStarted) return null
         val elapsed = nowMs - item.startTimeMs
-        if (elapsed >= item.durationMs) return true
-        if (item.kind != DanmakuKind.SCROLL) return false
-        return scrollX(width = width, nowMs = nowMs, startTimeMs = item.startTimeMs, pxPerMs = item.pxPerMs) + item.textWidthPx < 0f
+        if (elapsed >= item.durationMs) return "duration"
+        if (item.kind != DanmakuKind.SCROLL) return null
+        return if (scrollX(width = width, nowMs = nowMs, startTimeMs = item.startTimeMs, pxPerMs = item.pxPerMs) + item.textWidthPx < 0f) {
+            "scrolledOut"
+        } else {
+            null
+        }
     }
 
     private fun scrollX(width: Int, nowMs: Int, startTimeMs: Int, pxPerMs: Float): Float {
@@ -1127,6 +1242,12 @@ internal class DanmakuEngine(
         item.layoutTopPx = layoutTopPx
         active.add(item)
         snapshotDirty = true
+        // 弹幕入场记录。若同一 t=ms + text 出现两次 activate，即为"重复入场"。
+        android.util.Log.w(
+            TAG,
+            "admit kind=$kind t=${item.timeMs()}ms text='${item.data.text.take(12)}' " +
+                "lane=$lane pxPerMs=${String.format("%.4f", pxPerMs)} dur=${durationMs}ms start=$startTimeMs active=${active.size}"
+        )
     }
 
     private fun computeScrollDurationMs(distancePx: Float, pxPerMs: Float, fallbackDurationMs: Int): Int {
