@@ -39,6 +39,12 @@ internal class DanmakuItem(
     var pxPerMs: Float = 0f
     var textWidthPx: Float = 0f
     var layoutTopPx: Float = 0f
+    /**
+     * 时间线整体替换（setDanmakus）时，若新实例与"当前仍在场的条目"内容相同（同发送时间+同内容），
+     * 标记 consumed 使 rebuildScene 不再把它重新入场——否则同一条弹幕会滚两遍。
+     * 用户回看（位置倒退）时忽略该标记，允许重新入场。仅替换路径设置，普通入场不置位。
+     */
+    var consumed: Boolean = false
 
     fun timeMs(): Int = data.timeMs
 }

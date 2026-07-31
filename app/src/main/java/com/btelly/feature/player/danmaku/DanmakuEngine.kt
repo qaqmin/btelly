@@ -555,20 +555,44 @@ internal class DanmakuEngine(
 
     override fun setDanmakus(list: List<Danmaku>) {
         synchronized(actionStateLock) {
-            clearActives()
-            resetLaneState()
-            pending.clear()
-            items =
+            val newItems =
                 list
                     .sortedBy { it.timeMs }
                     .mapTo(ArrayList(list.size.coerceAtLeast(0))) { DanmakuItem(it) }
+            pending.clear()
+            // 空时间线 = 停播/切后台清屏语义，必须整屏清空；仅非空替换且屏幕上有在播弹幕时走保留路径。
+            if (list.isEmpty() || items.isEmpty() || active.isEmpty()) {
+                clearActives()
+                resetLaneState()
+            } else {
+                // 全量替换时间线但屏幕上有在播弹幕（appendData 合并冲突回退/设置重建时出现）：
+                // 不整屏清空，把新时间线里与在场条目相同（同发送时间+同内容）的实例标记 consumed，
+                // rebuildScene 会把它们跳过 → 在播弹幕保持运动状态与缓存，不再"清屏+近 6 秒重放"。
+                markMatchedNewItemsConsumed(newItems)
+            }
+            items = newItems
             index = 0
             lastNowMs = 0
             requestRebuild("setDanmakus")
             debugPendingCount = 0
             debugNextAtMs = items.firstOrNull()?.timeMs()
-            android.util.Log.w(TAG, "setDanmakus count=${items.size}")
-            publishEmptySnapshot()
+            android.util.Log.w(TAG, "setDanmakus count=${items.size} onScreenPreserved=${active.size}")
+            if (active.isEmpty()) publishEmptySnapshot()
+        }
+    }
+
+    /**
+     * 把新时间线中与当前在场条目值相等（Danmaku data class 按 发送时间+内容+样式 判等）的实例
+     * 标记 consumed。使用计数表处理同一条弹幕在时间线里出现多次的情况（逐个匹配，不重复占用）。
+     */
+    private fun markMatchedNewItemsConsumed(newItems: List<DanmakuItem>) {
+        if (active.isEmpty()) return
+        val byData = HashMap<Danmaku, ArrayList<DanmakuItem>>(newItems.size.coerceAtLeast(16))
+        for (item in newItems) byData.getOrPut(item.data) { ArrayList(2) }.add(item)
+        for (a in active) {
+            val candidates = byData[a.data] ?: continue
+            if (candidates.isEmpty()) continue
+            candidates.removeAt(candidates.lastIndex).consumed = true
         }
     }
 
@@ -757,21 +781,37 @@ internal class DanmakuEngine(
         reason: String,
     ) {
         val activeBefore = active.size
-        clearActives()
+        // 位置倒退（用户 seek 回更早位置）时允许把 consumed 标记的条目重新入场（回看本来就是重放）；
+        // 同位置/前进的重建必须跳过，否则"已滚过/正在滚"的弹幕会再次从右侧入场。
+        val positionWentBack = nowMs < lastNowMs
         pending.clear()
         ensureLaneBuffers(laneCount)
-        resetLaneState()
         rebuildRequested = false
         lastNowMs = nowMs
         if (width <= 0 || laneCount <= 0) {
+            clearActives()
+            resetLaneState()
             index = lowerBound(nowMs)
             debugPendingCount = 0
             debugNextAtMs = items.getOrNull(index)?.timeMs()
             snapshotDirty = true
             return
         }
+        // 保留仍在场的条目（运动状态/缓存/轨道原样，仅重算布局坐标）：
+        // 此前每次重建都整屏清空再重放近一个滚动时长，导致"滚动弹幕半路消失"与"同一条弹幕重复入场"。
+        preserveActiveForRebuild(
+            nowMs = nowMs,
+            width = width,
+            outlinePad = outlinePad,
+            rollingDurationMs = rollingDurationMs,
+            laneCount = laneCount,
+            laneHeight = laneHeight,
+            topInset = topInset,
+            maxYTop = maxYTop,
+        )
+        val preserved = active.size
         // 重新入场的起点：nowMs 往前回退一个最长滚动/固定时长，这部分弹幕会重新从右侧入场。
-        // 这正是"前一条滚过去又来一条相同"的来源——记录它以便定位是否被异常频繁触发。
+        // 仅未在场的（含新注入/替换时间线的未消费条目）会被投放，避免重复。
         val admitSinceMs = (nowMs - max(rollingDurationMs, fixedDurationMs)).coerceAtLeast(0)
         index = lowerBound(admitSinceMs)
         var admitted = 0
@@ -780,6 +820,9 @@ internal class DanmakuEngine(
             index++
             if (item.data.text.isBlank()) continue
             if (item.timeMs() < admitSinceMs) continue
+            if (item in active) continue
+            // 时间线整体替换后：新实例与在场条目相同 → 已标记，跳过（除非用户回看）。
+            if (item.consumed && !positionWentBack) continue
             tryAdmitItem(
                 item = item,
                 nowMs = nowMs,
@@ -791,7 +834,8 @@ internal class DanmakuEngine(
                 laneHeight = laneHeight,
                 topInset = topInset,
                 maxYTop = maxYTop,
-                allowPending = false,
+                // 入场失败进受控 pending 队列（有上限+重试），不再静默丢弃。
+                allowPending = true,
             )
             admitted++
         }
@@ -801,9 +845,71 @@ internal class DanmakuEngine(
         android.util.Log.w(
             TAG,
             "rebuildScene reason=$reason now=${nowMs}ms width=$width lanes=$laneCount " +
-                "items=${items.size} activeBefore=$activeBefore activeAfter=${active.size} " +
+                "items=${items.size} activeBefore=$activeBefore preserved=$preserved activeAfter=${active.size} " +
                 "reAdmit=$admitted since=${admitSinceMs}ms"
         )
+    }
+
+    /**
+     * 重建场景时保留仍在场的条目：
+     * - 运动状态（startTimeMs/pxPerMs/motionStarted）、缓存（cacheEntry）、轨道原样保留；
+     * - 仅重算布局坐标（laneHeight/maxYTop 随 config/geometry 变化）并重建轨道引用；
+     * - 清理三类条目：已过期（含缓存等待超时）、发送时间超出新位置（回看时属于未来）、
+     *   轨道越界（lane 数变小，释放缓存后交给窗口循环重新入场）。
+     * 这样 viewport/config/数据替换等重建不再整屏清空，也不再有"滚到一半消失"。
+     */
+    private fun preserveActiveForRebuild(
+        nowMs: Int,
+        width: Int,
+        outlinePad: Float,
+        rollingDurationMs: Int,
+        laneCount: Int,
+        laneHeight: Float,
+        topInset: Int,
+        maxYTop: Float,
+    ) {
+        resetLaneState()
+        val releaseAt = currentUiFrameId + 1
+        var write = 0
+        for (read in 0 until active.size) {
+            val a = active[read]
+            if (a.timeMs() > nowMs || a.lane >= laneCount || expireReason(a, width = width, nowMs = nowMs) != null) {
+                releaseItemCache(a, releaseAtFrameId = releaseAt)
+                snapshotDirty = true
+                continue
+            }
+            // 样式/度量代际变化后重算文本宽度与滚动时长，保证保留条目的运动参数与当前样式一致。
+            if (a.measureGeneration != measureGeneration) {
+                a.textWidthPx = measureTextWidth(a, outlinePad)
+                if (a.kind == DanmakuKind.SCROLL) {
+                    val distancePx = (width.toFloat() + a.textWidthPx).coerceAtLeast(0f)
+                    val rawPx = distancePx / rollingDurationMs.toFloat()
+                    val shortPx = width.toFloat() / rollingDurationMs.toFloat()
+                    val maxPx = shortPx * MAX_LONG_SCROLL_SPEED_RATIO
+                    a.pxPerMs = min(rawPx, maxPx)
+                    a.durationMs = computeScrollDurationMs(distancePx, a.pxPerMs, rollingDurationMs)
+                }
+            }
+            // 重算布局坐标：config/geometry 变化后 laneHeight/maxYTop 可能已变，保留条目必须跟随。
+            a.layoutTopPx =
+                when (a.kind) {
+                    DanmakuKind.TOP -> (topInset.toFloat() + laneHeight * a.lane).coerceAtMost(maxYTop)
+                    DanmakuKind.BOTTOM -> (maxYTop - laneHeight * a.lane).coerceAtLeast(topInset.toFloat())
+                    DanmakuKind.SCROLL -> (topInset.toFloat() + laneHeight * a.lane).coerceAtMost(maxYTop)
+                }
+            when (a.kind) {
+                DanmakuKind.SCROLL -> laneLastScroll[a.lane] = a
+                DanmakuKind.TOP -> laneLastTop[a.lane] = a
+                DanmakuKind.BOTTOM -> laneLastBottom[a.lane] = a
+            }
+            if (write != read) active[write] = a
+            write++
+        }
+        if (write < active.size) {
+            active.subList(write, active.size).clear()
+            snapshotDirty = true
+        }
+        if (cacheProbeCursor >= active.size) cacheProbeCursor = 0
     }
 
     private fun pruneExpired(width: Int, nowMs: Int) {
