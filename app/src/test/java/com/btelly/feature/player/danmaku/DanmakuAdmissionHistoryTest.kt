@@ -109,6 +109,46 @@ class DanmakuAdmissionHistoryTest {
         assertEquals(30_000, patchFrom)
     }
 
+    @Test
+    fun sparseTimelineSleepsUntilTheNextMediaTimeAtNormalSpeed() {
+        assertEquals(
+            1_000L,
+            resolveDanmakuIdleWakeDelayMs(
+                nextWakeAtMs = 5_000,
+                currentPositionMs = 1_000L,
+                playbackSpeed = 1f,
+            ),
+        )
+        assertEquals(
+            250L,
+            resolveDanmakuIdleWakeDelayMs(
+                nextWakeAtMs = 1_500,
+                currentPositionMs = 1_000L,
+                playbackSpeed = 2f,
+            ),
+        )
+    }
+
+    @Test
+    fun idleWakeIsNeverZeroAndInvalidSpeedFallsBackToNormalSpeed() {
+        assertEquals(
+            1L,
+            resolveDanmakuIdleWakeDelayMs(
+                nextWakeAtMs = 1_000,
+                currentPositionMs = 1_000L,
+                playbackSpeed = 1f,
+            ),
+        )
+        assertEquals(
+            600L,
+            resolveDanmakuIdleWakeDelayMs(
+                nextWakeAtMs = 1_600,
+                currentPositionMs = 1_000L,
+                playbackSpeed = Float.NaN,
+            ),
+        )
+    }
+
     private fun danmaku(timeMs: Int, dmid: Long?): Danmaku =
         Danmaku(
             timeMs = timeMs,

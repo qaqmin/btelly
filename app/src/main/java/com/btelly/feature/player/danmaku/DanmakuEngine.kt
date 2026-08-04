@@ -58,6 +58,12 @@ internal fun isCacheWaitExpired(motionStarted: Boolean, admittedAtMs: Int, nowMs
 internal fun adjustedTimelineIndexAfterPrefixTrim(index: Int, droppedCount: Int): Int =
     (index - droppedCount).coerceAtLeast(0)
 
+/** Whether the player needs vsync animation now, or can sleep until a timeline event. */
+internal data class DanmakuFrameSchedule(
+    val animate: Boolean,
+    val nextWakeAtMs: Int?,
+)
+
 internal fun writeDanmakuRenderOrder(
     active: List<DanmakuItem>,
     snapshot: RenderSnapshot,
@@ -97,6 +103,8 @@ internal interface DanmakuEngineActionApi {
     fun preAct()
 
     fun act()
+
+    fun frameSchedule(): DanmakuFrameSchedule
 
     fun setDanmakus(list: List<Danmaku>)
 
@@ -660,6 +668,17 @@ internal class DanmakuEngine(
         requestRebuild("append-out-of-order-tail-patch")
         debugNextAtMs = items.getOrNull(index)?.timeMs()
         }
+    }
+
+    override fun frameSchedule(): DanmakuFrameSchedule {
+        // This method is called only from the action thread, immediately after act().
+        if (active.isNotEmpty() || pending.isNotEmpty()) {
+            return DanmakuFrameSchedule(animate = true, nextWakeAtMs = null)
+        }
+        return DanmakuFrameSchedule(
+            animate = false,
+            nextWakeAtMs = items.getOrNull(index)?.timeMs(),
+        )
     }
 
     override fun replaceDanmakusFrom(minTimeMs: Long, list: List<Danmaku>) {

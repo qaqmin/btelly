@@ -8,6 +8,7 @@ import android.util.TypedValue
 import android.view.View
 import com.btelly.core.common.log.AppLog
 import com.btelly.feature.player.danmaku.common.BiliDanmakuStyle
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.Locale
 
@@ -25,6 +26,10 @@ class DanmakuView @JvmOverloads constructor(
 
     @Volatile private var debugEnabled: Boolean = false
     private val debugStats = DebugStatsCollector()
+    private val perfDrawSampleRequested = AtomicBoolean(false)
+
+    @Volatile private var perfLastDrawMs: Float = 0f
+    @Volatile private var perfLastDrawAtUptimeMs: Long = 0L
 
     private var lastConfig: DanmakuConfig? = null
     private var lastRawPositionMs: Long = 0L
@@ -46,6 +51,10 @@ class DanmakuView @JvmOverloads constructor(
     private var perfLastLogAtUptimeMs: Long = 0L
     private var perfFramesSinceLog: Int = 0
     private var perfLogPosted: Boolean = false
+    private var perfLastFrameUpdates: Long = 0L
+    private var perfLastIdleCycles: Long = 0L
+    private var perfLastIdleWakes: Long = 0L
+    private var perfLastIdleResumes: Long = 0L
     private val perfLogRunnable =
         object : Runnable {
             override fun run() {
@@ -224,6 +233,19 @@ class DanmakuView @JvmOverloads constructor(
         super.onDraw(canvas)
 
         perfFramesSinceLog++
+        val sampleDraw = perfDrawSampleRequested.getAndSet(false)
+        val measureDraw = debugEnabled || sampleDraw
+        val drawStartedAtNs = if (measureDraw) System.nanoTime() else 0L
+
+        fun finishDrawSample() {
+            if (!measureDraw) return
+            val drawMs = ((System.nanoTime() - drawStartedAtNs).coerceAtLeast(0L).toDouble() / 1_000_000.0).toFloat()
+            if (debugEnabled) debugStats.recordDraw(nowUptimeMs = SystemClock.uptimeMillis(), drawNs = (drawMs * 1_000_000f).toLong())
+            if (sampleDraw) {
+                perfLastDrawMs = drawMs
+                perfLastDrawAtUptimeMs = SystemClock.uptimeMillis()
+            }
+        }
 
         val cfg = configProvider?.invoke() ?: defaultConfig()
         if (cfg != lastConfig) {
@@ -243,10 +265,14 @@ class DanmakuView @JvmOverloads constructor(
                 playbackSpeed = 1f,
                 config = cfg,
             )
+            finishDrawSample()
             return
         }
 
-        val posProvider = positionProvider ?: return
+        val posProvider = positionProvider ?: run {
+            finishDrawSample()
+            return
+        }
         val rawPos = posProvider()
         val now = SystemClock.uptimeMillis()
         if (lastPositionChangeUptimeMs == 0L) lastPositionChangeUptimeMs = now
@@ -266,7 +292,6 @@ class DanmakuView @JvmOverloads constructor(
                 ?.takeIf { it.isFinite() && it > 0f }
                 ?: 1f
 
-        val t0 = if (debugEnabled) System.nanoTime() else 0L
         player.draw(
             canvas = canvas,
             rawPositionMs = rawPos,
@@ -275,11 +300,7 @@ class DanmakuView @JvmOverloads constructor(
             playbackSpeed = speed,
             config = cfg,
         )
-        if (debugEnabled) {
-            val t1 = System.nanoTime()
-            val drawNs = (t1 - t0).coerceAtLeast(0L)
-            debugStats.recordDraw(nowUptimeMs = now, drawNs = drawNs)
-        }
+        finishDrawSample()
     }
 
     private fun startPerfLoggingIfNeeded() {
@@ -287,6 +308,10 @@ class DanmakuView @JvmOverloads constructor(
         perfLogPosted = true
         perfLastLogAtUptimeMs = 0L
         perfFramesSinceLog = 0
+        perfLastFrameUpdates = 0L
+        perfLastIdleCycles = 0L
+        perfLastIdleWakes = 0L
+        perfLastIdleResumes = 0L
         removeCallbacks(perfLogRunnable)
         post(perfLogRunnable)
     }
@@ -325,6 +350,14 @@ class DanmakuView @JvmOverloads constructor(
         val snap = player.debugSnapshot()
         val p = player.debugState()
         val sample = player.perfSample()
+        val actionFrames = (sample.frameUpdates - perfLastFrameUpdates).coerceAtLeast(0L)
+        val idleCycles = (sample.idleCycles - perfLastIdleCycles).coerceAtLeast(0L)
+        val idleWakes = (sample.idleWakes - perfLastIdleWakes).coerceAtLeast(0L)
+        val idleResumes = (sample.idleResumes - perfLastIdleResumes).coerceAtLeast(0L)
+        perfLastFrameUpdates = sample.frameUpdates
+        perfLastIdleCycles = sample.idleCycles
+        perfLastIdleWakes = sample.idleWakes
+        perfLastIdleResumes = sample.idleResumes
         val poolMb = p.poolBytes.toDouble() / (1024.0 * 1024.0)
         val poolMaxMb = p.poolMaxBytes.toDouble() / (1024.0 * 1024.0)
         val bitmapMb = p.bitmapBytes.toDouble() / (1024.0 * 1024.0)
@@ -336,6 +369,7 @@ class DanmakuView @JvmOverloads constructor(
                 "${invalidateTopPx}-${invalidateBottomPx}"
             }
         val actAgeMs = if (sample.actAtUptimeMs > 0L) (now - sample.actAtUptimeMs).coerceAtLeast(0L) else -1L
+        val drawAgeMs = if (perfLastDrawAtUptimeMs > 0L) (now - perfLastDrawAtUptimeMs).coerceAtLeast(0L) else -1L
 
         AppLog.i(
             "DanmakuPerf",
@@ -346,6 +380,7 @@ class DanmakuView @JvmOverloads constructor(
                 append(" raw=").append(rawPos).append("ms")
                 append(" smooth=").append(snap.positionMs).append("ms")
                 append(" fps=").append(String.format(Locale.US, "%.1f", fps))
+                append(" af=").append(actionFrames)
                 append(" act=").append(snap.count)
                 append(" pend=").append(snap.pendingCount)
                 append(" hit=").append(p.cachedDrawn).append('/').append(snap.count)
@@ -355,12 +390,17 @@ class DanmakuView @JvmOverloads constructor(
                 append(" bitmap=").append(String.format(Locale.US, "%.1f", bitmapMb)).append('/').append(String.format(Locale.US, "%.0f", bitmapMaxMb)).append("MB#").append(p.bitmapCount)
                 append(" actMs=").append(String.format(Locale.US, "%.2f", sample.actMs))
                 append(" age=").append(actAgeMs).append("ms")
+                append(" drawMs=").append(String.format(Locale.US, "%.2f", perfLastDrawMs))
+                append(" drawAge=").append(drawAgeMs).append("ms")
+                append(" idle=").append(idleCycles).append('/').append(idleWakes).append('/').append(idleResumes)
+                append(" wake=").append(sample.lastIdleWakeDelayMs).append('/').append(sample.lastIdleWakeLatenessMs).append("ms")
                 append(" inv=").append(inv)
             },
         )
 
         // Ask action thread to sample act cost for the next log interval.
         player.requestPerfSample()
+        perfDrawSampleRequested.set(true)
     }
 
     internal fun invalidateDanmakuAreaOnAnimation() {

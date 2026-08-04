@@ -28,6 +28,8 @@ internal class DanmakuPlayer(
         private const val TAG = "DanmakuPlayer"
 
         private const val MSG_FRAME_UPDATE = 2101
+        private const val MSG_IDLE_WAKE = 2102
+        private const val MSG_RESUME_FROM_IDLE = 2103
         private const val MSG_OP_SET = 3101
         private const val MSG_OP_APPEND = 3102
         private const val MSG_OP_TRIM_RANGE = 3103
@@ -62,12 +64,23 @@ internal class DanmakuPlayer(
     private val uiFrameId = AtomicInteger(0)
 
     private val perfSampleRequested = AtomicBoolean(false)
+    private val idleWakeDrawRequested = AtomicBoolean(false)
+    private val frameUpdateCount = AtomicLong(0L)
+    private val idleCycleCount = AtomicLong(0L)
+    private val idleWakeCount = AtomicLong(0L)
+    private val idleResumeCount = AtomicLong(0L)
 
     @Volatile
     private var perfLastActMs: Float = 0f
 
     @Volatile
     private var perfLastActAtUptimeMs: Long = 0L
+
+    @Volatile
+    private var lastIdleWakeDelayMs: Long = -1L
+
+    @Volatile
+    private var lastIdleWakeLatenessMs: Long = -1L
 
     @Volatile
     private var debugEnabled: Boolean = false
@@ -97,6 +110,13 @@ internal class DanmakuPlayer(
     @Volatile
     private var latestConfig: DanmakuConfig? = null
 
+    @Volatile
+    private var latestPlaybackSpeed: Float = 1f
+
+    // Accessed only on the action thread. The main thread is notified through idleWakeDrawRequested.
+    private var frameLoopIdle: Boolean = false
+    private var scheduledIdleWakeAtUptimeMs: Long = 0L
+
     internal fun debugSnapshot(): RenderSnapshotStats = engineMain.renderSnapshotStats()
 
     private var lastEnabled: Boolean = true
@@ -116,7 +136,12 @@ internal class DanmakuPlayer(
         if (released) return
         if (started) return
         started = true
-        actionHandler.post { postFrameCallback() }
+        actionHandler.post {
+            frameLoopIdle = false
+            idleWakeDrawRequested.set(false)
+            actionHandler.removeMessages(MSG_IDLE_WAKE)
+            postFrameCallback()
+        }
         view.postInvalidateOnAnimation()
     }
 
@@ -174,18 +199,39 @@ internal class DanmakuPlayer(
     data class PerfSample(
         val actMs: Float,
         val actAtUptimeMs: Long,
+        val frameUpdates: Long,
+        val idleCycles: Long,
+        val idleWakes: Long,
+        val idleResumes: Long,
+        val lastIdleWakeDelayMs: Long,
+        val lastIdleWakeLatenessMs: Long,
     )
 
     fun requestPerfSample() {
         perfSampleRequested.set(true)
     }
 
-    fun perfSample(): PerfSample = PerfSample(actMs = perfLastActMs, actAtUptimeMs = perfLastActAtUptimeMs)
+    fun perfSample(): PerfSample =
+        PerfSample(
+            actMs = perfLastActMs,
+            actAtUptimeMs = perfLastActAtUptimeMs,
+            frameUpdates = frameUpdateCount.get(),
+            idleCycles = idleCycleCount.get(),
+            idleWakes = idleWakeCount.get(),
+            idleResumes = idleResumeCount.get(),
+            lastIdleWakeDelayMs = lastIdleWakeDelayMs,
+            lastIdleWakeLatenessMs = lastIdleWakeLatenessMs,
+        )
 
     fun stop() {
         if (!started) return
         started = false
-        Choreographer.getInstance().removeFrameCallback(frameCallback)
+        actionHandler.post {
+            frameLoopIdle = false
+            idleWakeDrawRequested.set(false)
+            actionHandler.removeMessages(MSG_IDLE_WAKE)
+            Choreographer.getInstance().removeFrameCallback(frameCallback)
+        }
     }
 
     fun release() {
@@ -243,6 +289,7 @@ internal class DanmakuPlayer(
         config: DanmakuConfig,
     ) {
         if (released) return
+        latestPlaybackSpeed = playbackSpeed
         if (!config.enabled) {
             if (lastEnabled || started) {
                 stop()
@@ -261,8 +308,7 @@ internal class DanmakuPlayer(
             startIfNeeded()
         } else if (started) {
             // Freeze danmaku on pause: no need to keep 60fps update loop running.
-            started = false
-            Choreographer.getInstance().removeFrameCallback(frameCallback)
+            stop()
         }
 
         val frameId = uiFrameId.incrementAndGet()
@@ -278,6 +324,9 @@ internal class DanmakuPlayer(
             )
 
         engineMain.stepTime(positionMs = smoothPos, uiFrameId = frameId)
+        if (idleWakeDrawRequested.compareAndSet(true, false)) {
+            actionHandler.sendEmptyMessage(MSG_RESUME_FROM_IDLE)
+        }
 
         val snapshot = engineMain.acquireRenderSnapshot()
         try {
@@ -304,70 +353,65 @@ internal class DanmakuPlayer(
             when (msg.what) {
                 MSG_FRAME_UPDATE -> {
                     if (released || !started) return
-                    postFrameCallback()
-                    try {
-                        engineAction.preAct()
-                        if (released || !started) return
-                        val sampleAct = perfSampleRequested.getAndSet(false)
-                        val shouldMeasure = debugEnabled || sampleAct
-                        val t0 = if (shouldMeasure) System.nanoTime() else 0L
-                        engineAction.act()
-                        if (shouldMeasure) {
-                            val t1 = System.nanoTime()
-                            val ns = (t1 - t0).coerceAtLeast(0L)
-                            if (debugEnabled) {
-                                updateCount.incrementAndGet()
-                                updateNsTotal.addAndGet(ns)
-                                updateMax(updateNsMax, ns)
-                            }
-                            if (sampleAct) {
-                                perfLastActMs = (ns.toDouble() / 1_000_000.0).toFloat()
-                                perfLastActAtUptimeMs = SystemClock.uptimeMillis()
-                            }
+                    runFrameUpdate()
+                }
+
+                MSG_IDLE_WAKE -> {
+                    if (released || !started || !frameLoopIdle) return
+                    // Let main draw advance DanmakuTimer before action evaluates this timeline point.
+                    idleWakeCount.incrementAndGet()
+                    lastIdleWakeLatenessMs =
+                        if (scheduledIdleWakeAtUptimeMs > 0L) {
+                            (SystemClock.uptimeMillis() - scheduledIdleWakeAtUptimeMs).coerceAtLeast(0L)
+                        } else {
+                            -1L
                         }
-                        view.invalidateDanmakuAreaOnAnimation()
-                    } catch (ie: InterruptedException) {
-                        // Ignore.
-                    } catch (t: Throwable) {
-                        AppLog.w(TAG, "updateFrame crashed", t)
-                    }
+                    idleWakeDrawRequested.set(true)
+                    view.postInvalidateOnAnimation()
+                }
+
+                MSG_RESUME_FROM_IDLE -> {
+                    if (released || !started || !frameLoopIdle) return
+                    idleResumeCount.incrementAndGet()
+                    frameLoopIdle = false
+                    runFrameUpdate()
                 }
 
                 MSG_OP_SET -> {
                     @Suppress("UNCHECKED_CAST")
                     engineAction.setDanmakus(msg.obj as? List<Danmaku> ?: emptyList())
-                    renderOnceIfPaused()
+                    renderAfterOperation()
                 }
 
                 MSG_OP_APPEND -> {
                     val p = msg.obj as? AppendPayload ?: return
                     engineAction.appendDanmakus(p.list, alreadySorted = p.alreadySorted)
                     if (p.maxItems > 0) engineAction.trimToMax(p.maxItems)
-                    renderOnceIfPaused()
+                    renderAfterOperation()
                 }
 
                 MSG_OP_REPLACE_FROM -> {
                     val p = msg.obj as? ReplaceFromPayload ?: return
                     engineAction.replaceDanmakusFrom(p.minTimeMs, p.list)
-                    renderOnceIfPaused()
+                    renderAfterOperation()
                 }
 
                 MSG_OP_TRIM_RANGE -> {
                     val p = msg.obj as? TrimRangePayload ?: return
                     engineAction.trimToTimeRange(p.minTimeMs, p.maxTimeMs)
-                    renderOnceIfPaused()
+                    renderAfterOperation()
                 }
 
                 MSG_OP_SEEK -> {
                     val pos = (msg.obj as? Long) ?: 0L
                     engineAction.seekTo(pos)
-                    renderOnceIfPaused(positionMs = pos)
+                    renderAfterOperation(positionMs = pos)
                 }
 
                 MSG_OP_TRIM_MAX -> {
                     val maxItems = msg.arg1
                     engineAction.trimToMax(maxItems)
-                    renderOnceIfPaused()
+                    renderAfterOperation()
                 }
 
                 MSG_OP_CLEAR -> {
@@ -382,7 +426,7 @@ internal class DanmakuPlayer(
                         bottomInsetPx = viewportBottomInsetPx,
                     )
                     engineAction.seekTo(engineAction.currentPositionMs())
-                    renderOnceIfPaused()
+                    renderAfterOperation()
                 }
 
                 MSG_OP_CONFIG -> {
@@ -390,25 +434,39 @@ internal class DanmakuPlayer(
                         engineAction.updateConfig(it)
                         // Reset layout on config changes (text size/speed/area) to keep correctness simple.
                         engineAction.seekTo(engineAction.currentPositionMs())
-                        renderOnceIfPaused()
+                        renderAfterOperation()
                     }
                 }
 
                 MSG_OP_CACHE_RESULT -> {
                     val result = msg.obj as? CacheBuildResult ?: return
                     engineAction.applyCacheResult(result)
-                    view.invalidateDanmakuAreaOnAnimation()
+                    renderAfterOperation()
                 }
 
                 MSG_OP_RELEASE -> {
                     removeCallbacksAndMessages(null)
                     Choreographer.getInstance().removeFrameCallback(frameCallback)
                     started = false
+                    frameLoopIdle = false
+                    idleWakeDrawRequested.set(false)
                     runCatching { actionThread.quitSafely() }
                     engineAction.release()
                     cacheManager.release()
                 }
             }
+        }
+
+        private fun renderAfterOperation(positionMs: Long? = null) {
+            if (released) return
+            if (started && frameLoopIdle) {
+                frameLoopIdle = false
+                idleWakeDrawRequested.set(false)
+                removeMessages(MSG_IDLE_WAKE)
+                sendEmptyMessage(MSG_FRAME_UPDATE)
+                return
+            }
+            renderOnceIfPaused(positionMs)
         }
 
         private fun renderOnceIfPaused(positionMs: Long? = null) {
@@ -433,6 +491,55 @@ internal class DanmakuPlayer(
                 }
             }
             view.invalidateDanmakuAreaOnAnimation()
+        }
+
+        private fun runFrameUpdate() {
+            try {
+                engineAction.preAct()
+                if (released || !started) return
+                frameUpdateCount.incrementAndGet()
+                val sampleAct = perfSampleRequested.getAndSet(false)
+                val shouldMeasure = debugEnabled || sampleAct
+                val t0 = if (shouldMeasure) System.nanoTime() else 0L
+                engineAction.act()
+                if (shouldMeasure) {
+                    val t1 = System.nanoTime()
+                    val ns = (t1 - t0).coerceAtLeast(0L)
+                    if (debugEnabled) {
+                        updateCount.incrementAndGet()
+                        updateNsTotal.addAndGet(ns)
+                        updateMax(updateNsMax, ns)
+                    }
+                    if (sampleAct) {
+                        perfLastActMs = (ns.toDouble() / 1_000_000.0).toFloat()
+                        perfLastActAtUptimeMs = SystemClock.uptimeMillis()
+                    }
+                }
+                view.invalidateDanmakuAreaOnAnimation()
+                val schedule = engineAction.frameSchedule()
+                if (schedule.animate) {
+                    frameLoopIdle = false
+                    postFrameCallback()
+                } else {
+                    frameLoopIdle = true
+                    idleCycleCount.incrementAndGet()
+                    schedule.nextWakeAtMs?.let { nextWakeAtMs ->
+                        val delayMs = resolveDanmakuIdleWakeDelayMs(
+                            nextWakeAtMs = nextWakeAtMs,
+                            currentPositionMs = engineAction.currentPositionMs(),
+                            playbackSpeed = latestPlaybackSpeed,
+                        )
+                        lastIdleWakeDelayMs = delayMs
+                        scheduledIdleWakeAtUptimeMs = SystemClock.uptimeMillis() + delayMs
+                        removeMessages(MSG_IDLE_WAKE)
+                        sendEmptyMessageDelayed(MSG_IDLE_WAKE, delayMs)
+                    }
+                }
+            } catch (ie: InterruptedException) {
+                // Ignore.
+            } catch (t: Throwable) {
+                AppLog.w(TAG, "updateFrame crashed", t)
+            }
         }
     }
 
@@ -468,4 +575,20 @@ internal class DanmakuPlayer(
         val minTimeMs: Long,
         val maxTimeMs: Long,
     )
+}
+
+/**
+ * Keep sparse timelines asleep while still rechecking at most once per second
+ * for playback-rate changes that were not accompanied by a View invalidation.
+ */
+internal fun resolveDanmakuIdleWakeDelayMs(
+    nextWakeAtMs: Int,
+    currentPositionMs: Long,
+    playbackSpeed: Float,
+    maxRecheckMs: Long = 1_000L,
+): Long {
+    val mediaDelayMs = (nextWakeAtMs.toLong() - currentPositionMs).coerceAtLeast(0L)
+    val speed = playbackSpeed.takeIf { it.isFinite() && it > 0f }?.toDouble() ?: 1.0
+    val wallDelayMs = kotlin.math.ceil(mediaDelayMs.toDouble() / speed).toLong()
+    return wallDelayMs.coerceIn(1L, maxRecheckMs.coerceAtLeast(1L))
 }
