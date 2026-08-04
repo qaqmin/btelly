@@ -58,6 +58,7 @@ class DanmakuCoreController(
         private const val DANMAKU_FONT_BORDER_DEFAULT = 0
         private const val LIVE_HISTORY_MAX_ITEMS = 2_000
         private const val LIVE_EMIT_BATCH_MS = 50L
+        private const val TAIL_PATCH_MERGE_WINDOW_MS = 2_000
     }
 
     /** 屏幕密度，用于对齐 AkDanmaku 字号公式。 */
@@ -191,15 +192,16 @@ class DanmakuCoreController(
                 incomingSorted = sortedIncoming,
                 mergeDuplicate = mergeDuplicate
             )
-            val incremental = canAppendPreparedDanmakuIncrementally(
+            val timelineOperation = resolveDanmakuTimelineOperation(
                 mergeSafe = mergeSafe,
+                hasExistingItems = existingItems.isNotEmpty(),
                 existingFilterContext = existingFilterContext,
                 incomingFilterContext = taskFilterContext
             )
             val merged = mergeSortedDanmakuModels(existingItems, sortedIncoming, incomingAlreadySorted = true)
             val prepared = preprocess(
-                items = if (incremental) sortedIncoming else merged,
-                append = incremental,
+                items = if (timelineOperation == DanmakuTimelineOperation.Append) sortedIncoming else merged,
+                append = timelineOperation == DanmakuTimelineOperation.Append,
                 filterContext = taskFilterContext
             )
             withContext(Dispatchers.Main.immediate) {
@@ -209,7 +211,15 @@ class DanmakuCoreController(
                 if (renderingStopped) {
                     dataStopped = merged.isNotEmpty()
                 } else {
-                    injectToView(prepared, append = incremental)
+                    when (timelineOperation) {
+                        DanmakuTimelineOperation.Append -> injectToView(prepared, append = true)
+                        DanmakuTimelineOperation.ReplaceFutureTail ->
+                            replaceFutureTailInView(
+                                danmakus = prepared,
+                                firstIncomingTimeMs = sortedIncoming.firstOrNull()?.progress ?: Int.MAX_VALUE,
+                            )
+                        DanmakuTimelineOperation.Reset -> injectToView(prepared, append = false)
+                    }
                 }
             }
         }
@@ -637,6 +647,26 @@ class DanmakuCoreController(
         )
     }
 
+    /**
+     * 跨批去重需要重算旧尾部时，只替换尚未进入播放窗口的时间线后缀。
+     * 当前/即将显示的条目保持原样，避免数据合并把正在滚动的弹幕重置或改写。
+     */
+    private fun replaceFutureTailInView(danmakus: List<Danmaku>, firstIncomingTimeMs: Int) {
+        val currentPositionMs = playerPositionProvider?.invoke()?.coerceAtLeast(0L) ?: 0L
+        val replaceFromMs = resolveDanmakuTailPatchStartMs(
+            firstIncomingTimeMs = firstIncomingTimeMs,
+            currentPositionMs = currentPositionMs,
+            mergeWindowMs = TAIL_PATCH_MERGE_WINDOW_MS,
+            activeGuardMs = rollingDurationMsForTailPatch(currentConfig.speedLevel),
+        )
+        val replacement = danmakus.filter { it.timeMs >= replaceFromMs }
+        viewProvider()?.replaceDanmakusFrom(replaceFromMs.toLong(), replacement)
+        AppLog.i(
+            TAG,
+            "replace tail from=${replaceFromMs}ms incoming=$firstIncomingTimeMs prepared=${danmakus.size} replacement=${replacement.size}",
+        )
+    }
+
     private fun viewHasData(): Boolean = rawItems.isNotEmpty()
 
     private fun buildConfig(snapshot: DanmakuSettingsSnapshot): DanmakuConfig {
@@ -743,11 +773,60 @@ internal fun mergeSortedDanmakuModels(
     return result
 }
 
+internal enum class DanmakuTimelineOperation {
+    Reset,
+    Append,
+    ReplaceFutureTail,
+}
+
+internal fun resolveDanmakuTimelineOperation(
+    mergeSafe: Boolean,
+    hasExistingItems: Boolean,
+    existingFilterContext: DanmakuFilterContext,
+    incomingFilterContext: DanmakuFilterContext,
+): DanmakuTimelineOperation =
+    when {
+        !hasExistingItems || existingFilterContext != incomingFilterContext -> DanmakuTimelineOperation.Reset
+        mergeSafe -> DanmakuTimelineOperation.Append
+        else -> DanmakuTimelineOperation.ReplaceFutureTail
+    }
+
 internal fun canAppendPreparedDanmakuIncrementally(
     mergeSafe: Boolean,
     existingFilterContext: DanmakuFilterContext,
-    incomingFilterContext: DanmakuFilterContext
-): Boolean = mergeSafe && existingFilterContext == incomingFilterContext
+    incomingFilterContext: DanmakuFilterContext,
+): Boolean =
+    resolveDanmakuTimelineOperation(
+        mergeSafe = mergeSafe,
+        hasExistingItems = true,
+        existingFilterContext = existingFilterContext,
+        incomingFilterContext = incomingFilterContext,
+    ) == DanmakuTimelineOperation.Append
+
+/** Returns the earliest future point that a cross-batch merge may safely rewrite. */
+internal fun resolveDanmakuTailPatchStartMs(
+    firstIncomingTimeMs: Int,
+    currentPositionMs: Long,
+    mergeWindowMs: Int = 2_000,
+    activeGuardMs: Long = 6_000L,
+): Int {
+    val mergeBoundary = (firstIncomingTimeMs.toLong() - mergeWindowMs).coerceAtLeast(0L)
+    val activeBoundary = currentPositionMs.coerceAtLeast(0L) + activeGuardMs.coerceAtLeast(0L)
+    return maxOf(mergeBoundary, activeBoundary).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+}
+
+/** Keep the tail patch outside the longest rolling lifetime for the active speed setting. */
+internal fun rollingDurationMsForTailPatch(speedLevel: Int): Long =
+    when (speedLevel.coerceIn(1, 10)) {
+        1 -> 12_000L
+        2 -> 10_200L
+        3 -> 8_400L
+        4, 5 -> 6_000L
+        6 -> 4_800L
+        7 -> 3_840L
+        8 -> 3_000L
+        else -> 2_160L
+    }
 
 internal fun canInjectPreparedDanmaku(
     renderingStopped: Boolean,

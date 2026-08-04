@@ -102,6 +102,9 @@ internal interface DanmakuEngineActionApi {
 
     fun appendDanmakus(list: List<Danmaku>, alreadySorted: Boolean)
 
+    /** Replaces only the future suffix of the timeline without resetting active items. */
+    fun replaceDanmakusFrom(minTimeMs: Long, list: List<Danmaku>)
+
     fun trimToMax(maxItems: Int)
 
     fun trimToTimeRange(minTimeMs: Long, maxTimeMs: Long)
@@ -130,6 +133,10 @@ internal class DanmakuEngine(
     private var index: Int = 0
     private val active: ArrayList<DanmakuItem> = ArrayList(64)
     private val pending: ArrayDeque<PendingSpawn> = ArrayDeque()
+    // 最近一个重建窗口内已实际入场的条目。全量替换/乱序重排会生成新 DanmakuItem，
+    // 不能只依赖 active 或新实例上的 consumed 标记来防止已离屏条目再次入场。
+    private val admissionHistory = DanmakuAdmissionHistory()
+    private var lastAdmissionHistoryPruneBeforeMs: Int = 0
 
     // Monotonic time within a session (action thread).
     private var lastNowMs: Int = 0
@@ -422,6 +429,10 @@ internal class DanmakuEngine(
             val rollingDurationMs = computeRollingDurationMs(speedLevel = cfg.speedLevel)
             val fixedDurationMs = FIXED_DURATION_MS
 
+            pruneAdmissionHistory(
+                (nowMs - max(rollingDurationMs, fixedDurationMs)).coerceAtLeast(0),
+            )
+
             if (rebuildRequested) {
                 rebuildScene(
                     nowMs = nowMs,
@@ -524,8 +535,10 @@ internal class DanmakuEngine(
                     DanmakuKind.BOTTOM -> centerX(width = width, contentWidth = item.textWidthPx)
                 }
             val yTop = snapshot.yTop[i]
-            val entry = item.cacheEntry
-            if (entry != null && !entry.isRecycled && item.cacheGeneration == styleGen) {
+            // The action thread may replace item.cacheEntry while this snapshot is still
+            // being drawn. Read the snapshot-owned lease instead of mutable item state.
+            val entry = snapshot.cacheEntries[i]
+            if (entry != null && !entry.isRecycled && snapshot.cacheGenerations[i] == styleGen) {
                 canvas.drawBitmap(entry.bitmap, x, yTop, bitmapPaint)
                 cachedDrawn++
                 continue
@@ -555,6 +568,7 @@ internal class DanmakuEngine(
 
     override fun setDanmakus(list: List<Danmaku>) {
         synchronized(actionStateLock) {
+            if (list.isEmpty()) clearAdmissionHistory()
             val newItems =
                 list
                     .sortedBy { it.timeMs }
@@ -621,16 +635,54 @@ internal class DanmakuEngine(
             return
         }
         // 时间倒序：新批次首条早于已注入末条（分段补全/seek回看时出现）。
-        // 会触发 rebuild + seek，把已滚过的弹幕重新入场——"重复"的可疑来源。
+        // 只改写当前滚动寿命之外的未来尾段，绝不能 sort 全量时间线再 seek，
+        // 否则在场条目和最近已入场条目都会被重新投放。
+        val rollingDurationMs = computeRollingDurationMs(config.speedLevel)
+        val patchFrom = resolveOutOfOrderAppendPatchStartMs(
+            firstIncomingTimeMs = firstIncoming,
+            currentPositionMs = currentPositionMs,
+            rollingDurationMs = rollingDurationMs,
+        )
+        val replaceIndex = lowerBound(patchFrom)
+        val replacement = mergeDanmakuFutureTail(
+            existing = items.subList(replaceIndex, items.size).map { it.data },
+            incoming = newItems,
+            minTimeMs = patchFrom,
+        )
         android.util.Log.w(
             TAG,
             "append(out-of-order!) add=${newItems.size} firstIn=$firstIncoming lastExist=$lastTime " +
-                "items=${items.size} → sort+rebuild+seek"
+                "items=${items.size} → patchFuture from=${patchFrom}ms replace=${replacement.size}"
         )
-        for (d in newItems) items.add(DanmakuItem(d))
-        items.sortBy { it.timeMs() }
-        requestRebuild("append-out-of-order")
-        seekTo(currentPositionMs, reason = "append-out-of-order")
+        if (replaceIndex < items.size) items.subList(replaceIndex, items.size).clear()
+        items.addAll(replacement.map(::DanmakuItem))
+        index = minOf(index, replaceIndex)
+        requestRebuild("append-out-of-order-tail-patch")
+        debugNextAtMs = items.getOrNull(index)?.timeMs()
+        }
+    }
+
+    override fun replaceDanmakusFrom(minTimeMs: Long, list: List<Danmaku>) {
+        synchronized(actionStateLock) {
+            val min = minTimeMs.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            val replacement =
+                list
+                    .asSequence()
+                    .filter { it.timeMs >= min }
+                    .sortedBy { it.timeMs }
+                    .map { DanmakuItem(it) }
+                    .toList()
+            val replaceIndex = lowerBound(min)
+            markMatchedNewItemsConsumed(replacement)
+            if (replaceIndex < items.size) items.subList(replaceIndex, items.size).clear()
+            items.addAll(replacement)
+            index = minOf(index, replaceIndex)
+            requestRebuild("replace-from")
+            debugNextAtMs = items.getOrNull(index)?.timeMs()
+            android.util.Log.w(
+                TAG,
+                "replaceFrom min=${min}ms replace=${replacement.size} prefix=$replaceIndex items=${items.size} active=${active.size}",
+            )
         }
     }
 
@@ -700,6 +752,7 @@ internal class DanmakuEngine(
         synchronized(actionStateLock) {
             clearActives()
             pending.clear()
+            clearAdmissionHistory()
             resetLaneState()
             requestRebuild("clear")
             debugPendingCount = 0
@@ -711,6 +764,7 @@ internal class DanmakuEngine(
     override fun release() {
         synchronized(actionStateLock) {
             clear()
+            releaseAllSnapshotCacheLeases()
         }
     }
 
@@ -725,6 +779,18 @@ internal class DanmakuEngine(
         snapshotDirty = true
     }
 
+    private fun clearAdmissionHistory() {
+        admissionHistory.clear()
+        lastAdmissionHistoryPruneBeforeMs = 0
+    }
+
+    /** History is only needed for the rolling rebuild window; avoid retaining an entire long video. */
+    private fun pruneAdmissionHistory(minimumTimeMs: Int, force: Boolean = false) {
+        if (!force && minimumTimeMs - lastAdmissionHistoryPruneBeforeMs < ADMISSION_HISTORY_PRUNE_INTERVAL_MS) return
+        admissionHistory.pruneBefore(minimumTimeMs)
+        lastAdmissionHistoryPruneBeforeMs = minimumTimeMs
+    }
+
     private fun resetLaneState() {
         if (laneLastScroll.isNotEmpty()) java.util.Arrays.fill(laneLastScroll, null)
         if (laneLastTop.isNotEmpty()) java.util.Arrays.fill(laneLastTop, null)
@@ -734,6 +800,7 @@ internal class DanmakuEngine(
     private fun publishEmptySnapshot() {
         val out = writableSnapshot()
         try {
+            releaseSnapshotCacheLeases(out)
             out.clear()
             latestSnapshot = out
             snapshotDirty = false
@@ -756,15 +823,55 @@ internal class DanmakuEngine(
         if (!snapshotDirty) return
         val out = writableSnapshot()
         try {
+            releaseSnapshotCacheLeases(out)
             out.clear()
             out.positionMs = nowMs.toLong()
             out.pendingCount = pending.size
             out.nextAtMs = items.getOrNull(index)?.timeMs()
             writeDanmakuRenderOrder(active, out)
+            retainSnapshotCacheLeases(out)
             latestSnapshot = out
             snapshotDirty = false
         } finally {
             out.endWrite()
+        }
+    }
+
+    /** The writable snapshot has no UI reader, so its old cache leases may now be returned. */
+    private fun releaseSnapshotCacheLeases(snapshot: RenderSnapshot) {
+        val releaseAt = currentUiFrameId + 1
+        for (i in 0 until snapshot.count) {
+            val entry = snapshot.cacheEntries[i] ?: continue
+            cacheManager.enqueueRelease(entry, releaseAtFrameId = releaseAt)
+        }
+    }
+
+    /** Keep bitmap ownership stable for the lifetime of a published render snapshot. */
+    private fun retainSnapshotCacheLeases(snapshot: RenderSnapshot) {
+        for (i in 0 until snapshot.count) {
+            val item = snapshot.items[i] ?: continue
+            val entry = item.cacheEntry
+            if (entry != null && entry.tryAcquire()) {
+                snapshot.cacheEntries[i] = entry
+                snapshot.cacheGenerations[i] = item.cacheGeneration
+            }
+        }
+    }
+
+    /**
+     * Player release stops future UI drawing before this action runs, so no
+     * published snapshot can still be consumed. Return leases retained by the
+     * two buffers that would otherwise never become writable again.
+     */
+    private fun releaseAllSnapshotCacheLeases() {
+        for (snapshot in snapshots) {
+            if (!snapshot.tryBeginWrite()) continue
+            try {
+                releaseSnapshotCacheLeases(snapshot)
+                snapshot.clear()
+            } finally {
+                snapshot.endWrite()
+            }
         }
     }
 
@@ -784,6 +891,7 @@ internal class DanmakuEngine(
         // 位置倒退（用户 seek 回更早位置）时允许把 consumed 标记的条目重新入场（回看本来就是重放）；
         // 同位置/前进的重建必须跳过，否则"已滚过/正在滚"的弹幕会再次从右侧入场。
         val positionWentBack = nowMs < lastNowMs
+        if (positionWentBack) clearAdmissionHistory()
         pending.clear()
         ensureLaneBuffers(laneCount)
         rebuildRequested = false
@@ -813,17 +921,26 @@ internal class DanmakuEngine(
         // 重新入场的起点：nowMs 往前回退一个最长滚动/固定时长，这部分弹幕会重新从右侧入场。
         // 仅未在场的（含新注入/替换时间线的未消费条目）会被投放，避免重复。
         val admitSinceMs = (nowMs - max(rollingDurationMs, fixedDurationMs)).coerceAtLeast(0)
+        pruneAdmissionHistory(admitSinceMs, force = true)
+        val priorAdmissions = if (positionWentBack) null else admissionHistory.replayBudget()
         index = lowerBound(admitSinceMs)
         var admitted = 0
+        var skippedPreviouslyAdmitted = 0
         while (index < items.size && items[index].timeMs() <= nowMs) {
             val item = items[index]
             index++
             if (item.data.text.isBlank()) continue
             if (item.timeMs() < admitSinceMs) continue
-            if (item in active) continue
             // 时间线整体替换后：新实例与在场条目相同 → 已标记，跳过（除非用户回看）。
-            if (item.consumed && !positionWentBack) continue
-            tryAdmitItem(
+            if (!positionWentBack && (item in active || item.consumed)) {
+                priorAdmissions?.consume(item.data)
+                continue
+            }
+            if (priorAdmissions?.consume(item.data) == true) {
+                skippedPreviouslyAdmitted++
+                continue
+            }
+            if (tryAdmitItem(
                 item = item,
                 nowMs = nowMs,
                 width = width,
@@ -836,8 +953,9 @@ internal class DanmakuEngine(
                 maxYTop = maxYTop,
                 // 入场失败进受控 pending 队列（有上限+重试），不再静默丢弃。
                 allowPending = true,
-            )
-            admitted++
+            )) {
+                admitted++
+            }
         }
         debugPendingCount = pending.size
         debugNextAtMs = items.getOrNull(index)?.timeMs()
@@ -846,7 +964,7 @@ internal class DanmakuEngine(
             TAG,
             "rebuildScene reason=$reason now=${nowMs}ms width=$width lanes=$laneCount " +
                 "items=${items.size} activeBefore=$activeBefore preserved=$preserved activeAfter=${active.size} " +
-                "reAdmit=$admitted since=${admitSinceMs}ms"
+                "reAdmit=$admitted skippedHistory=$skippedPreviouslyAdmitted since=${admitSinceMs}ms"
         )
     }
 
@@ -1347,6 +1465,7 @@ internal class DanmakuEngine(
         item.motionStarted = false
         item.layoutTopPx = layoutTopPx
         active.add(item)
+        admissionHistory.record(item.data)
         snapshotDirty = true
         // 弹幕入场记录。若同一 t=ms + text 出现两次 activate，即为"重复入场"。
         android.util.Log.w(
@@ -1486,7 +1605,67 @@ internal class DanmakuEngine(
         private const val MAX_CACHE_SCAN_PER_FRAME = 16
         private const val MAX_CACHE_QUEUE_DEPTH = 48
         private const val MAX_CACHE_WAIT_MS = 1_600
+        private const val ADMISSION_HISTORY_PRUNE_INTERVAL_MS = 1_000
 
     }
 
 }
+
+/**
+ * 仅保存当前重建窗口内已经真正 activate 过的弹幕，用计数处理同一数据在同一时点的多条实例。
+ * 每次重建使用独立预算；消费预算不会改写历史，下一次前进重建仍会继续跳过同一条目。
+ */
+internal class DanmakuAdmissionHistory {
+    private val counts = HashMap<Danmaku, Int>()
+
+    fun record(data: Danmaku) {
+        counts[data] = (counts[data] ?: 0) + 1
+    }
+
+    fun clear() {
+        counts.clear()
+    }
+
+    fun pruneBefore(minimumTimeMs: Int) {
+        val iterator = counts.keys.iterator()
+        while (iterator.hasNext()) {
+            if (iterator.next().timeMs < minimumTimeMs) iterator.remove()
+        }
+    }
+
+    fun replayBudget(): ReplayBudget = ReplayBudget(HashMap(counts))
+
+    internal class ReplayBudget(private val remaining: MutableMap<Danmaku, Int>) {
+        /** Returns true only once for each previously admitted matching instance. */
+        fun consume(data: Danmaku): Boolean {
+            val count = remaining[data] ?: return false
+            if (count <= 1) remaining.remove(data) else remaining[data] = count - 1
+            return true
+        }
+    }
+}
+
+/**
+ * Direct engine callers may deliver an old segment after a later one. The part
+ * inside the active rolling lifetime is deliberately left untouched; changing
+ * it would restart visible comments or replay items admitted in this pass.
+ */
+internal fun resolveOutOfOrderAppendPatchStartMs(
+    firstIncomingTimeMs: Int,
+    currentPositionMs: Long,
+    rollingDurationMs: Int,
+): Int = maxOf(
+    firstIncomingTimeMs.toLong(),
+    currentPositionMs.coerceAtLeast(0L) + rollingDurationMs.coerceAtLeast(0),
+).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+
+/** Builds the replacement suffix for a protected out-of-order append. */
+internal fun mergeDanmakuFutureTail(
+    existing: List<Danmaku>,
+    incoming: List<Danmaku>,
+    minTimeMs: Int,
+): List<Danmaku> =
+    (existing.asSequence() + incoming.asSequence())
+        .filter { it.timeMs >= minTimeMs }
+        .sortedBy { it.timeMs }
+        .toList()

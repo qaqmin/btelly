@@ -19,6 +19,17 @@ internal class RenderSnapshot(
     var textWidth: FloatArray = FloatArray(0)
         private set
 
+    /**
+     * A render snapshot owns an additional cache lease for every captured item.
+     * The action thread can then release an item cache without changing a frame
+     * that the UI thread has already acquired.
+     */
+    var cacheEntries: Array<SharedCacheEntry?> = emptyArray()
+        private set
+
+    var cacheGenerations: IntArray = IntArray(0)
+        private set
+
     var count: Int = 0
     var pendingCount: Int = 0
     var nextAtMs: Int? = null
@@ -48,11 +59,15 @@ internal class RenderSnapshot(
         x = FloatArray(cap)
         yTop = FloatArray(cap)
         textWidth = FloatArray(cap)
+        cacheEntries = arrayOfNulls(cap)
+        cacheGenerations = IntArray(cap) { -1 }
     }
 
     fun clear() {
         for (i in 0 until count) {
             items[i] = null
+            cacheEntries[i] = null
+            cacheGenerations[i] = -1
         }
         count = 0
         pendingCount = 0

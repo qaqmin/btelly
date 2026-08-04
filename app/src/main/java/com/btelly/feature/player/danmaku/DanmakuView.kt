@@ -185,6 +185,11 @@ class DanmakuView @JvmOverloads constructor(
         invalidate()
     }
 
+    fun replaceDanmakusFrom(minTimeMs: Long, list: List<Danmaku>) {
+        player.replaceDanmakusFrom(minTimeMs, list)
+        invalidate()
+    }
+
     fun trimToTimeRange(minTimeMs: Long, maxTimeMs: Long) {
         player.trimToTimeRange(minTimeMs, maxTimeMs)
         invalidate()

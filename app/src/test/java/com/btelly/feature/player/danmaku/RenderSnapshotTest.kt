@@ -82,6 +82,21 @@ class RenderSnapshotTest {
         )
     }
 
+    @Test
+    fun clearingASnapshotDropsEveryCapturedCacheSlotBeforeReuse() {
+        val snapshot = RenderSnapshot()
+        snapshot.ensureCapacity(2)
+        snapshot.count = 2
+        snapshot.cacheGenerations[0] = 7
+        snapshot.cacheGenerations[1] = 8
+
+        snapshot.clear()
+
+        assertEquals(0, snapshot.count)
+        assertEquals(-1, snapshot.cacheGenerations[0])
+        assertEquals(-1, snapshot.cacheGenerations[1])
+    }
+
     private fun item(kind: DanmakuKind, text: String): DanmakuItem =
         DanmakuItem(
             Danmaku(

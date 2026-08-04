@@ -34,6 +34,7 @@ internal class DanmakuPlayer(
         private const val MSG_OP_TRIM_MAX = 3104
         private const val MSG_OP_SEEK = 3105
         private const val MSG_OP_CLEAR = 3106
+        private const val MSG_OP_REPLACE_FROM = 3107
         private const val MSG_OP_VIEWPORT = 3201
         private const val MSG_OP_CONFIG = 3202
         private const val MSG_OP_CACHE_RESULT = 3203
@@ -220,6 +221,10 @@ internal class DanmakuPlayer(
         actionHandler.obtainMessage(MSG_OP_APPEND, payload).sendToTarget()
     }
 
+    fun replaceDanmakusFrom(minTimeMs: Long, list: List<Danmaku>) {
+        actionHandler.obtainMessage(MSG_OP_REPLACE_FROM, ReplaceFromPayload(minTimeMs, list)).sendToTarget()
+    }
+
     fun trimToTimeRange(minTimeMs: Long, maxTimeMs: Long) {
         actionHandler.obtainMessage(MSG_OP_TRIM_RANGE, TrimRangePayload(minTimeMs, maxTimeMs)).sendToTarget()
     }
@@ -341,6 +346,12 @@ internal class DanmakuPlayer(
                     renderOnceIfPaused()
                 }
 
+                MSG_OP_REPLACE_FROM -> {
+                    val p = msg.obj as? ReplaceFromPayload ?: return
+                    engineAction.replaceDanmakusFrom(p.minTimeMs, p.list)
+                    renderOnceIfPaused()
+                }
+
                 MSG_OP_TRIM_RANGE -> {
                     val p = msg.obj as? TrimRangePayload ?: return
                     engineAction.trimToTimeRange(p.minTimeMs, p.maxTimeMs)
@@ -446,6 +457,11 @@ internal class DanmakuPlayer(
         val list: List<Danmaku>,
         val maxItems: Int,
         val alreadySorted: Boolean,
+    )
+
+    private data class ReplaceFromPayload(
+        val minTimeMs: Long,
+        val list: List<Danmaku>,
     )
 
     private data class TrimRangePayload(
