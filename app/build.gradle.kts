@@ -50,7 +50,8 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.btelly"
+        // 默认包名；可通过 -PapplicationId=xxx 覆盖，用于 fork 版与原版共存安装
+        applicationId = (project.findProperty("applicationId") as? String) ?: "com.btelly"
         minSdk = 23
         targetSdk = 35
         versionCode = 70
