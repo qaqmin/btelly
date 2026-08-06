@@ -109,3 +109,4 @@ app/src/main/res/values-watch/styles.xml
 *.seed
 AGENTS.md
 app/debug/output-metadata.json
+.codebuddy/
