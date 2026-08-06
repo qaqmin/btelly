@@ -691,7 +691,10 @@ class MyPlayerSettingView @JvmOverloads constructor(
     }
 
     private fun showPlaybackSpeedMenu() {
-        showSubMenu(ITEM_PLAYBACK_SPEED, menuBuilder.buildPlaybackSpeedMenu(panelState))
+        val speedIndex = PLAYBACK_SPEEDS.indexOfFirst { it == panelState.currentSpeed }
+        val focusPosition = if (speedIndex >= 0) speedIndex + 1 else 1 // +1 to skip Header row
+        logSettingFocus("showPlaybackSpeedMenu speed=${panelState.currentSpeed} speedIndex=$speedIndex focusPosition=$focusPosition")
+        showSubMenu(ITEM_PLAYBACK_SPEED, menuBuilder.buildPlaybackSpeedMenu(panelState), focusPosition = focusPosition)
     }
 
     private fun showSubtitles() {
@@ -733,18 +736,15 @@ class MyPlayerSettingView @JvmOverloads constructor(
         )
     }
 
-    private fun showSubMenu(menuKey: Int, rows: List<PlayerSettingRow>) {
-        showSubMenu(menuKey, rows, animateTransition = true)
-    }
-
     private fun showSubMenu(
         menuKey: Int,
         rows: List<PlayerSettingRow>,
-        animateTransition: Boolean
+        animateTransition: Boolean = true,
+        focusPosition: Int = 1
     ) {
         menuLevel = LEVEL_SUB
         updateBackIcon()
-        submitMenuRows(menuKey = menuKey, rows = rows, animateTransition = animateTransition)
+        submitMenuRows(menuKey = menuKey, rows = rows, animateTransition = animateTransition, focusPosition = focusPosition)
     }
 
     private fun goBackToMainMenu() {
