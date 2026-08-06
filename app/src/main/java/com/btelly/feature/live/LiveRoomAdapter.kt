@@ -24,7 +24,8 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class LiveRoomAdapter(
     private val onItemClick: (LiveRoomItem) -> Unit,
-    private val onTopEdgeUp: (() -> Boolean)? = null
+    private val onTopEdgeUp: (() -> Boolean)? = null,
+    private val onDpadKey: ((View, Int, KeyEvent) -> Boolean)? = null
 ) : RecyclerView.Adapter<LiveRoomAdapter.ViewHolder>(), TvFocusableAdapter {
 
     private val items = ArrayList<LiveRoomItem>()
@@ -99,7 +100,7 @@ class LiveRoomAdapter(
         private val longPressThreshold = 5_000L
         private var longPressTriggered = false
 
-        private val keyListener = View.OnKeyListener { _, keyCode, event ->
+        private val keyListener = View.OnKeyListener { view, keyCode, event ->
             if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
                 when (event.action) {
                     KeyEvent.ACTION_DOWN -> {
@@ -112,7 +113,9 @@ class LiveRoomAdapter(
                     }
                 }
             }
-            false
+            // 把 DPAD 方向键交给网格焦点控制器（GridTvFocusStrategy），
+            // 保证严格按“下一行同列”跳格，避免退化为 FocusFinder 的空间查找导致跳行不稳定。
+            onDpadKey?.invoke(view, keyCode, event) ?: false
         }
 
         private fun startLongPressTimer() {
@@ -164,6 +167,7 @@ class LiveRoomAdapter(
             VideoCardFocusHelper.bindSidebarExit(
                 view = views.root,
                 onTopEdgeUp = onTopEdgeUp,
+                handleListDpadDown = false,
                 chainedListener = keyListener
             )
         }

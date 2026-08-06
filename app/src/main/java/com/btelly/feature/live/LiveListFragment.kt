@@ -83,7 +83,12 @@ class LiveListFragment : BaseFragment<FragmentLiveListBinding>(), LiveTabPage {
     }
 
     override fun initView() {
-        adapter = LiveRoomAdapter(onItemClick = ::onRoomClick)
+        adapter = LiveRoomAdapter(
+            onItemClick = ::onRoomClick,
+            onDpadKey = { view, keyCode, event ->
+                tvFocusController?.handleKey(view, keyCode, event) ?: false
+            }
+        )
 
         val layoutManager = WrapContentGridLayoutManager(requireContext(), 4)
         binding.recyclerView.layoutManager = layoutManager
