@@ -930,7 +930,7 @@ class MyPlayerSettingView @JvmOverloads constructor(
             .setListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     recyclerView.animate().setListener(null)
-                    applyMenuRows(menuKey, rows, requestFocusAfter = false, focusPosition = focusPosition)
+                    applyMenuRows(menuKey, rows, focusPosition = focusPosition)
                     recyclerView.alpha = 0f
                     recyclerView.animate()
                         .alpha(1f)
@@ -938,7 +938,6 @@ class MyPlayerSettingView @JvmOverloads constructor(
                         .setListener(object : AnimatorListenerAdapter() {
                             override fun onAnimationEnd(animation: Animator) {
                                 recyclerView.animate().setListener(null)
-                                requestMenuFocus(focusPosition)
                             }
                         })
                         .start()
@@ -954,8 +953,13 @@ class MyPlayerSettingView @JvmOverloads constructor(
         focusPosition: Int = 1
     ) {
         if (requestFocusAfter) {
+            // Clear any existing focus before submitting so the system does not auto-focus the
+            // first visible item during the relayout (which would cause a visible focus "jump"
+            // before we explicitly place focus on the intended item).
+            recyclerView.clearFocus()
             adapter.submitRows(menuKey, rows) {
-                recyclerView.scrollToPosition(0)
+                // Scroll directly to the focus target so its view is laid out before we request focus.
+                recyclerView.scrollToPosition(focusPosition)
                 requestMenuFocus(focusPosition)
             }
         } else {
@@ -987,7 +991,19 @@ class MyPlayerSettingView @JvmOverloads constructor(
             if (targetView?.isFocusable == true) {
                 targetView.requestFocus()
             } else {
-                recyclerView.requestFocus()
+                // Target not laid out yet; scroll to it then retry, instead of falling back to
+                // recyclerView.requestFocus() (which lets the system focus the first visible item).
+                recyclerView.scrollToPosition(pos)
+                recyclerView.post {
+                    val retryView = recyclerView.findViewHolderForAdapterPosition(pos)?.itemView
+                        ?: recyclerView.layoutManager?.findViewByPosition(pos)
+                    if (retryView?.isFocusable == true) {
+                        retryView.requestFocus()
+                    } else {
+                        recyclerView.requestFocus()
+                    }
+                    logSettingFocus("  retry: pos=$pos retryView=$retryView focusAfter=${findFocus()}")
+                }
             }
             logSettingFocus("  post: focusAfter=${findFocus()}")
         }
