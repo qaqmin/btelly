@@ -93,7 +93,7 @@ val viewModelModule = module {
     viewModel { HotViewModel(get(), get(), androidContext()) }
     viewModel { (type: Int) -> HomeLaneViewModel(type, get()) }
     viewModel { MainNavigationViewModel(get()) }
-    viewModel { VideoPlayerViewModel(get(), get(), get(), get(), get(), get(), get(named("noCookie")), androidContext(), get()) }
+    viewModel { VideoPlayerViewModel(get(), get(), get(), get(), get(), get(), get(named("noCookie")), get(), androidContext(), get()) }
     viewModel { CategoryViewModel(get()) }
     viewModel { DynamicViewModel(get()) }
     viewModel { LiveViewModel(get()) }
