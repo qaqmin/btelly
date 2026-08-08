@@ -207,7 +207,8 @@ class MarmotSystemWebViewClient(
 
     /** 判断图片是否允许加载（对标参考 `imageLoad`）。 */
     private fun isImageAllowed(url: String): Boolean {
-        return url.contains("tvImg") || url.contains("cctvpic.com") || url.contains("default")
+        return url.contains("tvImg") || url.contains("cctvpic.com") ||
+            url.contains("player.cntv.cn") || url.contains("default")
     }
 
     private fun httpGetStream(url: String): InputStream? = try {

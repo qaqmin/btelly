@@ -170,7 +170,8 @@ class MarmotX5WebViewClient(
     }
 
     private fun isImageAllowed(url: String): Boolean =
-        url.contains("tvImg") || url.contains("cctvpic.com") || url.contains("default")
+        url.contains("tvImg") || url.contains("cctvpic.com") ||
+            url.contains("player.cntv.cn") || url.contains("default")
 
     private fun httpGetStream(url: String): InputStream? = try {
         client.newCall(Request.Builder().url(url).get().build()).execute().body?.byteStream()
