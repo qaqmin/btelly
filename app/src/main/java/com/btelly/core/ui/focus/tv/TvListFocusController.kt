@@ -345,6 +345,30 @@ class TvListFocusController(
         return focusPosition(position, anchor.offsetTop, "request", allowOutsideFocus = allowOutsideFocus)
     }
 
+    /**
+     * 列表内当前是否已有真实焦点（含子项）。
+     * 用于"从播放器等外部页面返回后"判断焦点恢复是否真正成功：
+     * - `requestFocusPosition` 的返回值不可靠（内部失败时也会返回 true），
+     *   因此恢复成功与否需以真实焦点落点为准。
+     * - 返回 true 表示焦点已在列表内（用户可继续 D-pad 导航），
+     *   即使未精确落在目标卡片上也算恢复成功；否则上层应兜底重试/聚焦返回键。
+     */
+    fun hasFocusInList(): Boolean {
+        val focused = recyclerView.rootView?.findFocus() ?: return false
+        return isDescendantOf(focused, recyclerView)
+    }
+
+    /**
+     * 是否已捕获有效的返回锚点（`capturedAnchor`）。
+     * 点击卡片进入播放时会调用 [captureCurrentAnchor] 记录锚点；该锚点独立于
+     * 上层 Fragment 的 `lastFocusedPosition`，不会因"返回按钮获得焦点"等动作被清空，
+     * 是从播放器返回后恢复焦点的最可靠依据。
+     */
+    fun hasCapturedAnchor(): Boolean {
+        if (capturedAnchor != null) return true
+        return currentAnchor != null && resolveAnchorPosition(currentAnchor!!) != RecyclerView.NO_POSITION
+    }
+
     fun captureCurrentAnchor(): Boolean {
         val focused = recyclerView.rootView?.findFocus()
         val position = focused?.let(::resolveAdapterPosition) ?: RecyclerView.NO_POSITION
@@ -368,6 +392,27 @@ class TvListFocusController(
         }
         logD("captureCurrentAnchor: hasRealFocus=$hasRealFocus pos=$position focused=${describeView(focused)} capturedPos=${capturedAnchor?.adapterPosition} capturedKey=${capturedAnchor?.stableKey}")
         return hasRealFocus
+    }
+
+    /**
+     * 从播放器等外部页面返回时，将焦点恢复到点击时捕获的锚点位置。
+     *
+     * 区别于 [restoreCapturedAnchor]：
+     * - [restoreCapturedAnchor] 会因"焦点已落在列表外部可见 View 上"（如返回按钮）而跳过——
+     *   该逻辑是为侧边栏场景设计的；但"从播放器返回"时，焦点若落在返回按钮等外部控件上
+     *   恰恰是需要拉回列表的，跳过会直接导致焦点停在返回按钮。
+     * - 本方法强制把焦点拉回捕获锚点位置（`allowOutsideFocus = true` 绕过外部焦点 BLOCKED 检查），
+     *   是返回恢复焦点最可靠的入口。
+     */
+    fun restoreCapturedFocusPosition(): Boolean {
+        val anchor = capturedAnchor ?: currentAnchor ?: return false
+        val position = resolveAnchorPosition(anchor)
+        if (position == RecyclerView.NO_POSITION || !adapter.isFocusablePosition(position)) {
+            logD("restoreCapturedFocusPosition: pos=$position NOT focusable, skip")
+            return false
+        }
+        logD("restoreCapturedFocusPosition: pos=$position offset=${anchor.offsetTop}")
+        return focusPosition(position, anchor.offsetTop, "returnFocus", allowOutsideFocus = true)
     }
 
     fun restoreCapturedAnchor(): Boolean {
