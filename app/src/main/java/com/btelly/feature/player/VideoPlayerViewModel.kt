@@ -2153,7 +2153,7 @@ class VideoPlayerViewModel(
         if (!userRepository.isLoggedIn()) return null
 
         val resumeStartMs = System.currentTimeMillis()
-        val maxPages = 3
+        val maxPages = 6
         val pageSize = 30
         var viewAt = 0L
         val matchedAid = aid?.takeIf { it > 0L }
