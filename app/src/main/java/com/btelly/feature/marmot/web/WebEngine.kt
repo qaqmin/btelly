@@ -89,6 +89,17 @@ class WebEngine(
         }
     }
 
+    /** 执行 JS 并回调结果（result 为字符串，可能带引号转义）。系统/X5 共用。 */
+    fun evaluateJavascriptWithResult(js: String, callback: (result: String) -> Unit) {
+        if (usingX5) {
+            (view as com.tencent.smtt.sdk.WebView)
+                .evaluateJavascript(js) { value -> callback(value ?: "") }
+        } else {
+            (view as android.webkit.WebView)
+                .evaluateJavascript(js) { value -> callback(value ?: "") }
+        }
+    }
+
     fun onPause() {
         if (usingX5) runCatching { (view as com.tencent.smtt.sdk.WebView).onPause() }
         else runCatching { (view as android.webkit.WebView).onPause() }
@@ -278,6 +289,10 @@ class WebEngine(
             com.btelly.core.common.log.AppLog.d(TAG, msg)
             return true
         }
+        override fun onProgressChanged(view: android.webkit.WebView?, newProgress: Int) {
+            // 上报真实加载进度（1-99），驱动遮罩上的"正在加载网页 x%"文字
+            onProgress(newProgress)
+        }
         override fun onShowCustomView(view: android.view.View, callback: android.webkit.WebChromeClient.CustomViewCallback) {
             Log.i(TAG, "系统 onShowCustomView")
             onShowCustomView.invoke(view)
@@ -298,6 +313,10 @@ class WebEngine(
             Log.d(TAG, msg)
             com.btelly.core.common.log.AppLog.d(TAG, msg)
             return true
+        }
+        override fun onProgressChanged(view: com.tencent.smtt.sdk.WebView?, newProgress: Int) {
+            // 上报真实加载进度（1-99），驱动遮罩上的"正在加载网页 x%"文字
+            onProgress(newProgress)
         }
         override fun onShowCustomView(view: android.view.View, callback: com.tencent.smtt.export.external.interfaces.IX5WebChromeClient.CustomViewCallback) {
             Log.i(TAG, "X5 onShowCustomView")
