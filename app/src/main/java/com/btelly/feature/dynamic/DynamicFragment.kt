@@ -549,7 +549,9 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
         videoFocusController?.requestFocusPosition(targetPosition)
     }
 
-    private fun scheduleVideoFocusRestore(retries: Int = 8) {
+    // 重试 16 次 × 48ms ≈ 768ms：真机大屏 Activity 转场动画可能 >400ms，
+    // 原 8 次(384ms) 窗口不足，易在动画期间耗尽重试导致焦点丢失。
+    private fun scheduleVideoFocusRestore(retries: Int = 16) {
         binding.recyclerViewRight.post {
             if (!isAdded || view == null) {
                 return@post

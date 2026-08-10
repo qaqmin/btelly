@@ -35,6 +35,10 @@ class FollowUserListFragment : BaseFragment<FragmentFollowUserListBinding>() {
         private const val ARG_USER_ID = "user_id"
         private const val ARG_TYPE = "type"
 
+        // 焦点恢复到列表内的轮询参数（覆盖转场动画窗口，失败后兜底返回键）
+        private const val RESTORE_FOCUS_RETRY_TIMES = 6
+        private const val RESTORE_FOCUS_RETRY_DELAY_MS = 120L
+
         fun newInstance(userId: Long, type: Int): FollowUserListFragment {
             return FollowUserListFragment().apply {
                 arguments = bundleOf(
@@ -245,10 +249,47 @@ class FollowUserListFragment : BaseFragment<FragmentFollowUserListBinding>() {
                 val targetPosition = lastFocusedPosition.coerceIn(0, adapter.itemCount - 1)
                 binding.recyclerView.scrollToPosition(targetPosition)
                 requestItemFocus(targetPosition)
+                // 轮询确认真实焦点落点（转场动画/布局未就绪窗口），失败才兜底返回键
+                retryRestoreFocus(targetPosition, retryLeft = RESTORE_FOCUS_RETRY_TIMES)
             } else {
                 requestBackFocus()
             }
         }
+    }
+
+    /**
+     * 轮询确认真实焦点是否已恢复到列表内。
+     *
+     * 背景：`requestItemFocus` 内部以 `requestFocus() == true` 判断成功，但 `requestFocus`
+     * 在 touch mode / view 未 attach / 转场动画期间可能返回 false，且重试耗尽后静默放弃；
+     * 返回值也不可靠。这里改用"焦点是否真正落在列表内"作为成功判据，覆盖转场动画窗口，
+     * 重试耗尽仍无焦点则兜底聚焦返回键，避免焦点彻底消失。
+     */
+    private fun retryRestoreFocus(targetPosition: Int, retryLeft: Int) {
+        if (!isAdded) return
+        if (hasFocusInRecyclerView()) {
+            return
+        }
+        if (retryLeft <= 0) {
+            requestBackFocus()
+            return
+        }
+        binding.recyclerView.postDelayed({
+            if (!isAdded) return@postDelayed
+            requestItemFocus(targetPosition)
+            retryRestoreFocus(targetPosition, retryLeft - 1)
+        }, RESTORE_FOCUS_RETRY_DELAY_MS)
+    }
+
+    /** 当前真实焦点是否落在用户列表 RecyclerView 内。 */
+    private fun hasFocusInRecyclerView(): Boolean {
+        val focused = binding.recyclerView.rootView?.findFocus() ?: return false
+        var v: View? = focused
+        while (v != null) {
+            if (v === binding.recyclerView) return true
+            v = v.parent as? View
+        }
+        return false
     }
 
     private fun requestBackFocus() {

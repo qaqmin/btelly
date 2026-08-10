@@ -41,6 +41,10 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
     companion object {
         private const val ARG_EMBEDDED = "embedded"
 
+        // 焦点恢复到列表内的轮询参数（覆盖转场动画窗口，失败后兜底返回键）
+        private const val RESTORE_FOCUS_RETRY_TIMES = 6
+        private const val RESTORE_FOCUS_RETRY_DELAY_MS = 120L
+
         fun newInstance() = FavoriteFragment()
 
         fun newEmbeddedInstance() = FavoriteFragment().apply {
@@ -415,11 +419,54 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
                 .takeIf { it != RecyclerView.NO_POSITION }
                 ?.coerceIn(0, adapter.itemCount - 1)
                 ?: 0
-            val result = RecyclerViewFocusRestoreHelper.requestFocusAtPosition(
+            RecyclerViewFocusRestoreHelper.requestFocusAtPosition(
                 recyclerView = binding.recyclerViewFavorite,
                 position = targetPosition
             )
+            // 轮询确认真实焦点落点（转场动画/布局未就绪窗口），失败才兜底返回键，
+            // 避免 requestFocusAtPosition 返回值不可靠导致焦点彻底丢失。
+            retryRestoreFocus(targetPosition, retryLeft = RESTORE_FOCUS_RETRY_TIMES)
         }
+    }
+
+    /**
+     * 轮询确认真实焦点是否已恢复到收藏夹列表内。
+     *
+     * 背景：`RecyclerViewFocusRestoreHelper.requestFocusAtPosition` 在 holder 缺失时会
+     * `scrollToPosition` 后异步 `post` focusRequester，若此时 view 未布局 / touch mode /
+     * 转场动画期间，`requestFocus()` 可能失败且返回值不可靠。这里改用"焦点是否真正落在
+     * 列表内"作为成功判据，覆盖转场动画窗口，重试耗尽仍无焦点则兜底聚焦返回键。
+     */
+    private fun retryRestoreFocus(targetPosition: Int, retryLeft: Int) {
+        if (!isAdded) return
+        if (hasFocusInRecyclerView()) {
+            return
+        }
+        if (retryLeft <= 0) {
+            if (!embedded) {
+                requestBackFocus()
+            }
+            return
+        }
+        binding.recyclerViewFavorite.postDelayed({
+            if (!isAdded) return@postDelayed
+            RecyclerViewFocusRestoreHelper.requestFocusAtPosition(
+                recyclerView = binding.recyclerViewFavorite,
+                position = targetPosition
+            )
+            retryRestoreFocus(targetPosition, retryLeft - 1)
+        }, RESTORE_FOCUS_RETRY_DELAY_MS)
+    }
+
+    /** 当前真实焦点是否落在收藏夹列表 RecyclerView 内。 */
+    private fun hasFocusInRecyclerView(): Boolean {
+        val focused = binding.recyclerViewFavorite.rootView?.findFocus() ?: return false
+        var v: View? = focused
+        while (v != null) {
+            if (v === binding.recyclerViewFavorite) return true
+            v = v.parent as? View
+        }
+        return false
     }
 
     private fun requestBackFocus() {

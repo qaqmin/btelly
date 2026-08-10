@@ -51,6 +51,10 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         const val TYPE_LATER = "later"
         private const val CACHE_TTL_MS = 10 * 60 * 1000L
 
+        // 历史列表焦点恢复到列表内的轮询参数（覆盖转场动画窗口，失败兜底首个内容）
+        private const val RESTORE_FOCUS_RETRY_TIMES = 6
+        private const val RESTORE_FOCUS_RETRY_DELAY_MS = 120L
+
         private const val ARG_TYPE = "type"
 
         fun newInstance(type: String): MeListFragment {
@@ -864,11 +868,13 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                         .takeIf { it != RecyclerView.NO_POSITION }
                         ?.coerceIn(0, adapter.itemCount - 1)
                     ?: 0
-                val handled = tvFocusController?.requestFocusPosition(targetPosition) == true ||
+                tvFocusController?.requestFocusPosition(targetPosition) == true ||
                     requestVisibleHistoryFocus(targetPosition)
                 binding.recyclerView.post {
                     restoreHistoryViewportAnchor()
                 }
+                // 轮询确认真实焦点落点（转场动画/布局未就绪窗口），失败兜底首个内容
+                retryHistoryRestoreFocus(targetPosition, retryLeft = RESTORE_FOCUS_RETRY_TIMES)
             } else {
                 if (tvFocusController?.restoreCapturedAnchor() != true &&
                     tvFocusController?.focusPrimary() != true
@@ -924,6 +930,43 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         }
         binding.recyclerView.post {
             requestVisibleHistoryFocus(position, retries - 1)
+        }
+        return false
+    }
+
+    /**
+     * 轮询确认真实焦点是否已恢复到历史列表内。
+     *
+     * 背景：`requestVisibleHistoryFocus` 以 `requestFocus() == true` 判断成功，但 `requestFocus`
+     * 在 touch mode / view 未 attach / 转场动画期间可能返回 false 且返回值不可靠，重试耗尽后
+     * 静默放弃。这里改用"焦点是否真正落在列表内"作为成功判据，覆盖转场动画窗口，失败兜底首个内容。
+     */
+    private fun retryHistoryRestoreFocus(targetPosition: Int, retryLeft: Int) {
+        if (!isAdded) return
+        if (hasFocusInHistoryRecyclerView()) {
+            return
+        }
+        if (retryLeft <= 0) {
+            focusPrimaryContent()
+            return
+        }
+        binding.recyclerView.postDelayed({
+            if (!isAdded) return@postDelayed
+            val holder = binding.recyclerView.findViewHolderForAdapterPosition(targetPosition)
+            if (holder?.itemView?.requestFocus() != true) {
+                tvFocusController?.requestFocusPosition(targetPosition)
+            }
+            retryHistoryRestoreFocus(targetPosition, retryLeft - 1)
+        }, RESTORE_FOCUS_RETRY_DELAY_MS)
+    }
+
+    /** 当前真实焦点是否落在历史列表 RecyclerView 内。 */
+    private fun hasFocusInHistoryRecyclerView(): Boolean {
+        val focused = binding.recyclerView.rootView?.findFocus() ?: return false
+        var v: View? = focused
+        while (v != null) {
+            if (v === binding.recyclerView) return true
+            v = v.parent as? View
         }
         return false
     }

@@ -285,13 +285,23 @@ class LiveListFragment : BaseFragment<FragmentLiveListBinding>(), LiveTabPage {
 
     override fun onResume() {
         super.onResume()
-        tvFocusController?.restoreCapturedAnchor()
+        val controller = tvFocusController ?: return
+        // 从直播播放器返回：强制拉回捕获锚点 + 轮询确认真实焦点落点，避免焦点停在返回按钮
+        // 或彻底丢失（restoreCapturedAnchor 会因焦点落在列表外部 View 而跳过，且无兜底）。
+        controller.restoreFocusAfterReturn(
+            onRestored = {},
+            onFailed = { tvFocusController?.ensureValidFocus("resume") }
+        )
     }
 
     override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
         if (!hidden) {
-            tvFocusController?.restoreCapturedAnchor()
+            val controller = tvFocusController ?: return
+            controller.restoreFocusAfterReturn(
+                onRestored = {},
+                onFailed = { tvFocusController?.ensureValidFocus("shown") }
+            )
         }
     }
 
