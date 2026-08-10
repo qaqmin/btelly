@@ -415,6 +415,78 @@ class TvListFocusController(
         return focusPosition(position, anchor.offsetTop, "returnFocus", allowOutsideFocus = true)
     }
 
+    /**
+     * 从播放器等外部页面返回时，将焦点恢复到列表内的统一入口（供各 Fragment 的 onResume/onHiddenChanged 复用）。
+     *
+     * 背景：`restoreCapturedAnchor` 会因"焦点已落在列表外部可见 View（如返回按钮）"而跳过，且其
+     * 注释错误地假设"从播放器返回的焦点恢复走 MainActivity.restoreFocusAfterOverlayPop"——但播放器
+     * （PlayerActivity / LivePlayerActivity / CctvPlayerActivity）是独立 Activity，返回走 finish()，
+     * `restoreFocusAfterOverlayPop` 并不触发，导致焦点停在返回按钮或彻底丢失。
+     *
+     * 本方法：
+     * 1. 用 [restoreCapturedFocusPosition] 强制把焦点拉回捕获锚点位置（绕过外部焦点 BLOCKED 检查）；
+     * 2. 以 [hasFocusInList] 轮询**真实焦点落点**，覆盖 Activity 转场动画 / 布局未就绪窗口
+     *    （真机大屏动画可能 >250ms，原 `scheduleAttachRetry` 250ms 窗口不足）；
+     * 3. 成功回调 [onRestored]，无锚点或重试耗尽回调 [onFailed]（由上层决定兜底）。
+     *
+     * 安全性：一旦用户开始导航（[userNavigationToken] 变化）或列表 detached，轮询立即终止，不会抢焦点。
+     */
+    fun restoreFocusAfterReturn(
+        retryTimes: Int = 6,
+        retryDelayMs: Long = 120L,
+        onRestored: () -> Unit = {},
+        onFailed: () -> Unit = {}
+    ) {
+        val anchor = capturedAnchor ?: currentAnchor ?: run {
+            logD("restoreFocusAfterReturn: no anchor, onFailed")
+            onFailed()
+            return
+        }
+        val position = resolveAnchorPosition(anchor)
+        if (position == RecyclerView.NO_POSITION || !adapter.isFocusablePosition(position)) {
+            logD("restoreFocusAfterReturn: pos=$position NOT focusable, onFailed")
+            onFailed()
+            return
+        }
+        // 立即强制恢复
+        restoreCapturedFocusPosition()
+        if (hasFocusInList()) {
+            logD("restoreFocusAfterReturn: restored immediately, pos=$position")
+            onRestored()
+            return
+        }
+        // 转场动画 / 布局未就绪：轮询重试
+        val token = userNavigationToken
+        var attempts = 0
+        val runnable = object : Runnable {
+            override fun run() {
+                if (token != userNavigationToken) {
+                    logD("restoreFocusAfterReturn: abort, user navigated")
+                    return
+                }
+                if (recyclerView.rootView == null || !recyclerView.isAttachedToWindow) {
+                    logD("restoreFocusAfterReturn: abort, not attached")
+                    return
+                }
+                attempts++
+                if (attempts > retryTimes) {
+                    logD("restoreFocusAfterReturn: retries exhausted, onFailed (pos=$position)")
+                    onFailed()
+                    return
+                }
+                if (hasFocusInList()) {
+                    logD("restoreFocusAfterReturn: restored on retry $attempts, pos=$position")
+                    onRestored()
+                    return
+                }
+                restoreCapturedFocusPosition()
+                recyclerView.postDelayed(this, retryDelayMs)
+            }
+        }
+        recyclerView.postDelayed(runnable, retryDelayMs)
+        logD("restoreFocusAfterReturn: scheduled retry, pos=$position")
+    }
+
     fun restoreCapturedAnchor(): Boolean {
         val anchor = capturedAnchor ?: currentAnchor ?: run {
             logD("restoreCapturedAnchor: no anchor, return false")
@@ -433,8 +505,11 @@ class TvListFocusController(
             return false
         }
         // 焦点已落在列表外部一个可见、可聚焦的 View 上（典型场景：侧边栏功能按钮），
-        // 说明用户正停留在侧边栏，不应把焦点拉回视频列表。从播放器返回的焦点恢复路径
-        // 走 MainActivity.restoreFocusAfterOverlayPop，不依赖此处，故跳过是安全的。
+        // 说明用户正停留在侧边栏，不应把焦点拉回视频列表。
+        // 注意：本"跳过外部焦点"仅适用于"用户主动聚焦侧边栏"的场景；"从播放器返回"时
+        // 焦点若停在返回按钮等外部控件上恰恰是需要拉回的，且此时并不走
+        // MainActivity.restoreFocusAfterOverlayPop（播放器是独立 Activity，返回走 finish()）。
+        // 播放器返回应改用 [restoreFocusAfterReturn]（强制拉回 + 轮询校验）。
         val focused = recyclerView.rootView?.findFocus()
         if (focused != null &&
             !isDescendantOf(focused, recyclerView) &&
