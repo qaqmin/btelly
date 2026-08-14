@@ -259,8 +259,13 @@ internal class DanmakuEngine(
             if (styleChanged) {
                 cacheStyleGeneration++
                 measureGeneration++
-                // 样式变化后 actionPaint 度量需重算（act 帧循环里按此标志判断）。
+                // 样式代际变化后 actionPaint 度量需重算（act 帧循环里按此标志判断）。
                 actionMetricsValid = false
+                AppLog.w(
+                    TAG,
+                    "styleChanged gen=${cacheStyleGeneration} → all ${active.size} active caches invalidated " +
+                        "(rebuild throttled 8/frame, expect temporary draw miss)"
+                )
                 // Invalidate current caches to avoid mixing styles.
                 val releaseAt = currentUiFrameId + 1
                 val size = active.size
@@ -308,7 +313,7 @@ internal class DanmakuEngine(
                 item.pendingCacheGeneration = -1
             }
             // 结果被拒（generation过期/已不在active/状态不匹配），缓存白建了。
-            android.util.Log.w(
+            AppLog.w(
                 TAG,
                 "cacheResult REJECT t=${item.timeMs()}ms text='${item.data.text.take(12)}' " +
                     "gen=${result.generation}/${cacheStyleGeneration} active=${item in active} " +
@@ -321,7 +326,7 @@ internal class DanmakuEngine(
             item.cacheState = DanmakuCacheState.Init
             item.pendingCacheGeneration = -1
             // entry 为空=内存不足建图失败；tryAcquire 失败=bitmap已被回收。
-            android.util.Log.w(
+            AppLog.w(
                 TAG,
                 "cacheResult FAIL t=${item.timeMs()}ms text='${item.data.text.take(12)}' " +
                     "entryNull=${entry == null} recycled=${entry?.isRecycled}"
@@ -339,7 +344,7 @@ internal class DanmakuEngine(
             item.motionStarted = true
             // 缓存就绪，startTimeMs 重锚到当前播放位置。admit→ready 的等待时长若接近 MAX_CACHE_WAIT_MS，
             // 说明缓存构建接近超时边缘，下一步可能被 pruneExpired 误杀。
-            android.util.Log.w(
+            AppLog.w(
                 TAG,
                 "cacheReady t=${item.timeMs()}ms text='${item.data.text.take(12)}' " +
                     "admit=${prevStart}ms→start=${item.startTimeMs}ms waited=${item.startTimeMs - prevStart}ms lane=${item.lane}"
@@ -382,6 +387,14 @@ internal class DanmakuEngine(
             val width = viewportWidth
             val height = viewportHeight
             if (width <= 0 || height <= 0) {
+                // viewport 短暂变 0（View 尺寸变化/窗口动画）会瞬间清空整屏弹幕——
+                // 这是"半路消失"的无日志路径，必须记录。
+                if (active.isNotEmpty()) {
+                    AppLog.w(
+                        TAG,
+                        "CLEAR-ALL viewport=${width}x${height} active=${active.size} pending=${pending.size} → screen emptied"
+                    )
+                }
                 clearActives()
                 pending.clear()
                 resetLaneState()
@@ -565,9 +578,9 @@ internal class DanmakuEngine(
         lastDrawCacheMissSkippedCount = cacheMissSkipped
         // 仅在有缓存缺失时输出（正常帧不刷屏）。missing>0 说明弹幕在屏幕上但没画出来 → "半路消失"。
         if (cacheMissSkipped > 0) {
-            android.util.Log.w(
+            AppLog.w(
                 TAG,
-                "draw miss=$cacheMissSkipped/$snapshot.count hit=$cachedDrawn " +
+                "draw miss=$cacheMissSkipped/${snapshot.count} hit=$cachedDrawn " +
                     "wait=$missMotionWait noEntry=$missNoEntry recycled=$missRecycled genMismatch=$missGenMismatch " +
                     "gen=$styleGen now=${nowMs}ms"
             )
@@ -576,7 +589,7 @@ internal class DanmakuEngine(
 
     override fun setDanmakus(list: List<Danmaku>) {
         synchronized(actionStateLock) {
-            if (list.isEmpty()) clearAdmissionHistory()
+            if (list.isEmpty()) clearAdmissionHistory("setDanmakus-empty")
             val newItems =
                 list
                     .sortedBy { it.timeMs }
@@ -598,7 +611,7 @@ internal class DanmakuEngine(
             requestRebuild("setDanmakus")
             debugPendingCount = 0
             debugNextAtMs = items.firstOrNull()?.timeMs()
-            android.util.Log.w(TAG, "setDanmakus count=${items.size} onScreenPreserved=${active.size}")
+            AppLog.w(TAG, "setDanmakus count=${items.size} onScreenPreserved=${active.size}")
             if (active.isEmpty()) publishEmptySnapshot()
         }
     }
@@ -636,7 +649,7 @@ internal class DanmakuEngine(
         if (firstIncoming >= lastTime) {
             for (d in newItems) items.add(DanmakuItem(d))
             debugNextAtMs = items.getOrNull(index)?.timeMs()
-            android.util.Log.w(
+            AppLog.w(
                 TAG,
                 "append(ok) add=${newItems.size} firstIn=$firstIncoming lastExist=$lastTime items=${items.size}"
             )
@@ -657,7 +670,7 @@ internal class DanmakuEngine(
             incoming = newItems,
             minTimeMs = patchFrom,
         )
-        android.util.Log.w(
+        AppLog.w(
             TAG,
             "append(out-of-order!) add=${newItems.size} firstIn=$firstIncoming lastExist=$lastTime " +
                 "items=${items.size} → patchFuture from=${patchFrom}ms replace=${replacement.size}"
@@ -698,7 +711,7 @@ internal class DanmakuEngine(
             index = minOf(index, replaceIndex)
             requestRebuild("replace-from")
             debugNextAtMs = items.getOrNull(index)?.timeMs()
-            android.util.Log.w(
+            AppLog.w(
                 TAG,
                 "replaceFrom min=${min}ms replace=${replacement.size} prefix=$replaceIndex items=${items.size} active=${active.size}",
             )
@@ -751,6 +764,13 @@ internal class DanmakuEngine(
     private fun seekTo(positionMs: Long, reason: String) {
         synchronized(actionStateLock) {
             val pos = positionMs.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            // wentBack=true 时 rebuildScene 会清空防重放历史并允许最近一个滚动窗口重放。
+            // 若用户没有主动 seek 回看却出现此日志，即为"弹幕滚完又出现"的根因现场。
+            AppLog.w(
+                TAG,
+                "seekTo pos=${pos}ms reason=$reason lastNowMs=${lastNowMs}ms " +
+                    "wentBack=${pos < lastNowMs} active=${active.size} items=${items.size}"
+            )
             rebuildScene(
                 nowMs = pos,
                 width = viewportWidth.coerceAtLeast(0),
@@ -771,7 +791,7 @@ internal class DanmakuEngine(
         synchronized(actionStateLock) {
             clearActives()
             pending.clear()
-            clearAdmissionHistory()
+            clearAdmissionHistory("clear")
             resetLaneState()
             requestRebuild("clear")
             debugPendingCount = 0
@@ -798,9 +818,10 @@ internal class DanmakuEngine(
         snapshotDirty = true
     }
 
-    private fun clearAdmissionHistory() {
+    private fun clearAdmissionHistory(reason: String) {
         admissionHistory.clear()
         lastAdmissionHistoryPruneBeforeMs = 0
+        AppLog.w(TAG, "admissionHistory CLEAR reason=$reason")
     }
 
     /** History is only needed for the rolling rebuild window; avoid retaining an entire long video. */
@@ -909,8 +930,21 @@ internal class DanmakuEngine(
         val activeBefore = active.size
         // 位置倒退（用户 seek 回更早位置）时允许把 consumed 标记的条目重新入场（回看本来就是重放）；
         // 同位置/前进的重建必须跳过，否则"已滚过/正在滚"的弹幕会再次从右侧入场。
-        val positionWentBack = nowMs < lastNowMs
-        if (positionWentBack) clearAdmissionHistory()
+        // 回退量必须超过容差才算真回看：实测 seek 时 ExoPlayer 上报位置与平滑位置存在
+        // 几十毫秒的固有偏差（日志实测 backMs=33ms），零容差判定会把这种噪声误判为回看，
+        // 清空防重放历史后最近一个滚动窗口全部重放——即"弹幕滚完又出现一遍"的根因。
+        val backMs = lastNowMs - nowMs
+        val positionWentBack = backMs > REPLAY_BACK_THRESHOLD_MS
+        if (positionWentBack) {
+            // 误判现场：非用户回看时出现此行，说明平滑位置被回拉后触发了 rebuild
+            // → 防重放历史被清 → 最近 6 秒弹幕可重入（"滚完又出现"）。
+            AppLog.w(
+                TAG,
+                "rebuildScene WENT-BACK reason=$reason now=${nowMs}ms lastNowMs=${lastNowMs}ms " +
+                    "backMs=${backMs}ms → admissionHistory cleared, replay window re-opens"
+            )
+        }
+        if (positionWentBack) clearAdmissionHistory("wentBack($reason)")
         pending.clear()
         ensureLaneBuffers(laneCount)
         rebuildRequested = false
@@ -960,26 +994,36 @@ internal class DanmakuEngine(
                 continue
             }
             if (tryAdmitItem(
-                item = item,
-                nowMs = nowMs,
-                width = width,
-                outlinePad = outlinePad,
-                rollingDurationMs = rollingDurationMs,
-                fixedDurationMs = fixedDurationMs,
-                laneCount = laneCount,
-                laneHeight = laneHeight,
-                topInset = topInset,
-                maxYTop = maxYTop,
-                // 入场失败进受控 pending 队列（有上限+重试），不再静默丢弃。
-                allowPending = true,
-            )) {
+                    item = item,
+                    nowMs = nowMs,
+                    width = width,
+                    outlinePad = outlinePad,
+                    rollingDurationMs = rollingDurationMs,
+                    fixedDurationMs = fixedDurationMs,
+                    laneCount = laneCount,
+                    laneHeight = laneHeight,
+                    topInset = topInset,
+                    maxYTop = maxYTop,
+                    // 入场失败进受控 pending 队列（有上限+重试），不再静默丢弃。
+                    allowPending = true,
+                )) {
                 admitted++
+                // 重建扫描窗口内"迟到超过 1 秒"才入场的条目 = 补放/重放，
+                // 与 admit 日志同 t= 对照可确认同一条是否被二次投放。
+                if (nowMs - item.timeMs() > 1_000) {
+                    AppLog.w(
+                        TAG,
+                        "rebuildAdmit(LATE) t=${item.timeMs()}ms dmid=${item.data.dmid ?: "-"} " +
+                            "text='${item.data.text.take(12)}' " +
+                            "${nowMs - item.timeMs()}ms ago reason=$reason"
+                    )
+                }
             }
         }
         debugPendingCount = pending.size
         debugNextAtMs = items.getOrNull(index)?.timeMs()
         snapshotDirty = true
-        android.util.Log.w(
+        AppLog.w(
             TAG,
             "rebuildScene reason=$reason now=${nowMs}ms width=$width lanes=$laneCount " +
                 "items=${items.size} activeBefore=$activeBefore preserved=$preserved activeAfter=${active.size} " +
@@ -1008,9 +1052,25 @@ internal class DanmakuEngine(
         resetLaneState()
         val releaseAt = currentUiFrameId + 1
         var write = 0
+        var droppedFuture = 0
+        var droppedLane = 0
+        var droppedExpired = 0
         for (read in 0 until active.size) {
             val a = active[read]
-            if (a.timeMs() > nowMs || a.lane >= laneCount || expireReason(a, width = width, nowMs = nowMs) != null) {
+            if (a.timeMs() > nowMs) {
+                droppedFuture++
+                releaseItemCache(a, releaseAtFrameId = releaseAt)
+                snapshotDirty = true
+                continue
+            }
+            if (a.lane >= laneCount) {
+                droppedLane++
+                releaseItemCache(a, releaseAtFrameId = releaseAt)
+                snapshotDirty = true
+                continue
+            }
+            if (expireReason(a, width = width, nowMs = nowMs) != null) {
+                droppedExpired++
                 releaseItemCache(a, releaseAtFrameId = releaseAt)
                 snapshotDirty = true
                 continue
@@ -1045,6 +1105,14 @@ internal class DanmakuEngine(
         if (write < active.size) {
             active.subList(write, active.size).clear()
             snapshotDirty = true
+            // 重建时的三类丢弃：future=条目发送时间在新位置之后（seek 前进）、lane=轨道越界
+            // （字号/区域变化后 lane 数变少）、expired=已到退场条件。
+            // lane 类丢弃会把正在滚动的弹幕清掉——"半路消失"候选路径之一。
+            AppLog.w(
+                TAG,
+                "preserveDrop future=$droppedFuture lane=$droppedLane expired=$droppedExpired " +
+                    "remain=${active.size} laneCount=$laneCount"
+            )
         }
         if (cacheProbeCursor >= active.size) cacheProbeCursor = 0
     }
@@ -1063,12 +1131,25 @@ internal class DanmakuEngine(
                 if (reason == "cacheWaitTimeout") droppedTimeout++ else droppedNormal++
                 // cacheWaitTimeout = 缓存超时丢弃（弹幕从未可见），是"半路消失"的可疑来源，单独详记。
                 if (reason == "cacheWaitTimeout") {
-                    android.util.Log.w(
+                    AppLog.w(
                         TAG,
                         "pruneExpired DROP cacheTimeout t=${a.timeMs()}ms text='${a.data.text.take(12)}' " +
                             "start=${a.startTimeMs}ms now=${nowMs}ms age=${nowMs - a.startTimeMs}ms " +
                             "motion=${a.motionStarted} lane=${a.lane} dur=${a.durationMs}ms"
                     )
+                } else if (reason == "duration" && a.kind == DanmakuKind.SCROLL) {
+                    // duration 退场时 x 理应 ≈ -textWidth（刚好完全出屏）。
+                    // x 还在屏幕右侧 25% 区域内就到期 = "滚到一半消失"的直接现场：
+                    // 要么 startTimeMs 被位置前跳拉大（elapsed 虚增），要么 durationMs 算短了。
+                    val x = scrollX(width = width, nowMs = nowMs, startTimeMs = a.startTimeMs, pxPerMs = a.pxPerMs)
+                    if (x + a.textWidthPx > width * 0.25f) {
+                        AppLog.w(
+                            TAG,
+                            "pruneExpired EARLY-EXIT t=${a.timeMs()}ms text='${a.data.text.take(12)}' " +
+                                "start=${a.startTimeMs}ms now=${nowMs}ms elapsed=${nowMs - a.startTimeMs}ms " +
+                                "dur=${a.durationMs}ms x=${x.toInt()}px tailX=${(x + a.textWidthPx).toInt()}px width=${width}px"
+                        )
+                    }
                 }
                 clearLaneReferenceIfMatch(a)
                 releaseItemCache(a, releaseAtFrameId = releaseAt)
@@ -1081,7 +1162,7 @@ internal class DanmakuEngine(
         if (write < size) {
             active.subList(write, size).clear()
             if (droppedTimeout > 0 || droppedNormal > 0) {
-                android.util.Log.w(
+                AppLog.w(
                     TAG,
                     "pruneExpired removed=${size - write} timeout=$droppedTimeout normal=$droppedNormal " +
                         "now=${nowMs}ms remain=${active.size}"
@@ -1487,9 +1568,12 @@ internal class DanmakuEngine(
         admissionHistory.record(item.data)
         snapshotDirty = true
         // 弹幕入场记录。若同一 t=ms + text 出现两次 activate，即为"重复入场"。
-        android.util.Log.w(
+        // dmid = 弹幕唯一 ID（B 站协议 dmid）：同 dmid 两次 admit = 引擎重放；
+        // dmid 不同但内容相同 = 数据里真实存在多条（合并策略问题）。
+        AppLog.w(
             TAG,
-            "admit kind=$kind t=${item.timeMs()}ms text='${item.data.text.take(12)}' " +
+            "admit kind=$kind t=${item.timeMs()}ms dmid=${item.data.dmid ?: item.data.midHash?.takeLast(6) ?: "-"} " +
+                "text='${item.data.text.take(12)}' " +
                 "lane=$lane pxPerMs=${String.format("%.4f", pxPerMs)} dur=${durationMs}ms start=$startTimeMs active=${active.size}"
         )
     }
@@ -1625,6 +1709,13 @@ internal class DanmakuEngine(
         private const val MAX_CACHE_QUEUE_DEPTH = 48
         private const val MAX_CACHE_WAIT_MS = 1_600
         private const val ADMISSION_HISTORY_PRUNE_INTERVAL_MS = 1_000
+
+        /**
+         * rebuildScene 的"回看"判定容差：回退量超过此值才清防重放历史并允许重放。
+         * 覆盖 seek 上报位置与平滑位置的固有偏差（实测 33ms 级）；
+         * 真实的用户回看（进度条拖回）至少是数百毫秒到数秒。
+         */
+        private const val REPLAY_BACK_THRESHOLD_MS = 500
 
     }
 

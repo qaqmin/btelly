@@ -2133,8 +2133,11 @@ class MyPlayerView @JvmOverloads constructor(
         }
         settingView?.showHide(show)
         if (!show) {
-            val currentPositionMs = player?.currentPosition?.coerceAtLeast(0L) ?: 0L
-            syncDanmakuPosition(currentPositionMs, forceSeek = true)
+            // 关闭设置面板不是 seek：此处没有 player.seekTo()，不能按 forceSeek 通知引擎重建场景。
+            // 此前用 player.currentPosition 强制 forceSeek，与弹幕平滑位置的几十毫秒固有偏差
+            // 会被引擎误判为"位置回退"→ 清空防重放历史 → 最近一个滚动窗口的弹幕整体重放
+            // （用户视角："弹幕滚完又出现一遍"）。设置变更由 updateConfig 路径自行处理，
+            // 位置同步由 positionProvider 自动跟随，这里无需任何弹幕同步。
             restoreControllerAfterGesture(showIndefinitely = true)
         }
     }

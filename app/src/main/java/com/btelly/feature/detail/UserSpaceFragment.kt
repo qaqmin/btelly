@@ -495,6 +495,9 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.btelly.u
     }
 
     private fun requestVideoFocus(position: Int, retries: Int = 6): Boolean {
+        // 视图已销毁（onDestroyView 后 binding 为 null）时，Adapter 的遥控器按键
+        // 回调可能晚到，直接放弃，避免 NPE 崩溃。递归重试的每次调用都会经过此检查。
+        if (!isAdded || rootView == null) return false
         val itemCount = videoAdapter.contentCount()
         if (itemCount == 0) {
             return false

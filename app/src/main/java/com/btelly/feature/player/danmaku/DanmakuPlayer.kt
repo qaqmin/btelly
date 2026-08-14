@@ -26,6 +26,7 @@ internal class DanmakuPlayer(
 ) {
     companion object {
         private const val TAG = "DanmakuPlayer"
+        private const val DIAG_TAG = "BTellyDmDiag"
 
         private const val MSG_FRAME_UPDATE = 2101
         private const val MSG_IDLE_WAKE = 2102
@@ -238,6 +239,7 @@ internal class DanmakuPlayer(
         if (released) return
         released = true
         started = false
+        AppLog.w(DIAG_TAG, "player RELEASE (engine permanently stopped; view detach/replay requires new instance)")
         runCatching {
             actionHandler.obtainMessage(MSG_OP_RELEASE).sendToTarget()
         }
@@ -305,9 +307,13 @@ internal class DanmakuPlayer(
         // 修复 bug2：后台返回时 ExoPlayer 还在 buffering，isPlaying 尚未变 true，
         // 但 playWhenReady 已为 true，此时必须保持渲染循环，否则弹幕卡死直到首帧。
         if (isPlaying || playWhenReady) {
+            if (!started) {
+                AppLog.i(DIAG_TAG, "loop START play=$isPlaying pwr=$playWhenReady pos=${rawPositionMs}ms")
+            }
             startIfNeeded()
         } else if (started) {
             // Freeze danmaku on pause: no need to keep 60fps update loop running.
+            AppLog.i(DIAG_TAG, "loop STOP play=$isPlaying pwr=$playWhenReady pos=${rawPositionMs}ms")
             stop()
         }
 
@@ -366,6 +372,12 @@ internal class DanmakuPlayer(
                         } else {
                             -1L
                         }
+                    // lateness 大 = 空闲唤醒迟到（低性能设备定时器/主线程阻塞），
+                    // 醒来时播放位置已越过弹幕时刻 → dropIfLagging 可能丢弃。
+                    AppLog.i(
+                        DIAG_TAG,
+                        "idle WAKE lateness=${lastIdleWakeLatenessMs}ms pos=${engineAction.currentPositionMs()}ms"
+                    )
                     idleWakeDrawRequested.set(true)
                     view.postInvalidateOnAnimation()
                 }
@@ -373,6 +385,10 @@ internal class DanmakuPlayer(
                 MSG_RESUME_FROM_IDLE -> {
                     if (released || !started || !frameLoopIdle) return
                     idleResumeCount.incrementAndGet()
+                    AppLog.i(
+                        DIAG_TAG,
+                        "idle RESUME pos=${engineAction.currentPositionMs()}ms"
+                    )
                     frameLoopIdle = false
                     runFrameUpdate()
                 }
@@ -531,6 +547,12 @@ internal class DanmakuPlayer(
                         )
                         lastIdleWakeDelayMs = delayMs
                         scheduledIdleWakeAtUptimeMs = SystemClock.uptimeMillis() + delayMs
+                        // 空闲进入：active/pending 全空。若此日志后长时间没有 idle WAKE/RESUME
+                        // 而播放仍在推进，弹幕会停更（对应"引擎哑死"现场）。
+                        AppLog.i(
+                            DIAG_TAG,
+                            "idle ENTER pos=${engineAction.currentPositionMs()}ms nextWakeAt=${nextWakeAtMs}ms delay=${delayMs}ms"
+                        )
                         removeMessages(MSG_IDLE_WAKE)
                         sendEmptyMessageDelayed(MSG_IDLE_WAKE, delayMs)
                     }

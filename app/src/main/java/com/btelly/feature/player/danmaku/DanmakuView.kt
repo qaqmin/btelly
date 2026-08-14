@@ -213,12 +213,15 @@ class DanmakuView @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        AppLog.i(DIAG_TAG, "view ATTACH ${width}x${height}")
         updateViewportIfNeeded()
         startPerfLoggingIfNeeded()
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        // detach 后引擎被永久 release；若之后同实例重新 attach 而弹幕不再显示，此日志即为现场。
+        AppLog.w(DIAG_TAG, "view DETACH ${width}x${height} → player.release() (irreversible)")
         stopPerfLogging()
         player.release()
         debugStats.reset()
@@ -543,6 +546,8 @@ class DanmakuView @JvmOverloads constructor(
     }
 
     private companion object {
+        private const val DIAG_TAG = "BTellyDmDiag"
+
         private const val STOP_WHEN_IDLE_MS = 700L
         private const val PERF_LOG_INTERVAL_MS = 3_000L
     }
