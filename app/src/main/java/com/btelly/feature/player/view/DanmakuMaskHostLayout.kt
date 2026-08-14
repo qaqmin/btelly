@@ -104,7 +104,8 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
     }
 
     override fun dispatchDraw(canvas: Canvas) {
-        val drawStartedAtMs = SystemClock.elapsedRealtime()
+        // 日志关闭时跳过所有性能计数与 key 字符串构建（每帧都会走到，纯浪费）。
+        val drawStartedAtMs = if (AppLog.isEnabled) SystemClock.elapsedRealtime() else 0L
         // 1. controller 说不要渲染 → 不裁剪（仅 IDLE 状态）
         if (shouldRenderMask?.invoke() == false) {
             maybeLogMaskState("disabled", null, null, null, false)
@@ -254,6 +255,7 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
         bounds: Rect?,
         masked: Boolean
     ) {
+        if (!AppLog.isEnabled) return
         val now = SystemClock.elapsedRealtime()
         val key = "$reason/${frame?.presentationTimeMs}/${frame?.paths?.size}/$bounds/$masked"
         if (key == lastMaskStateKey && now - lastMaskStateLogMs < 2000L) return
@@ -278,6 +280,7 @@ class DanmakuMaskHostLayout @JvmOverloads constructor(
         reusedPath: Boolean,
         pathBuildCostMs: Long
     ) {
+        if (!AppLog.isEnabled) return
         val now = SystemClock.elapsedRealtime()
         val costMs = now - startedAtMs
         maskPerfFrames++

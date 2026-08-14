@@ -10,11 +10,8 @@ internal enum class DanmakuKind {
 
 internal enum class DanmakuCacheState {
     Init,
-    Measuring,
-    Measured,
     Rendering,
     Rendered,
-    Error,
 }
 
 internal class DanmakuItem(
@@ -22,7 +19,6 @@ internal class DanmakuItem(
 ) {
     // ---- Measure/cache (updated by cache thread) ----
     @Volatile var measuredWidthPx: Float = Float.NaN
-    @Volatile var measuredHeightPx: Float = Float.NaN
     @Volatile var measureGeneration: Int = -1
 
     @Volatile var cacheEntry: SharedCacheEntry? = null
@@ -33,6 +29,11 @@ internal class DanmakuItem(
     // ---- Active state (action thread only) ----
     var kind: DanmakuKind = DanmakuKind.SCROLL
     var lane: Int = 0
+    /**
+     * 是否当前在场（action 线程私有）。activate() 置 true，所有从 active 列表移除的路径置 false。
+     * 替代 O(n) 的 `item in active` 线性扫描（applyCacheResult/rebuildScene 每帧/每条都会查）。
+     */
+    var inActive: Boolean = false
     @Volatile var startTimeMs: Int = 0
     @Volatile var motionStarted: Boolean = false
     var durationMs: Int = 0

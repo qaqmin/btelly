@@ -35,12 +35,16 @@ class RenderSnapshotTest {
     }
 
     @Test
-    fun cacheResultOnlyCommitsToCurrentActiveRenderingItem() {
-        assertTrue(shouldApplyDmCacheResult(3, 3, 3, rendering = true, active = true))
-        assertFalse(shouldApplyDmCacheResult(2, 3, 2, rendering = true, active = true))
-        assertFalse(shouldApplyDmCacheResult(3, 3, 2, rendering = true, active = true))
-        assertFalse(shouldApplyDmCacheResult(3, 3, 3, rendering = false, active = true))
-        assertFalse(shouldApplyDmCacheResult(3, 3, 3, rendering = true, active = false))
+    fun cacheResultOnlyCommitsToCurrentGenerationPendingRequest() {
+        // 接受条件：样式代际一致 + 条目上有本次在途请求（pending/rendering 匹配）。
+        // "已退场/被丢弃"由移除路径重置 pendingCacheGeneration 的纪律表达；
+        // 未入场条目允许挂图（时间线预取，入场时按缓存命中直接开动）。
+        assertTrue(shouldApplyDmCacheResult(3, 3, 3, rendering = true))
+        assertFalse(shouldApplyDmCacheResult(2, 3, 2, rendering = true))
+        assertFalse(shouldApplyDmCacheResult(3, 3, 2, rendering = true))
+        assertFalse(shouldApplyDmCacheResult(3, 3, 3, rendering = false))
+        // 退场条目：pending 已被移除路径重置为 -1 → 拒绝，不会错误复活。
+        assertFalse(shouldApplyDmCacheResult(3, 3, -1, rendering = false))
     }
 
     @Test

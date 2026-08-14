@@ -64,7 +64,10 @@ internal class CacheManager(
     private val thread: HandlerThread =
         HandlerThread("Danmaku-Cache").apply {
             start()
-            runCatching { Process.setThreadPriority(threadId, Process.THREAD_PRIORITY_BACKGROUND) }
+            // 不再用 THREAD_PRIORITY_BACKGROUND：TV 盒子的 big.LITTLE 调度会把后台线程压到小核，
+            // 视频解码繁忙时建图饥饿 → 弹幕缓存等待超时丢弃（"半路消失"路径之一）。
+            // 建图是短促突发（每条 ~1ms 级），默认优先级不会干扰解码，却显著降低入场延迟。
+            runCatching { Process.setThreadPriority(threadId, Process.THREAD_PRIORITY_DEFAULT) }
         }
 
     private val handler: Handler = CacheHandler(thread.looper)
@@ -104,7 +107,19 @@ internal class CacheManager(
     private val sharedHit = AtomicLong(0L)
 
     private val queueDepth = AtomicInteger(0)
-    private val releaseQueue: ConcurrentLinkedQueue<PendingRelease> = ConcurrentLinkedQueue()
+
+    /**
+     * 延迟释放队列：SPSC 有界环形数组。
+     * - 生产者：action 线程（enqueueRelease，快照发布/退场路径，密集场景每帧可达上百条）；
+     * - 消费者：主线程（drainReleasedBitmaps，每帧 draw 开头）；
+     * - release 时序（view detach）保证生产停止（action 队列已清+线程退出）且主线程消费停止
+     *   （released 早退），cache 线程的 drainAll 独占消费。
+     * 替代 ConcurrentLinkedQueue<PendingRelease>：此前每条释放都要分配 PendingRelease 对象
+     * + CLQ 节点（密集场景 ~1.2 万个小对象/秒的 GC churn），环形数组零稳态分配。
+     * 极端溢出（容量耗尽，约 10 帧发布量）回退到无锁 CLQ，drain 时优先处理。
+     */
+    private val releaseRing = PendingReleaseRing(capacity = 1024)
+    private val releaseOverflowQueue: ConcurrentLinkedQueue<PendingRelease> = ConcurrentLinkedQueue()
 
     private val bitmapCreated = AtomicLong(0L)
     private val bitmapReused = AtomicLong(0L)
@@ -148,9 +163,8 @@ internal class CacheManager(
         item: DanmakuItem,
         textWidthPx: Float,
         style: CacheStyle,
-        releaseAtFrameId: Int,
     ) {
-        val payload = CacheRequest(item = item, textWidthPx = textWidthPx, style = style, releaseAtFrameId = releaseAtFrameId)
+        val payload = CacheRequest(item = item, textWidthPx = textWidthPx, style = style)
         queueDepth.incrementAndGet()
         handler.obtainMessage(MSG_BUILD_CACHE, payload).sendToTarget()
     }
@@ -158,29 +172,42 @@ internal class CacheManager(
     fun enqueueRelease(entry: SharedCacheEntry?, releaseAtFrameId: Int) {
         if (entry == null) return
         if (entry.isRecycled) return
-        releaseQueue.add(PendingRelease(entry = entry, releaseAtFrameId = releaseAtFrameId))
+        if (!releaseRing.add(entry, releaseAtFrameId)) {
+            releaseOverflowQueue.add(PendingRelease(entry = entry, releaseAtFrameId = releaseAtFrameId))
+        }
     }
 
     fun drainReleasedBitmaps(currentFrameId: Int) {
         var drained = 0
+        // 溢出队列持有更早的条目：非空时优先处理，其头部若未到期则环形队列同样等待。
         while (drained < MAX_RELEASE_PER_DRAIN) {
-            val head = releaseQueue.peek() ?: break
-            if (head.releaseAtFrameId > currentFrameId) break
-            releaseQueue.poll()
+            val entry: SharedCacheEntry =
+                if (!releaseOverflowQueue.isEmpty()) {
+                    val head = releaseOverflowQueue.peek() ?: break
+                    if (head.releaseAtFrameId > currentFrameId) return
+                    releaseOverflowQueue.poll().entry
+                } else {
+                    if (releaseRing.isEmpty()) break
+                    if (releaseRing.peekReleaseAtFrameId() > currentFrameId) return
+                    releaseRing.pollEntry() ?: break
+                }
             drained++
-            val entry = head.entry
-            if (entry.isRecycled) continue
-            // release() 归零说明没有其他持有者（item 已退场 + 共享表已淘汰），可安全回收。
-            if (!entry.release()) continue
-            val bmp = entry.bitmap
-            if (bmp.isRecycled) continue
-            val pooled = pool.tryPut(bmp)
-            if (!pooled) {
-                recycleBitmap(bmp)
-                bitmapRecycled.incrementAndGet()
-            } else {
-                bitmapPutToPool.incrementAndGet()
-            }
+            processReleasedEntry(entry)
+        }
+    }
+
+    private fun processReleasedEntry(entry: SharedCacheEntry) {
+        if (entry.isRecycled) return
+        // release() 归零说明没有其他持有者（item 已退场 + 共享表已淘汰），可安全回收。
+        if (!entry.release()) return
+        val bmp = entry.bitmap
+        if (bmp.isRecycled) return
+        val pooled = pool.tryPut(bmp)
+        if (!pooled) {
+            recycleBitmap(bmp)
+            bitmapRecycled.incrementAndGet()
+        } else {
+            bitmapPutToPool.incrementAndGet()
         }
     }
 
@@ -357,9 +384,14 @@ internal class CacheManager(
     }
 
     private fun releaseAllPendingEntries() {
+        // 仅在 MSG_RELEASE（cache 线程）执行：此刻 action 线程已停（队列为空 + quitSafely）、
+        // 主线程 draw 已停（view detach → released 早退），本方法独占消费环形队列。
         while (true) {
-            val pending = releaseQueue.poll() ?: return
+            val pending = releaseOverflowQueue.poll() ?: break
             val entry = pending.entry
+            if (!entry.isRecycled && entry.release()) recycleBitmap(entry.bitmap)
+        }
+        releaseRing.drainAll { entry ->
             if (!entry.isRecycled && entry.release()) recycleBitmap(entry.bitmap)
         }
     }
@@ -449,13 +481,67 @@ internal class CacheManager(
         val item: DanmakuItem,
         val textWidthPx: Float,
         val style: CacheStyle,
-        val releaseAtFrameId: Int,
     )
 
     private data class PendingRelease(
         val entry: SharedCacheEntry,
         val releaseAtFrameId: Int,
     )
+
+    /**
+     * 单生产者（action 线程 add）单消费者（主线程 poll / release 时 cache 线程 drainAll）
+     * 的有界环形数组队列。稳态零分配：替代 ConcurrentLinkedQueue 每条释放的节点分配。
+     *
+     * 内存序：生产者先写槽位再 volatile 发布 tail（AtomicInteger.set），
+     * 消费者读 tail 后读槽位，借助 volatile 的 happens-before 保证内容可见。
+     * capacity 必须为 2 的幂（位掩码取模）。
+     */
+    private class PendingReleaseRing(private val capacity: Int) {
+        private val mask: Int = capacity - 1
+        private val entries = arrayOfNulls<SharedCacheEntry?>(capacity)
+        private val frameIds = IntArray(capacity)
+        private val head = AtomicInteger(0)
+        private val tail = AtomicInteger(0)
+
+        init {
+            require(capacity > 0 && (capacity and mask) == 0) { "capacity must be a power of two: $capacity" }
+        }
+
+        fun add(entry: SharedCacheEntry, releaseAtFrameId: Int): Boolean {
+            val currentTail = tail.get()
+            if (currentTail - head.get() >= capacity) return false
+            val slot = currentTail and mask
+            entries[slot] = entry
+            frameIds[slot] = releaseAtFrameId
+            tail.set(currentTail + 1)
+            return true
+        }
+
+        fun isEmpty(): Boolean = head.get() == tail.get()
+
+        fun peekReleaseAtFrameId(): Int {
+            val currentHead = head.get()
+            if (currentHead == tail.get()) return Int.MIN_VALUE
+            return frameIds[currentHead and mask]
+        }
+
+        fun pollEntry(): SharedCacheEntry? {
+            val currentHead = head.get()
+            if (currentHead == tail.get()) return null
+            val slot = currentHead and mask
+            val entry = entries[slot] ?: return null
+            entries[slot] = null
+            head.set(currentHead + 1)
+            return entry
+        }
+
+        fun drainAll(consumer: (SharedCacheEntry) -> Unit) {
+            while (true) {
+                val entry = pollEntry() ?: return
+                consumer(entry)
+            }
+        }
+    }
 
     private class BitmapPool(
         private val maxBytes: Long,

@@ -63,6 +63,9 @@ class DanmakuView @JvmOverloads constructor(
                     return
                 }
                 try {
+                    // 日志关闭：本轮直接跳过（provider 读取也不做），
+                    // 走 finally 继续维持调度，运行中重新开启日志后下一轮生效。
+                    if (!AppLog.isEnabled) return
                     val cfg = runCatching { configProvider?.invoke() }.getOrNull()
                     val rawPos = runCatching { positionProvider?.invoke() }.getOrNull() ?: lastRawPositionMs
                     val isPlaying = runCatching { isPlayingProvider?.invoke() }.getOrNull() ?: false
@@ -307,6 +310,8 @@ class DanmakuView @JvmOverloads constructor(
     }
 
     private fun startPerfLoggingIfNeeded() {
+        // 周期任务常驻（保证运行中开启日志能生效），重活由 logPerfIfNeeded 的
+        // isEnabled 早退挡住：关闭时每 3s 只剩几个 provider 调用，零字符串构建。
         if (perfLogPosted) return
         perfLogPosted = true
         perfLastLogAtUptimeMs = 0L
@@ -331,6 +336,8 @@ class DanmakuView @JvmOverloads constructor(
         playbackSpeed: Float = 1f,
         force: Boolean = false,
     ) {
+        // 日志关闭时零成本跳过（不打快照、不拼字符串、不触发采样请求）。
+        if (!AppLog.isEnabled) return
         val now = SystemClock.uptimeMillis()
         val lastAt = perfLastLogAtUptimeMs
         val due = lastAt == 0L || now - lastAt >= PERF_LOG_INTERVAL_MS

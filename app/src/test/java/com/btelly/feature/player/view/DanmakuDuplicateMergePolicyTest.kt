@@ -4,6 +4,7 @@ import com.btelly.feature.player.danmaku.common.DanmakuDuplicateMergePolicy
 import com.btelly.model.dm.DmModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DanmakuDuplicateMergePolicyTest {
@@ -62,6 +63,29 @@ class DanmakuDuplicateMergePolicyTest {
 
         assertEquals(4, result.size)
         assertFalse(result.any { it.content.contains("×") })
+    }
+
+    @Test
+    fun merge_unsortedInputStillProducesSortedMergedResult() {
+        // 有序性守卫兜底：调用方已保证有序（快路径零排序），乱序输入回退到显式排序，
+        // 合并语义与排序输入完全一致。
+        val result = DanmakuDuplicateMergePolicy.merge(
+            listOf(
+                dm(id = 2, progress = 1_600, content = "抽奖", weight = 5),
+                dm(id = 3, progress = 2_200, content = "抽奖", weight = 3),
+                dm(id = 5, progress = 3_000, content = "单条"),
+                dm(id = 1, progress = 1_000, content = "抽奖", weight = 1),
+                dm(id = 4, progress = 2_800, content = "单条")
+            )
+        )
+
+        assertEquals(2, result.size)
+        // 输出按 progress 升序。
+        assertTrue(result.zipWithNext().all { (a, b) -> a.progress <= b.progress })
+        // 2 秒窗口内的三条"抽奖"合并为一条（≥3 条显示计数）；
+        // 2_800 与 3_000 相差 0.2s 合并为一条（2 条不显示计数）。
+        assertEquals("抽奖 ×3", result[0].content)
+        assertEquals("单条", result[1].content)
     }
 
     private fun dm(

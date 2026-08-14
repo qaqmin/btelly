@@ -14,6 +14,8 @@ object AppLog {
     private const val KEY_ENABLED = "log_enabled"
     private const val CRASH_LOG_FILE = "debug.txt"
 
+    // @Volatile：开关在主线程翻转，action/cache 等后台线程依赖其可见性做热路径门控。
+    @Volatile
     var isEnabled = false
         private set
 

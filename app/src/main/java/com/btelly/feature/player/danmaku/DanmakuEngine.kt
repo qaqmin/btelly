@@ -38,16 +38,22 @@ internal interface DanmakuEngineMainApi {
     fun draw(canvas: Canvas, snapshot: RenderSnapshot, config: DanmakuConfig)
 }
 
+/**
+ * 缓存结果接受条件：样式代际一致 + 条目上确实有本次在途请求（pending/rendering 匹配）。
+ *
+ * 注意：不再要求条目"当前在场"。时间线预取会对未入场条目提前建图；而已退场/被丢弃的
+ * 条目在所有移除路径上都会把 pendingCacheGeneration 重置为 -1（releaseItemCache /
+ * releasePrefetchedCache），因此 pending 匹配本身就排除了已离场条目——防"退场条目
+ * 错误复活"的纪律从"查 active 列表"（O(n) 扫描）转为"移除即重置"（O(1)）。
+ */
 internal fun shouldApplyDmCacheResult(
     resultGeneration: Int,
     currentGeneration: Int,
     pendingGeneration: Int,
     rendering: Boolean,
-    active: Boolean,
 ): Boolean = resultGeneration == currentGeneration &&
     pendingGeneration == resultGeneration &&
-    rendering &&
-    active
+    rendering
 
 internal fun cacheReadyStartTime(motionStarted: Boolean, currentStartTimeMs: Int, nowMs: Int): Int =
     if (motionStarted) currentStartTimeMs else nowMs
@@ -221,7 +227,18 @@ internal class DanmakuEngine(
     private var laneLastScroll: Array<DanmakuItem?> = emptyArray()
     private var laneLastTop: Array<DanmakuItem?> = emptyArray()
     private var laneLastBottom: Array<DanmakuItem?> = emptyArray()
-    private var cacheProbeCursor: Int = 0
+
+    // ---- Cache scheduling (action thread only) ----
+    // 入场未缓存 FIFO：activate() 时入队，poll 时按 inActive/缓存有效性懒校验。
+    // 替代旧的轮转游标扫描（active>16 时发现一个未缓存条目最坏要等 ceil(n/16) 帧）。
+    private val uncachedActive = ArrayDeque<DanmakuItem>()
+    // 时间线预取游标：只前进不后退（rebuild/替换时重置），位于 [index, items.size]。
+    // 预取把建图提前到入场前完成，消除 miss-跳帧与 cacheWaitTimeout 丢字。
+    private var prefetchCursor: Int = 0
+    // CacheStyle 复用：样式代际/字号/描边/边距未变时不重复分配（此前 act 每帧 new 一个）。
+    private var cachedStyle: CacheStyle? = null
+    private var cachedStyleGeneration: Int = -1
+    private var cachedStyleOutlinePadPx: Float = -1f
 
     // ---- Draw (main thread only) ----
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -261,11 +278,13 @@ internal class DanmakuEngine(
                 measureGeneration++
                 // 样式代际变化后 actionPaint 度量需重算（act 帧循环里按此标志判断）。
                 actionMetricsValid = false
-                AppLog.w(
-                    TAG,
-                    "styleChanged gen=${cacheStyleGeneration} → all ${active.size} active caches invalidated " +
-                        "(rebuild throttled 8/frame, expect temporary draw miss)"
-                )
+                if (AppLog.isEnabled) {
+                    AppLog.w(
+                        TAG,
+                        "styleChanged gen=${cacheStyleGeneration} → all ${active.size} active caches invalidated " +
+                            "(rebuild throttled 8/frame, expect temporary draw miss)"
+                    )
+                }
                 // Invalidate current caches to avoid mixing styles.
                 val releaseAt = currentUiFrameId + 1
                 val size = active.size
@@ -279,7 +298,10 @@ internal class DanmakuEngine(
                     a.cacheState = DanmakuCacheState.Init
                     a.cacheGeneration = -1
                     a.pendingCacheGeneration = -1
+                    // 条目仍 active：重新排队等建图（poll 时按新代际校验）。
+                    uncachedActive.addLast(a)
                 }
+                releaseStalePrefetchCaches(releaseAt)
             }
             requestRebuild("config")
         }
@@ -306,35 +328,42 @@ internal class DanmakuEngine(
                 currentGeneration = cacheStyleGeneration,
                 pendingGeneration = item.pendingCacheGeneration,
                 rendering = item.cacheState == DanmakuCacheState.Rendering,
-                active = item in active,
             )) {
             if (item.pendingCacheGeneration == result.generation) {
                 item.cacheState = DanmakuCacheState.Init
                 item.pendingCacheGeneration = -1
+                // 在场条目的在途请求被拒（多为样式代际刚切换）：重新排队等新代际建图。
+                if (item.inActive) uncachedActive.addLast(item)
             }
-            // 结果被拒（generation过期/已不在active/状态不匹配），缓存白建了。
-            AppLog.w(
-                TAG,
-                "cacheResult REJECT t=${item.timeMs()}ms text='${item.data.text.take(12)}' " +
-                    "gen=${result.generation}/${cacheStyleGeneration} active=${item in active} " +
-                    "state=${item.cacheState} pending=${item.pendingCacheGeneration}"
-            )
+            // 结果被拒（generation过期/条目已被移除），缓存白建了。
+            if (AppLog.isEnabled) {
+                AppLog.w(
+                    TAG,
+                    "cacheResult REJECT t=${item.timeMs()}ms text='${item.data.text.take(12)}' " +
+                        "gen=${result.generation}/${cacheStyleGeneration} inActive=${item.inActive} " +
+                        "state=${item.cacheState} pending=${item.pendingCacheGeneration}"
+                )
+            }
             return
         }
         val entry = result.entry
         if (entry == null || !entry.tryAcquire()) {
             item.cacheState = DanmakuCacheState.Init
             item.pendingCacheGeneration = -1
+            // 在场条目建图失败（内存不足/位图被回收）：重新排队重试，避免直接掉进超时丢弃。
+            if (item.inActive) uncachedActive.addLast(item)
             // entry 为空=内存不足建图失败；tryAcquire 失败=bitmap已被回收。
-            AppLog.w(
-                TAG,
-                "cacheResult FAIL t=${item.timeMs()}ms text='${item.data.text.take(12)}' " +
-                    "entryNull=${entry == null} recycled=${entry?.isRecycled}"
-            )
+            if (AppLog.isEnabled) {
+                AppLog.w(
+                    TAG,
+                    "cacheResult FAIL t=${item.timeMs()}ms text='${item.data.text.take(12)}' " +
+                        "entryNull=${entry == null} recycled=${entry?.isRecycled}"
+                )
+            }
             return
         }
         val old = item.cacheEntry
-        if (!item.motionStarted) {
+        if (item.inActive && !item.motionStarted) {
             val prevStart = item.startTimeMs
             item.startTimeMs = cacheReadyStartTime(
                 motionStarted = false,
@@ -344,12 +373,16 @@ internal class DanmakuEngine(
             item.motionStarted = true
             // 缓存就绪，startTimeMs 重锚到当前播放位置。admit→ready 的等待时长若接近 MAX_CACHE_WAIT_MS，
             // 说明缓存构建接近超时边缘，下一步可能被 pruneExpired 误杀。
-            AppLog.w(
-                TAG,
-                "cacheReady t=${item.timeMs()}ms text='${item.data.text.take(12)}' " +
-                    "admit=${prevStart}ms→start=${item.startTimeMs}ms waited=${item.startTimeMs - prevStart}ms lane=${item.lane}"
-            )
+            if (AppLog.isEnabled) {
+                AppLog.w(
+                    TAG,
+                    "cacheReady t=${item.timeMs()}ms text='${item.data.text.take(12)}' " +
+                        "admit=${prevStart}ms→start=${item.startTimeMs}ms waited=${item.startTimeMs - prevStart}ms lane=${item.lane}"
+                )
+            }
         }
+        // 预取条目（未入场）只挂图；motion 留到 activate() 时按缓存命中判定，
+        // 入场即有图 → motionStarted=true → 从入场时刻准时开始运动。
         if (old === entry) {
             entry.release()
             item.cacheGeneration = result.generation
@@ -364,7 +397,7 @@ internal class DanmakuEngine(
         if (old != null && old !== entry) {
             cacheManager.enqueueRelease(old, releaseAtFrameId = currentUiFrameId + 1)
         }
-        snapshotDirty = true
+        if (item.inActive) snapshotDirty = true
     }
 
     override fun preAct() {
@@ -389,7 +422,7 @@ internal class DanmakuEngine(
             if (width <= 0 || height <= 0) {
                 // viewport 短暂变 0（View 尺寸变化/窗口动画）会瞬间清空整屏弹幕——
                 // 这是"半路消失"的无日志路径，必须记录。
-                if (active.isNotEmpty()) {
+                if (active.isNotEmpty() && AppLog.isEnabled) {
                     AppLog.w(
                         TAG,
                         "CLEAR-ALL viewport=${width}x${height} active=${active.size} pending=${pending.size} → screen emptied"
@@ -527,6 +560,15 @@ internal class DanmakuEngine(
         }
     }
 
+    // draw 缺失日志聚合（主线程私有）：按 500ms 聚合输出，避免 60fps 刷屏冲掉环形日志缓冲。
+    private var drawMissLogLastAtMs: Long = 0L
+    private var drawMissLogFrames: Int = 0
+    private var drawMissLogSkipped: Int = 0
+    private var drawMissLogWait: Int = 0
+    private var drawMissLogNoEntry: Int = 0
+    private var drawMissLogRecycled: Int = 0
+    private var drawMissLogGenMismatch: Int = 0
+
     override fun draw(canvas: Canvas, snapshot: RenderSnapshot, config: DanmakuConfig) {
         val cfg = config
         if (!cfg.enabled) return
@@ -577,13 +619,32 @@ internal class DanmakuEngine(
         lastDrawCachedCount = cachedDrawn
         lastDrawCacheMissSkippedCount = cacheMissSkipped
         // 仅在有缓存缺失时输出（正常帧不刷屏）。missing>0 说明弹幕在屏幕上但没画出来 → "半路消失"。
-        if (cacheMissSkipped > 0) {
-            AppLog.w(
-                TAG,
-                "draw miss=$cacheMissSkipped/${snapshot.count} hit=$cachedDrawn " +
-                    "wait=$missMotionWait noEntry=$missNoEntry recycled=$missRecycled genMismatch=$missGenMismatch " +
-                    "gen=$styleGen now=${nowMs}ms"
-            )
+        // 门控 + 500ms 聚合：字符串构建本身有成本，日志关闭时不做任何额外工作；
+        // 开启时按窗口汇总，避免 60fps 刷屏冲掉环形日志缓冲里的其他诊断。
+        if (cacheMissSkipped > 0 && AppLog.isEnabled) {
+            drawMissLogFrames++
+            drawMissLogSkipped += cacheMissSkipped
+            drawMissLogWait += missMotionWait
+            drawMissLogNoEntry += missNoEntry
+            drawMissLogRecycled += missRecycled
+            drawMissLogGenMismatch += missGenMismatch
+            val nowUptimeMs = android.os.SystemClock.uptimeMillis()
+            if (nowUptimeMs - drawMissLogLastAtMs >= DRAW_MISS_LOG_INTERVAL_MS) {
+                AppLog.w(
+                    TAG,
+                    "draw miss(agg ${DRAW_MISS_LOG_INTERVAL_MS}ms) frames=$drawMissLogFrames " +
+                        "miss=$drawMissLogSkipped wait=$drawMissLogWait noEntry=$drawMissLogNoEntry " +
+                        "recycled=$drawMissLogRecycled genMismatch=$drawMissLogGenMismatch " +
+                        "gen=$styleGen now=${nowMs}ms"
+                )
+                drawMissLogLastAtMs = nowUptimeMs
+                drawMissLogFrames = 0
+                drawMissLogSkipped = 0
+                drawMissLogWait = 0
+                drawMissLogNoEntry = 0
+                drawMissLogRecycled = 0
+                drawMissLogGenMismatch = 0
+            }
         }
     }
 
@@ -605,13 +666,22 @@ internal class DanmakuEngine(
                 // rebuildScene 会把它们跳过 → 在播弹幕保持运动状态与缓存，不再"清屏+近 6 秒重放"。
                 markMatchedNewItemsConsumed(newItems)
             }
+            // 整体替换：旧时间线中不在场的条目若被预取挂图，替换后永远不会入场，
+            // 必须释放（在场条目实例相同，缓存由退场路径管理，跳过）。
+            val releaseAt = currentUiFrameId + 1
+            for (old in items) {
+                if (!old.inActive) releaseItemCache(old, releaseAtFrameId = releaseAt)
+            }
             items = newItems
             index = 0
+            prefetchCursor = 0
             lastNowMs = 0
             requestRebuild("setDanmakus")
             debugPendingCount = 0
             debugNextAtMs = items.firstOrNull()?.timeMs()
-            AppLog.w(TAG, "setDanmakus count=${items.size} onScreenPreserved=${active.size}")
+            if (AppLog.isEnabled) {
+                AppLog.w(TAG, "setDanmakus count=${items.size} onScreenPreserved=${active.size}")
+            }
             if (active.isEmpty()) publishEmptySnapshot()
         }
     }
@@ -619,11 +689,22 @@ internal class DanmakuEngine(
     /**
      * 把新时间线中与当前在场条目值相等（Danmaku data class 按 发送时间+内容+样式 判等）的实例
      * 标记 consumed。使用计数表处理同一条弹幕在时间线里出现多次的情况（逐个匹配，不重复占用）。
+     *
+     * 只对 [now - 最长滚动/固定时长, ∞) 窗口内的新条目建表：更早的条目不可能与在场条目值相等
+     * （timeMs 是判等字段之一），也必被 rebuildScene 的 admitSinceMs 窗口跳过——
+     * 全量时间线（可达 2 万条）逐条建 HashMap 的哈希/装箱成本由此省掉 95% 以上。
      */
     private fun markMatchedNewItemsConsumed(newItems: List<DanmakuItem>) {
         if (active.isEmpty()) return
-        val byData = HashMap<Danmaku, ArrayList<DanmakuItem>>(newItems.size.coerceAtLeast(16))
-        for (item in newItems) byData.getOrPut(item.data) { ArrayList(2) }.add(item)
+        val nowMs = currentPositionMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val floorMs = (
+            nowMs - maxOf(computeRollingDurationMs(config.speedLevel), FIXED_DURATION_MS)
+            ).coerceAtLeast(0)
+        val byData = HashMap<Danmaku, ArrayList<DanmakuItem>>(64)
+        for (item in newItems) {
+            if (item.timeMs() < floorMs) continue
+            byData.getOrPut(item.data) { ArrayList(2) }.add(item)
+        }
         for (a in active) {
             val candidates = byData[a.data] ?: continue
             if (candidates.isEmpty()) continue
@@ -649,10 +730,12 @@ internal class DanmakuEngine(
         if (firstIncoming >= lastTime) {
             for (d in newItems) items.add(DanmakuItem(d))
             debugNextAtMs = items.getOrNull(index)?.timeMs()
-            AppLog.w(
-                TAG,
-                "append(ok) add=${newItems.size} firstIn=$firstIncoming lastExist=$lastTime items=${items.size}"
-            )
+            if (AppLog.isEnabled) {
+                AppLog.w(
+                    TAG,
+                    "append(ok) add=${newItems.size} firstIn=$firstIncoming lastExist=$lastTime items=${items.size}"
+                )
+            }
             return
         }
         // 时间倒序：新批次首条早于已注入末条（分段补全/seek回看时出现）。
@@ -670,14 +753,26 @@ internal class DanmakuEngine(
             incoming = newItems,
             minTimeMs = patchFrom,
         )
-        AppLog.w(
-            TAG,
-            "append(out-of-order!) add=${newItems.size} firstIn=$firstIncoming lastExist=$lastTime " +
-                "items=${items.size} → patchFuture from=${patchFrom}ms replace=${replacement.size}"
-        )
-        if (replaceIndex < items.size) items.subList(replaceIndex, items.size).clear()
+        if (AppLog.isEnabled) {
+            AppLog.w(
+                TAG,
+                "append(out-of-order!) add=${newItems.size} firstIn=$firstIncoming lastExist=$lastTime " +
+                    "items=${items.size} → patchFuture from=${patchFrom}ms replace=${replacement.size}"
+            )
+        }
+        if (replaceIndex < items.size) {
+            // 被替换的尾段里可能有预取挂图的未入场条目，清空前释放。
+            val releaseAt = currentUiFrameId + 1
+            for (i in replaceIndex until items.size) {
+                val dropped = items[i]
+                if (!dropped.inActive) releaseItemCache(dropped, releaseAtFrameId = releaseAt)
+            }
+            items.subList(replaceIndex, items.size).clear()
+        }
         items.addAll(replacement.map(::DanmakuItem))
         index = minOf(index, replaceIndex)
+        // 尾段被新实例替换：预取游标回退到替换点，让新实例重新走预取。
+        prefetchCursor = minOf(prefetchCursor, replaceIndex).coerceIn(index, items.size)
         requestRebuild("append-out-of-order-tail-patch")
         debugNextAtMs = items.getOrNull(index)?.timeMs()
         }
@@ -706,15 +801,27 @@ internal class DanmakuEngine(
                     .toList()
             val replaceIndex = lowerBound(min)
             markMatchedNewItemsConsumed(replacement)
-            if (replaceIndex < items.size) items.subList(replaceIndex, items.size).clear()
+            if (replaceIndex < items.size) {
+                // 被替换的尾段里可能有预取挂图的未入场条目，清空前释放。
+                val releaseAt = currentUiFrameId + 1
+                for (i in replaceIndex until items.size) {
+                    val dropped = items[i]
+                    if (!dropped.inActive) releaseItemCache(dropped, releaseAtFrameId = releaseAt)
+                }
+                items.subList(replaceIndex, items.size).clear()
+            }
             items.addAll(replacement)
             index = minOf(index, replaceIndex)
+            // 尾段被新实例替换：预取游标回退到替换点，让新实例重新走预取。
+            prefetchCursor = minOf(prefetchCursor, replaceIndex).coerceIn(index, items.size)
             requestRebuild("replace-from")
             debugNextAtMs = items.getOrNull(index)?.timeMs()
-            AppLog.w(
-                TAG,
-                "replaceFrom min=${min}ms replace=${replacement.size} prefix=$replaceIndex items=${items.size} active=${active.size}",
-            )
+            if (AppLog.isEnabled) {
+                AppLog.w(
+                    TAG,
+                    "replaceFrom min=${min}ms replace=${replacement.size} prefix=$replaceIndex items=${items.size} active=${active.size}",
+                )
+            }
         }
     }
 
@@ -723,8 +830,15 @@ internal class DanmakuEngine(
         if (maxItems <= 0) return
         val drop = items.size - maxItems
         if (drop <= 0) return
+        // 前缀条目已播放过：不在场的若被预取挂图，删除前释放。
+        val releaseAt = currentUiFrameId + 1
+        for (i in 0 until drop) {
+            val dropped = items[i]
+            if (!dropped.inActive) releaseItemCache(dropped, releaseAtFrameId = releaseAt)
+        }
         items.subList(0, drop).clear()
         index = adjustedTimelineIndexAfterPrefixTrim(index, drop)
+        prefetchCursor = adjustedTimelineIndexAfterPrefixTrim(prefetchCursor, drop)
         debugNextAtMs = items.getOrNull(index)?.timeMs()
         }
     }
@@ -740,8 +854,14 @@ internal class DanmakuEngine(
         val end = lowerBound(max)
         if (start <= 0 && end >= items.size) return
         if (start >= end) {
+            // 区间整体清空：所有非在场条目的预取缓存一并释放（clearActives 处理在场条目）。
+            val releaseAt = currentUiFrameId + 1
+            for (dropped in items) {
+                if (!dropped.inActive) releaseItemCache(dropped, releaseAtFrameId = releaseAt)
+            }
             items.clear()
             index = 0
+            prefetchCursor = 0
             clearActives()
             resetLaneState()
             pending.clear()
@@ -750,8 +870,19 @@ internal class DanmakuEngine(
             publishEmptySnapshot()
             return
         }
+        // 前缀 [0,start) 与后缀 [end,size) 被移除：非在场条目的预取缓存释放。
+        val releaseAt = currentUiFrameId + 1
+        for (i in 0 until start) {
+            val dropped = items[i]
+            if (!dropped.inActive) releaseItemCache(dropped, releaseAtFrameId = releaseAt)
+        }
+        for (i in end until items.size) {
+            val dropped = items[i]
+            if (!dropped.inActive) releaseItemCache(dropped, releaseAtFrameId = releaseAt)
+        }
         items = items.subList(start, end).toMutableList()
         index = (index - start).coerceIn(0, items.size)
+        prefetchCursor = (prefetchCursor - start).coerceIn(0, items.size)
         requestRebuild("trim-range")
         seekTo(currentPositionMs, reason = "trim-range")
         }
@@ -766,11 +897,13 @@ internal class DanmakuEngine(
             val pos = positionMs.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
             // wentBack=true 时 rebuildScene 会清空防重放历史并允许最近一个滚动窗口重放。
             // 若用户没有主动 seek 回看却出现此日志，即为"弹幕滚完又出现"的根因现场。
-            AppLog.w(
-                TAG,
-                "seekTo pos=${pos}ms reason=$reason lastNowMs=${lastNowMs}ms " +
-                    "wentBack=${pos < lastNowMs} active=${active.size} items=${items.size}"
-            )
+            if (AppLog.isEnabled) {
+                AppLog.w(
+                    TAG,
+                    "seekTo pos=${pos}ms reason=$reason lastNowMs=${lastNowMs}ms " +
+                        "wentBack=${pos < lastNowMs} active=${active.size} items=${items.size}"
+                )
+            }
             rebuildScene(
                 nowMs = pos,
                 width = viewportWidth.coerceAtLeast(0),
@@ -812,16 +945,18 @@ internal class DanmakuEngine(
         val releaseAt = currentUiFrameId + 1
         for (i in active.size - 1 downTo 0) {
             val a = active.removeAt(i)
+            a.inActive = false
             releaseItemCache(a, releaseAtFrameId = releaseAt)
         }
-        cacheProbeCursor = 0
         snapshotDirty = true
     }
 
     private fun clearAdmissionHistory(reason: String) {
         admissionHistory.clear()
         lastAdmissionHistoryPruneBeforeMs = 0
-        AppLog.w(TAG, "admissionHistory CLEAR reason=$reason")
+        if (AppLog.isEnabled) {
+            AppLog.w(TAG, "admissionHistory CLEAR reason=$reason")
+        }
     }
 
     /** History is only needed for the rolling rebuild window; avoid retaining an entire long video. */
@@ -938,11 +1073,13 @@ internal class DanmakuEngine(
         if (positionWentBack) {
             // 误判现场：非用户回看时出现此行，说明平滑位置被回拉后触发了 rebuild
             // → 防重放历史被清 → 最近 6 秒弹幕可重入（"滚完又出现"）。
-            AppLog.w(
-                TAG,
-                "rebuildScene WENT-BACK reason=$reason now=${nowMs}ms lastNowMs=${lastNowMs}ms " +
-                    "backMs=${backMs}ms → admissionHistory cleared, replay window re-opens"
-            )
+            if (AppLog.isEnabled) {
+                AppLog.w(
+                    TAG,
+                    "rebuildScene WENT-BACK reason=$reason now=${nowMs}ms lastNowMs=${lastNowMs}ms " +
+                        "backMs=${backMs}ms → admissionHistory cleared, replay window re-opens"
+                )
+            }
         }
         if (positionWentBack) clearAdmissionHistory("wentBack($reason)")
         pending.clear()
@@ -953,6 +1090,7 @@ internal class DanmakuEngine(
             clearActives()
             resetLaneState()
             index = lowerBound(nowMs)
+            prefetchCursor = index
             debugPendingCount = 0
             debugNextAtMs = items.getOrNull(index)?.timeMs()
             snapshotDirty = true
@@ -977,20 +1115,35 @@ internal class DanmakuEngine(
         pruneAdmissionHistory(admitSinceMs, force = true)
         val priorAdmissions = if (positionWentBack) null else admissionHistory.replayBudget()
         index = lowerBound(admitSinceMs)
+        // 重建后从窗口起点重新预取（回看/前进都会重扫这个窗口）。
+        prefetchCursor = index
+        val releaseAt = currentUiFrameId + 1
         var admitted = 0
         var skippedPreviouslyAdmitted = 0
         while (index < items.size && items[index].timeMs() <= nowMs) {
             val item = items[index]
             index++
             if (item.data.text.isBlank()) continue
-            if (item.timeMs() < admitSinceMs) continue
+            if (item.timeMs() < admitSinceMs) {
+                // 早于重放窗口：预取若已挂图则释放（不会再入场）。
+                if (!item.inActive) releaseItemCache(item, releaseAtFrameId = releaseAt)
+                continue
+            }
             // 时间线整体替换后：新实例与在场条目相同 → 已标记，跳过（除非用户回看）。
-            if (!positionWentBack && (item in active || item.consumed)) {
+            if (!positionWentBack && (item.inActive || item.consumed)) {
                 priorAdmissions?.consume(item.data)
+                if (!item.inActive && item.cacheEntry != null) {
+                    // consumed 的替换实例不会入场：释放其预取缓存。
+                    releaseItemCache(item, releaseAtFrameId = releaseAt)
+                }
                 continue
             }
             if (priorAdmissions?.consume(item.data) == true) {
                 skippedPreviouslyAdmitted++
+                if (!item.inActive && item.cacheEntry != null) {
+                    // 曾入场且已退场/不在场的条目：释放其预取缓存。
+                    releaseItemCache(item, releaseAtFrameId = releaseAt)
+                }
                 continue
             }
             if (tryAdmitItem(
@@ -1010,7 +1163,7 @@ internal class DanmakuEngine(
                 admitted++
                 // 重建扫描窗口内"迟到超过 1 秒"才入场的条目 = 补放/重放，
                 // 与 admit 日志同 t= 对照可确认同一条是否被二次投放。
-                if (nowMs - item.timeMs() > 1_000) {
+                if (nowMs - item.timeMs() > 1_000 && AppLog.isEnabled) {
                     AppLog.w(
                         TAG,
                         "rebuildAdmit(LATE) t=${item.timeMs()}ms dmid=${item.data.dmid ?: "-"} " +
@@ -1023,12 +1176,14 @@ internal class DanmakuEngine(
         debugPendingCount = pending.size
         debugNextAtMs = items.getOrNull(index)?.timeMs()
         snapshotDirty = true
-        AppLog.w(
-            TAG,
-            "rebuildScene reason=$reason now=${nowMs}ms width=$width lanes=$laneCount " +
-                "items=${items.size} activeBefore=$activeBefore preserved=$preserved activeAfter=${active.size} " +
-                "reAdmit=$admitted skippedHistory=$skippedPreviouslyAdmitted since=${admitSinceMs}ms"
-        )
+        if (AppLog.isEnabled) {
+            AppLog.w(
+                TAG,
+                "rebuildScene reason=$reason now=${nowMs}ms width=$width lanes=$laneCount " +
+                    "items=${items.size} activeBefore=$activeBefore preserved=$preserved activeAfter=${active.size} " +
+                    "reAdmit=$admitted skippedHistory=$skippedPreviouslyAdmitted since=${admitSinceMs}ms"
+            )
+        }
     }
 
     /**
@@ -1059,18 +1214,21 @@ internal class DanmakuEngine(
             val a = active[read]
             if (a.timeMs() > nowMs) {
                 droppedFuture++
+                a.inActive = false
                 releaseItemCache(a, releaseAtFrameId = releaseAt)
                 snapshotDirty = true
                 continue
             }
             if (a.lane >= laneCount) {
                 droppedLane++
+                a.inActive = false
                 releaseItemCache(a, releaseAtFrameId = releaseAt)
                 snapshotDirty = true
                 continue
             }
             if (expireReason(a, width = width, nowMs = nowMs) != null) {
                 droppedExpired++
+                a.inActive = false
                 releaseItemCache(a, releaseAtFrameId = releaseAt)
                 snapshotDirty = true
                 continue
@@ -1108,13 +1266,14 @@ internal class DanmakuEngine(
             // 重建时的三类丢弃：future=条目发送时间在新位置之后（seek 前进）、lane=轨道越界
             // （字号/区域变化后 lane 数变少）、expired=已到退场条件。
             // lane 类丢弃会把正在滚动的弹幕清掉——"半路消失"候选路径之一。
-            AppLog.w(
-                TAG,
-                "preserveDrop future=$droppedFuture lane=$droppedLane expired=$droppedExpired " +
-                    "remain=${active.size} laneCount=$laneCount"
-            )
+            if (AppLog.isEnabled) {
+                AppLog.w(
+                    TAG,
+                    "preserveDrop future=$droppedFuture lane=$droppedLane expired=$droppedExpired " +
+                        "remain=${active.size} laneCount=$laneCount"
+                )
+            }
         }
-        if (cacheProbeCursor >= active.size) cacheProbeCursor = 0
     }
 
     private fun pruneExpired(width: Int, nowMs: Int) {
@@ -1131,18 +1290,20 @@ internal class DanmakuEngine(
                 if (reason == "cacheWaitTimeout") droppedTimeout++ else droppedNormal++
                 // cacheWaitTimeout = 缓存超时丢弃（弹幕从未可见），是"半路消失"的可疑来源，单独详记。
                 if (reason == "cacheWaitTimeout") {
-                    AppLog.w(
-                        TAG,
-                        "pruneExpired DROP cacheTimeout t=${a.timeMs()}ms text='${a.data.text.take(12)}' " +
-                            "start=${a.startTimeMs}ms now=${nowMs}ms age=${nowMs - a.startTimeMs}ms " +
-                            "motion=${a.motionStarted} lane=${a.lane} dur=${a.durationMs}ms"
-                    )
+                    if (AppLog.isEnabled) {
+                        AppLog.w(
+                            TAG,
+                            "pruneExpired DROP cacheTimeout t=${a.timeMs()}ms text='${a.data.text.take(12)}' " +
+                                "start=${a.startTimeMs}ms now=${nowMs}ms age=${nowMs - a.startTimeMs}ms " +
+                                "motion=${a.motionStarted} lane=${a.lane} dur=${a.durationMs}ms"
+                        )
+                    }
                 } else if (reason == "duration" && a.kind == DanmakuKind.SCROLL) {
                     // duration 退场时 x 理应 ≈ -textWidth（刚好完全出屏）。
                     // x 还在屏幕右侧 25% 区域内就到期 = "滚到一半消失"的直接现场：
                     // 要么 startTimeMs 被位置前跳拉大（elapsed 虚增），要么 durationMs 算短了。
                     val x = scrollX(width = width, nowMs = nowMs, startTimeMs = a.startTimeMs, pxPerMs = a.pxPerMs)
-                    if (x + a.textWidthPx > width * 0.25f) {
+                    if (x + a.textWidthPx > width * 0.25f && AppLog.isEnabled) {
                         AppLog.w(
                             TAG,
                             "pruneExpired EARLY-EXIT t=${a.timeMs()}ms text='${a.data.text.take(12)}' " +
@@ -1152,6 +1313,7 @@ internal class DanmakuEngine(
                     }
                 }
                 clearLaneReferenceIfMatch(a)
+                a.inActive = false
                 releaseItemCache(a, releaseAtFrameId = releaseAt)
                 snapshotDirty = true
                 continue
@@ -1161,7 +1323,7 @@ internal class DanmakuEngine(
         }
         if (write < size) {
             active.subList(write, size).clear()
-            if (droppedTimeout > 0 || droppedNormal > 0) {
+            if ((droppedTimeout > 0 || droppedNormal > 0) && AppLog.isEnabled) {
                 AppLog.w(
                     TAG,
                     "pruneExpired removed=${size - write} timeout=$droppedTimeout normal=$droppedNormal " +
@@ -1169,7 +1331,6 @@ internal class DanmakuEngine(
                 )
             }
         }
-        if (cacheProbeCursor >= active.size) cacheProbeCursor = 0
     }
 
     private fun processPendingItems(
@@ -1215,7 +1376,13 @@ internal class DanmakuEngine(
                 )
             if (admitted) continue
             val age = nowMs - entry.firstTryMs
-            if (entry.retryCount >= MAX_PENDING_RETRY_COUNT || age >= MAX_DELAY_MS) continue
+            if (entry.retryCount >= MAX_PENDING_RETRY_COUNT || age >= MAX_DELAY_MS) {
+                // 永久放弃：条目不再会入场，若预取挂过图则释放。
+                if (entry.item.cacheEntry != null) {
+                    releaseItemCache(entry.item, releaseAtFrameId = currentUiFrameId + 1)
+                }
+                continue
+            }
             entry.retryCount += 1
             entry.nextTryMs = nowMs + DELAY_STEP_MS
             pending.addLast(entry)
@@ -1426,43 +1593,109 @@ internal class DanmakuEngine(
         return false
     }
 
+    /**
+     * 缓存请求调度（action 线程每帧）：
+     * 1) 入场优先 FIFO——最老等待者先建，消除旧轮转游标的发现延迟；
+     * 2) 时间线预取——对 [now, now+PREFETCH_WINDOW_MS] 内未入场条目提前建图，
+     *    入场即有图（activate 判定缓存命中后 motionStarted 直接置 true），
+     *    消除 miss-跳帧与 cacheWaitTimeout 丢弃，并把建图负载从突发摊平到空闲期。
+     * 共享缓存表（相同内容同 bitmap）让重复文本的预取零成本命中。
+     */
     private fun requestCacheBuilds(
         outlinePad: Float,
         cfg: DanmakuConfig,
     ) {
-        if (active.isEmpty()) return
-        if (cacheManager.queueDepth() >= MAX_CACHE_QUEUE_DEPTH) return
+        val style = ensureCacheStyle(outlinePad, cfg)
+        var requested = 0
+
+        // ---- 1) 在场未缓存条目（最老等待者优先）----
+        while (uncachedActive.isNotEmpty() && requested < MAX_CACHE_REQUESTS_PER_FRAME) {
+            if (cacheManager.queueDepth() >= MAX_CACHE_QUEUE_DEPTH) return
+            val item = uncachedActive.removeFirst()
+            if (!item.inActive) continue // 已退场，stale 条目直接丢弃
+            if (hasValidCache(item, style.generation)) continue // 预取已送达
+            if (item.cacheState == DanmakuCacheState.Rendering) continue // 已在途
+            enqueueCacheRequest(item, style)
+            requested++
+        }
+
+        // ---- 2) 时间线预取（独立预算，不与在场条目抢占）----
+        if (prefetchCursor < index) prefetchCursor = index
+        if (prefetchCursor > items.size) prefetchCursor = items.size
+        val nowMs = currentPositionMs.coerceAtMost(Int.MAX_VALUE.toLong() - PREFETCH_WINDOW_MS).toInt()
+        val prefetchDeadlineMs = nowMs + PREFETCH_WINDOW_MS
+        var prefetchRequested = 0
+        while (prefetchCursor < items.size && prefetchRequested < MAX_PREFETCH_REQUESTS_PER_FRAME) {
+            if (cacheManager.queueDepth() >= MAX_CACHE_QUEUE_DEPTH) return
+            val item = items[prefetchCursor]
+            if (item.timeMs() > prefetchDeadlineMs) break
+            prefetchCursor++
+            if (item.data.text.isBlank()) continue
+            if (item.inActive) continue // 在场条目由 FIFO 管
+            if (item.consumed) continue // 替换标记的条目不会再入场（回看会重建游标）
+            if (hasValidCache(item, style.generation)) continue
+            if (item.cacheState == DanmakuCacheState.Rendering) continue // 已在途
+            enqueueCacheRequest(item, style)
+            prefetchRequested++
+        }
+    }
+
+    /** CacheStyle 复用：样式参数未变时返回同一实例，避免每帧分配。 */
+    private fun ensureCacheStyle(outlinePad: Float, cfg: DanmakuConfig): CacheStyle {
+        val gen = cacheStyleGeneration
+        val cached = cachedStyle
+        if (cached != null &&
+            cachedStyleGeneration == gen &&
+            cachedStyleOutlinePadPx == outlinePad &&
+            cached.textSizePx == textSizePx &&
+            cached.strokeWidthPx == strokeWidthPx &&
+            cached.fontWeight == cfg.fontWeight
+        ) {
+            return cached
+        }
         val style =
             CacheStyle(
                 textSizePx = textSizePx,
                 fontWeight = cfg.fontWeight,
                 strokeWidthPx = strokeWidthPx,
                 outlinePadPx = outlinePad,
-                generation = cacheStyleGeneration,
+                generation = gen,
             )
-        val releaseAtFrameId = currentUiFrameId + 1
-        val scanCount = min(active.size, MAX_CACHE_SCAN_PER_FRAME)
-        var requested = 0
-        for (offset in 0 until scanCount) {
-            if (requested >= MAX_CACHE_REQUESTS_PER_FRAME) break
-            if (cacheManager.queueDepth() >= MAX_CACHE_QUEUE_DEPTH) break
-            val indexInActive = (cacheProbeCursor + offset) % active.size
-            val item = active[indexInActive]
-            val entry = item.cacheEntry
-            val hasValidCache = entry != null && !entry.isRecycled && item.cacheGeneration == style.generation
-            if (hasValidCache) continue
-            if (item.cacheState == DanmakuCacheState.Rendering) continue
-            item.cacheState = DanmakuCacheState.Rendering
-            item.pendingCacheGeneration = style.generation
-            cacheManager.requestBuildCache(
-                item = item,
-                textWidthPx = item.textWidthPx,
-                style = style,
-                releaseAtFrameId = releaseAtFrameId,
-            )
-            requested++
+        cachedStyle = style
+        cachedStyleGeneration = gen
+        cachedStyleOutlinePadPx = outlinePad
+        return style
+    }
+
+    private fun hasValidCache(item: DanmakuItem, generation: Int): Boolean {
+        val entry = item.cacheEntry
+        return entry != null && !entry.isRecycled && item.cacheGeneration == generation
+    }
+
+    private fun enqueueCacheRequest(item: DanmakuItem, style: CacheStyle) {
+        item.cacheState = DanmakuCacheState.Rendering
+        item.pendingCacheGeneration = style.generation
+        cacheManager.requestBuildCache(
+            item = item,
+            textWidthPx = measureTextWidth(item, style.outlinePadPx),
+            style = style,
+        )
+    }
+
+    /**
+     * 样式代际切换后，清理预取窗口内未入场条目上的旧代际缓存
+     * （入场判定按代际比较会拒绝旧图，不清则白白占住位图引用直到条目被丢弃）。
+     */
+    private fun releaseStalePrefetchCaches(releaseAt: Int) {
+        val from = minOf(index, prefetchCursor)
+        val to = minOf(prefetchCursor, items.size)
+        for (i in from until to) {
+            val item = items[i]
+            if (item.inActive) continue
+            if (item.cacheGeneration != -1 || item.cacheEntry != null) {
+                releaseItemCache(item, releaseAtFrameId = releaseAt)
+            }
         }
-        cacheProbeCursor = if (active.isEmpty()) 0 else (cacheProbeCursor + scanCount) % active.size
     }
 
     private fun releaseItemCache(item: DanmakuItem, releaseAtFrameId: Int) {
@@ -1562,20 +1795,30 @@ internal class DanmakuEngine(
         item.pxPerMs = pxPerMs
         item.durationMs = durationMs
         item.startTimeMs = startTimeMs
-        item.motionStarted = false
         item.layoutTopPx = layoutTopPx
+        item.inActive = true
+        // 预取命中：入场即有可用缓存，直接开始运动——startTimeMs 即入场时刻，
+        // 弹幕从右侧准时入场，跳过"等缓存→重锚→迟到入场"的整段延迟。
+        if (hasValidCache(item, cacheStyleGeneration)) {
+            item.motionStarted = true
+        } else {
+            item.motionStarted = false
+            uncachedActive.addLast(item)
+        }
         active.add(item)
         admissionHistory.record(item.data)
         snapshotDirty = true
         // 弹幕入场记录。若同一 t=ms + text 出现两次 activate，即为"重复入场"。
         // dmid = 弹幕唯一 ID（B 站协议 dmid）：同 dmid 两次 admit = 引擎重放；
         // dmid 不同但内容相同 = 数据里真实存在多条（合并策略问题）。
-        AppLog.w(
-            TAG,
-            "admit kind=$kind t=${item.timeMs()}ms dmid=${item.data.dmid ?: item.data.midHash?.takeLast(6) ?: "-"} " +
-                "text='${item.data.text.take(12)}' " +
-                "lane=$lane pxPerMs=${String.format("%.4f", pxPerMs)} dur=${durationMs}ms start=$startTimeMs active=${active.size}"
-        )
+        if (AppLog.isEnabled) {
+            AppLog.w(
+                TAG,
+                "admit kind=$kind t=${item.timeMs()}ms dmid=${item.data.dmid ?: item.data.midHash?.takeLast(6) ?: "-"} " +
+                    "text='${item.data.text.take(12)}' " +
+                    "lane=$lane pxPerMs=${String.format("%.4f", pxPerMs)} dur=${durationMs}ms start=$startTimeMs active=${active.size}"
+            )
+        }
     }
 
     private fun computeScrollDurationMs(distancePx: Float, pxPerMs: Float, fallbackDurationMs: Int): Int {
@@ -1588,14 +1831,25 @@ internal class DanmakuEngine(
 
     private fun skipOld(nowMs: Int, rollingDurationMs: Int) {
         val ignoreBefore = nowMs - rollingDurationMs
+        val releaseAt = currentUiFrameId + 1
         while (index < items.size && items[index].timeMs() < ignoreBefore) {
+            val skipped = items[index]
+            // 被跳过的条目不再入场：若预取挂过图则释放。
+            if (!skipped.inActive && skipped.cacheEntry != null) {
+                releaseItemCache(skipped, releaseAtFrameId = releaseAt)
+            }
             index++
         }
     }
 
     private fun dropIfLagging(nowMs: Int) {
         val dropBefore = nowMs - MAX_CATCH_UP_LAG_MS
+        val releaseAt = currentUiFrameId + 1
         while (index < items.size && items[index].timeMs() < dropBefore) {
+            val dropped = items[index]
+            if (!dropped.inActive && dropped.cacheEntry != null) {
+                releaseItemCache(dropped, releaseAtFrameId = releaseAt)
+            }
             index++
         }
     }
@@ -1705,10 +1959,14 @@ internal class DanmakuEngine(
         private const val MAX_CATCH_UP_LAG_MS = 1_200
 
         private const val MAX_CACHE_REQUESTS_PER_FRAME = 8
-        private const val MAX_CACHE_SCAN_PER_FRAME = 16
+        private const val MAX_PREFETCH_REQUESTS_PER_FRAME = 8
         private const val MAX_CACHE_QUEUE_DEPTH = 48
         private const val MAX_CACHE_WAIT_MS = 1_600
         private const val ADMISSION_HISTORY_PRUNE_INTERVAL_MS = 1_000
+        private const val DRAW_MISS_LOG_INTERVAL_MS = 500L
+
+        /** 时间线预取窗口：提前为未来 2 秒内将入场的条目建图。 */
+        private const val PREFETCH_WINDOW_MS = 2_000
 
         /**
          * rebuildScene 的"回看"判定容差：回退量超过此值才清防重放历史并允许重放。

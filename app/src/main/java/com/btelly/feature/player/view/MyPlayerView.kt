@@ -909,6 +909,8 @@ class MyPlayerView @JvmOverloads constructor(
         surfaceH: Int,
         hostRect: Rect
     ) {
+        // 每帧都会被 computeMaskVideoBounds 调到：日志关闭时连 key 字符串都不构建。
+        if (!AppLog.isEnabled) return
         val now = SystemClock.elapsedRealtime()
         val key = "${maskVideoWidth}x$maskVideoHeight@$maskVideoPixelRatio/" +
             "$maskVideoRotationDegrees/$maskResizeMode/$surfaceW:$surfaceH/" +

@@ -10,9 +10,6 @@ internal class RenderSnapshot(
     var items: Array<DanmakuItem?> = emptyArray()
         private set
 
-    var x: FloatArray = FloatArray(0)
-        private set
-
     var yTop: FloatArray = FloatArray(0)
         private set
 
@@ -56,7 +53,6 @@ internal class RenderSnapshot(
         if (required <= items.size) return
         val cap = required.coerceAtLeast(items.size * 2 + 8)
         items = arrayOfNulls(cap)
-        x = FloatArray(cap)
         yTop = FloatArray(cap)
         textWidth = FloatArray(cap)
         cacheEntries = arrayOfNulls(cap)

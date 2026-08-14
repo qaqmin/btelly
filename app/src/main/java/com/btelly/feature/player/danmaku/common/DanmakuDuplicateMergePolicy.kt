@@ -14,7 +14,10 @@ internal object DanmakuDuplicateMergePolicy {
         if (items.size < 2 || windowMs <= 0) return items
         val result = ArrayList<DmModel>(items.size)
         val buckets = LinkedHashMap<MergeKey, MutableList<DmModel>>()
-        for (item in items.sortedBy { it.progress }) {
+        // 调用方（两个引擎的 preprocess）均已保证按 progress 升序；O(n) 守卫只兜底
+        // 意外的乱序输入，避免每次全量 sortedBy 的 O(n log n) + 数组分配（2 万条时数 ms）。
+        val sortedInput = if (isSortedByProgress(items)) items else items.sortedBy { it.progress }
+        for (item in sortedInput) {
             flushExpired(
                 buckets = buckets,
                 expireBeforeMs = item.progress - windowMs,
@@ -127,6 +130,13 @@ internal object DanmakuDuplicateMergePolicy {
 
     private fun List<DmModel>.minOfProgressId(): Long =
         minOf { it.progress }.toLong().coerceAtLeast(1L)
+
+    private fun isSortedByProgress(items: List<DmModel>): Boolean {
+        for (index in 1 until items.size) {
+            if (items[index - 1].progress > items[index].progress) return false
+        }
+        return true
+    }
 
     private fun DmModel.canMergeDuplicate(): Boolean {
         val normalized = content.trim()
