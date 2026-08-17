@@ -286,8 +286,24 @@ internal class DanmakuPlayer(
     }
 
     fun seekTo(positionMs: Long) {
+        // 主线程放行单调高水位（seek 回看是合法回退）。必须与 stepTime 同线程，
+        // 否则 action 线程重置与主线程写入交错可能把高水位卡在旧位置。
+        engineMain.allowClockBackwardTo(positionMs.coerceAtLeast(0L))
         seekSerial.incrementAndGet()
         actionHandler.obtainMessage(MSG_OP_SEEK, positionMs).sendToTarget()
+    }
+
+    /** 漂移监督器软同步：微调平滑时钟推进速率（±5% 量级），不触发任何重锚。 */
+    fun updateTimeFactor(factor: Float) {
+        timer.softSyncFactor = factor.toDouble()
+    }
+
+    /** 引擎当前消费的（已单调钳制的）平滑位置，供漂移监督器与视频位置对表。 */
+    fun currentDanmakuPositionMs(): Long = engineAction.currentPositionMs()
+
+    /** 漂移监督器硬同步：轻量移动平滑时钟，不做场景重建（重建由单调钳制吸收回退）。 */
+    fun syncTimerTo(positionMs: Long) {
+        timer.syncTo(positionMs)
     }
 
     fun draw(

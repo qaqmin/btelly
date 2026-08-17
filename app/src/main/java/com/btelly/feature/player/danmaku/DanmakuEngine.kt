@@ -27,6 +27,9 @@ internal interface DanmakuEngineMainApi {
 
     fun stepTime(positionMs: Long, uiFrameId: Int)
 
+    /** 主线程专用：为合法回退（seek 回看）放行单调高水位。必须与 stepTime 同线程调用。 */
+    fun allowClockBackwardTo(positionMs: Long)
+
     fun drainReleasedBitmaps(uiFrameId: Int)
 
     fun acquireRenderSnapshot(): RenderSnapshot
@@ -200,6 +203,14 @@ internal class DanmakuEngine(
     @Volatile private var currentPositionMs: Long = 0L
     @Volatile private var currentUiFrameId: Int = 0
 
+    // 时钟单调高水位（主线程 stepTime 维护）：位置回退（平滑时钟硬校准/raw 抖动）时
+    // 拒绝回退值。此前 act() 用 clamp 后的时钟判退场、draw() 用未 clamp 的原始位置算 x，
+    // 时钟回退后两轨分叉 → 条目按"超前时钟"被 prune 时观众看到的位置还在屏中（半路消失）、
+    // 或整屏位置倒跳重滚（"同一条弹幕再滚一遍"）。钳制上移到 stepTime 后两轨读同一份数据，
+    // 分叉类消失不再可能。合法回退（用户 seek 回看）由 [allowClockBackwardTo] 在主线程放行，
+    // 必须与 stepTime 同线程以避免跨线程重置/写入交错把高水位卡在旧位置。
+    @Volatile private var monotonicClockMs: Long = 0L
+
     // ---- Render snapshot (double buffer) ----
     private val snapshots = Array(3) { RenderSnapshot() }
     @Volatile private var latestSnapshot: RenderSnapshot = snapshots[0]
@@ -311,8 +322,18 @@ internal class DanmakuEngine(
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, v, displayMetrics)
 
     override fun stepTime(positionMs: Long, uiFrameId: Int) {
-        currentPositionMs = positionMs.coerceAtLeast(0L)
+        val pos = positionMs.coerceAtLeast(0L)
+        val floor = monotonicClockMs
+        // 单调钳制：只允许前进。回退（漂移硬校准等）被吸收为"冻结等 raw 追上"，
+        // 而不是位置倒跳。合法回退（用户 seek 回看）走 allowClockBackwardTo 放行。
+        val effective = if (pos >= floor) pos else floor
+        monotonicClockMs = effective
+        currentPositionMs = effective
         currentUiFrameId = uiFrameId
+    }
+
+    override fun allowClockBackwardTo(positionMs: Long) {
+        monotonicClockMs = positionMs.coerceAtLeast(0L)
     }
 
     override fun currentPositionMs(): Long = currentPositionMs

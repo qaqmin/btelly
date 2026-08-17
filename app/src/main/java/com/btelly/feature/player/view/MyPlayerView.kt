@@ -439,6 +439,11 @@ class MyPlayerView @JvmOverloads constructor(
                 // seek 后 video 解码追上前不渲染 mask，避免 200ms 错位窗口。
                 dmMaskController.onSeek()
                 armSeekDiag(oldPosition.positionMs, newPosition.positionMs)
+                // 位置不连续必须转发弹幕层（含播放器内部 SEEK_ADJUSTMENT 前跳，不只是用户 seek）：
+                // 不通知时弹幕平滑时钟与媒体钟错开，恢复播放瞬间在屏弹幕 elapsed 虚增
+                // → 提前退场（半路消失）或整屏位置跳变。用户主动 seek 路径会再次转发，
+                // 引擎侧重建幂等（同位置重建跳过在屏条目），兼容引擎有 300ms 去重。
+                syncDanmakuPosition(newPosition.positionMs, forceSeek = true)
             }
         }
 

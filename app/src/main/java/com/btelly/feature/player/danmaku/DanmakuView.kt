@@ -214,6 +214,17 @@ class DanmakuView @JvmOverloads constructor(
         invalidate()
     }
 
+    /** 漂移监督器（控制器侧三段式对表）使用的时钟治理入口，转发给内部 player。 */
+    fun updateDanmakuTimeFactor(factor: Float) {
+        player.updateTimeFactor(factor)
+    }
+
+    fun currentDanmakuPositionMs(): Long = player.currentDanmakuPositionMs()
+
+    fun syncDanmakuTimerTo(positionMs: Long) {
+        player.syncTimerTo(positionMs)
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         AppLog.i(DIAG_TAG, "view ATTACH ${width}x${height}")

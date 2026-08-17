@@ -26,6 +26,27 @@ internal class DanmakuTimer {
     @Volatile
     private var lastPlaybackSpeed: Double = 1.0
 
+    /**
+     * 漂移监督器的软同步因子（1 ± 5%）：只缩放每帧推进量，不参与
+     * speed 变化判定（真实倍速变化才允许重锚到 raw），否则每次微调都会
+     * 触发 anchor kind=speed 的硬重锚，软同步就退化成硬跳变。
+     */
+    @Volatile
+    var softSyncFactor: Double = 1.0
+        set(value) {
+            field = value.coerceIn(0.9, 1.1)
+        }
+
+    /**
+     * 轻量时钟校准（硬同步）：只移动平滑位置，不动 lastFrameNanos，
+     * dt 连续性保持。与 reset() 的区别是不打 anchor 日志、不算 seek。
+     * 回退方向的校准由引擎 stepTime 的单调钳制吸收（在屏弹幕冻结等 raw 追上，
+     * 而不是位置倒跳重滚一遍）。
+     */
+    fun syncTo(positionMs: Long) {
+        smoothPositionMs = positionMs.coerceAtLeast(0L).toDouble()
+    }
+
     fun reset(
         positionMs: Long,
         nowNanos: Long,
@@ -119,7 +140,7 @@ internal class DanmakuTimer {
 
         if (dtNanos > 0L) {
             val dtMs = dtNanos.toDouble() / 1_000_000.0
-            smoothPositionMs += dtMs * speed
+            smoothPositionMs += dtMs * speed * softSyncFactor
         }
 
         // Clamp for safety.
