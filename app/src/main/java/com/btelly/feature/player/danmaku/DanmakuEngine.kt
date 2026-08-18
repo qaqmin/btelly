@@ -1459,6 +1459,21 @@ internal class DanmakuEngine(
         maxYTop: Float,
         allowPending: Boolean,
     ): Boolean {
+        // dmid 级防重（Danmaku 判等含 dmid，同文本不同用户不会误伤）：
+        // 时间线重复注入（分段重复发布/追加竞态）时，正常入场路径此前不查防重历史，
+        // 同一条的两行会先后入场不同轨道——"同一条隔一两秒再滚一遍"。此处兜底拦截，
+        // 并留 DUPLICATE-ADMIT 日志作为上游注入路径的定位证据。
+        // 回看重放不受影响：rebuildScene 判定 wentBack 时已清空历史。
+        if (admissionHistory.wasRecorded(item.data)) {
+            if (AppLog.isEnabled) {
+                AppLog.w(
+                    TAG,
+                    "DUPLICATE-ADMIT suppressed t=${item.timeMs()}ms dmid=${item.data.dmid ?: "-"} " +
+                        "text='${item.data.text.take(12)}' now=${nowMs}ms"
+                )
+            }
+            return true
+        }
         val textWidth = measureTextWidth(item, outlinePad)
         val kind = kindOf(item.data)
         val marginPx = max(12f, (textSizePx + outlinePad * 2f) * 0.6f)
@@ -2010,6 +2025,9 @@ internal class DanmakuAdmissionHistory {
     fun record(data: Danmaku) {
         counts[data] = (counts[data] ?: 0) + 1
     }
+
+    /** 该条目（dmid 级判等）是否已在本窗口内真正入场过。供正常入场路径做防重兜底。 */
+    fun wasRecorded(data: Danmaku): Boolean = counts.containsKey(data)
 
     fun clear() {
         counts.clear()
