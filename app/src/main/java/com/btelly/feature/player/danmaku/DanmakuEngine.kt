@@ -460,7 +460,15 @@ internal class DanmakuEngine(
 
             val outlinePad = outlinePadPx
             val rawNowMs = currentPositionMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-            val nowMs = if (rawNowMs >= lastNowMs) rawNowMs else lastNowMs
+            // 位置单调化：小幅回退（播放器上报抖动）钳制不回退，保证滚动不倒退；
+            // 大幅回退（超过 REPLAY_BACK_THRESHOLD_MS，如起播时续播位置残留被真实位置覆盖）
+            // 必须跟随，否则引擎时间被锁死在旧位置——滚动弹幕全部定位在右边缘外不可见、
+            // 顶部弹幕永不过期钉在屏幕上（"首次进入弹幕卡死"的根因）。
+            val nowMs = if (rawNowMs >= lastNowMs || lastNowMs - rawNowMs > REPLAY_BACK_THRESHOLD_MS) {
+                rawNowMs
+            } else {
+                lastNowMs
+            }
             lastNowMs = nowMs
 
             val topInset = viewportTopInsetPx.coerceIn(0, height)

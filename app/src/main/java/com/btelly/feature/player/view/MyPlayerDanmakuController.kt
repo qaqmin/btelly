@@ -1061,6 +1061,18 @@ class MyPlayerDanmakuController(
             }
             val appendEndIndex = fullRange.resolveAdaptiveAppendEndIndex(appendStartIndex)
             if (appendStartIndex >= appendEndIndex) {
+                // 关键诊断点：seek 落到 timeline 尚无数据的位置（或该区间被过滤后无弹幕）时，
+                // 引擎保持清空状态且此分支完全静默——无法区分"数据管道断裂"与"数据稀疏"。
+                // 打出 timeline 的覆盖范围用于定案"快进后弹幕消失"的根因。
+                AppLog.w(
+                    TAG,
+                    "active window EMPTY-SKIP: reason=$reason position=$positionMs " +
+                        "fullRange=[${fullRange.startIndex},${fullRange.naturalEndIndex}) " +
+                        "appendStart=$appendStartIndex submittedEnd=$activeWindowSubmittedEndIndex " +
+                        "timelineSize=${timeline.data.size} " +
+                        "firstProgress=${timeline.data.firstOrNull()?.progress} " +
+                        "lastProgress=${timeline.data.lastOrNull()?.progress}"
+                )
                 return@launch
             }
             val preparedWindow = timeline.data.buildPreparedRange(
@@ -1355,6 +1367,7 @@ class MyPlayerDanmakuController(
         bypassDedup: Boolean = false
     ) {
         if (!bypassDedup && shouldSuppressDuplicateSeek(targetPositionMs, currentTimeMs)) {
+            AppLog.i(TAG, "seek suppressed(duplicate): reason=$reason target=$targetPositionMs last=$lastSeekPositionMs")
             return
         }
         if (forceSeek && !bypassDedup && !isActiveWindowFreshFor(targetPositionMs)) {
@@ -1362,6 +1375,11 @@ class MyPlayerDanmakuController(
             // 避免旧位置的弹幕在新位置作为 transition 继续滚动导致"旧弹幕飞过屏幕与新弹幕重叠"。
             // 原实现仅在 hasDataAround 时清空,跨分段 seek(目标数据未到)会保留旧 frame,
             // 造成旧弹幕残留显示。无数据时清空不会"卡死":scheduleActiveWindowRefresh 会在数据到达后补帧。
+            AppLog.w(
+                TAG,
+                "seek CLEAR engine: reason=$reason target=$targetPositionMs currentTime=$currentTimeMs " +
+                    "windowFresh=false → clearData + refetch window"
+            )
             player.clearData()
             clearActiveWindowState()
             scheduleActiveWindowRefresh(

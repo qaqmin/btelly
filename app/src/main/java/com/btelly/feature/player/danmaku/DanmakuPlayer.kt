@@ -473,15 +473,16 @@ internal class DanmakuPlayer(
                         topInsetPx = viewportTopInsetPx,
                         bottomInsetPx = viewportBottomInsetPx,
                     )
-                    engineAction.seekTo(engineAction.currentPositionMs())
+                    // 不附带 seekTo(currentPositionMs)：updateViewport 已置重建标记，下一帧
+                    // rebuildScene 自行处理。此前用 currentPositionMs 强制重建会把起播竞态窗口内
+                    // 的续播残留位置（如 43625ms）回写引擎，参与"首次进入弹幕卡死"的位置污染。
                     renderAfterOperation()
                 }
 
                 MSG_OP_CONFIG -> {
                     latestConfig?.let {
                         engineAction.updateConfig(it)
-                        // Reset layout on config changes (text size/speed/area) to keep correctness simple.
-                        engineAction.seekTo(engineAction.currentPositionMs())
+                        // updateConfig 已置重建标记（requestRebuild("config")），无需额外 seekTo。
                         renderAfterOperation()
                     }
                 }
