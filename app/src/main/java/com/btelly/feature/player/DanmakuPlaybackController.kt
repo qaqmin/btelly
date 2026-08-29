@@ -1,5 +1,6 @@
 package com.btelly.feature.player
 
+import com.btelly.core.common.format.MediaFormatUtils
 import android.os.SystemClock
 import com.btelly.core.common.log.AppLog
 import com.btelly.model.dm.DmColorfulStyleParser
@@ -640,7 +641,7 @@ internal class DanmakuPlaybackController(
             traceId = context.startupTraceId,
             startElapsedMs = context.startupTraceStartElapsedMs,
             step = "danmaku_tail_load_deferred",
-            message = "segment=$segmentIndex delayMs=$delayMs range=${formatDanmakuRange(rangeStartMs, rangeEndMs)}"
+            message = "segment=$segmentIndex delayMs=$delayMs range=${MediaFormatUtils.formatDanmakuRange(rangeStartMs, rangeEndMs)}"
         )
         delay(delayMs)
         if (!isActiveDanmakuRequest(loadGeneration)) return
@@ -655,7 +656,7 @@ internal class DanmakuPlaybackController(
                 traceId = context.startupTraceId,
                 startElapsedMs = context.startupTraceStartElapsedMs,
                 step = "danmaku_tail_load_skipped",
-                message = "segment=$segmentIndex range=${formatDanmakuRange(rangeStartMs, rangeEndMs)} covered=$coveredNow"
+                message = "segment=$segmentIndex range=${MediaFormatUtils.formatDanmakuRange(rangeStartMs, rangeEndMs)} covered=$coveredNow"
             )
             return
         }
@@ -688,7 +689,7 @@ internal class DanmakuPlaybackController(
                     traceId = context.startupTraceId,
                     startElapsedMs = context.startupTraceStartElapsedMs,
                     step = "danmaku_tail_dedup",
-                    message = "segment=$segmentIndex range=${formatDanmakuRange(effectiveRangeStart, rangeEndMs)} tailRegular=${tailPayload.regularItems.size} appendRegular=${tailRegularItems.size} droppedRegular=$droppedRegular"
+                    message = "segment=$segmentIndex range=${MediaFormatUtils.formatDanmakuRange(effectiveRangeStart, rangeEndMs)} tailRegular=${tailPayload.regularItems.size} appendRegular=${tailRegularItems.size} droppedRegular=$droppedRegular"
                 )
             }
             danmakuSegmentPayloads[segmentIndex] = mergedPayload
@@ -726,7 +727,7 @@ internal class DanmakuPlaybackController(
                 traceId = context.startupTraceId,
                 startElapsedMs = context.startupTraceStartElapsedMs,
                 step = "danmaku_segment_bytes_loaded",
-                message = "cid=$cid segment=$segmentIndex bytes=${bytes.size} range=${formatDanmakuRange(rangeStartMs, rangeEndMs)}"
+                message = "cid=$cid segment=$segmentIndex bytes=${bytes.size} range=${MediaFormatUtils.formatDanmakuRange(rangeStartMs, rangeEndMs)}"
             )
             val regularStartIndex = regularItems.size
             val scanResult = runCatching {
@@ -1028,13 +1029,6 @@ internal class DanmakuPlaybackController(
         return true
     }
 
-    private fun formatDanmakuRange(rangeStartMs: Long?, rangeEndMs: Long?): String {
-        return if (rangeStartMs == null && rangeEndMs == null) {
-            "full"
-        } else {
-            "[${rangeStartMs ?: ""},${rangeEndMs ?: ""}]"
-        }
-    }
 
     private suspend fun awaitPreloadedDanmakuSegment(
         cid: Long,
@@ -1192,7 +1186,7 @@ internal class DanmakuPlaybackController(
             traceId = context.startupTraceId,
             startElapsedMs = context.startupTraceStartElapsedMs,
             step = "danmaku_seek_range_load",
-            message = "segment=$targetSegment position=$positionMs range=${formatDanmakuRange(rangeStartMs, rangeEndMs)} covered=$coveredUntil"
+            message = "segment=$targetSegment position=$positionMs range=${MediaFormatUtils.formatDanmakuRange(rangeStartMs, rangeEndMs)} covered=$coveredUntil"
         )
         scope.launch(Dispatchers.IO) {
             val payload = runCatching {

@@ -1,5 +1,6 @@
 package com.btelly.feature.player.view
 
+import com.btelly.core.common.format.NumberUtils
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
@@ -558,21 +559,9 @@ class DefaultTimeBar @JvmOverloads constructor(
     }
 
     private fun getProgressText(): String {
-        return formatTime(position)
+        return NumberUtils.formatTimeMs(position)
     }
 
-    private fun formatTime(timeMs: Long): String {
-        if (timeMs < 0) return "00:00"
-        val totalSeconds = timeMs / 1000
-        val hours = totalSeconds / 3600
-        val minutes = (totalSeconds % 3600) / 60
-        val seconds = totalSeconds % 60
-        return if (hours > 0) {
-            String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds)
-        } else {
-            String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
-        }
-    }
 
     override fun onInitializeAccessibilityEvent(event: AccessibilityEvent) {
         super.onInitializeAccessibilityEvent(event)

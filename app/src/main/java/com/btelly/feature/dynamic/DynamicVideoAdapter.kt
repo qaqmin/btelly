@@ -164,7 +164,7 @@ class DynamicVideoAdapter(
         fun bind(item: VideoModel) {
             currentItem = item
             val ownerName = item.authorName
-            val publishText = formatPublishTime(item)
+            val publishText = TimeUtils.formatRelativeTime(item.pubDate)
 
             val coverUrl: String
             if (item.bangumi != null) {
@@ -224,15 +224,6 @@ class DynamicVideoAdapter(
                 showChargeBadge = item.isChargingExclusive,
                 showInteractionBadge = false
             )
-        }
-
-        private fun formatPublishTime(video: VideoModel): String {
-            val publishedAt = video.pubDate
-            return if (publishedAt > 0) {
-                TimeUtils.formatRelativeTime(publishedAt)
-            } else {
-                ""
-            }
         }
     }
 

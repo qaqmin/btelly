@@ -2,6 +2,7 @@
 
 package com.btelly.core.common.update
 
+import com.btelly.core.common.format.NumberUtils
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
@@ -91,11 +92,11 @@ object ApkUpdater {
             val hint: String =
                 buildString {
                     if (totalBytes != null && totalBytes > 0) {
-                        append("${formatBytes(downloadedBytes)} / ${formatBytes(totalBytes)}")
+                        append("${NumberUtils.formatBytes(downloadedBytes)} / ${NumberUtils.formatBytes(totalBytes)}")
                     } else {
-                        append(formatBytes(downloadedBytes))
+                        append(NumberUtils.formatBytes(downloadedBytes))
                     }
-                    if (bytesPerSecond > 0) append("（${formatBytes(bytesPerSecond)}/s）")
+                    if (bytesPerSecond > 0) append("（${NumberUtils.formatBytes(bytesPerSecond)}/s）")
                 }
         }
 
@@ -277,17 +278,6 @@ object ApkUpdater {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
-    }
-
-    private fun formatBytes(bytes: Long): String {
-        val b = bytes.coerceAtLeast(0)
-        if (b < 1024) return "${b}B"
-        val kb = b / 1024.0
-        if (kb < 1024) return String.format(Locale.US, "%.1fKB", kb)
-        val mb = kb / 1024.0
-        if (mb < 1024) return String.format(Locale.US, "%.1fMB", mb)
-        val gb = mb / 1024.0
-        return String.format(Locale.US, "%.2fGB", gb)
     }
 
     private fun parseVersion(raw: String): List<Int>? {

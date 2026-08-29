@@ -487,11 +487,7 @@ class VideoDetailContentAdapter(
         }
 
         private fun formatFans(count: Long): String {
-            val number = when {
-                count >= 10000 -> String.format(Locale.getDefault(), "%.1f万", count / 10000.0)
-                else -> String.format(Locale.getDefault(), "%,d", count)
-            }
-            return "${number}粉丝"
+            return "${NumberUtils.formatCount(count)}粉丝"
         }
     }
 

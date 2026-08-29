@@ -1,5 +1,6 @@
 package com.btelly.feature.settings
 
+import com.btelly.core.common.format.NumberUtils
 import android.app.Activity
 import android.content.Intent
 import android.os.Build
@@ -971,7 +972,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             ImageLoader.clearDiskCache(context)
             deleteDir(context.cacheDir)
             context.externalCacheDir?.let { deleteDir(it) }
-            commonSettings[0].info = formatFileSize(getCurrentCacheSize())
+            commonSettings[0].info = NumberUtils.formatBytes(getCurrentCacheSize())
             adapter.notifyItemChanged(0)
             Toast.makeText(requireContext(), "缓存已清除", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
@@ -993,7 +994,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             PlayerMediaCache.reset(requireContext())
             VideoPlayerViewModel.clearCachedPlayback()
             PlayerInstancePool.clearAttachedSource()
-            commonSettings[0].info = formatFileSize(getCurrentCacheSize())
+            commonSettings[0].info = NumberUtils.formatBytes(getCurrentCacheSize())
             adapter.notifyItemChanged(0)
         }
     }
@@ -1002,7 +1003,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         updateScope.launch {
             val size = withContext(Dispatchers.IO) { getCurrentCacheSize() }
             if (!isAdded) return@launch
-            commonSettings[0].info = formatFileSize(size)
+            commonSettings[0].info = NumberUtils.formatBytes(size)
             if (currentCategory == CATEGORY_COMMON) {
                 adapter.notifyItemChanged(0)
             }
@@ -1045,15 +1046,6 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
                     file.delete()
                 }
             }
-        }
-    }
-
-    private fun formatFileSize(size: Long): String {
-        return when {
-            size < 1024 -> "$size B"
-            size < 1024 * 1024 -> String.format(Locale.getDefault(), "%.1f KB", size / 1024.0)
-            size < 1024 * 1024 * 1024 -> String.format(Locale.getDefault(), "%.1f MB", size / (1024.0 * 1024))
-            else -> String.format(Locale.getDefault(), "%.1f GB", size / (1024.0 * 1024 * 1024))
         }
     }
 

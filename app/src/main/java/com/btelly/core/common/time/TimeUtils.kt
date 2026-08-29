@@ -13,22 +13,13 @@ object TimeUtils {
     private val publishMonthDayFormat = SimpleDateFormat("MM-dd", Locale.CHINA)
     private val publishYearFormat = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
 
+    private val fullFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+
     fun formatTime(timestamp: Long): String {
         return if (timestamp > 0) {
-            SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(timestamp * 1000))
+            fullFormat.format(Date(timestamp * 1000))
         } else {
             ""
-        }
-    }
-
-    fun formatDuration(seconds: Long): String {
-        val hours = seconds / 3600
-        val minutes = (seconds % 3600) / 60
-        val secs = seconds % 60
-
-        return when {
-            hours > 0 -> String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, secs)
-            else -> String.format(Locale.getDefault(), "%02d:%02d", minutes, secs)
         }
     }
 

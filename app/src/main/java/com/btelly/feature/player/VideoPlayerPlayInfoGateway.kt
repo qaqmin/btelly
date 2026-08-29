@@ -1,5 +1,6 @@
 package com.btelly.feature.player
 
+import com.btelly.core.common.format.MediaFormatUtils
 import com.btelly.model.player.PgcV2Result
 import com.btelly.model.player.PlayInfoModel
 import com.btelly.model.proto.DmProtoParser
@@ -549,7 +550,7 @@ class VideoPlayerPlayInfoGateway(
             AppLog.i(
                 logTag,
                 "requestDanmakuSegment range timing: cid=$cid aid=$aid segment=$segmentIndex " +
-                    "range=${formatDanmakuRange(rangeStartMs, rangeEndMs)} prewarm=$prewarmMs ms " +
+                    "range=${MediaFormatUtils.formatDanmakuRange(rangeStartMs, rangeEndMs)} prewarm=$prewarmMs ms " +
                     "key=$keyMs ms refreshedKey=$refreshedKeys request=$requestMs ms " +
                     "total=${SystemClock.elapsedRealtime() - rangedStartedAt}ms " +
                     "bytes=$bytesSize"
@@ -937,13 +938,6 @@ class VideoPlayerPlayInfoGateway(
         return WbiGenerator.generateWbiParams(params, imgKey, subKey)
     }
 
-    private fun formatDanmakuRange(rangeStartMs: Long?, rangeEndMs: Long?): String {
-        return if (rangeStartMs == null && rangeEndMs == null) {
-            "full"
-        } else {
-            "[${rangeStartMs ?: ""},${rangeEndMs ?: ""}]"
-        }
-    }
 
     private fun Base2Response<PgcV2Result>.toPlayInfoResult(): PlayInfoResult {
         return PlayInfoResult(

@@ -48,31 +48,10 @@ object ScreenUtils {
         }
     }
 
-    fun getScreenHeight(context: Context): Int {
-        val activity = findActivity(context)
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            activity.windowManager.currentWindowMetrics.bounds.height()
-        } else {
-            @Suppress("DEPRECATION")
-            val displayMetrics = DisplayMetrics()
-            @Suppress("DEPRECATION")
-            activity.windowManager.defaultDisplay.getMetrics(displayMetrics)
-            displayMetrics.heightPixels
-        }
-    }
-
-    fun getScreenDensity(context: Context): Float {
-        return context.resources.displayMetrics.density
-    }
-
-    fun pxToDp(context: Context, px: Float): Int {
-        return (px / getScreenDensity(context) + 0.5f).toInt()
-    }
-
     /**
      * 读取物理屏分辨率 + 刷新率。
      *
-     * 与 [getScreenWidth]/[getScreenHeight]（App 窗口尺寸）的区别：
+     * 与 [getScreenWidth]（App 窗口尺寸）的区别：
      * Android TV 上系统常把 App UI 锁在 1080p 渲染、4K 仅留给视频 Surface，
      * 导致 displayMetrics 报 1080p。本方法走 [Display.getMode]，返回面板物理像素。
      *

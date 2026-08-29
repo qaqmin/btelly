@@ -1,5 +1,6 @@
 package com.btelly.feature.player.view
 
+import com.btelly.core.common.format.NumberUtils
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -367,12 +368,12 @@ class MyPlayerControlView @JvmOverloads constructor(
                 cancelExternalSeekPreview(resetHideCallbacks = false)
                 isScrubbing = true
                 removeHideCallbacks()
-                exoPosition.text = timelineCoordinator.formatTime(position)
+                exoPosition.text = NumberUtils.formatTimeMs(position)
                 hideInfoOnlyLeftTimeBar()
             }
 
             override fun onScrubMove(timeBar: TimeBar, position: Long) {
-                exoPosition.text = timelineCoordinator.formatTime(position)
+                exoPosition.text = NumberUtils.formatTimeMs(position)
             }
 
             override fun onScrubStop(timeBar: TimeBar, position: Long, canceled: Boolean) {
@@ -485,7 +486,7 @@ class MyPlayerControlView @JvmOverloads constructor(
 
     private fun renderPosition(positionMs: Long) {
         timelineCoordinator.renderPosition(positionMs) { sanitizedPositionMs ->
-            exoPosition.text = timelineCoordinator.formatTime(sanitizedPositionMs)
+            exoPosition.text = NumberUtils.formatTimeMs(sanitizedPositionMs)
             timeBar.setPosition(sanitizedPositionMs)
         }
     }
@@ -498,7 +499,7 @@ class MyPlayerControlView @JvmOverloads constructor(
 
     private fun renderDuration(durationMs: Long) {
         timelineCoordinator.renderDuration(durationMs) { sanitizedDurationMs ->
-            exoDuration.text = timelineCoordinator.formatTime(sanitizedDurationMs)
+            exoDuration.text = NumberUtils.formatTimeMs(sanitizedDurationMs)
             timeBar.setDuration(sanitizedDurationMs)
         }
     }

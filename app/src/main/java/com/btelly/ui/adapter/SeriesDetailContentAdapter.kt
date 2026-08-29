@@ -210,7 +210,7 @@ class SeriesDetailContentAdapter(
                 binding.root.context.getString(
                     R.string.last_watch_,
                     lastEpIndex,
-                    TimeUtils.formatDuration(lastTime)
+                    NumberUtils.formatDuration(lastTime)
                 )
             } else {
                 detail.newEp?.pubTime?.takeIf { it.isNotBlank() }

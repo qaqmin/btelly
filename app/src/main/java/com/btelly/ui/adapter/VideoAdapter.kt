@@ -343,7 +343,7 @@ class VideoAdapter(
             views.textLayer.clearHistoryTrailing()
 
             val ownerName = video.authorName
-            val publishLabel = formatPublishTime(video)
+            val publishLabel = TimeUtils.formatRelativeTime(if (video.pubDate > 0) video.pubDate else video.createTime)
             val ownerLine = buildOwnerLine(ownerName, publishLabel)
             views.textLayer.setOwner(
                 ownerText = ownerLine,
@@ -410,7 +410,7 @@ class VideoAdapter(
                 video.historyBadge
             }
             views.textLayer.setHistoryTrailing(
-                timeText = formatHistoryTime(video.historyViewAt),
+                timeText = TimeUtils.formatHistoryViewTime(video.historyViewAt),
                 deviceDrawableRes = HistoryDeviceIcon.resolve(video.historyDevice)?.drawableRes ?: 0
             )
             views.coverMetaOverlay.bind(
@@ -423,7 +423,7 @@ class VideoAdapter(
         }
 
         private fun buildOwnerLine(video: VideoModel): String =
-            buildOwnerLine(video.authorName, formatPublishTime(video))
+            buildOwnerLine(video.authorName, TimeUtils.formatRelativeTime(if (video.pubDate > 0) video.pubDate else video.createTime))
 
         private fun buildOwnerLine(ownerName: String, publishLabel: String): String = buildString {
             if (ownerName.isNotBlank()) {
@@ -450,23 +450,6 @@ class VideoAdapter(
 
         private fun resolveCoverUrl(video: VideoModel): String {
             return video.bangumi?.cover?.takeIf { it.isNotBlank() } ?: video.coverUrl
-        }
-
-        private fun formatPublishTime(video: VideoModel): String {
-            val publishedAt = when {
-                video.pubDate > 0 -> video.pubDate
-                video.createTime > 0 -> video.createTime
-                else -> 0L
-            }
-            return if (publishedAt > 0) {
-                TimeUtils.formatRelativeTime(publishedAt)
-            } else {
-                ""
-            }
-        }
-
-        private fun formatHistoryTime(viewAtSeconds: Long): String {
-            return TimeUtils.formatHistoryViewTime(viewAtSeconds)
         }
 
         private fun watchedProgress(rawProgress: Long, duration: Long): Long {

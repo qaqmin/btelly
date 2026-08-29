@@ -1,5 +1,6 @@
 package com.btelly.feature.player
 
+import com.btelly.core.common.format.NumberUtils
 import android.os.Handler
 import android.os.Looper
 import androidx.appcompat.app.AppCompatActivity
@@ -58,7 +59,7 @@ class VideoPlayerResumeHintController(
         lastTraceSignature = null
         lastTraceTimestampMs = 0L
 
-        val timeStr = formatTime(hint.targetPositionMs)
+        val timeStr = NumberUtils.formatTimeMs(hint.targetPositionMs)
         onShowResumeHint(activity.getString(R.string.tip_play_from_history, timeStr))
         hideHintRunnable?.let(handler::removeCallbacks)
         hideHintRunnable = Runnable {
@@ -149,16 +150,4 @@ class VideoPlayerResumeHintController(
         onHideResumeHint()
     }
 
-    private fun formatTime(timeMs: Long): String {
-        if (timeMs < 0) return "00:00"
-        val totalSeconds = timeMs / 1000
-        val hours = totalSeconds / 3600
-        val minutes = (totalSeconds % 3600) / 60
-        val seconds = totalSeconds % 60
-        return if (hours > 0) {
-            String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds)
-        } else {
-            String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
-        }
-    }
 }

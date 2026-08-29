@@ -1,21 +1,10 @@
-@file:Suppress("unused")
-
 package com.btelly.core.common.ext
 
 import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.net.Uri
-import android.os.Build
-import android.os.Bundle
-import android.provider.Settings
-import android.view.View
 import android.widget.Toast
 import androidx.annotation.StringRes
-import androidx.core.content.ContextCompat
 import com.btelly.core.common.settings.AppSettingsDataStore
 import org.koin.mp.KoinPlatform
-import java.io.Serializable
 
 private const val VALUE_ON = "开"
 private const val VALUE_OFF = "关"
@@ -90,51 +79,6 @@ fun getHomeDefaultStartPageIndex(maxIndex: Int, defaultIndex: Int = 1): Int {
     }
     return appSettings.getCachedInt("defaultStartPage", clampedDefault)
         .coerceIn(0, safeMaxIndex)
-}
-
-fun Context.hasPermission(permission: String): Boolean {
-    return ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
-}
-
-fun Context.openAppSettings() {
-    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-        data = Uri.fromParts("package", packageName, null)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-    startActivity(intent)
-}
-
-inline fun <reified T : Serializable> Bundle.serializableCompat(key: String): T? {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        getSerializable(key, T::class.java)
-    } else {
-        @Suppress("DEPRECATION")
-        getSerializable(key) as? T
-    }
-}
-
-fun View.visible() {
-    visibility = View.VISIBLE
-}
-
-fun View.invisible() {
-    visibility = View.INVISIBLE
-}
-
-fun View.gone() {
-    visibility = View.GONE
-}
-
-fun View.setVisible(visible: Boolean) {
-    visibility = if (visible) View.VISIBLE else View.GONE
-}
-
-fun View.onClick(action: () -> Unit) {
-    setOnClickListener { action() }
-}
-
-fun View.onLongClick(action: () -> Boolean) {
-    setOnLongClickListener { action() }
 }
 
 private fun getToggleSetting(key: String, defaultValue: Boolean): Boolean {

@@ -59,9 +59,6 @@ interface NetworkSessionGateway {
 
     fun isCsrfError(code: Int, message: String?): Boolean
 
-    @Deprecated("Use classifyActionError instead", ReplaceWith("classifyActionError(code, message)"))
-    fun handleResponseAuthError(code: Int, message: String?): Boolean
-
     // ========== 新增：Context-aware 方法 ==========
 
     fun syncUserSession(
@@ -198,11 +195,6 @@ class NetworkManagerSessionGateway : NetworkSessionGateway, SessionStateReposito
     override fun isCsrfError(code: Int, message: String?): Boolean {
         if (code == -101 || code == -111) return true
         return message.orEmpty().contains("csrf", ignoreCase = true)
-    }
-
-    @Deprecated("Use classifyActionError instead", ReplaceWith("classifyActionError(code, message)"))
-    override fun handleResponseAuthError(code: Int, message: String?): Boolean {
-        return classifyActionError(code, message) is ActionError.SessionExpired
     }
 
     // ========== Context-aware 实现 ==========

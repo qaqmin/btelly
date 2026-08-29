@@ -130,9 +130,6 @@ object WbiGenerator {
         )
     }
 
-    @Deprecated("dm_* params are now auto-injected by generateWbiParams(includeDmParams = true)")
-    fun getSpaceDmParams(): Map<String, String> = dmParams
-
     fun extractKeyFromUrl(url: String): String {
         val wbiIndex = url.indexOf("wbi/")
         if (wbiIndex == -1) return ""
