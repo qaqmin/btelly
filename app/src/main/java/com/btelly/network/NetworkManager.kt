@@ -13,11 +13,13 @@ import com.btelly.network.security.AppSignUtils
 import com.btelly.network.security.BiliSecurityCoordinator
 import com.btelly.network.session.AuthContext
 import com.btelly.network.session.NetworkSessionStore
+import com.btelly.network.session.SessionState
 import com.btelly.network.ua.DesktopUserAgentStore
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.network.cookie.CookieManager
 import okhttp3.OkHttpClient
+import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONObject
 import org.koin.mp.KoinPlatform
 import retrofit2.Retrofit
@@ -51,7 +53,10 @@ object NetworkManager {
         preferenceName = PREF_NAME,
         preferenceKey = KEY_CURRENT_UA
     )
-    private val sessionStore = NetworkSessionStore(authInvalidCode = AUTH_INVALID_CODE)
+    private val sessionStore = NetworkSessionStore(
+        authInvalidCode = AUTH_INVALID_CODE,
+        hasSessionCookie = { internalCookieManager.hasSessionCookie() }
+    )
 
     private val currentUserAgentValue: String
         get() = userAgentStore.getCurrentUserAgent()
@@ -141,6 +146,8 @@ object NetworkManager {
             sessionStore.initPersistence(
                 applicationContext.getSharedPreferences("network_session_store", Context.MODE_PRIVATE)
             )
+            // cookie 在上一步已从磁盘恢复，这里统一对齐一次会话状态
+            sessionStore.refreshSessionState()
             sessionInitialized = true
             AppLog.i(TAG, "initSession elapsed=${android.os.SystemClock.elapsedRealtime() - startMs}ms")
         }
@@ -226,10 +233,20 @@ object NetworkManager {
         return internalCookieManager.hasSessionCookie()
     }
 
+    /** 会话单一状态源（cookie + userInfo 组合），UI 订阅用 */
+    val sessionState: StateFlow<SessionState>
+        get() = sessionStore.sessionState
+
+    fun currentSessionState(): SessionState {
+        return sessionStore.sessionState.value
+    }
+
     fun clearUserSession(clearCookies: Boolean = true, reason: String = "unknown") {
         val hadSession = sessionStore.getUserInfo() != null || internalCookieManager.hasSessionCookie()
         sessionStore.clearUserSession()
         resetSessionLifecycleState(clearCookies = clearCookies, reason = reason)
+        // cookie 可能刚被清掉，重新对齐 CookieOnly/LoggedOut 区分
+        sessionStore.refreshSessionState()
         if (hadSession) {
             // 会话从有到无，统一在此广播；调用方不再各自手动 dispatch
             notifySessionChanged()
@@ -328,6 +345,9 @@ object NetworkManager {
 
     suspend fun activateAfterLogin() {
         securityCoordinator.activateAfterLogin()
+        // 登录 cookie 已写入（扫码流程），立即从 LoggedOut 对齐到 CookieOnly，
+        // 不必等首次 nav 请求返回
+        sessionStore.refreshSessionState()
     }
 
     suspend fun ensureWebFingerprintCookies() {

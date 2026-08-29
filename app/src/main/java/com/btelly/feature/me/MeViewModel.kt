@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.btelly.model.user.UserDetailInfoModel
 import com.btelly.model.user.UserStatModel
 import com.btelly.network.session.NetworkSessionGateway
+import com.btelly.network.session.SessionState
 import com.btelly.repository.UserRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,7 +18,7 @@ class MeViewModel(
 ) : ViewModel() {
     private var lastLoadedAt = 0L
 
-    private val _userInfo = MutableStateFlow<UserDetailInfoModel?>(sessionGateway.getUserInfo())
+    private val _userInfo = MutableStateFlow(sessionGateway.getUserInfo())
     val userInfo: StateFlow<UserDetailInfoModel?> = _userInfo.asStateFlow()
 
     private val _userStat = MutableStateFlow<UserStatModel?>(null)
@@ -26,39 +27,31 @@ class MeViewModel(
     private val _isLoggedIn = MutableStateFlow(sessionGateway.isLoggedIn())
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
-    fun loadUserInfo() {
+    init {
+        // 订阅会话单一状态源：登录/登出/-101 软清除自动反映到 UI，
+        // 不再在 loadUserInfo 里轮询对齐，也不再由 ViewModel 清理会话（越权副作用已移除）
         viewModelScope.launch {
-            val loggedIn = sessionGateway.isLoggedIn()
-            _isLoggedIn.value = loggedIn
+            sessionGateway.sessionState.collect { state ->
+                _isLoggedIn.value = state.isLoggedIn
+                _userInfo.value = (state as? SessionState.LoggedIn)?.info
+                if (state is SessionState.LoggedOut) {
+                    _userStat.value = null
+                }
+            }
+        }
+    }
 
-            if (!loggedIn) {
-                sessionGateway.clearUserSession(reason = "me.loadUserInfo.loggedOut")
-                _userInfo.value = null
-                _userStat.value = null
-                return@launch
-            }
-
-            val refreshedUserInfo = userRepository.refreshCurrentUserInfo().getOrNull()
-            val stillLoggedIn = sessionGateway.isLoggedIn()
-            _isLoggedIn.value = stillLoggedIn
-            if (!stillLoggedIn) {
-                _userInfo.value = null
-                _userStat.value = null
-                return@launch
-            }
-            refreshedUserInfo?.let { info ->
-                _userInfo.value = info
-                lastLoadedAt = System.currentTimeMillis()
-            }
+    fun loadUserInfo() {
+        if (!sessionGateway.isLoggedIn()) {
+            return
+        }
+        viewModelScope.launch {
+            val refreshedUserInfo = userRepository.refreshCurrentUserInfo().getOrNull() ?: return@launch
+            _userInfo.value = refreshedUserInfo
+            lastLoadedAt = System.currentTimeMillis()
 
             runCatching { userRepository.getUserStat() }
                 .onSuccess { response ->
-                    if (!sessionGateway.isLoggedIn()) {
-                        _isLoggedIn.value = false
-                        _userInfo.value = null
-                        _userStat.value = null
-                        return@onSuccess
-                    }
                     if (response.isSuccess) {
                         _userStat.value = response.data
                     }
@@ -74,14 +67,8 @@ class MeViewModel(
     }
 
     fun syncWithGateway() {
-        val currentLoggedIn = sessionGateway.isLoggedIn()
-        if (_isLoggedIn.value != currentLoggedIn) {
-            _isLoggedIn.value = currentLoggedIn
-            if (!currentLoggedIn) {
-                _userInfo.value = null
-                _userStat.value = null
-            }
-        }
+        // 状态由 init 中的 sessionState 订阅驱动，这里只做兜底同步
+        _isLoggedIn.value = sessionGateway.isLoggedIn()
     }
 
     fun shouldRefresh(ttlMs: Long): Boolean {

@@ -54,6 +54,7 @@ import com.btelly.core.startup.AppStartupScheduler
 import com.btelly.core.ui.image.ImageLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.android.ext.android.inject
@@ -173,19 +174,30 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                val currentLoggedIn = sessionGateway.isLoggedIn()
-                if (currentLoggedIn != lastKnownLoggedIn) {
-                    lastKnownLoggedIn = currentLoggedIn
-                    appEventHub.dispatch(AppEventHub.Event.UserSessionChanged)
-                }
-                refreshAvatar(allowNetworkFetch = false)
-                appEventHub.events.collect { event ->
-                    if (event == AppEventHub.Event.UserSessionChanged) {
-                        lastKnownLoggedIn = sessionGateway.isLoggedIn()
-                        refreshAvatar()
+                coroutineScope {
+                    launch {
+                        // 订阅会话单一状态源：登录态变化（含停止期间错过的跳变）自动刷新头像，
+                        // 并在登录/登出跳变时补广播给各页面
+                        refreshAvatar(allowNetworkFetch = false)
+                        sessionGateway.sessionState.collect { state ->
+                            val loggedIn = state.isLoggedIn
+                            if (loggedIn != lastKnownLoggedIn) {
+                                lastKnownLoggedIn = loggedIn
+                                appEventHub.dispatch(AppEventHub.Event.UserSessionChanged)
+                            }
+                            refreshAvatar(allowNetworkFetch = false)
+                        }
                     }
-                    if (event is AppEventHub.Event.VideoBlockedByMinorProtection) {
-                        dispatchVideoBlockedEventToCurrentFragment(event)
+                    launch {
+                        appEventHub.events.collect { event ->
+                            if (event == AppEventHub.Event.UserSessionChanged) {
+                                lastKnownLoggedIn = sessionGateway.isLoggedIn()
+                                refreshAvatar()
+                            }
+                            if (event is AppEventHub.Event.VideoBlockedByMinorProtection) {
+                                dispatchVideoBlockedEventToCurrentFragment(event)
+                            }
+                        }
                     }
                 }
             }

@@ -8,11 +8,17 @@ import com.btelly.network.response.Base2Response
 import com.btelly.network.response.BaseBaseResponse
 import com.btelly.network.security.RiskControlCooldownManager
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
 
 interface NetworkSessionGateway {
     fun getCsrfToken(): String
 
     fun isLoggedIn(): Boolean
+
+    /** 会话单一状态源：登录态变化自动推送，UI 不再轮询 */
+    val sessionState: StateFlow<SessionState>
+
+    fun currentSessionState(): SessionState
 
     fun getUserInfo(): UserDetailInfoModel?
 
@@ -143,6 +149,11 @@ class NetworkManagerSessionGateway : NetworkSessionGateway {
     override fun getCsrfToken(): String = NetworkManager.getCsrfToken()
 
     override fun isLoggedIn(): Boolean = NetworkManager.isLoggedIn()
+
+    override val sessionState: StateFlow<SessionState>
+        get() = NetworkManager.sessionState
+
+    override fun currentSessionState(): SessionState = NetworkManager.currentSessionState()
 
     override fun getUserInfo(): UserDetailInfoModel? = NetworkManager.getUserInfo()
 
