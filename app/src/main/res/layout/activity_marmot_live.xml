@@ -14,6 +14,16 @@
         android:layout_height="match_parent"
         android:background="@color/black" />
 
+    <!-- 全黑遮罩：非 CCTV 整页劫持加载期间盖住官网网页，视频就绪后移除，避免网页 UI 闪现 -->
+    <View
+        android:id="@+id/video_cover"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/black"
+        android:clickable="false"
+        android:focusable="false"
+        android:visibility="gone" />
+
     <!-- 全屏视频容器（部分直播页 onShowCustomView 用） -->
     <FrameLayout
         android:id="@+id/fullscreen_container"
@@ -22,12 +32,30 @@
         android:background="@color/black"
         android:visibility="gone" />
 
-    <!-- 加载进度 -->
+    <!-- 加载进度转圈 -->
     <ProgressBar
         android:id="@+id/progress_bar"
         android:layout_width="@dimen/px100"
         android:layout_height="@dimen/px100"
         android:layout_gravity="center"
+        android:layout_marginTop="@dimen/px60"
+        android:visibility="gone" />
+
+    <!-- 加载状态文字（遮罩层上的加载进度提示） -->
+    <TextView
+        android:id="@+id/video_cover_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginTop="@dimen/px200"
+        android:background="@drawable/transparent_black_bg"
+        android:paddingStart="@dimen/px30"
+        android:paddingTop="@dimen/px15"
+        android:paddingEnd="@dimen/px30"
+        android:paddingBottom="@dimen/px15"
+        android:textColor="@android:color/white"
+        android:textSize="@dimen/px32"
+        android:textStyle="bold"
         android:visibility="gone" />
 
     <!-- 当前频道名提示（切台时短暂显示） -->

@@ -132,11 +132,15 @@ class CctvLiveFragment : BaseFragment<FragmentCctvLiveBinding>(), MainTabFocusTa
             return
         }
         // 非重建场景（短时返回）：用控制器内存里的锚点还原进入播放器前的频道卡片。
-        val restored = tvFocusController?.restoreCapturedAnchor() == true
-        if (!restored) {
-            tvFocusController?.ensureValidFocus("resume", allowWhenFocusOutside = true)
-        }
-        Log.d(TAG, "onResume after restore restored=$restored focus=${describeFocus()}")
+        // 用 restoreFocusAfterReturn 强制拉回 + hasFocusInList 轮询，避免 restoreCapturedAnchor
+        // 因"焦点落在列表外部可见 View"而跳过、且返回值不可靠导致焦点丢失。
+        tvFocusController?.restoreFocusAfterReturn(
+            onRestored = {},
+            onFailed = {
+                tvFocusController?.ensureValidFocus("resume", allowWhenFocusOutside = true)
+            }
+        )
+        Log.d(TAG, "onResume after restore focus=${describeFocus()}")
         binding.recyclerView.postDelayed({
             if (!isAdded) return@postDelayed
             Log.d(TAG, "onResume settled@500ms focus=${describeFocus()}")

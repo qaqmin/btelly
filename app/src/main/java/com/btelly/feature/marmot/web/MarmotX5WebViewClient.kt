@@ -69,8 +69,14 @@ class MarmotX5WebViewClient(
             Log.w(TAG, "tv.user.js 为空，跳过注入")
             return
         }
-        view.evaluateJavascript(script, null)
-        Log.i(TAG, "已注入 tv.user.js（${script.length} 字符）到 $url")
+        // 关键：把 _tvState.platform 占位符 "//platform//" 替换为 "android"。
+        // 否则 platform 保持占位符，tv.user.js 会用 marmot://res.vonchange.com 加载本地脚本，
+        // 而部分官网（如 tv.gxtv.cn）带 CSP（default-src *）会拒绝 marmot:// 自定义 scheme，
+        // 导致 common.js/detail.js 加载失败、全屏劫持不生效。替换后改用官网 https 域名加载，
+        // scheme 为 https 且 URL 含 tv-web，会被 shouldInterceptRequest 拦截返回本地资源。
+        val finalScript = script.replace("//platform//", "android")
+        view.evaluateJavascript(finalScript, null)
+        Log.i(TAG, "已注入 tv.user.js（${finalScript.length} 字符）到 $url")
     }
 
     override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
@@ -170,7 +176,8 @@ class MarmotX5WebViewClient(
     }
 
     private fun isImageAllowed(url: String): Boolean =
-        url.contains("tvImg") || url.contains("cctvpic.com") || url.contains("default")
+        url.contains("tvImg") || url.contains("cctvpic.com") ||
+            url.contains("player.cntv.cn") || url.contains("default")
 
     private fun httpGetStream(url: String): InputStream? = try {
         client.newCall(Request.Builder().url(url).get().build()).execute().body?.byteStream()

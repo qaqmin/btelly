@@ -229,6 +229,22 @@ object VideoCardFocusHelper {
                     return result
                 }
                 if (rv != null) {
+                    // 网格：优先用“下一行同列”算法，避免退化为 FocusFinder 空间查找导致跳行不稳定。
+                    // 标准网格下等价于 pos + spanCount；若未命中（非标准网格/到底部）再回退 FocusFinder。
+                    val lm = rv.layoutManager
+                    if (lm is GridLayoutManager && pos != RecyclerView.NO_POSITION) {
+                        val targetPos = resolveGridDownPosition(
+                            lm = lm,
+                            position = pos,
+                            itemCount = rv.adapter?.itemCount ?: 0
+                        )
+                        AppLog.d(TAG, "DPAD_DOWN pos=$pos grid down target=$targetPos")
+                        if (targetPos != RecyclerView.NO_POSITION) {
+                            if (requestGridDownFocus(rv, targetPos, lm)) {
+                                return true
+                            }
+                        }
+                    }
                     val nextFocus = FocusFinder.getInstance().findNextFocus(rv, target, View.FOCUS_DOWN)
                     AppLog.d(TAG, "DPAD_DOWN pos=$pos FocusFinder next=${
                         nextFocus?.let {
@@ -384,6 +400,60 @@ object VideoCardFocusHelper {
 
             else -> false
         }
+    }
+
+    private fun resolveGridDownPosition(
+        lm: GridLayoutManager,
+        position: Int,
+        itemCount: Int
+    ): Int {
+        if (position == RecyclerView.NO_POSITION || itemCount <= 0) {
+            return RecyclerView.NO_POSITION
+        }
+        val spanCount = lm.spanCount
+        val currentGroup = lm.spanSizeLookup.getSpanGroupIndex(position, spanCount)
+        val currentColumn = lm.spanSizeLookup.getSpanIndex(position, spanCount)
+        var i = position + 1
+        while (i < itemCount) {
+            val group = lm.spanSizeLookup.getSpanGroupIndex(i, spanCount)
+            if (group > currentGroup) {
+                // 若跨过超过一行，说明网格存在跨列 item 导致无法精确计算，交由 FocusFinder 兜底
+                if (group != currentGroup + 1) {
+                    return RecyclerView.NO_POSITION
+                }
+                if (lm.spanSizeLookup.getSpanIndex(i, spanCount) == currentColumn) {
+                    return i
+                }
+            }
+            i++
+        }
+        return RecyclerView.NO_POSITION
+    }
+
+    private fun requestGridDownFocus(
+        rv: RecyclerView,
+        position: Int,
+        lm: GridLayoutManager
+    ): Boolean {
+        val holder = rv.findViewHolderForAdapterPosition(position)
+        if (holder != null) {
+            val itemView = holder.itemView
+            if (itemView.isAttachedToWindow && itemView.isShown && itemView.isFocusable) {
+                return itemView.requestFocus()
+            }
+        }
+        // 目标 ViewHolder 未附着：先滚动到目标行，再在下一帧请求焦点
+        if (!rv.isComputingLayout) {
+            lm.scrollToPosition(position)
+        }
+        rv.post {
+            if (!rv.isAttachedToWindow) return@post
+            val h = rv.findViewHolderForAdapterPosition(position)
+            if (h != null && h.itemView.isAttachedToWindow && h.itemView.isShown && h.itemView.isFocusable) {
+                h.itemView.requestFocus()
+            }
+        }
+        return true
     }
 
     private fun View.findParentRecyclerView(): RecyclerView? {

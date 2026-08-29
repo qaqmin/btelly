@@ -203,13 +203,23 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
             useX5 = useX5,
             jsBridge = jsBridge,
             onProgress = { progress ->
-                binding.progressBar.visibility = if (progress in 1..99) View.VISIBLE else View.GONE
+                // 遮罩显示期间保持加载转圈可见（阶段文字由 videoCoverPollRunnable 按 <video> 是否创建判定）
+                if (binding.videoCover.visibility == View.VISIBLE) {
+                    binding.progressBar.visibility = View.VISIBLE
+                } else {
+                    binding.progressBar.visibility = if (progress in 1..99) View.VISIBLE else View.GONE
+                }
             },
             onPageLoaded = { url ->
-                val vod = MarmotLiveData.getByUrl(url)
-                if (vod != null) {
-                    currentVod = vod
-                    showLiveName(vod.name)
+                // 注意：这里不再调用 showLiveName。
+                // 频道名提示已在 goNext / playCurrent / 频道列表选台时显示。
+                // 若在此再次显示，实机 WebView 加载慢时 onPageLoaded 可能在
+                // showLiveName 的 2s 隐藏计时触发后才回调，导致「频道名消失后又出现」的闪断。
+                // 因此页面加载完成仅负责驱动遮罩轮询，不再重复显示频道名。
+                // 页面加载完成：遮罩下的阶段文字由 videoCoverPollRunnable 按 <video> 是否创建判定，
+                // 这里无需干预，轮询已在 showVideoCover 启动
+                if (binding.videoCover.visibility == View.VISIBLE) {
+                    startVideoCoverPolling()
                 }
             },
             onShowCustomView = { customView ->
@@ -224,6 +234,9 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
                 )
                 binding.fullscreenContainer.visibility = View.VISIBLE
                 binding.webviewWrapper.visibility = View.GONE
+                // 注意：不再在此移除遮罩。onShowCustomView 可能在视频刚进全屏但尚未真正出画面时过早触发，
+                // 过早移除会露出仍在加载的网页。遮罩移除统一由 videoCoverPollRunnable 检测到
+                // <video> 真正播放（currentTime>0 连续 2 次）或 60s 兜底来主导。
             },
             onHideCustomView = {
                 binding.fullscreenContainer.removeAllViews()
@@ -260,6 +273,9 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
             provinces.clear()
             // 方案 C（CCTV 优先）：只保留能用 createLivePlayer 播放的 CCTV 频道
             // （url 含 tv.cctv.com/live/）。省台/央视频等暂不显示（后续逐站点维护再加）。
+            // PR #53 曾在此「放开全部频道」，属贡献者自述的逐站点实测状态，暂不采纳，
+            // 待实测收敛为白名单后再放开；下方 playCurrent 的 Marmot 整页劫持分支与
+            // 全黑遮罩机制保留，为后续放开做预留。
             val allLives = MarmotLiveData.getLives()
             var cctvIndex = 0
             for (live in allLives) {
@@ -312,10 +328,16 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
                 "#${com.btelly.feature.marmot.web.MarmotSystemWebViewClient.BTELLY_CCTV_NATIVE_MARKER}"
             val html = buildCctvPlayerHtml(channelId, cctvQualityProvider.current.br)
             AppLog.i(TAG, "playCurrent: CCTV 原生播放 channelId=$channelId quality=${cctvQualityProvider.current.label}")
+            // CCTV 自构 HTML 无网页闪现，确保清掉可能残留的遮罩
+            hideVideoCover()
             webEngine?.loadDataWithBaseURL(baseUrl, html)
         } else {
             AppLog.i(TAG, "playCurrent: Marmot 模式 url=${vod.url}")
-            webEngine?.loadUrl(vod.url)
+            // 非 CCTV 整页劫持：先显示全黑遮罩，并确保遮罩真正绘制上屏后再加载官网网页，
+            // 避免 WebView 首帧快于遮罩布局导致官网网页闪现
+            showVideoCover {
+                webEngine?.loadUrl(vod.url)
+            }
         }
         showLiveName(vod.name)
         // 记录上次观看频道（IO 写入，不阻塞）
@@ -391,11 +413,128 @@ $scriptTags
         """.trimIndent()
     }
 
-    /** 短暂显示频道名（2 秒后清除）。 */
+    /** 短暂显示频道名（2 秒后清除）。同一频道被 playCurrent / onPageLoaded 等多次调用时会重置计时，不会中途闪断。 */
     private fun showLiveName(name: String) {
+        mainHandler.removeCallbacks(hideLiveNameRunnable)
         binding.liveName.text = name
         binding.liveName.visibility = View.VISIBLE
-        mainHandler.postDelayed({ binding.liveName.visibility = View.GONE }, 2000)
+        mainHandler.postDelayed(hideLiveNameRunnable, 2000)
+    }
+
+    private val hideLiveNameRunnable = Runnable { binding.liveName.visibility = View.GONE }
+
+    // ==================== 全黑遮罩（非 CCTV 整页劫持加载期间盖住官网网页） ====================
+
+    /** 遮罩最常驻时长：超过后强制移除，防止视频迟迟不出导致黑屏卡死。 */
+    private val videoCoverTimeoutMs = 60_000L
+
+    /**
+     * 显示全黑遮罩盖住 WebView，避免非 CCTV 整页劫持加载期间闪现官网网页。
+     *
+     * 关键：用 [android.view.View.post] 确保遮罩**真正布局并绘制上屏**后再执行 [afterShown]
+     * （通常是加载官网网页），从而彻底盖住网页的加载/渲染过程，杜绝首帧闪现。
+     *
+     * 遮罩显示期间同时显示居中的加载进度转圈（[binding.progressBar]），给用户明确的加载提示。
+     * 视频就绪（[hideVideoCover] 由轮询检测到播放触发）或超时后自动移除。
+     */
+    private fun showVideoCover(afterShown: (() -> Unit)? = null) {
+        mainHandler.removeCallbacks(hideVideoCoverRunnable)
+        if (binding.videoCover.visibility != View.VISIBLE) {
+            binding.videoCover.visibility = View.VISIBLE
+        }
+        // 显示加载进度转圈与状态文字提示（位于遮罩之上）
+        binding.progressBar.visibility = View.VISIBLE
+        updateVideoCoverText("正在初始化…")
+        // 定时兜底：防止某些源视频迟迟不出导致遮罩一直黑屏
+        mainHandler.postDelayed(hideVideoCoverRunnable, videoCoverTimeoutMs)
+        // 遮罩绘制上屏后再执行 afterShown（loadUrl），确保网页全程在遮罩背后渲染
+        binding.videoCover.post {
+            if (binding.videoCover.visibility == View.VISIBLE) {
+                afterShown?.invoke()
+                // 遮罩期间持续轮询，按 <video> 是否创建/播放判定"正在加载网页/正在加载视频/就绪移除"
+                startVideoCoverPolling()
+            }
+        }
+    }
+
+    /** 移除遮罩（视频就绪或超时），并停止视频播放轮询。 */
+    private fun hideVideoCover() {
+        mainHandler.removeCallbacks(hideVideoCoverRunnable)
+        mainHandler.removeCallbacks(videoCoverPollRunnable)
+        if (binding.videoCover.visibility != View.GONE) {
+            binding.videoCover.visibility = View.GONE
+        }
+        // 遮罩移除时隐藏加载进度与状态文字
+        binding.progressBar.visibility = View.GONE
+        binding.videoCoverText.visibility = View.GONE
+    }
+
+    /** 更新遮罩层上的加载状态文字（仅遮罩显示期间生效）。 */
+    private fun updateVideoCoverText(text: String) {
+        if (binding.videoCover.visibility != View.VISIBLE) return
+        if (binding.videoCoverText.visibility != View.VISIBLE) {
+            binding.videoCoverText.visibility = View.VISIBLE
+        }
+        binding.videoCoverText.text = text
+    }
+
+    private val hideVideoCoverRunnable = Runnable { hideVideoCover() }
+
+    /** 轮询检测页面 `<video>` 是否真正开始播放（持续播放），一旦确认即移除遮罩（每 500ms 一次）。 */
+    private fun startVideoCoverPolling() {
+        videoCoverPlayingCount = 0
+        videoCoverLastTime = 0.0
+        mainHandler.removeCallbacks(videoCoverPollRunnable)
+        mainHandler.post(videoCoverPollRunnable)
+    }
+
+    /** 视频连续播放检测计数（每次启动轮询重置）。 */
+    private var videoCoverPlayingCount = 0
+
+    /** 上一次轮询到的 <video> currentTime，用于判断时间轴是否在增长（真正在播放），避免静止误判。 */
+    private var videoCoverLastTime = 0.0
+
+    private val videoCoverPollRunnable: Runnable = object : Runnable {
+        override fun run() {
+            // 遮罩已移除则停止轮询
+            if (binding.videoCover.visibility == View.GONE) return
+            // 返回 <video> 的 currentTime：-1=无 video；0=有 video 未播；>0=时间轴（判断是否增长）
+            webEngine?.evaluateJavascriptWithResult(
+                "(function(){try{var v=document.querySelector('video');" +
+                    "if(!v){return '-1';}" +
+                    "return (v.currentTime||0)+'';" +
+                    "}catch(e){return '-1';}})();"
+            ) { result ->
+                val timeStr = result?.trim()?.removeSurrounding("\"")
+                val time = timeStr?.toDoubleOrNull() ?: -1.0
+                when {
+                    // 页面尚未创建 <video>，仍处于网页加载阶段
+                    time < 0 -> {
+                        videoCoverPlayingCount = 0
+                        videoCoverLastTime = 0.0
+                        updateVideoCoverText("正在加载网页…")
+                    }
+                    // 已创建 <video> 但尚未真正播放（currentTime 未前进）
+                    time == 0.0 || time <= videoCoverLastTime -> {
+                        videoCoverPlayingCount = 0
+                        videoCoverLastTime = time
+                        updateVideoCoverText("正在加载视频…")
+                    }
+                    // 时间轴在增长，确认真正在播放；连续多次才移除遮罩，避免骨架/静止 video 误判
+                    else -> {
+                        videoCoverLastTime = time
+                        if (++videoCoverPlayingCount >= 2) {
+                            AppLog.i(TAG, "视频时间轴持续增长，移除遮罩")
+                            hideVideoCover()
+                            return@evaluateJavascriptWithResult
+                        }
+                    }
+                }
+                if (binding.videoCover.visibility != View.GONE) {
+                    mainHandler.postDelayed(videoCoverPollRunnable, 500)
+                }
+            }
+        }
     }
 
     // ==================== 频道列表浮层（确认键弹出）====================

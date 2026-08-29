@@ -388,7 +388,7 @@ class MyPlayerSettingView @JvmOverloads constructor(
     }
 
     private fun showLiveQualitySubMenu() {
-        showSubMenu(ITEM_LIVE_QUALITY, menuBuilder.buildLiveQualityMenu(panelState))
+        showSubMenu(ITEM_LIVE_QUALITY, menuBuilder.buildLiveQualityMenu(panelState), focusPosition = liveQualityFocusPosition())
     }
 
     fun setLiveLines(lines: List<LiveLineInfo>, selectedIndex: Int) {
@@ -430,8 +430,15 @@ class MyPlayerSettingView @JvmOverloads constructor(
     }
 
     private fun showLiveLineSubMenu() {
-        showSubMenu(ITEM_LIVE_LINE, menuBuilder.buildLiveLineMenu(panelState))
+        showSubMenu(ITEM_LIVE_LINE, menuBuilder.buildLiveLineMenu(panelState), focusPosition = liveLineFocusPosition())
     }
+
+    private fun liveQualityFocusPosition(): Int =
+        panelState.liveQualities
+            .indexOfFirst { it.qn == panelState.currentLiveQualityQn }
+            .let { if (it >= 0) it + 1 else 1 }
+
+    private fun liveLineFocusPosition(): Int = panelState.currentLiveLineIndex + 1
 
     fun dmEnableClick() {
         updateState { it.copy(dmEnabled = !it.dmEnabled) }
@@ -687,35 +694,69 @@ class MyPlayerSettingView @JvmOverloads constructor(
     }
 
     private fun showVideoQualityMenu() {
-        showSubMenu(ITEM_VIDEO_QUALITY, menuBuilder.buildVideoQualityMenu(panelState))
+        showSubMenu(ITEM_VIDEO_QUALITY, menuBuilder.buildVideoQualityMenu(panelState), focusPosition = videoQualityFocusPosition())
     }
 
     private fun showPlaybackSpeedMenu() {
-        showSubMenu(ITEM_PLAYBACK_SPEED, menuBuilder.buildPlaybackSpeedMenu(panelState))
+        showSubMenu(ITEM_PLAYBACK_SPEED, menuBuilder.buildPlaybackSpeedMenu(panelState), focusPosition = playbackSpeedFocusPosition())
     }
 
     private fun showSubtitles() {
         if (panelState.subtitles.isEmpty()) {
             return
         }
-        showSubMenu(ITEM_SUBTITLE, menuBuilder.buildSubtitleMenu(panelState))
+        showSubMenu(ITEM_SUBTITLE, menuBuilder.buildSubtitleMenu(panelState), focusPosition = subtitleFocusPosition())
     }
 
     private fun showVideoCodecMenu() {
-        showSubMenu(ITEM_VIDEO_CODEC, menuBuilder.buildVideoCodecMenu(panelState))
+        showSubMenu(ITEM_VIDEO_CODEC, menuBuilder.buildVideoCodecMenu(panelState), focusPosition = videoCodecFocusPosition())
     }
 
     private fun showAudioQualityMenu() {
-        showSubMenu(ITEM_AUDIO_QUALITY, menuBuilder.buildAudioQualityMenu(panelState))
+        showSubMenu(ITEM_AUDIO_QUALITY, menuBuilder.buildAudioQualityMenu(panelState), focusPosition = audioQualityFocusPosition())
     }
 
     private fun showAfterPlayMenu() {
-        showSubMenu(ITEM_AFTER_PLAY, menuBuilder.buildAfterPlayMenu(panelState))
+        showSubMenu(ITEM_AFTER_PLAY, menuBuilder.buildAfterPlayMenu(panelState), focusPosition = afterPlayFocusPosition())
     }
 
     private fun showScreenRatioMenu() {
-        showSubMenu(ITEM_ASPECT_RATIO, menuBuilder.buildScreenRatioMenu(panelState))
+        showSubMenu(ITEM_ASPECT_RATIO, menuBuilder.buildScreenRatioMenu(panelState), focusPosition = screenRatioFocusPosition())
     }
+
+    // All choice sub-menus have a Header as row 0, so the focused row is always selectedIndex + 1.
+
+    private fun videoQualityFocusPosition(): Int =
+        panelState.videoQualities
+            .indexOfFirst { it.id == panelState.currentVideoQuality?.id }
+            .let { if (it >= 0) it + 1 else 1 }
+
+    private fun playbackSpeedFocusPosition(): Int {
+        val speedIndex = PLAYBACK_SPEEDS.indexOfFirst { it == panelState.currentSpeed }
+        logSettingFocus("showPlaybackSpeedMenu speed=${panelState.currentSpeed} speedIndex=$speedIndex")
+        return if (speedIndex >= 0) speedIndex + 1 else 1
+    }
+
+    // Menu layout: [Header(row 0), "关闭"(row 1, currentSubtitlePosition == -1), subtitle0(row 2), subtitle1(row 3), ...].
+    // So the focused row is currentSubtitlePosition + 2: -1 -> 1 ("关闭"), 0 -> 2 (first subtitle).
+    private fun subtitleFocusPosition(): Int = panelState.currentSubtitlePosition + 2
+
+    private fun videoCodecFocusPosition(): Int =
+        panelState.videoCodecs
+            .indexOfFirst { it == panelState.currentVideoCodec }
+            .let { if (it >= 0) it + 1 else 1 }
+
+    private fun audioQualityFocusPosition(): Int =
+        panelState.audioQualities
+            .indexOfFirst { it.id == panelState.currentAudioQuality?.id }
+            .let { if (it >= 0) it + 1 else 1 }
+
+    private fun afterPlayFocusPosition(): Int =
+        menuBuilder.AFTER_PLAY_OPTIONS
+            .indexOfFirst { it.first == panelState.afterPlayMode }
+            .let { if (it >= 0) it + 1 else 1 }
+
+    private fun screenRatioFocusPosition(): Int = panelState.currentScreenRatio + 1
 
     private fun showDmSettingMenu() {
         showDmSettingMenu(animateTransition = true)
@@ -733,18 +774,15 @@ class MyPlayerSettingView @JvmOverloads constructor(
         )
     }
 
-    private fun showSubMenu(menuKey: Int, rows: List<PlayerSettingRow>) {
-        showSubMenu(menuKey, rows, animateTransition = true)
-    }
-
     private fun showSubMenu(
         menuKey: Int,
         rows: List<PlayerSettingRow>,
-        animateTransition: Boolean
+        animateTransition: Boolean = true,
+        focusPosition: Int = 1
     ) {
         menuLevel = LEVEL_SUB
         updateBackIcon()
-        submitMenuRows(menuKey = menuKey, rows = rows, animateTransition = animateTransition)
+        submitMenuRows(menuKey = menuKey, rows = rows, animateTransition = animateTransition, focusPosition = focusPosition)
     }
 
     private fun goBackToMainMenu() {
@@ -771,52 +809,61 @@ class MyPlayerSettingView @JvmOverloads constructor(
                 ITEM_VIDEO_QUALITY -> showSubMenu(
                     ITEM_VIDEO_QUALITY,
                     menuBuilder.buildVideoQualityMenu(panelState),
-                    animateTransition = false
+                    animateTransition = false,
+                    focusPosition = videoQualityFocusPosition()
                 )
                 ITEM_PLAYBACK_SPEED -> showSubMenu(
                     ITEM_PLAYBACK_SPEED,
                     menuBuilder.buildPlaybackSpeedMenu(panelState),
-                    animateTransition = false
+                    animateTransition = false,
+                    focusPosition = playbackSpeedFocusPosition()
                 )
                 ITEM_SUBTITLE -> {
                     if (panelState.subtitles.isNotEmpty()) {
                         showSubMenu(
                             ITEM_SUBTITLE,
                             menuBuilder.buildSubtitleMenu(panelState),
-                            animateTransition = false
+                            animateTransition = false,
+                            focusPosition = subtitleFocusPosition()
                         )
                     }
                 }
                 ITEM_VIDEO_CODEC -> showSubMenu(
                     ITEM_VIDEO_CODEC,
                     menuBuilder.buildVideoCodecMenu(panelState),
-                    animateTransition = false
+                    animateTransition = false,
+                    focusPosition = videoCodecFocusPosition()
                 )
                 ITEM_AFTER_PLAY -> showSubMenu(
                     ITEM_AFTER_PLAY,
                     menuBuilder.buildAfterPlayMenu(panelState),
-                    animateTransition = false
+                    animateTransition = false,
+                    focusPosition = afterPlayFocusPosition()
                 )
                 ITEM_AUDIO_QUALITY -> showSubMenu(
                     ITEM_AUDIO_QUALITY,
                     menuBuilder.buildAudioQualityMenu(panelState),
-                    animateTransition = false
+                    animateTransition = false,
+                    focusPosition = audioQualityFocusPosition()
                 )
                 ITEM_ASPECT_RATIO -> showSubMenu(
                     ITEM_ASPECT_RATIO,
                     menuBuilder.buildScreenRatioMenu(panelState),
-                    animateTransition = false
+                    animateTransition = false,
+                    focusPosition = screenRatioFocusPosition()
                 )
                 ITEM_DM_SETTING -> showDmSettingMenu(animateTransition = false)
                 ITEM_LIVE_QUALITY -> showSubMenu(
                     ITEM_LIVE_QUALITY,
                     menuBuilder.buildLiveQualityMenu(panelState),
-                    animateTransition = false
+                    animateTransition = false,
+                    focusPosition = liveQualityFocusPosition()
                 )
                 ITEM_LIVE_LINE -> showSubMenu(
                     ITEM_LIVE_LINE,
                     menuBuilder.buildLiveLineMenu(panelState),
-                    animateTransition = false
+                    animateTransition = false,
+                    focusPosition = liveLineFocusPosition()
                 )
             }
 
@@ -906,7 +953,8 @@ class MyPlayerSettingView @JvmOverloads constructor(
                 showArrow = false
             )
         }
-        submitMenuRows(menuKey = menuKey, rows = rows, animateTransition = animateTransition)
+        val focusPosition = selectedIndex + 1 // +1 to skip Header row
+        submitMenuRows(menuKey = menuKey, rows = rows, animateTransition = animateTransition, focusPosition = focusPosition)
     }
 
     private fun submitMenuRows(
@@ -930,7 +978,7 @@ class MyPlayerSettingView @JvmOverloads constructor(
             .setListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     recyclerView.animate().setListener(null)
-                    applyMenuRows(menuKey, rows, requestFocusAfter = false, focusPosition = focusPosition)
+                    applyMenuRows(menuKey, rows, focusPosition = focusPosition)
                     recyclerView.alpha = 0f
                     recyclerView.animate()
                         .alpha(1f)
@@ -938,7 +986,6 @@ class MyPlayerSettingView @JvmOverloads constructor(
                         .setListener(object : AnimatorListenerAdapter() {
                             override fun onAnimationEnd(animation: Animator) {
                                 recyclerView.animate().setListener(null)
-                                requestMenuFocus(focusPosition)
                             }
                         })
                         .start()
@@ -954,8 +1001,13 @@ class MyPlayerSettingView @JvmOverloads constructor(
         focusPosition: Int = 1
     ) {
         if (requestFocusAfter) {
+            // Clear any existing focus before submitting so the system does not auto-focus the
+            // first visible item during the relayout (which would cause a visible focus "jump"
+            // before we explicitly place focus on the intended item).
+            recyclerView.clearFocus()
             adapter.submitRows(menuKey, rows) {
-                recyclerView.scrollToPosition(0)
+                // Scroll directly to the focus target so its view is laid out before we request focus.
+                recyclerView.scrollToPosition(focusPosition)
                 requestMenuFocus(focusPosition)
             }
         } else {
@@ -987,7 +1039,19 @@ class MyPlayerSettingView @JvmOverloads constructor(
             if (targetView?.isFocusable == true) {
                 targetView.requestFocus()
             } else {
-                recyclerView.requestFocus()
+                // Target not laid out yet; scroll to it then retry, instead of falling back to
+                // recyclerView.requestFocus() (which lets the system focus the first visible item).
+                recyclerView.scrollToPosition(pos)
+                recyclerView.post {
+                    val retryView = recyclerView.findViewHolderForAdapterPosition(pos)?.itemView
+                        ?: recyclerView.layoutManager?.findViewByPosition(pos)
+                    if (retryView?.isFocusable == true) {
+                        retryView.requestFocus()
+                    } else {
+                        recyclerView.requestFocus()
+                    }
+                    logSettingFocus("  retry: pos=$pos retryView=$retryView focusAfter=${findFocus()}")
+                }
             }
             logSettingFocus("  post: focusAfter=${findFocus()}")
         }

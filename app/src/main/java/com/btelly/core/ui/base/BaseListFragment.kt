@@ -173,12 +173,18 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
 
     override fun onResume() {
         super.onResume()
-        if (tvFocusController?.restoreCapturedAnchor() != true) {
-            // allowWhenFocusOutside=false：焦点已落在列表外的可见可聚焦 View（如侧边栏功能按钮）
-            // 时不再抢回焦点。焦点为 null/detached/hidden 时 ensureValidFocus 内部仍会恢复。
-            // 从播放器返回的焦点恢复由 MainActivity.restoreFocusAfterOverlayPop 负责。
-            tvFocusController?.ensureValidFocus("resume", allowWhenFocusOutside = false)
-        }
+        val controller = tvFocusController ?: return
+        // 从播放器等外部页面返回：用 restoreFocusAfterReturn 强制拉回捕获锚点，
+        // 并以 hasFocusInList 轮询确认真实焦点落点（覆盖转场动画窗口），避免焦点停在
+        // 返回按钮或彻底丢失。无锚点/重试耗尽时退回 ensureValidFocus 既有逻辑。
+        controller.restoreFocusAfterReturn(
+            onRestored = {},
+            onFailed = {
+                // allowWhenFocusOutside=false：焦点已落在列表外的可见可聚焦 View（如侧边栏功能按钮）
+                // 时不再抢回焦点。焦点为 null/detached/hidden 时 ensureValidFocus 内部仍会恢复。
+                tvFocusController?.ensureValidFocus("resume", allowWhenFocusOutside = false)
+            }
+        )
     }
 
     private fun setupSwipeRefresh() {
@@ -360,9 +366,11 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
     override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
         if (!hidden) {
-            if (tvFocusController?.restoreCapturedAnchor() != true) {
-                tvFocusController?.ensureValidFocus("shown")
-            }
+            val controller = tvFocusController ?: return
+            controller.restoreFocusAfterReturn(
+                onRestored = {},
+                onFailed = { tvFocusController?.ensureValidFocus("shown") }
+            )
         }
     }
 
