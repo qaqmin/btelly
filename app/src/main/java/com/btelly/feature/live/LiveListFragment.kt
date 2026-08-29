@@ -29,7 +29,7 @@ import com.btelly.core.ui.navigation.navigateBackFromUi
 import com.btelly.core.ui.refresh.SwipeRefreshHelper
 import com.btelly.core.ui.render.FirstScreenRenderer
 import com.btelly.core.common.ext.toast
-import com.btelly.network.session.NetworkSessionGateway
+import com.btelly.network.session.SessionStateRepository
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
@@ -38,7 +38,7 @@ import org.koin.androidx.viewmodel.ext.android.viewModel
 class LiveListFragment : BaseFragment<FragmentLiveListBinding>(), LiveTabPage {
 
     private val viewModel: LiveListViewModel by viewModel()
-    private val sessionGateway: NetworkSessionGateway by inject()
+    private val sessionGateway: SessionStateRepository by inject()
     private lateinit var adapter: LiveRoomAdapter
     private var swipeRefreshLayout: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null
     private var areaId: Long = 0

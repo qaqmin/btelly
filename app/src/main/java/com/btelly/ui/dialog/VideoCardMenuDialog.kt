@@ -18,7 +18,8 @@ import com.btelly.databinding.DialogVideoCardMenuBinding
 import com.btelly.event.AppEventHub
 import com.btelly.model.favorite.FavoriteFolderModel
 import com.btelly.model.video.VideoModel
-import com.btelly.network.session.NetworkSessionGateway
+import com.btelly.network.session.ActionError
+import com.btelly.network.session.SessionStateRepository
 import com.btelly.repository.FavoriteRepository
 import com.btelly.repository.VideoRepository
 import com.btelly.core.navigation.VideoRouteNavigator
@@ -51,7 +52,7 @@ class VideoCardMenuDialog(
     private val binding = DialogVideoCardMenuBinding.inflate(LayoutInflater.from(context))
     private val videoRepository: VideoRepository by inject()
     private val favoriteRepository: FavoriteRepository by inject()
-    private val sessionGateway: NetworkSessionGateway by inject()
+    private val sessionGateway: SessionStateRepository by inject()
     private val appEventHub: AppEventHub by inject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -289,18 +290,18 @@ class VideoCardMenuDialog(
                 } else {
                     val msg = response.errorMessage
                     when (val error = sessionGateway.classifyActionError(response.code, msg)) {
-                        is NetworkSessionGateway.ActionError.SessionExpired -> handleAuthExpired()
-                        is NetworkSessionGateway.ActionError.CsrfMismatch -> toast(context.getString(R.string.toast_add_watch_later_failed))
-                        is NetworkSessionGateway.ActionError.RiskControl -> toast(context.getString(R.string.toast_add_watch_later_failed))
-                        is NetworkSessionGateway.ActionError.FrequencyLimit -> toast(error.message)
-                        is NetworkSessionGateway.ActionError.Other -> {
+                        is ActionError.SessionExpired -> handleAuthExpired()
+                        is ActionError.CsrfMismatch -> toast(context.getString(R.string.toast_add_watch_later_failed))
+                        is ActionError.RiskControl -> toast(context.getString(R.string.toast_add_watch_later_failed))
+                        is ActionError.FrequencyLimit -> toast(error.message)
+                        is ActionError.Other -> {
                             if (msg.contains("90001") || msg.contains("上限") || msg.contains("已满")) {
                                 toast(context.getString(R.string.toast_watch_later_full))
                             } else {
                                 toast(context.getString(R.string.toast_add_watch_later_failed))
                             }
                         }
-                        is NetworkSessionGateway.ActionError.CsrfMissing -> handleAuthExpired()
+                        is ActionError.CsrfMissing -> handleAuthExpired()
                     }
                 }
                 setActionInProgress(false)
@@ -667,12 +668,12 @@ class VideoCardMenuDialog(
 
     private fun handleActionError(code: Int, message: String?) {
         when (val error = sessionGateway.classifyActionError(code, message)) {
-            is NetworkSessionGateway.ActionError.SessionExpired -> handleAuthExpired()
-            is NetworkSessionGateway.ActionError.CsrfMismatch -> toast("操作失败，请稍后重试")
-            is NetworkSessionGateway.ActionError.RiskControl -> toast("账号被风控了，请到B站官方App或网页端完成验证后再试")
-            is NetworkSessionGateway.ActionError.FrequencyLimit -> toast(error.message)
-            is NetworkSessionGateway.ActionError.Other -> toast(error.message)
-            is NetworkSessionGateway.ActionError.CsrfMissing -> toast("登录凭据异常，请稍后重试")
+            is ActionError.SessionExpired -> handleAuthExpired()
+            is ActionError.CsrfMismatch -> toast("操作失败，请稍后重试")
+            is ActionError.RiskControl -> toast("账号被风控了，请到B站官方App或网页端完成验证后再试")
+            is ActionError.FrequencyLimit -> toast(error.message)
+            is ActionError.Other -> toast(error.message)
+            is ActionError.CsrfMissing -> toast("登录凭据异常，请稍后重试")
         }
     }
 

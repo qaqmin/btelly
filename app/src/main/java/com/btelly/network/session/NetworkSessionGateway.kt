@@ -7,7 +7,6 @@ import com.btelly.network.NetworkManager
 import com.btelly.network.response.Base2Response
 import com.btelly.network.response.BaseBaseResponse
 import com.btelly.network.security.RiskControlCooldownManager
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 
 interface NetworkSessionGateway {
@@ -125,26 +124,13 @@ interface NetworkSessionGateway {
         maxRetries: Int = 1,
         block: suspend () -> T
     ): T
-
-    // ========== 错误分类 ==========
-
-    sealed interface ActionError {
-        data class SessionExpired(val message: String) : ActionError
-        data class CsrfMismatch(val message: String) : ActionError
-        data class CsrfMissing(val message: String) : ActionError
-        data class RiskControl(val message: String) : ActionError
-        data class FrequencyLimit(val message: String) : ActionError
-        data class Other(val message: String) : ActionError
-    }
 }
 
-class NetworkManagerSessionGateway : NetworkSessionGateway {
+class NetworkManagerSessionGateway : NetworkSessionGateway, SessionStateRepository {
 
-    private val riskControlCodes = setOf(-352, -351)
-    private val frequencyLimitCodes = setOf(-412)
-    private val riskControlKeywords = listOf("风控", "拦截", "风险", "神秘力量", "risk", "blocked")
-    private val frequencyLimitKeywords = listOf("频繁", "过快", "稍后", "too many", "rate limit")
-    private val cooldownManager = RiskControlCooldownManager()
+    private val riskControlRetryExecutor = RiskControlRetryExecutor(
+        prewarmWebSession = { forceUaRefresh -> NetworkManager.prewarmWebSession(forceUaRefresh) }
+    )
 
     override fun getCsrfToken(): String = NetworkManager.getCsrfToken()
 
@@ -216,7 +202,7 @@ class NetworkManagerSessionGateway : NetworkSessionGateway {
 
     @Deprecated("Use classifyActionError instead", ReplaceWith("classifyActionError(code, message)"))
     override fun handleResponseAuthError(code: Int, message: String?): Boolean {
-        return classifyActionError(code, message) is NetworkSessionGateway.ActionError.SessionExpired
+        return classifyActionError(code, message) is ActionError.SessionExpired
     }
 
     // ========== Context-aware 实现 ==========
@@ -262,21 +248,16 @@ class NetworkManagerSessionGateway : NetworkSessionGateway {
     }
 
     override fun isRiskControl(code: Int, message: String?): Boolean {
-        if (code in riskControlCodes) return true
-        val msg = message.orEmpty()
-        return riskControlKeywords.any { msg.contains(it, ignoreCase = true) }
+        return AuthErrorClassifier.isRiskControl(code, message)
     }
 
     override fun isRetryableError(code: Int, message: String?): Boolean {
-        if (code in riskControlCodes) return true
-        if (code in frequencyLimitCodes) return true
-        val msg = message.orEmpty()
-        if (riskControlKeywords.any { msg.contains(it, ignoreCase = true) }) return true
-        if (frequencyLimitKeywords.any { msg.contains(it, ignoreCase = true) }) return true
-        return false
+        return AuthErrorClassifier.isRetryableError(code, message)
     }
 
-    override fun getCooldownManager(): RiskControlCooldownManager = cooldownManager
+    override fun getCooldownManager(): RiskControlCooldownManager {
+        return riskControlRetryExecutor.cooldownManager()
+    }
 
     override suspend fun <T> executeWithRiskControlRetry(
         key: String,
@@ -284,20 +265,7 @@ class NetworkManagerSessionGateway : NetworkSessionGateway {
         maxRetries: Int,
         block: suspend (attempt: Int) -> BaseResponse<T>
     ): BaseResponse<T> {
-        val response = block(0)
-        if (!isRetryableError(response.code, response.message) || maxRetries <= 0) {
-            if (response.isSuccess) cooldownManager.recordSuccess(key)
-            return response
-        }
-        cooldownManager.recordFailure(key, response.code)
-        val cooldownMs = cooldownManager.checkCooldown(key)
-        AppLog.w("RiskRetry", "$source hit retryable error: code=${response.code}, key=$key, cooldown=${cooldownMs}ms")
-        if (cooldownMs > 0) delay(cooldownMs)
-        prewarmWebSession(forceUaRefresh = true)
-        val retryResponse = block(1)
-        if (retryResponse.isSuccess) cooldownManager.recordSuccess(key)
-        else cooldownManager.recordFailure(key, retryResponse.code)
-        return retryResponse
+        return riskControlRetryExecutor.executeWithRiskControlRetry(key, source, maxRetries, block)
     }
 
     override suspend fun <T : Any> retryOnRiskControl(
@@ -309,39 +277,13 @@ class NetworkManagerSessionGateway : NetworkSessionGateway {
         maxRetries: Int,
         block: suspend () -> T
     ): T {
-        val response = block()
-        val code = getCode(response)
-        if (!isRetryableError(code, getMessage(response)) || maxRetries <= 0) {
-            if (getIsSuccess(response)) cooldownManager.recordSuccess(key)
-            return response
-        }
-        cooldownManager.recordFailure(key, code)
-        val cooldownMs = cooldownManager.checkCooldown(key)
-        AppLog.w("RiskRetry", "$source hit retryable error: code=$code, key=$key, cooldown=${cooldownMs}ms")
-        if (cooldownMs > 0) delay(cooldownMs)
-        prewarmWebSession(forceUaRefresh = true)
-        val retryResponse = block()
-        if (getIsSuccess(retryResponse)) cooldownManager.recordSuccess(key)
-        else cooldownManager.recordFailure(key, getCode(retryResponse))
-        return retryResponse
+        return riskControlRetryExecutor.retryOnRiskControl(
+            key, source, getCode, getMessage, getIsSuccess, maxRetries, block
+        )
     }
 
-    override fun classifyActionError(code: Int, message: String?): NetworkSessionGateway.ActionError {
-        val msg = message ?: ""
-        if (code == -111 || (msg.contains("csrf", ignoreCase = true) && code != -101)) {
-            return NetworkSessionGateway.ActionError.CsrfMismatch(msg.ifEmpty { "csrf 校验失败" })
-        }
-        if (code == -101) {
-            return NetworkSessionGateway.ActionError.SessionExpired(msg.ifEmpty { "登录已过期" })
-        }
-        val isFreqByKeyword = frequencyLimitKeywords.any { msg.contains(it, ignoreCase = true) }
-        if (code in frequencyLimitCodes || isFreqByKeyword) {
-            return NetworkSessionGateway.ActionError.FrequencyLimit(msg.ifEmpty { "操作过于频繁，请稍后再试" })
-        }
-        if (isRiskControl(code, message)) {
-            return NetworkSessionGateway.ActionError.RiskControl(msg.ifEmpty { "账号被风控" })
-        }
-        return NetworkSessionGateway.ActionError.Other(msg.ifEmpty { "操作失败" })
+    override fun classifyActionError(code: Int, message: String?): ActionError {
+        return AuthErrorClassifier.classifyActionError(code, message)
     }
 
 }

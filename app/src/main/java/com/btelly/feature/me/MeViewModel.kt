@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.btelly.model.user.UserDetailInfoModel
 import com.btelly.model.user.UserStatModel
-import com.btelly.network.session.NetworkSessionGateway
+import com.btelly.network.session.SessionStateRepository
 import com.btelly.network.session.SessionState
 import com.btelly.repository.UserRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,7 +14,7 @@ import kotlinx.coroutines.launch
 
 class MeViewModel(
     private val userRepository: UserRepository,
-    private val sessionGateway: NetworkSessionGateway
+    private val sessionGateway: SessionStateRepository
 ) : ViewModel() {
     private var lastLoadedAt = 0L
 

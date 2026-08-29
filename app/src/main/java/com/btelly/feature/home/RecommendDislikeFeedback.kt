@@ -2,7 +2,7 @@ package com.btelly.feature.home
 
 import com.btelly.core.common.log.AppLog
 import com.btelly.model.video.VideoModel
-import com.btelly.network.session.NetworkSessionGateway
+import com.btelly.network.session.SessionStateRepository
 import com.btelly.repository.VideoRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,7 +24,7 @@ import kotlinx.coroutines.launch
  */
 class RecommendDislikeFeedback(
     private val videoRepository: VideoRepository,
-    private val sessionGateway: NetworkSessionGateway
+    private val sessionGateway: SessionStateRepository
 ) {
     companion object {
         private const val TAG = "DislikeFeedback"

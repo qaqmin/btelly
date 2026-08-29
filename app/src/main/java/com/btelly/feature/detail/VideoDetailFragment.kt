@@ -32,7 +32,7 @@ import com.btelly.model.video.detail.UgcSeason
 import com.btelly.model.video.detail.VideoDetailModel
 import com.btelly.model.video.detail.VideoView
 import com.btelly.model.user.CheckRelationModel
-import com.btelly.network.session.NetworkSessionGateway
+import com.btelly.network.session.SessionStateRepository
 import com.btelly.repository.FavoriteRepository
 import com.btelly.repository.UserRepository
 import com.btelly.repository.VideoRepository
@@ -91,7 +91,7 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
     private var launchPlayQueue: List<VideoModel> = emptyList()
 
     private val appEventHub: AppEventHub by inject()
-    private val sessionGateway: NetworkSessionGateway by inject()
+    private val sessionGateway: SessionStateRepository by inject()
     private val videoRepository: VideoRepository by inject()
     private val favoriteRepository: FavoriteRepository by inject()
     private val userRepository: UserRepository by inject()

@@ -14,7 +14,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
 import com.btelly.databinding.FragmentFavoriteBinding
 import com.btelly.event.AppEventHub
-import com.btelly.network.session.NetworkSessionGateway
+import com.btelly.network.session.SessionStateRepository
 import com.btelly.repository.UserRepository
 import com.btelly.repository.FavoriteRepository
 import com.btelly.ui.adapter.FavoriteFolderAdapter
@@ -49,7 +49,7 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
     }
 
     private val appEventHub: AppEventHub by inject()
-    private val sessionGateway: NetworkSessionGateway by inject()
+    private val sessionGateway: SessionStateRepository by inject()
     private val favoriteRepository: FavoriteRepository by inject()
     private val userRepository: UserRepository by inject()
     private lateinit var adapter: FavoriteFolderAdapter

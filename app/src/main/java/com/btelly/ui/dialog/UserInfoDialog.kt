@@ -11,7 +11,7 @@ import com.btelly.R
 import com.btelly.databinding.DialogUserInfoBinding
 import com.btelly.model.user.UserDetailInfoModel
 import com.btelly.model.user.UserStatModel
-import com.btelly.network.session.NetworkSessionGateway
+import com.btelly.network.session.SessionStateRepository
 import com.btelly.repository.UserRepository
 import com.btelly.ui.activity.MainActivity
 import com.btelly.feature.detail.UserSpaceFragment
@@ -31,7 +31,7 @@ class UserInfoDialog(context: Context) : AppCompatDialog(context, R.style.Dialog
 
     private val binding = DialogUserInfoBinding.inflate(LayoutInflater.from(context))
     private val userRepository: UserRepository by inject()
-    private val sessionGateway: NetworkSessionGateway by inject()
+    private val sessionGateway: SessionStateRepository by inject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     init {

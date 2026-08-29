@@ -15,7 +15,8 @@ import com.btelly.R
 import com.btelly.core.ui.decoration.LinearSpacingItemDecoration
 import com.btelly.databinding.DialogActionBinding
 import com.btelly.model.favorite.FavoriteFolderModel
-import com.btelly.network.session.NetworkSessionGateway
+import com.btelly.network.session.ActionError
+import com.btelly.network.session.SessionStateRepository
 import com.btelly.repository.FavoriteRepository
 import com.btelly.repository.VideoRepository
 import com.btelly.core.common.log.AppLog
@@ -40,7 +41,7 @@ class PlayerActionDialog(
     private val appSettings: AppSettingsDataStore by inject()
     private val videoRepository: VideoRepository by inject()
     private val favoriteRepository: FavoriteRepository by inject()
-    private val sessionGateway: NetworkSessionGateway by inject()
+    private val sessionGateway: SessionStateRepository by inject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val safeBvid: String? get() = bvid.takeIf { it.isNotBlank() }
 
@@ -455,21 +456,21 @@ class PlayerActionDialog(
 
     private fun handleActionError(code: Int, message: String?) {
         when (val error = sessionGateway.classifyActionError(code, message)) {
-            is NetworkSessionGateway.ActionError.SessionExpired -> {
+            is ActionError.SessionExpired -> {
                 toast(context.getString(R.string.login_expired))
                 dismiss()
             }
-            is NetworkSessionGateway.ActionError.CsrfMismatch -> {
+            is ActionError.CsrfMismatch -> {
                 toast("操作失败，请稍后重试")
             }
-            is NetworkSessionGateway.ActionError.RiskControl -> {
+            is ActionError.RiskControl -> {
                 Toast.makeText(context, "账号被风控了，请到B站官方App或网页端完成验证后再试", Toast.LENGTH_LONG).show()
             }
-            is NetworkSessionGateway.ActionError.FrequencyLimit -> {
+            is ActionError.FrequencyLimit -> {
                 toast(error.message)
             }
-            is NetworkSessionGateway.ActionError.Other -> toast(error.message)
-            is NetworkSessionGateway.ActionError.CsrfMissing -> {
+            is ActionError.Other -> toast(error.message)
+            is ActionError.CsrfMissing -> {
                 toast("登录凭据异常，请稍后重试")
             }
         }

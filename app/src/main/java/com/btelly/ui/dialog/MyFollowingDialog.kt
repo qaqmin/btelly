@@ -14,7 +14,7 @@ import com.btelly.core.ui.focus.RecyclerViewLoadMoreFocusController
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.databinding.DialogMyFollowingBinding
 import com.btelly.model.series.SeriesModel
-import com.btelly.network.session.NetworkSessionGateway
+import com.btelly.network.session.SessionStateRepository
 import com.btelly.repository.SeriesRepository
 import com.btelly.repository.UserRepository
 import com.btelly.ui.adapter.SeriesAdapter
@@ -42,7 +42,7 @@ class MyFollowingDialog(
     private val binding = DialogMyFollowingBinding.inflate(LayoutInflater.from(context))
     private val repository: SeriesRepository by inject()
     private val userRepository: UserRepository by inject()
-    private val sessionGateway: NetworkSessionGateway by inject()
+    private val sessionGateway: SessionStateRepository by inject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val adapter = SeriesAdapter(
         onItemClick = { series ->

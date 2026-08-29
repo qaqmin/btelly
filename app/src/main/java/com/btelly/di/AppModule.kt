@@ -12,6 +12,7 @@ import com.btelly.network.security.NetworkSecurityGateway
 import com.btelly.network.security.NetworkWebGateway
 import com.btelly.network.session.NetworkManagerSessionGateway
 import com.btelly.network.session.NetworkSessionGateway
+import com.btelly.network.session.SessionStateRepository
 import com.btelly.repository.AllSeriesRepository
 import com.btelly.repository.AuthRepository
 import com.btelly.repository.FavoriteRepository
@@ -56,7 +57,9 @@ val networkModule = module {
     single<ApiService> { NetworkManager.apiService }
     single<OkHttpClient> { NetworkManager.getOkHttpClient() }
     single<CookieManager> { NetworkManager.getCookieManager() }
+    // 同一实例绑定双接口：Repository/播放内核用 NetworkSessionGateway，UI 层只注入 SessionStateRepository
     single<NetworkSessionGateway> { NetworkManagerSessionGateway() }
+    single<SessionStateRepository> { get<NetworkSessionGateway>() as SessionStateRepository }
     single<NetworkSecurityGateway> { NetworkManagerSecurityGateway() }
     single<NetworkWebGateway> { NetworkManagerWebGateway() }
     factory(named("noCookie")) { NetworkManager.noCookieApiService }

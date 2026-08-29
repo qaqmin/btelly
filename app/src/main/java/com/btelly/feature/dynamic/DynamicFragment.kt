@@ -17,7 +17,7 @@ import com.btelly.databinding.FragmentDynamicBinding
 import com.btelly.event.AppEventHub
 import com.btelly.model.user.FollowingModel
 import com.btelly.model.video.VideoModel
-import com.btelly.network.session.NetworkSessionGateway
+import com.btelly.network.session.SessionStateRepository
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.ui.base.RecyclerViewPoolPrewarmer
 import com.btelly.core.ui.base.VideoRecyclerViewTuning
@@ -60,7 +60,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
     }
 
     private val appEventHub: AppEventHub by inject()
-    private val sessionGateway: NetworkSessionGateway by inject()
+    private val sessionGateway: SessionStateRepository by inject()
     private val viewModel: DynamicViewModel by viewModel()
     private val mainNavigationViewModel: MainNavigationViewModel by activityViewModels()
     private lateinit var upAdapter: DynamicUpAdapter

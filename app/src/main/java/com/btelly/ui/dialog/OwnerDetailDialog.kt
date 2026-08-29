@@ -17,7 +17,7 @@ import com.btelly.model.user.CheckRelationModel
 import com.btelly.model.video.Owner
 import com.btelly.model.video.UserDynamicResponse
 import com.btelly.model.video.VideoModel
-import com.btelly.network.session.NetworkSessionGateway
+import com.btelly.network.session.SessionStateRepository
 import com.btelly.repository.UserRepository
 import com.btelly.ui.activity.PlayerActivity
 import com.btelly.ui.adapter.VideoAdapter
@@ -50,7 +50,7 @@ class OwnerDetailDialog(
 
     private val binding = DialogOwnerDetailBinding.inflate(LayoutInflater.from(context))
     private val userRepository: UserRepository by inject()
-    private val sessionGateway: NetworkSessionGateway by inject()
+    private val sessionGateway: SessionStateRepository by inject()
     private val appEventHub: AppEventHub by inject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val videoAdapter = VideoAdapter(
