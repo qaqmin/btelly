@@ -11,6 +11,15 @@ object HomeCacheStore {
     private const val VIDEO_CACHE_SCHEMA_VERSION = 1
     private const val SECTION_CACHE_SCHEMA_VERSION = 1
 
+    /** 缓存距今多久（ms）；无时间戳时返回 -1，仅用于日志。 */
+    fun cacheAgeMs(savedAtMs: Long): Long {
+        return if (savedAtMs > 0L) System.currentTimeMillis() - savedAtMs else -1L
+    }
+
+    fun isExpired(savedAtMs: Long, maxAgeMs: Long): Boolean {
+        return savedAtMs > 0L && System.currentTimeMillis() - savedAtMs > maxAgeMs
+    }
+
     data class CachedVideos(
         val items: List<VideoModel>,
         val savedAtMs: Long = 0L,
@@ -34,10 +43,6 @@ object HomeCacheStore {
         val savedAtMs: Long = System.currentTimeMillis(),
         val items: List<HomeLaneSection> = emptyList()
     )
-
-    suspend fun readVideos(cacheKey: String): List<VideoModel> {
-        return readCachedVideos(cacheKey).items
-    }
 
     suspend fun readCachedVideos(cacheKey: String): CachedVideos {
         val envelopeType = object : TypeToken<VideoCacheEnvelope>() {}.type
@@ -75,10 +80,6 @@ object HomeCacheStore {
                 items = videos
             )
         )
-    }
-
-    suspend fun readSections(cacheKey: String): List<HomeLaneSection> {
-        return readCachedSections(cacheKey).items
     }
 
     suspend fun readCachedSections(cacheKey: String): CachedSections {

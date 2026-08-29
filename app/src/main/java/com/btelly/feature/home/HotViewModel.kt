@@ -1,119 +1,38 @@
 package com.btelly.feature.home
 
 import android.content.Context
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import com.btelly.core.common.content.ContentFilter
 import com.btelly.model.video.VideoModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 
 class HotViewModel(
     private val repository: HotFeedRepository,
-    private val dislikeFeedback: RecommendDislikeFeedback,
+    dislikeFeedback: RecommendDislikeFeedback,
     context: Context
-) : ViewModel(), VideoFeedViewModel {
+) : BaseVideoFeedViewModel(context, dislikeFeedback) {
 
     companion object {
         private const val PAGE_SIZE = 24
     }
 
-    private val appContext = context.applicationContext
-    private val _uiState = MutableStateFlow(FeedUiState<VideoModel>())
-    override val uiState: StateFlow<FeedUiState<VideoModel>> = _uiState.asStateFlow()
-
-    private var currentPage = 0
-    private var hasLoadedInitial = false
-
-    override fun loadInitial() {
-        if (hasLoadedInitial) return
-        hasLoadedInitial = true
-        viewModelScope.launch {
-            loadPage(page = 1, replace = true, fromInitial = true)
-        }
-    }
-
-    override fun refresh() {
-        viewModelScope.launch {
-            loadPage(page = 1, replace = true, fromRefresh = true)
-        }
-    }
-
-    override fun loadMore() {
-        val state = _uiState.value
-        if (state.loadingInitial || state.refreshing || state.appending || !state.hasMore) {
-            return
-        }
-        val nextPage = (currentPage + 1).coerceAtLeast(1)
-        viewModelScope.launch {
-            loadPage(page = nextPage, replace = false)
-        }
-    }
-
-    override fun consumeListChange() {
-        val state = _uiState.value
-        if (state.listChange != FeedListChange.NONE) {
-            _uiState.value = state.copy(listChange = FeedListChange.NONE)
-        }
-    }
-
-    private suspend fun loadPage(
+    override suspend fun fetchPage(
         page: Int,
         replace: Boolean,
-        fromInitial: Boolean = false,
-        fromRefresh: Boolean = false
-    ) {
-        val current = _uiState.value
-        _uiState.value = current.copy(
-            loadingInitial = fromInitial,
-            refreshing = fromRefresh,
-            appending = !replace,
-            errorMessage = null,
-            listChange = FeedListChange.NONE
-        )
-
-        repository.loadNetworkPage(page = page, pageSize = PAGE_SIZE)
-            .onSuccess { pageResult ->
-                val filteredItems = pageResult.items.filterForDisplay()
-                val mergedItems = if (replace) {
-                    filteredItems
-                } else {
-                    current.items + filteredItems
-                }
-                currentPage = page
-                _uiState.value = FeedUiState(
-                    items = mergedItems,
-                    source = FeedSource.NETWORK,
-                    listChange = if (replace) FeedListChange.REPLACE else FeedListChange.APPEND,
-                    hasMore = pageResult.hasMore
-                )
-                if (mergedItems.isNotEmpty()) {
-                    repository.writeCache(repository.trimCacheItems(mergedItems))
-                }
-            }.onFailure { throwable ->
-                _uiState.value = current.copy(
-                    loadingInitial = false,
-                    refreshing = false,
-                    appending = false,
-                    errorMessage = throwable.message ?: "热门加载失败",
-                    listChange = FeedListChange.NONE
+        fromInitial: Boolean,
+        fromRefresh: Boolean
+    ): Result<FetchedPage> {
+        return repository.loadNetworkPage(page = page, pageSize = PAGE_SIZE)
+            .map { result ->
+                FetchedPage(
+                    items = filterForDisplay(result.items),
+                    hasMore = result.hasMore
                 )
             }
     }
 
-    private suspend fun List<VideoModel>.filterForDisplay(): List<VideoModel> {
-        val original = this@filterForDisplay
-        val kept = ContentFilter.filterVideos(appContext, original)
-        // 闭环：被本地过滤掉的视频异步反馈 dislike，让 B 站算法减少同类推送
-        if (kept.size < original.size) {
-            val blockedKeys = kept.asSequence()
-                .mapNotNull { it.bvid.takeIf(String::isNotBlank) }
-                .toMutableSet()
-            val blocked = original.filter { v -> v.bvid.isBlank() || v.bvid !in blockedKeys }
-            if (blocked.isNotEmpty()) dislikeFeedback.feedbackBlocked(blocked)
-        }
-        return kept
+    override fun errorMessage(throwable: Throwable): String {
+        return throwable.message ?: "热门加载失败"
+    }
+
+    override suspend fun writeCache(items: List<VideoModel>) {
+        repository.writeCache(repository.trimCacheItems(items))
     }
 }

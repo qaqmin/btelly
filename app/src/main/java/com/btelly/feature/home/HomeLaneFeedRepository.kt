@@ -32,14 +32,14 @@ class HomeLaneFeedRepository(
         val (cached, cacheThread) = withContext(Dispatchers.IO) {
             HomeCacheStore.readCachedSections(cacheKey) to Thread.currentThread().name
         }
-        val items = if (isExpired(cached.savedAtMs)) {
+        val items = if (HomeCacheStore.isExpired(cached.savedAtMs, CACHE_MAX_AGE_MS)) {
             emptyList()
         } else {
             cached.items.take(MAX_CACHED_LANE_SECTIONS)
         }
         AppLog.i(
             TAG,
-            "APP_STARTUP lane cache read end type=$type elapsed=${SystemClock.elapsedRealtime() - startMs}ms count=${items.size} ageMs=${formatCacheAge(cached.savedAtMs)} schema=${cached.schemaVersion} thread=$cacheThread"
+            "APP_STARTUP lane cache read end type=$type elapsed=${SystemClock.elapsedRealtime() - startMs}ms count=${items.size} ageMs=${HomeCacheStore.cacheAgeMs(cached.savedAtMs)} schema=${cached.schemaVersion} thread=$cacheThread"
         )
         return CachedFeed(
             items = items,
@@ -84,15 +84,5 @@ class HomeLaneFeedRepository(
         }
     }
 
-    private fun formatCacheAge(savedAtMs: Long): Long {
-        return if (savedAtMs > 0L) {
-            System.currentTimeMillis() - savedAtMs
-        } else {
-            -1L
-        }
-    }
 
-    private fun isExpired(savedAtMs: Long): Boolean {
-        return savedAtMs > 0L && System.currentTimeMillis() - savedAtMs > CACHE_MAX_AGE_MS
-    }
 }

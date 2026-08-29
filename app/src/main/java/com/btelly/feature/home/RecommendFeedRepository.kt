@@ -126,7 +126,7 @@ class RecommendFeedRepository(
         val cached = HomeCacheStore.readCachedVideos(CACHE_KEY)
         AppLog.i(
             TAG,
-            "APP_STARTUP recommend cache read end elapsed=${SystemClock.elapsedRealtime() - startMs}ms count=${cached.items.size} ageMs=${formatCacheAge(cached.savedAtMs)} schema=${cached.schemaVersion}"
+            "APP_STARTUP recommend cache read end elapsed=${SystemClock.elapsedRealtime() - startMs}ms count=${cached.items.size} ageMs=${HomeCacheStore.cacheAgeMs(cached.savedAtMs)} schema=${cached.schemaVersion}"
         )
         return CachedFeed(
             items = cached.items.take(MAX_CACHED_RECOMMEND_ITEMS),
@@ -217,11 +217,4 @@ class RecommendFeedRepository(
         return items.take(MAX_CACHED_RECOMMEND_ITEMS)
     }
 
-    private fun formatCacheAge(savedAtMs: Long): Long {
-        return if (savedAtMs > 0L) {
-            System.currentTimeMillis() - savedAtMs
-        } else {
-            -1L
-        }
-    }
 }
