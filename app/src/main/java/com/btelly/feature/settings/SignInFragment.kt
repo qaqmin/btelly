@@ -10,7 +10,6 @@ import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import com.btelly.R
 import com.btelly.databinding.FragmentSignInBinding
-import com.btelly.event.AppEventHub
 import com.btelly.core.common.cache.FileCacheManager
 import com.btelly.core.common.log.AppLog
 import com.btelly.network.NetworkManager
@@ -32,7 +31,6 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
     }
 
     private val tvAuthRepository: TvAuthRepository by inject()
-    private val appEventHub: AppEventHub by inject()
     private val cookieManager: CookieManager by inject()
     private val userRepository: UserRepository by inject()
     private var authCode = ""
@@ -187,9 +185,10 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
         FileCacheManager.clearUserCaches()
         viewLifecycleOwner.lifecycleScope.launch {
             runCatching { NetworkManager.activateAfterLogin() }
+            // refreshCurrentUserInfo → syncUserSession 检测到"无会话→有会话"跳变时会在
+            // NetworkManager 内部统一广播 UserSessionChanged，此处不再手动 dispatch
             userRepository.refreshCurrentUserInfo()
             parentFragmentManager.popBackStackImmediate()
-            appEventHub.dispatch(AppEventHub.Event.UserSessionChanged)
         }
     }
 

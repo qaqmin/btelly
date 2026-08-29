@@ -227,14 +227,24 @@ object NetworkManager {
     }
 
     fun clearUserSession(clearCookies: Boolean = true, reason: String = "unknown") {
+        val hadSession = sessionStore.getUserInfo() != null || internalCookieManager.hasSessionCookie()
         sessionStore.clearUserSession()
         resetSessionLifecycleState(clearCookies = clearCookies, reason = reason)
+        if (hadSession) {
+            // 会话从有到无，统一在此广播；调用方不再各自手动 dispatch
+            notifySessionChanged()
+        }
     }
 
     private fun softClearUserSession(reason: String) {
+        val hadUserInfo = sessionStore.getUserInfo() != null
         sessionStore.softClearUserSession()
         securityCoordinator.resetRuntimeState()
         AppLog.w(TAG, "softClearUserSession: reason=$reason")
+        if (hadUserInfo) {
+            // 服务端 -101 失效也会走这里；只有状态真正发生跳变才广播，防并行请求事件风暴
+            notifySessionChanged()
+        }
     }
 
     suspend fun tryRecoverExpiredSession(): Boolean {
@@ -273,8 +283,8 @@ object NetworkManager {
     }
 
     private fun hardClearAndNotify(reason: String) {
+        // 广播已收敛到 clearUserSession 内部（跳变守卫），此处不再重复 notify
         clearUserSession(clearCookies = true, reason = reason)
-        notifySessionChanged()
     }
 
     private fun notifySessionChanged() {
@@ -366,7 +376,12 @@ object NetworkManager {
     }
 
     fun updateUserSession(info: UserDetailInfoModel?) {
+        val wasActive = sessionStore.isSessionActive()
         sessionStore.updateUserSession(info)
+        if (!wasActive && sessionStore.isSessionActive()) {
+            // 登录成功（扫码后首次拉到用户信息）也会经此通知，登录页不再手动 dispatch
+            notifySessionChanged()
+        }
     }
 
     fun syncUserSession(
@@ -374,13 +389,14 @@ object NetworkManager {
         source: String,
         context: AuthContext = AuthContext.FOREGROUND
     ): UserDetailInfoModel? {
+        val wasActive = sessionStore.isSessionActive()
         val info = sessionStore.syncUserSession(response, context) {
             softClearUserSession(reason = "$source code=${response.code}")
         }
-        if (info != null) {
-            return info
+        if (info != null && !wasActive) {
+            notifySessionChanged()
         }
-        return null
+        return info
     }
 
     fun handleAuthFailureCode(code: Int, source: String) {
