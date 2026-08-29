@@ -21,7 +21,8 @@ object FileCacheManager {
 
     private val appSettings: AppSettingsDataStore get() = KoinPlatform.getKoin().get()
 
-    private val cacheDir: File by lazy {
+    /** 缓存目录对外可见，供设置页按"受控缓存"口径统计大小。 */
+    val cacheDir: File by lazy {
         File(BTellyApplication.instance.cacheDir, "BTellyCache").also {
             it.mkdirs()
         }
@@ -180,19 +181,29 @@ object FileCacheManager {
 
     /**
      * 在已持有 fileMap 锁的上下文中调用。
-     * LinkedHashMap accessOrder=true，迭代顺序即访问顺序，第一个条目就是最久未访问的。
-     * O(1) 取头部即可，无需全遍历。
+     * LinkedHashMap accessOrder=true，迭代顺序即访问顺序，从头开始找最久未访问的条目。
+     * 正常情况第一个条目就能删掉，O(1)；delete 失败（文件被系统回收走/被外部占用）时
+     * 跳过该条目继续找下一个，且绝不扣减 totalSize——文件还在磁盘上就必须继续占账面，
+     * 否则每次淘汰都会重复扣同一个文件，账面虚低后淘汰停摆、磁盘占用无限增长。
+     * 消失的幽灵条目（系统清了 cacheDir 但表里还有）直接移出表，不产生回收量。
      */
     private fun evictOldestInternal(): Long {
         if (fileMap.isEmpty()) return 0L
         val iterator = fileMap.entries.iterator()
-        if (!iterator.hasNext()) return 0L
-        val (oldestFile, _) = iterator.next()
-        val length = oldestFile.length()
-        if (oldestFile.delete()) {
-            iterator.remove()
+        while (iterator.hasNext()) {
+            val (file, _) = iterator.next()
+            if (!file.exists()) {
+                iterator.remove()
+                continue
+            }
+            val length = file.length()
+            if (file.delete()) {
+                iterator.remove()
+                return length
+            }
+            AppLog.w("FileCacheManager", "evict delete failed, skip: ${file.name}")
         }
-        return length
+        return 0L
     }
 
     fun remove(key: String) {

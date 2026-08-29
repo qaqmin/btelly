@@ -5,6 +5,7 @@ import android.os.SystemClock
 import com.btelly.core.common.cache.FileCacheManager
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.settings.AppSettingsDataStore
+import com.btelly.core.common.update.ApkUpdater
 import com.btelly.core.lifecycle.AppBackgroundMonitor
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.di.appModules
@@ -113,6 +114,9 @@ class BTellyApplication : Application() {
             // 既能收敛旧版 totalSize 计数 bug 遗留的超额，也避免后续 Fragment 首次访问时
             // 才支付扫描成本。init() 内部是 Thread.start() fire-and-forget，不阻塞启动。
             trace("initFileCache", startMs) { initFileCache() }
+            // 上一次会话遗留的升级包（update/）已无跨会话用途，启动时后台删掉，
+            // 避免几十 MB 的 APK 一直算在"清除缓存"的数字里。
+            ApkUpdater.cleanupStaleDownload(this)
             trace("initImageSettings", startMs) { ImageLoader.prewarmSettings() }
             sessionRuntimeReady.set(true)
             AppLog.i(TAG, "STARTUP sessionRuntimeInit end reason=$reason elapsed=${SystemClock.elapsedRealtime() - startMs}ms")

@@ -1182,9 +1182,11 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
     }
 
     private fun getCurrentCacheSize(): Long {
-        val internal = getFolderSize(requireContext().cacheDir)
-        val external = requireContext().externalCacheDir?.let { getFolderSize(it) } ?: 0L
-        return internal + external
+        // 统计口径与"缓存限制"一致：只算受该设置管辖的两个目录
+        // （JSON 数据缓存 + 播放器媒体缓存）。图片/HTTP 缓存与升级包
+        // 不归这个设置管，不计入，避免显示值永远超限。
+        val mediaCacheDir = PlayerMediaCache.getCacheDir(requireContext())
+        return getFolderSize(FileCacheManager.cacheDir) + getFolderSize(mediaCacheDir)
     }
 
     private fun showDmChoiceDialog(position: Int, key: String, options: Array<String>) {

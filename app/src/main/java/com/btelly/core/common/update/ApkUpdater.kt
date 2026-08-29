@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
 import com.btelly.BuildConfig
+import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -36,6 +37,8 @@ object ApkUpdater {
         "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/releases/latest"
 
     private const val COOLDOWN_MS = 5_000L
+    private const val TAG = "ApkUpdater"
+    private const val UPDATE_DIR_NAME = "update"
 
     @Volatile
     private var lastStartedAtMs: Long = 0L
@@ -176,6 +179,20 @@ object ApkUpdater {
         return compareVersion(remote, current) > 0
     }
 
+    /**
+     * 启动时清理上一次会话遗留的安装包。下载→拉起安装器都在同一次会话内完成，
+     * 没有任何跨进程复用残留包的路径，残留在磁盘上只会白占缓存空间（几十 MB），
+     * 因此启动时整目录删除即可；下次下载会在同目录重建，不影响更新流程。
+     */
+    fun cleanupStaleDownload(context: Context) {
+        Thread {
+            val dir = File(context.applicationContext.cacheDir, UPDATE_DIR_NAME)
+            if (!dir.exists()) return@Thread
+            val deleted = dir.deleteRecursively()
+            AppLog.i(TAG, "cleanupStaleDownload dir=$dir deleted=$deleted")
+        }.apply { isDaemon = true }.start()
+    }
+
     suspend fun downloadApkToCache(
         context: Context,
         url: String,
@@ -205,7 +222,7 @@ object ApkUpdater {
         url: String,
         onProgress: (Progress) -> Unit,
     ): File {
-        val dir = File(context.cacheDir, "update").apply { mkdirs() }
+        val dir = File(context.cacheDir, UPDATE_DIR_NAME).apply { mkdirs() }
         val part = File(dir, "update.apk.part")
         val target = File(dir, "update.apk")
         runCatching { part.delete() }

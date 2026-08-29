@@ -95,11 +95,16 @@ object PlayerMediaCache {
         )
     }
 
+    /** 播放器媒体缓存目录，供设置页按"受控缓存"口径统计大小，也是本类唯一目录来源。 */
+    fun getCacheDir(context: Context): File {
+        return File(context.applicationContext.cacheDir, CACHE_DIR_NAME)
+    }
+
     @Synchronized
     fun clear(context: Context) {
         simpleCache?.release()
         simpleCache = null
-        File(context.applicationContext.cacheDir, CACHE_DIR_NAME).deleteRecursively()
+        getCacheDir(context).deleteRecursively()
     }
 
     /**
@@ -144,7 +149,7 @@ object PlayerMediaCache {
     @Synchronized
     private fun getOrCreateCache(context: Context): SimpleCache {
         simpleCache?.let { return it }
-        val cacheDirectory = File(context.cacheDir, CACHE_DIR_NAME).apply {
+        val cacheDirectory = getCacheDir(context).apply {
             if (!exists()) {
                 mkdirs()
             }
