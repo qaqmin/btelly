@@ -2,9 +2,8 @@
 
 package com.btelly.ui.activity
 
+import com.btelly.feature.player.PlayerScreenLogic
 import com.btelly.feature.player.PlayerContentGuards
-import com.btelly.core.common.format.MediaFormatUtils
-import com.btelly.core.common.format.NumberUtils
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -40,7 +39,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.common.log.AppLog
-import com.btelly.core.common.time.TimeUtils
 import com.btelly.core.ui.base.BaseActivity
 import com.btelly.core.ui.system.ViewUtils
 import com.btelly.databinding.FragmentVideoPlayerBinding
@@ -1115,24 +1113,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         playbackRequest: VideoPlayerViewModel.PlaybackRequest,
         currentPlayer: Player
     ): Long {
-        val requestedSeekMs = playbackRequest.seekPositionMs.coerceAtLeast(0L)
-        if (!playbackRequest.reuseSameSource || requestedSeekMs <= 0L) {
-            return requestedSeekMs
-        }
-        val durationMs = currentPlayer.duration.takeIf { it > 0L && it != C.TIME_UNSET }
-            ?: return requestedSeekMs
-        val resolution = PlaybackStartSeekResolver.resolve(
-            requestedSeekMs = requestedSeekMs,
-            durationMs = durationMs,
-            reuseSameSource = true
-        )
-        if (resolution.nearEndReset) {
-            AppLog.w(
-                TAG,
-                "warm_reuse_seek_clamped reason=near_end requested=$requestedSeekMs duration=$durationMs"
-            )
-        }
-        return resolution.positionMs
+        return PlayerScreenLogic.resolvePlaybackStartSeekPosition(playbackRequest, currentPlayer, TAG)
     }
 
     private fun setupObservers() {
@@ -1672,9 +1653,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     }
 
     private fun updatePrimaryActionVisibility() {
-        val view = latestVideoInfo?.view
-        val hasOwner = view?.owner?.mid?.let { it > 0L } == true
-        val hasVideoIdentity = (view?.aid ?: 0L) > 0L || !view?.bvid.isNullOrBlank()
+        val (hasOwner, hasVideoIdentity) = PlayerScreenLogic.primaryActionFlags(latestVideoInfo?.view)
         playerView.setShowHideOwnerInfo(hasOwner)
         playerView.showHideActionButton(hasVideoIdentity)
         playerView.showSettingButton(hasVideoIdentity)
@@ -1698,86 +1677,29 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     private fun renderPlayerHeader() {
         val video = latestVideoInfo?.view ?: return
         val selectedEpisode = sessionCoordinator.getSelectedEpisode()
-        playerView.setTitle(buildHeaderTitle(video.title, selectedEpisode))
-        val metaParts = buildList {
-            video.owner?.name?.takeIf { it.isNotBlank() }?.let(::add)
-            video.stat?.view?.takeIf { it > 0 }?.let { add("${NumberUtils.formatCount(it)}播放") }
-            if (video.pubDate > 0) {
-                add(TimeUtils.formatTime(video.pubDate))
-            }
-        }
-        playerView.setSubTitle(metaParts.joinToString(" · "))
+        playerView.setTitle(PlayerScreenLogic.buildHeaderTitle(video.title, selectedEpisode))
+        playerView.setSubTitle(PlayerScreenLogic.buildHeaderMetaParts(video).joinToString(" · "))
     }
 
-    private fun buildHeaderTitle(
-        videoTitle: String,
-        selectedEpisode: VideoPlayerViewModel.PlayableEpisode?
-    ): String {
-        val episodeTitle = selectedEpisode?.title?.trim().orEmpty()
-        if (episodeTitle.isBlank() || episodeTitle == videoTitle) {
-            return videoTitle
-        }
-        return "$episodeTitle ｜ $videoTitle"
-    }
 
     private fun renderDebugState() {
-        if (!::playerSettings.isInitialized || !playerSettings.showDebugInfo) {
+        val text = PlayerScreenLogic.debugOverlayText(
+            showDebugInfo = ::playerSettings.isInitialized && playerSettings.showDebugInfo,
+            errorMessage = latestErrorMessage,
+            player = player,
+            loadingText = getString(R.string.loading)
+        )
+        if (text == null) {
             textDebug.isVisible = false
             textDebug.text = ""
-            return
-        }
-        if (!latestErrorMessage.isNullOrBlank()) {
+        } else {
             textDebug.isVisible = true
-            textDebug.text = latestErrorMessage
-            return
+            textDebug.text = text
         }
-        val p = player
-        if (p == null || p.playbackState == Player.STATE_IDLE) {
-            textDebug.isVisible = true
-            textDebug.text = getString(R.string.loading)
-            return
-        }
-        textDebug.isVisible = true
-        textDebug.text = buildDebugInfo(p)
     }
 
     private fun buildDebugInfo(p: ExoPlayer): String {
-        val sb = StringBuilder()
-        val videoFormat = p.videoFormat
-        if (videoFormat != null) {
-            val w = videoFormat.width
-            val h = videoFormat.height
-            sb.appendLine("分辨率: ${w}x${h}${MediaFormatUtils.formatAspectRatio(w, h)}")
-            val codec = MediaFormatUtils.formatCodecName(videoFormat.sampleMimeType)
-            val bitrate = if (videoFormat.bitrate > 0) " ${videoFormat.bitrate / 1000}kbps" else ""
-            sb.appendLine("视频: $codec$bitrate")
-        }
-        val audioFormat = p.audioFormat
-        if (audioFormat != null) {
-            val codec = MediaFormatUtils.formatCodecName(audioFormat.sampleMimeType)
-            val sr = if (audioFormat.sampleRate > 0) " ${audioFormat.sampleRate}Hz" else ""
-            sb.appendLine("音频: $codec$sr")
-        }
-        if (p.duration > 0) {
-            val pos = NumberUtils.formatTimeMs(p.currentPosition)
-            val dur = NumberUtils.formatTimeMs(p.duration)
-            val speed = p.playbackParameters.speed
-            sb.appendLine("进度: $pos / $dur (${speed}x)")
-        }
-        val bufferedAhead = p.bufferedPosition - p.currentPosition
-        if (bufferedAhead > 0) {
-            sb.appendLine("缓冲: ${"%.1f".format(bufferedAhead / 1000.0)}s")
-        }
-        val stateLabel = when (p.playbackState) {
-            Player.STATE_BUFFERING -> "缓冲中"
-            Player.STATE_READY -> if (p.playWhenReady) "播放中" else "暂停"
-            Player.STATE_ENDED -> "已结束"
-            else -> ""
-        }
-        if (stateLabel.isNotEmpty()) {
-            sb.append("状态: $stateLabel")
-        }
-        return sb.toString().trimEnd()
+        return PlayerScreenLogic.buildDebugInfo(p)
     }
     private fun syncPlaybackEnvironment() {
         if (suppressPlaybackEnvironmentSync) {
@@ -1824,12 +1746,11 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             return
         }
         refreshAmbientSlimTimelineState()
-        val shouldShow = ::playerSettings.isInitialized &&
-                playerSettings.showBottomProgressBar &&
-                latestControllerVisibility == View.GONE &&
-                uiCoordinator.bottomOccupant == PlaybackUiCoordinator.BottomOccupant.SlimTimeline &&
-                uiCoordinator.seekState == PlaybackUiCoordinator.SeekState.None &&
-                uiCoordinator.panelState == PlaybackUiCoordinator.PanelState.None
+        val shouldShow = ::playerSettings.isInitialized && PlayerScreenLogic.shouldShowSlimTimeline(
+            showBottomProgressBar = playerSettings.showBottomProgressBar,
+            controllerVisibility = latestControllerVisibility,
+            coordinator = uiCoordinator
+        )
         if (shouldShow) {
             slimTimelineRenderer.show(latestPlaybackPositionMs, latestPlaybackDurationMs)
         } else {
@@ -1838,12 +1759,13 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     }
 
     private fun refreshAmbientSlimTimelineState() {
-        if (!::playerSettings.isInitialized || latestControllerVisibility != View.GONE) {
-            return
-        }
-        if (
-            uiCoordinator.seekState != PlaybackUiCoordinator.SeekState.None ||
-            uiCoordinator.panelState != PlaybackUiCoordinator.PanelState.None
+        val showBottomProgressBar =
+            if (::playerSettings.isInitialized) playerSettings.showBottomProgressBar else null
+        if (!PlayerScreenLogic.shouldRefreshAmbientChrome(
+                showBottomProgressBar = showBottomProgressBar,
+                controllerVisibility = latestControllerVisibility,
+                coordinator = uiCoordinator
+            )
         ) {
             return
         }
@@ -1857,29 +1779,11 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     }
 
     private fun postPlaybackProgressEvent(positionMs: Long) {
-        val info = latestVideoInfo?.view ?: return
-        val episodes = sessionCoordinator.getEpisodes()
-        val selectedIndex = sessionCoordinator.getSelectedEpisodeIndex()
-        if (episodes.isNotEmpty() && selectedIndex in episodes.indices) {
-            val episode = episodes[selectedIndex]
-            if (episode.epId > 0L) {
-                appEventHub.dispatch(
-                    AppEventHub.Event.EpisodePlaybackProgressUpdated(
-                        episodeId = episode.epId,
-                        progressMs = positionMs.coerceAtLeast(0L).plus(1L),
-                        episodeIndex = episode.title
-                    )
-                )
-                return
-            }
-        }
-        val progressMs = positionMs.coerceAtLeast(0L).plus(1L)
-        appEventHub.dispatch(
-            AppEventHub.Event.PlaybackProgressUpdated(
-                aid = info.aid,
-                cid = info.cid,
-                progressMs = progressMs
-            )
+        PlayerScreenLogic.postPlaybackProgressEvent(
+            appEventHub = appEventHub,
+            latestView = latestVideoInfo?.view,
+            sessionCoordinator = sessionCoordinator,
+            positionMs = positionMs
         )
     }
 
@@ -1965,23 +1869,11 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     }
 
     private fun syncChromeStateToCoordinator(visibility: Int) {
-        uiCoordinator.withState { coord ->
-            coord.chromeState = when (visibility) {
-                View.VISIBLE -> PlaybackUiCoordinator.ChromeState.Full
-                View.GONE -> PlaybackUiCoordinator.ChromeState.Hidden
-                else -> coord.chromeState
-            }
-            coord.bottomOccupant = when (visibility) {
-                View.VISIBLE -> PlaybackUiCoordinator.BottomOccupant.FullChrome
-                View.GONE -> if (playerSettings.showBottomProgressBar) PlaybackUiCoordinator.BottomOccupant.SlimTimeline else PlaybackUiCoordinator.BottomOccupant.None
-                else -> coord.bottomOccupant
-            }
-            coord.hudState = when (visibility) {
-                View.VISIBLE -> PlaybackUiCoordinator.HudState.Chrome
-                View.GONE -> PlaybackUiCoordinator.HudState.Ambient
-                else -> coord.hudState
-            }
-        }
+        PlayerScreenLogic.syncChromeStateToCoordinator(
+            coordinator = uiCoordinator,
+            showBottomProgressBar = playerSettings.showBottomProgressBar,
+            visibility = visibility
+        )
     }
 
     // 抖音模式编排已迁出至 DouyinPlaybackCoordinator
