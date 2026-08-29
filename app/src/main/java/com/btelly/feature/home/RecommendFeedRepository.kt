@@ -144,6 +144,17 @@ class RecommendFeedRepository(
         loadWebFeedPage(page, pageSize, freshIdx, fetchRow)
     }
 
+    /**
+     * 首页刷新成功后同步内存预加载缓存。切 tab 回来会重建 Fragment 并走
+     * loadSharedFirstPage 优先吃 preloadedFirstPage；若不更新，用户刚刷出来的
+     * 新内容会被启动时的旧首页顶掉（重新登录后复现：刷新→切走→切回变旧数据）。
+     */
+    fun updatePreloadedFirstPage(page: NetworkPage) {
+        if (page.items.isEmpty()) return
+        AppLog.i(TAG, "updatePreloadedFirstPage items=${page.items.size} source=${page.source}")
+        preloadedFirstPage = page
+    }
+
     private suspend fun loadWebFeedPage(
         page: Int,
         pageSize: Int,

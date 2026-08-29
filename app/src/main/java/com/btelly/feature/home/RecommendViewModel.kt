@@ -142,6 +142,10 @@ class RecommendViewModel(
         ).onSuccess { pageResult ->
             val filterStart = SystemClock.elapsedRealtime()
             AppLog.i(TAG, "STARTUP T7 network page=$page freshIdx=$freshIdx fetchRow=$fetchRow source=${pageResult.source} raw=${pageResult.rawCount} ready items=${pageResult.items.size}")
+            if (page == 1 && replace) {
+                // 同步内存预加载首页，避免下次 loadInitial（切 tab 重建）回退到旧数据
+                repository.updatePreloadedFirstPage(pageResult)
+            }
             val filteredItems = pageResult.items.filterForDisplay()
             if (replace) {
                 seenVideoIds.clear()
