@@ -1,5 +1,6 @@
 package com.btelly.network.session
 
+import com.btelly.core.common.json.GsonHolder
 import android.content.SharedPreferences
 import com.google.gson.Gson
 import com.btelly.model.BaseResponse
@@ -27,7 +28,7 @@ class NetworkSessionStore(
         private const val TAG = "NetworkSessionStore"
     }
 
-    private val gson = Gson()
+    private val gson = GsonHolder.DEFAULT
     private var wbiImageKey: String = ""
     private var wbiSubKey: String = ""
     private var wbiKeysUpdatedAt: Long = 0L

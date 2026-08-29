@@ -1,5 +1,6 @@
 package com.btelly.feature.player.sponsor
 
+import com.btelly.core.common.json.GsonHolder
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.btelly.core.common.log.AppLog
@@ -19,7 +20,7 @@ object SponsorBlockRepository {
     private const val CACHE_TTL_MS = 30 * 60 * 1000L
     private const val CONNECTION_ERROR = "空降助手连接失败，请检查网络"
 
-    private val gson = Gson()
+    private val gson = GsonHolder.DEFAULT
 
     private data class CacheEntry(
         val segments: List<SponsorSegment>,

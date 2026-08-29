@@ -2,6 +2,7 @@
 
 package com.btelly.network
 
+import com.btelly.core.common.json.GsonHolder
 import android.content.Context
 import com.btelly.model.BaseResponse
 import com.btelly.model.user.UserDetailInfoModel
@@ -91,7 +92,7 @@ object NetworkManager {
     }
 
     private val gson by lazy {
-        NetworkClientFactory.createGson()
+        GsonHolder.CONFIGURED
     }
 
     private val retrofit: Retrofit by lazy {

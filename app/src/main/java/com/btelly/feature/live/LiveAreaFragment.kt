@@ -1,5 +1,6 @@
 package com.btelly.feature.live
 
+import com.btelly.core.common.json.GsonHolder
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -26,7 +27,7 @@ class LiveAreaFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveTabPag
     companion object {
         private const val ARG_CATEGORY_JSON = "category_json"
 
-        private val gson = Gson()
+        private val gson = GsonHolder.DEFAULT
 
         fun newInstance(category: LiveAreaCategoryParent): LiveAreaFragment {
             val json = gson.toJson(category)

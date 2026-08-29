@@ -1,5 +1,6 @@
 package com.btelly.core.common.cache
 
+import com.btelly.core.common.json.GsonHolder
 import com.google.gson.Gson
 import com.btelly.BTellyApplication
 import com.btelly.core.common.log.AppLog
@@ -34,7 +35,7 @@ object FileCacheManager {
         java.util.LinkedHashMap(16, 0.75f, true)
 
     private val totalSize = AtomicLong(0)
-    private val gson: Gson by lazy { NetworkClientFactory.createGson() }
+    private val gson: Gson by lazy { GsonHolder.CONFIGURED }
 
     @Volatile
     private var initialized = false

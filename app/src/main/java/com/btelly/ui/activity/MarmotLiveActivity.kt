@@ -1,5 +1,6 @@
 package com.btelly.ui.activity
 
+import com.btelly.core.common.json.GsonHolder
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
@@ -86,7 +87,7 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val gson = Gson()
+    private val gson = GsonHolder.DEFAULT
 
     /** 青少年模式：直播期间每 15 秒结算观看时长，达上限触发休息退出。 */
     private val teenModeTicker = object : Runnable {

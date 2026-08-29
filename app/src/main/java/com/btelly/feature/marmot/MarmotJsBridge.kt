@@ -1,5 +1,6 @@
 package com.btelly.feature.marmot
 
+import com.btelly.core.common.json.GsonHolder
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -44,7 +45,7 @@ class MarmotJsBridge(
         fun onSimulateKey(keyCodeStr: String)
     }
 
-    private val gson = Gson()
+    private val gson = GsonHolder.DEFAULT
     /** 独立 client：读 tv-web 本地资源无需网络；http 请求不注入 B 站 header。 */
     private val client: OkHttpClient by lazy {
         OkHttpClient.Builder()

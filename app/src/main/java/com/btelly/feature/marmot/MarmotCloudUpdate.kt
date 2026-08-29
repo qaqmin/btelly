@@ -1,5 +1,6 @@
 package com.btelly.feature.marmot
 
+import com.btelly.core.common.json.GsonHolder
 import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
@@ -29,7 +30,7 @@ object MarmotCloudUpdate {
     private const val UPDATE_URL = "http://api.vonchange.com/utao/config/update.json"
     private const val TV_WEB_DIR = "tv-web"
     private const val UPDATE_JSON_NAME = "update.json"
-    private val gson = Gson()
+    private val gson = GsonHolder.DEFAULT
 
     /** 独立 client：不带 B 站 cookie/buvid，纯净请求 vonchange。 */
     private val client: OkHttpClient by lazy {

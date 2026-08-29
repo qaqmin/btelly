@@ -64,15 +64,23 @@ object NetworkClientFactory {
         return builder.build()
     }
 
+    @Volatile
+    private var cachedGson: Gson? = null
+
     fun createGson(): Gson {
-        return GsonBuilder()
-            .registerTypeAdapter(Long::class.javaPrimitiveType, FlexibleLongAdapter())
-            .registerTypeAdapter(Long::class.javaObjectType, FlexibleLongAdapter())
-            .registerTypeAdapter(Int::class.javaPrimitiveType, FlexibleIntAdapter())
-            .registerTypeAdapter(Int::class.javaObjectType, FlexibleIntAdapter())
-            .addSerializationExclusionStrategy(LazyExclusionStrategy)
-            .addDeserializationExclusionStrategy(LazyExclusionStrategy)
-            .create()
+        cachedGson?.let { return it }
+        synchronized(this) {
+            cachedGson?.let { return it }
+            return GsonBuilder()
+                .registerTypeAdapter(Long::class.javaPrimitiveType, FlexibleLongAdapter())
+                .registerTypeAdapter(Long::class.javaObjectType, FlexibleLongAdapter())
+                .registerTypeAdapter(Int::class.javaPrimitiveType, FlexibleIntAdapter())
+                .registerTypeAdapter(Int::class.javaObjectType, FlexibleIntAdapter())
+                .addSerializationExclusionStrategy(LazyExclusionStrategy)
+                .addDeserializationExclusionStrategy(LazyExclusionStrategy)
+                .create()
+                .also { cachedGson = it }
+        }
     }
 
     fun createRetrofit(

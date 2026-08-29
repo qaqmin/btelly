@@ -1,5 +1,6 @@
 package com.btelly.feature.marmot
 
+import com.btelly.core.common.json.GsonHolder
 import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
@@ -22,7 +23,7 @@ import java.io.File
 object MarmotLiveData {
     private const val TAG = "MarmotLiveData"
     private const val TV_JSON_PATH = "tv-web/js/cctv/tv2.json"
-    private val gson = Gson()
+    private val gson = GsonHolder.DEFAULT
 
     /** key("tagIndex_detailIndex") → Vod */
     private val indexVodMap = HashMap<String, Vod>()

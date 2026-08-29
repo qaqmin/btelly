@@ -70,8 +70,15 @@ class AppSettingsDataStore(private val context: Context) {
         val startMs = SystemClock.elapsedRealtime()
         synchronized(this) {
             if (cacheInitialized.get()) return
-            initJob?.cancel()
-            initJob = null
+            // BaseActivity 阶段 initCache() 可能已在后台读盘：join 它而不是取消重读，
+            // 避免同一份 XML 读两次，且读盘已与其他启动步骤重叠。
+            val pending = initJob
+            if (pending != null) {
+                runBlocking { pending.join() }
+                if (cacheInitialized.get()) return
+                // 异步读失败（如读盘异常）时仍走下面的同步兜底
+                initJob = null
+            }
             runBlocking(Dispatchers.IO) {
                 val prefs = dataStore.data.first()
                 prefs.asMap().forEach { (key, value) ->

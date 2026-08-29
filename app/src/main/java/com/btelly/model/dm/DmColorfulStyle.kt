@@ -1,5 +1,6 @@
 package com.btelly.model.dm
 
+import com.btelly.core.common.json.GsonHolder
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import java.io.Serializable
@@ -19,7 +20,7 @@ data class DmColorfulStyle(
 
 object DmColorfulStyleParser {
 
-    private val gson = Gson()
+    private val gson = GsonHolder.DEFAULT
 
     fun parse(raw: String?): DmColorfulStyle {
         val normalized = raw.orEmpty().trim()

@@ -2,6 +2,7 @@
 
 package com.btelly.feature.player
 
+import com.btelly.core.common.json.GsonHolder
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -306,7 +307,7 @@ class VideoPlayerViewModel(
         _resumeHint.value = ResumeProgressHint(targetPositionMs = positionMs)
     }
 
-    private val gson = Gson()
+    private val gson = GsonHolder.DEFAULT
     private val appContext = context.applicationContext
     private val ipv4OnlyEnabled: () -> Boolean = {
         runCatching { KoinPlatform.getKoin().get<AppSettingsDataStore>() }

@@ -1,5 +1,6 @@
 package com.btelly.feature.marmot.quality
 
+import com.btelly.core.common.json.GsonHolder
 import com.btelly.feature.marmot.domain.HzItem
 
 /**
@@ -36,15 +37,15 @@ class MarmotQualityProvider(
         return try {
             val type = object : com.google.gson.reflect.TypeToken<List<HzItem>>() {}.type
             if (trimmed.startsWith("[")) {
-                com.google.gson.Gson().fromJson(trimmed, type) ?: emptyList()
+                GsonHolder.DEFAULT.fromJson(trimmed, type) ?: emptyList()
             } else {
                 val obj = com.google.gson.JsonParser.parseString(trimmed).asJsonObject
                 val qualities = obj.getAsJsonArray("qualities")
                     ?: obj.getAsJsonObject("data")?.getAsJsonArray("qualities")
                     ?: obj.getAsJsonObject("data")?.getAsJsonArray("items")
                 if (qualities != null) {
-                    com.google.gson.Gson().fromJson(qualities, type) ?: emptyList()
-                } else listOf(com.google.gson.Gson().fromJson(trimmed, HzItem::class.java))
+                    GsonHolder.DEFAULT.fromJson(qualities, type) ?: emptyList()
+                } else listOf(GsonHolder.DEFAULT.fromJson(trimmed, HzItem::class.java))
             }
         } catch (t: Throwable) {
             emptyList()
