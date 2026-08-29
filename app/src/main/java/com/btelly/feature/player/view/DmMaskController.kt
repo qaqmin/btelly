@@ -14,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * 弹幕防挡蒙版控制器。
@@ -106,9 +107,6 @@ class DmMaskController(
     private val frameInvalidator = FrameInvalidator()
 
     // ---- 诊断 ----
-
-    @Volatile
-    private var diagEnabled: Boolean = false
 
     @Volatile
     private var lastDiagLogMs: Long = 0L
@@ -289,13 +287,6 @@ class DmMaskController(
         }
     }
 
-    fun setPlaybackSpeed(speed: Float) {
-        if (speed.isFinite() && speed > 0f) {
-            playbackSpeed = speed
-            lastPreloadedSegIndex = -1  // 速度变了，重新触发预加载
-        }
-    }
-
     fun setPlaybackReady(ready: Boolean) {
         if (disposed) return
         playbackReady = ready
@@ -313,7 +304,7 @@ class DmMaskController(
         }
     }
 
-    fun onPositionChanged(positionMs: Long) {
+    fun onPositionChanged() {
         if (state == State.SEEKING && playbackReady) {
             transitionFromSeeking()
         }
@@ -400,7 +391,6 @@ class DmMaskController(
     // ---- 诊断 API（保持兼容） ----
 
     fun reportFrameQuery(queryPtsMs: Long, framePtsMs: Long) {
-        if (!diagEnabled) return
         val nowMs = SystemClock.elapsedRealtime()
         if (nowMs - lastDiagLogMs < DIAG_LOG_INTERVAL_MS) return
         lastDiagLogMs = nowMs
@@ -411,18 +401,6 @@ class DmMaskController(
                 "playerPos=$playerPos speed=$playbackSpeed state=$state"
         )
     }
-
-    fun setDiagEnabled(enabled: Boolean) {
-        diagEnabled = enabled
-    }
-
-    // 以下为兼容空实现（参考方案不用这些，但 MyPlayerView 有接线）
-    fun reportFramePipelineDelay(@Suppress("UNUSED_PARAMETER") totalDurationNs: Long) {}
-    fun reportVsyncPeriod(@Suppress("UNUSED_PARAMETER") periodNs: Long) {}
-    fun onVideoFrameAnchor(
-        @Suppress("UNUSED_PARAMETER") presentationTimeUs: Long,
-        @Suppress("UNUSED_PARAMETER") releaseTimeNs: Long,
-    ) {}
 
     // ========== 内部实现 ==========
 
@@ -488,7 +466,7 @@ class DmMaskController(
                 orderedSegments.forEachIndexed { index, idx ->
                     if (!isCurrentMaskLoad(generation, contentGeneration, disposed)) return@launch
                     if (index > 0) {
-                        delay(PRELOAD_SEGMENT_STAGGER_MS)
+                        delay(PRELOAD_SEGMENT_STAGGER_MS.milliseconds)
                     }
                     if (!isCurrentMaskLoad(generation, contentGeneration, disposed)) return@launch
                     preloadRepository.preloadSegmentFrames(cid, idx, requestOwner)

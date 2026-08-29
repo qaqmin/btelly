@@ -6,7 +6,6 @@ import androidx.media3.common.Player
 import com.kuaishou.akdanmaku.DanmakuConfig
 import com.kuaishou.akdanmaku.data.DanmakuItemData
 import com.btelly.feature.player.danmaku.common.DanmakuVipGradientStyle
-import com.kuaishou.akdanmaku.filter.DanmakuDataFilter
 import com.kuaishou.akdanmaku.filter.TypeFilter
 import com.kuaishou.akdanmaku.render.SimpleRenderer
 import com.kuaishou.akdanmaku.ui.DanmakuPlayer
@@ -36,6 +35,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.time.Duration.Companion.milliseconds
 
 private typealias RawWindowRange = DanmakuWindowRangePolicy.Range
 
@@ -49,8 +49,6 @@ class MyPlayerDanmakuController(
 
     companion object {
         private const val TAG = "DanmakuCtrl"
-        private const val MERGE_DUPLICATE_WINDOW_MS = 2_000
-        private const val MERGE_DUPLICATE_MIN_COUNT = 2
         private const val MAX_SYNC_DRIFT_MS = 1200L
         private const val DRIFT_SYNC_INTERVAL_NORMAL_MS = 3200L
         private const val DRIFT_SYNC_INTERVAL_HIGH_MS = 900L
@@ -80,7 +78,6 @@ class MyPlayerDanmakuController(
         private const val INITIAL_WINDOW_BEHIND_MS = 6_000L
         private const val INITIAL_WINDOW_AHEAD_MS = 16_000L
         private const val INITIAL_WINDOW_MAX_ITEMS = 144
-        private const val INITIAL_IMMEDIATE_ITEMS = 8
         private const val ACTIVE_WINDOW_BEHIND_MS = 6_000L
         private const val ACTIVE_WINDOW_AHEAD_MS = 16_000L
         private const val ACTIVE_WINDOW_APPEND_BATCH_SIZE = 96
@@ -90,7 +87,6 @@ class MyPlayerDanmakuController(
         private const val WINDOW_REFRESH_MIN_PROGRESS_MS = 6_000L
         private const val WINDOW_REFRESH_MIN_INTERVAL_MS = 1_000L
         private const val STARTUP_DATA_DEFER_MS = 1_200L
-        private const val SMART_FILTER_PROFILE_LOG_MS = 2L
         private const val DANMAKU_PRE_CACHE_TIME_MS = 900L
     }
 
@@ -359,36 +355,20 @@ class MyPlayerDanmakuController(
         for ((key, entry) in liveMergeBuffer) {
             if (now - entry.createdAt < LIVE_MERGE_BUFFER_MS) continue
             expiredKeys.add(key)
-            val N = entry.count
-            val other = liveSentTimestamps.size + bufferTotal - N
+            val count = entry.count
+            val other = liveSentTimestamps.size + bufferTotal - count
             val budget = effectiveThreshold - other
-            sendMergedLiveItems(entry.firstItem, N, budget)
+            sendMergedLiveItems(entry.firstItem, count, budget)
         }
         expiredKeys.forEach { liveMergeBuffer.remove(it) }
     }
 
-    private fun flushAllLiveEntries() {
-        val now = SystemClock.uptimeMillis()
-        pruneLiveSentTimestamps(now)
-
-        val effectiveThreshold = estimateLiveMergeCapacity()
-        val bufferTotal = liveMergeBuffer.values.sumOf { it.count }
-
-        for ((_, entry) in liveMergeBuffer) {
-            val N = entry.count
-            val other = liveSentTimestamps.size + bufferTotal - N
-            val budget = effectiveThreshold - other
-            sendMergedLiveItems(entry.firstItem, N, budget)
-        }
-        liveMergeBuffer.clear()
-    }
-
-    private fun sendMergedLiveItems(firstItem: DmModel, N: Int, budget: Int) {
+    private fun sendMergedLiveItems(firstItem: DmModel, count: Int, budget: Int) {
         val player = danmakuPlayer ?: return
         val now = SystemClock.uptimeMillis()
         when {
-            N <= 1 || N <= budget -> {
-                repeat(N) {
+            count <= 1 || count <= budget -> {
+                repeat(count) {
                     doSendLiveDanmaku(firstItem, player)
                     liveSentTimestamps.add(now)
                 }
@@ -399,7 +379,7 @@ class MyPlayerDanmakuController(
                     liveSentTimestamps.add(now)
                 }
                 val merged = firstItem.copy(
-                    content = "${firstItem.content} ×${N - budget + 1}",
+                    content = "${firstItem.content} ×${count - budget + 1}",
                     fontSize = max(firstItem.fontSize, 12) + 2
                 )
                 doSendLiveDanmaku(merged, player)
@@ -407,7 +387,7 @@ class MyPlayerDanmakuController(
             }
             else -> {
                 val merged = firstItem.copy(
-                    content = "${firstItem.content} ×$N",
+                    content = "${firstItem.content} ×$count",
                     fontSize = max(firstItem.fontSize, 12) + 2
                 )
                 doSendLiveDanmaku(merged, player)
@@ -445,7 +425,7 @@ class MyPlayerDanmakuController(
         if (liveMergeBuffer.isEmpty()) return
         liveFlushJob?.cancel()
         liveFlushJob = controllerScope.launch(Dispatchers.Main) {
-            delay(LIVE_MERGE_BUFFER_MS)
+            delay(LIVE_MERGE_BUFFER_MS.milliseconds)
             flushExpiredLiveEntries()
         }
     }
@@ -710,11 +690,10 @@ class MyPlayerDanmakuController(
         // 设置重建必须排在在途 append 后面，不能通过换代取消尚未提交到 timeline 的增量。
         val previousJob = prepareJob
         val generation = prepareGeneration
-        val capturedGeneration = generation
         prepareJob = controllerScope.launch {
             previousJob?.join()
-            delay(200L)
-            if (prepareGeneration != capturedGeneration) return@launch
+            delay(200.milliseconds)
+            if (prepareGeneration != generation) return@launch
             val allowVipColorful = isVipColorfulDanmakuAllowed()
             val timeline = withContext(Dispatchers.Main.immediate) {
                 danmakuTimeline
@@ -802,7 +781,7 @@ class MyPlayerDanmakuController(
             message = "delayMs=$delayMs count=$appliedCount raw=$rawCount"
         )
         startupDataApplyJob = controllerScope.launch {
-            delay(delayMs)
+            delay(delayMs.milliseconds)
             withContext(Dispatchers.Main.immediate) {
                 if (prepareGeneration != generation || danmakuPlayer !== player) {
                     return@withContext
@@ -1127,7 +1106,7 @@ class MyPlayerDanmakuController(
 
     private fun isActiveWindowFreshFor(positionMs: Long): Boolean {
         if (activeWindowStartMs == Long.MIN_VALUE || activeWindowEndMs == Long.MIN_VALUE) return false
-        if (positionMs < activeWindowStartMs || positionMs > activeWindowEndMs) return false
+        if (positionMs !in activeWindowStartMs..activeWindowEndMs) return false
         val remainingAheadMs = activeWindowCoveredUntilMs - positionMs
         if (remainingAheadMs <= 0L) return false
         val hasPendingWindowData = activeWindowSubmittedEndIndex in 0 until activeWindowNaturalEndIndex
@@ -1230,11 +1209,10 @@ class MyPlayerDanmakuController(
 
     private fun startDriftSync() {
         driftSyncJob?.cancel()
-        val provider = playerPositionProvider
-        if (provider == null) return
+        val provider = playerPositionProvider ?: return
         driftSyncJob = controllerScope.launch {
             while (isActive) {
-                delay(resolveDriftSyncIntervalMs())
+                delay(resolveDriftSyncIntervalMs().milliseconds)
                 try {
                     withContext(Dispatchers.Main.immediate) {
                         applyDriftSyncTick(provider)
@@ -1426,44 +1404,6 @@ class MyPlayerDanmakuController(
         updateConfig(danmakuConfig.copy(visibility = enabled))
     }
 
-    private fun updateAlpha(alpha: Float) {
-        updateConfig(danmakuConfig.copy(alpha = alpha.coerceIn(0.1f, 1f)))
-    }
-
-    private fun updateTextSize(size: Int) {
-        updateConfig(danmakuConfig.copy(textSizeScale = size.toDanmakuTextScale()))
-    }
-
-    private fun updateSpeed(speed: Int) {
-        val durationMs = speed.toDanmakuDurationMs()
-        updateConfig(
-            danmakuConfig.copy(
-                durationMs = durationMs,
-                rollingDurationMs = durationMs
-            )
-        )
-    }
-
-    private fun updateScreenArea(area: Int) {
-        updateConfig(danmakuConfig.copy(screenPart = area.toDanmakuScreenPart()))
-    }
-
-    private fun updateAllowTop(allow: Boolean) {
-        applyTypeFilterAndDispatch(DanmakuItemData.DANMAKU_MODE_CENTER_TOP, allow)
-    }
-
-    private fun updateAllowBottom(allow: Boolean) {
-        applyTypeFilterAndDispatch(DanmakuItemData.DANMAKU_MODE_CENTER_BOTTOM, allow)
-    }
-
-    private fun applyTypeFilterAndDispatch(type: Int, visible: Boolean) {
-        if (!applyTypeFilterState(danmakuConfig, type, visible)) {
-            return
-        }
-        danmakuConfig.updateFilter()
-        danmakuPlayer?.updateConfig(danmakuConfig)
-    }
-
     private fun applyTypeFilterState(
         config: DanmakuConfig,
         type: Int,
@@ -1515,22 +1455,6 @@ class MyPlayerDanmakuController(
         val createdAt: Long
     )
 
-    private fun List<DmModel>.countInRange(startMs: Long, endMs: Long): Int {
-        val from = lowerBoundProgress(startMs)
-        if (from >= size) return 0
-        return upperBoundProgress(endMs) - from
-    }
-
-    /**
-     * 判断 [positionMs] 的活动窗口范围（前 ACTIVE_WINDOW_BEHIND_MS ~ 后 ACTIVE_WINDOW_AHEAD_MS）
-     * 内是否已有弹幕数据。用于 seek 时决定是否清空引擎：无数据则不清屏，避免空转卡死。
-     */
-    private fun List<DmModel>.hasDataAround(positionMs: Long): Boolean {
-        val behindStart = (positionMs - ACTIVE_WINDOW_BEHIND_MS).coerceAtLeast(0L)
-        val aheadEnd = positionMs + ACTIVE_WINDOW_AHEAD_MS
-        return countInRange(behindStart, aheadEnd) > 0
-    }
-
     private fun List<DmModel>.buildPreparedWindow(
         positionMs: Long,
         behindMs: Long,
@@ -1567,24 +1491,6 @@ class MyPlayerDanmakuController(
             positionMs = positionMs,
             coveredUntilMs = coveredUntilMs
         )
-    }
-
-    private fun List<DanmakuItemData>.withInitialImmediateItems(
-        stage: String,
-        positionMs: Long
-    ): List<DanmakuItemData> {
-        if (stage != "initial_window" || isEmpty()) return this
-        if (any { it.position <= positionMs }) return this
-        val immediatePosition = positionMs.coerceAtLeast(0L)
-        var adjusted = 0
-        return map { item ->
-            if (adjusted < INITIAL_IMMEDIATE_ITEMS) {
-                adjusted++
-                item.copy(position = immediatePosition)
-            } else {
-                item
-            }
-        }
     }
 
     private fun List<DmModel>.buildPreparedRange(
@@ -1656,16 +1562,6 @@ class MyPlayerDanmakuController(
         return lo
     }
 
-    private fun List<DmModel>.upperBoundProgress(target: Long): Int {
-        var lo = 0
-        var hi = size
-        while (lo < hi) {
-            val mid = (lo + hi) ushr 1
-            if (this[mid].progress.toLong() <= target) lo = mid + 1 else hi = mid
-        }
-        return lo
-    }
-
     private fun DmModel.toDanmakuItemData(allowVipColorful: Boolean): DanmakuItemData? {
         val renderContent = toRenderableContent() ?: return null
         return DanmakuItemData(
@@ -1702,7 +1598,7 @@ class MyPlayerDanmakuController(
     ) {
         // 阈值降到 1:只要有数据就诊断。原阈值 INITIAL_WINDOW_MAX_ITEMS(144) 过高,
         // 小窗口(如 rawWindow=5)的 id 冲突会静默,而重复弹幕往往首帧就暴露。
-        if (rawWindowData.size < 1 && preparedData.size < 1) {
+        if (rawWindowData.isEmpty() && preparedData.isEmpty()) {
             return
         }
         val serviceIds = rawWindowData.asSequence().map { it.id }.filter { it > 0L }.toList()

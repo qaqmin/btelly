@@ -542,9 +542,7 @@ internal class PlaybackFallbackController(
                 videoUrl = videoUrl,
                 audioUrl = audioUrl,
                 availableCodecs = plan.routes.map { it.codec },
-                selectedCodec = route.codec,
-                durationMs = plan.durationMs,
-                minBufferTimeMs = plan.minBufferTimeMs
+                selectedCodec = route.codec
             )
             context.onCdnStatesUpdated(selection.cdnFailoverStates)
             context.clearError()

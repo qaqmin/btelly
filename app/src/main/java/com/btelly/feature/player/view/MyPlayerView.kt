@@ -458,7 +458,7 @@ class MyPlayerView @JvmOverloads constructor(
 
         override fun onRenderedFirstFrame() {
             onSeekDiagFirstFrame()
-            dmMaskController.onPositionChanged(player?.currentPosition ?: 0L)
+            dmMaskController.onPositionChanged()
             hasRenderedFirstFrame = true
             suppressControllerShowUntilFirstFrame = false
             activeDanmakuController()?.notifyPlaybackFirstFrame()

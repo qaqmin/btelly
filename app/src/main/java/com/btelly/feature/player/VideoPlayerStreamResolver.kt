@@ -57,19 +57,6 @@ internal class VideoPlayerStreamResolver(
         val frameRate: String = "",
         val startWithSap: Int = 1,
         val segmentBase: SegmentBase? = null
-    ) {
-        fun hasSegmentBase(): Boolean {
-            val base = segmentBase ?: return false
-            val initialization = base.initialization.ifBlank { base.range }
-            return initialization.isNotBlank() && base.realIndexRange.isNotBlank()
-        }
-    }
-
-    data class CdnUrls(
-        val videoUrls: List<String>,
-        val audioUrls: List<String>,
-        val videoMimeType: String,
-        val audioMimeType: String
     )
 
     data class CodecRoute(
@@ -309,9 +296,9 @@ internal class VideoPlayerStreamResolver(
     ): MediaSourceSelection? {
         val dash = playInfo.dash
         if (dash != null && !dash.video.isNullOrEmpty()) {
-            val filteredByQuality = dash.video.orEmpty()
+            val filteredByQuality = dash.video
                 .filter { it.id == selectedQualityId }
-                .ifEmpty { dash.video.orEmpty() }
+                .ifEmpty { dash.video }
             val availableCodecs = filteredByQuality
                 .map { VideoCodecEnum.fromId(it.codecId) }
                 .distinct()
@@ -364,62 +351,12 @@ internal class VideoPlayerStreamResolver(
         )
     }
 
-    fun collectCdnUrls(
-        playInfo: PlayInfoModel,
-        selectedQualityId: Int?,
-        selectedAudioId: Int?,
-        selectedCodec: VideoCodecEnum?
-    ): CdnUrls? {
-        val dash = playInfo.dash
-        if (dash == null || dash.video.isNullOrEmpty()) return null
-
-        val filteredByQuality = dash.video.orEmpty()
-            .filter { it.id == selectedQualityId }
-            .ifEmpty { dash.video.orEmpty() }
-        val availableCodecs = filteredByQuality
-            .map { VideoCodecEnum.fromId(it.codecId) }
-            .distinct()
-        val resolvedCodec = selectedCodec.takeIf { it in availableCodecs } ?: availableCodecs.firstOrNull()
-        val selectedVideo = filteredByQuality
-            .filter { resolvedCodec == null || it.codecId == resolvedCodec.id }
-            .maxByOrNull { it.bandwidth }
-            ?: filteredByQuality.maxByOrNull { it.bandwidth }
-            ?: return null
-
-        val selectedAudio = buildAudioTracks(playInfo)
-            .firstOrNull { it.id == selectedAudioId }
-            ?: buildAudioTracks(playInfo).maxByOrNull { it.bandwidth }
-
-        val videoUrls = buildList {
-            add(selectedVideo.realBaseUrl)
-            selectedVideo.realBackupUrl?.let(::addAll)
-        }.distinct().map(urlNormalizer)
-
-        val audioUrls = if (selectedAudio != null) {
-            buildList {
-                add(selectedAudio.realBaseUrl)
-                selectedAudio.realBackupUrl?.let(::addAll)
-            }.distinct().map(urlNormalizer)
-        } else {
-            emptyList()
-        }
-
-        return CdnUrls(
-            videoUrls = videoUrls,
-            audioUrls = audioUrls,
-            videoMimeType = selectedVideo.realMimeType,
-            audioMimeType = selectedAudio?.realMimeType ?: ""
-        )
-    }
-
     fun buildMediaSourceForRoute(
         route: CodecRoute,
         videoUrl: String,
         audioUrl: String?,
         availableCodecs: List<VideoCodecEnum>,
-        selectedCodec: VideoCodecEnum?,
-        durationMs: Long,
-        minBufferTimeMs: Long
+        selectedCodec: VideoCodecEnum?
     ): MediaSourceSelection {
         val sourceWithState = createMediaSource(
             videoUrls = CdnLatencyProfile.sortUrlsByLatency(prioritizeUrl(route.videoUrls, videoUrl)),

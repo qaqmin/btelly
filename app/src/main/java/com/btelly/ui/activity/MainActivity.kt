@@ -28,7 +28,6 @@ import com.btelly.repository.UserRepository
 import com.btelly.core.ui.base.BaseActivity
 import com.btelly.core.ui.base.OnBackPressedHandler
 import com.btelly.model.user.UserDetailInfoModel
-import com.btelly.model.video.VideoModel
 import com.btelly.feature.category.CategoryFragment
 import com.btelly.feature.cctv.CctvLiveFragment
 import com.btelly.feature.dynamic.DynamicFragment
@@ -43,13 +42,11 @@ import com.btelly.feature.settings.SignInFragment
 import com.btelly.ui.dialog.UsageTipDialog
 import com.btelly.ui.dialog.UserInfoDialog
 import com.btelly.feature.player.PlayerInstancePool
-import com.btelly.feature.player.PlayerLaunchContext
 import com.btelly.feature.player.VideoPlayerFragment
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.net.NetworkRecoveryMonitor
 import com.btelly.core.ui.navigation.TabBarView
 import com.btelly.core.common.content.ContentFilter
-import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.core.startup.AppStartupScheduler
 import com.btelly.core.ui.image.ImageLoader
 import kotlinx.coroutines.Dispatchers
@@ -251,7 +248,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
                 scheduleFastStartupAvatarRefresh()
                 Choreographer.getInstance().postFrameCallback {
                     binding.root.post {
-                        attachInitialContentAfterShellDraw("after_shell_first_frame")
+                        attachInitialContentAfterShellDraw()
                     }
                 }
                 return true
@@ -275,13 +272,13 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         }
     }
 
-    private fun attachInitialContentAfterShellDraw(reason: String) {
+    private fun attachInitialContentAfterShellDraw() {
         if (startupInitialContentAttached) return
         startupInitialContentAttached = true
         val startMs = SystemClock.elapsedRealtime()
         AppLog.i(
             STARTUP_TAG,
-            "STARTUP initialContentPipeline start reason=$reason elapsed=${startMs - activityCreateStartMs}ms"
+            "STARTUP initialContentPipeline start reason=after_shell_first_frame elapsed=${startMs - activityCreateStartMs}ms"
         )
         if (!restoredFromSavedState) {
             attachInitialMainTabAfterShellDraw()
@@ -290,7 +287,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         showUsageTipIfNeeded()
         AppLog.i(
             STARTUP_TAG,
-            "STARTUP initialContentPipeline end reason=$reason elapsed=${SystemClock.elapsedRealtime() - startMs}ms"
+            "STARTUP initialContentPipeline end reason=after_shell_first_frame elapsed=${SystemClock.elapsedRealtime() - startMs}ms"
         )
     }
 
@@ -427,7 +424,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         AppLog.d("FocusTrace", "onTabSelected index=$index focusedBefore=${currentFocus?.javaClass?.simpleName}#${currentFocus?.id}")
         // CCTV 直播 tab：直接进 Marmot 播放器，不加载频道列表 Fragment（对标参考 StartActivity→LiveActivity）
         if (index == CCTV_TAB_INDEX) {
-            com.btelly.ui.activity.MarmotLiveActivity.start(this)
+            MarmotLiveActivity.start(this)
             // 焦点留在 TV 直播按钮（直播返回后焦点仍在该按钮）
             binding.myTabView.focusCurrentTab()
             return
@@ -444,7 +441,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         AppLog.d("FocusTrace", "onTabReselected index=$index focusedBefore=${currentFocus?.javaClass?.simpleName}#${currentFocus?.id}")
         // CCTV 直播 tab 再次点击：重新进入直播（Tab 4 不持有 Fragment，reselect 也要能进直播）
         if (index == CCTV_TAB_INDEX) {
-            com.btelly.ui.activity.MarmotLiveActivity.start(this)
+            MarmotLiveActivity.start(this)
             return
         }
         // 其他侧边栏按钮再次点击，不触发刷新，避免抢走焦点
@@ -454,8 +451,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         if (index !in fragments.indices) {
             return false
         }
-        val anchorView = currentFocus
-        val handled = focusCurrentMainContent(anchorView, preferSpatialEntry = true)
+        focusCurrentMainContent(currentFocus, preferSpatialEntry = true)
         return true
     }
 
@@ -480,23 +476,8 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         }
     }
 
-    fun openSearch(keyword: String? = null) {
-        binding.myTabView.selectTab(SEARCH_TAB_INDEX)
-        keyword
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { normalizedKeyword ->
-                val searchFragment = supportFragmentManager
-                    .findFragmentByTag("fragment_$SEARCH_TAB_INDEX") as? SearchNewFragment
-                    ?: getOrCreateFragment(SEARCH_TAB_INDEX) as? SearchNewFragment
-                binding.root.post {
-                    searchFragment?.openKeyword(normalizedKeyword)
-                }
-            }
-    }
-
     override fun onSettingClick() {
-        if (isOverlayVisible(SETTINGS_OVERLAY_TAG)) {
+        if (isSettingsOverlayVisible()) {
             return
         }
         openOverlayFragment(SettingsFragment.newInstance(), SETTINGS_OVERLAY_TAG)
@@ -545,7 +526,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
 
         val cachedInfo = sessionGateway.getUserInfo()
         if (!cachedInfo?.face.isNullOrBlank()) {
-            binding.myTabView.setAvatarUrl(cachedInfo?.face)
+            binding.myTabView.setAvatarUrl(cachedInfo.face)
             setTabBarBadge(cachedInfo)
             if (!forceNetworkFetch) return
         }
@@ -666,20 +647,6 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         binding.divide.visibility = if (show) View.VISIBLE else View.GONE
     }
 
-    fun animateTabBar(show: Boolean) {
-        if (show) {
-            binding.myTabView.animate()
-                .translationX(0f)
-                .setDuration(200)
-                .start()
-        } else {
-            binding.myTabView.animate()
-                .translationX(-binding.myTabView.width.toFloat())
-                .setDuration(200)
-                .start()
-        }
-    }
-
     private fun handleBackPressed() {
         if (dispatchBackPressedToVisibleFragment()) {
             schedulePostBackFocusRestore()
@@ -688,7 +655,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
 
         if (supportFragmentManager.backStackEntryCount > 0) {
             pendingFocusRestoreDelayMs =
-                if (isOverlayVisible(SETTINGS_OVERLAY_TAG)) SETTINGS_OVERLAY_EXIT_ANIM_MS else 0L
+                if (isSettingsOverlayVisible()) SETTINGS_OVERLAY_EXIT_ANIM_MS else 0L
             supportFragmentManager.popBackStack()
             return
         }
@@ -722,7 +689,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     fun closeTopOverlayFromUi() {
         if (supportFragmentManager.backStackEntryCount > 0) {
             pendingFocusRestoreDelayMs =
-                if (isOverlayVisible(SETTINGS_OVERLAY_TAG)) SETTINGS_OVERLAY_EXIT_ANIM_MS else 0L
+                if (isSettingsOverlayVisible()) SETTINGS_OVERLAY_EXIT_ANIM_MS else 0L
             supportFragmentManager.popBackStack()
             return
         }
@@ -755,44 +722,6 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
             fragment = fragment,
             tag = fragment::class.java.name,
             addToBackStack = addToBackStack
-        )
-    }
-
-    fun openVideoPlayer(
-        launchContext: PlayerLaunchContext,
-        addToBackStack: Boolean = true
-    ) {
-        PlayerActivity.start(
-            context = this,
-            aid = launchContext.aid,
-            bvid = launchContext.bvid,
-            cid = launchContext.cid,
-            epId = launchContext.epId,
-            seasonId = launchContext.seasonId,
-            seekPositionMs = launchContext.seekPositionMs,
-            startEpisodeIndex = launchContext.startEpisodeIndex
-        )
-    }
-
-    fun openVideoPlayer(
-        aid: Long = 0L,
-        bvid: String = "",
-        cid: Long = 0L,
-        epId: Long = 0L,
-        seasonId: Long = 0L,
-        seekPositionMs: Long = 0L,
-        startEpisodeIndex: Int = -1,
-        addToBackStack: Boolean = true
-    ) {
-        PlayerActivity.start(
-            context = this,
-            aid = aid,
-            bvid = bvid,
-            cid = cid,
-            epId = epId,
-            seasonId = seasonId,
-            seekPositionMs = seekPositionMs,
-            startEpisodeIndex = startEpisodeIndex
         )
     }
 
@@ -938,11 +867,11 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         return fragment is VideoPlayerFragment || tag.startsWith("video_player:")
     }
 
-    private fun isOverlayVisible(tag: String): Boolean {
+    private fun isSettingsOverlayVisible(): Boolean {
         return supportFragmentManager.fragments
             .asReversed()
             .firstOrNull { it.isVisible }
-            ?.tag == tag
+            ?.tag == SETTINGS_OVERLAY_TAG
     }
 
     private fun focusCurrentMainContent(
@@ -959,10 +888,6 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         return !isTaskRoot &&
             launchIntent?.action == android.content.Intent.ACTION_MAIN &&
             launchIntent.hasCategory(android.content.Intent.CATEGORY_LAUNCHER)
-    }
-
-    private fun postTabClickEvent(index: Int) {
-        mainNavigationViewModel.dispatch(MainNavigationViewModel.Event.MainTabReselected(index))
     }
 
     private fun postTabSelectedEvent(index: Int) {
@@ -1064,7 +989,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         val totalSec = (remainingMs / 1000L).toInt()
         val min = totalSec / 60
         val sec = totalSec % 60
-        binding.teenRestCountdown.text = "还需休息 %02d:%02d".format(min, sec)
+        binding.teenRestCountdown.text = getString(R.string.teen_rest_countdown, min, sec)
     }
 
     /**
