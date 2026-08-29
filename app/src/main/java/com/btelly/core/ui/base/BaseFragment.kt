@@ -198,7 +198,23 @@ abstract class BaseFragment<VB : ViewBinding> : Fragment() {
 
     protected fun showError(message: String?) {
         if (!isAdded) return
-        showErrorImage(R.drawable.net_error, message ?: "")
+        showErrorImage(R.drawable.net_error, friendlyErrorText(message))
+    }
+
+    /**
+     * 把底层异常文案翻译成用户可读的提示。DNS 解析失败/网络不可达（盒子开机网络
+     * 未就绪的典型表现）显示统一的网络不可用文案，其余原样透出。
+     */
+    private fun friendlyErrorText(message: String?): String {
+        val raw = message.orEmpty()
+        return when {
+            raw.isBlank() -> getString(R.string.net_error)
+            raw.contains("Unable to resolve host", ignoreCase = true) ||
+                raw.contains("UnknownHost", ignoreCase = true) ||
+                raw.contains("No address associated", ignoreCase = true) ||
+                raw.contains("Network is unreachable", ignoreCase = true) -> getString(R.string.net_unavailable)
+            else -> raw
+        }
     }
 
     private fun showErrorImage(imageResId: Int, text: String) {

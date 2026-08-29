@@ -115,6 +115,7 @@ class TabBarView @JvmOverloads constructor(
             }
             when (keyCode) {
                 KeyEvent.KEYCODE_DPAD_LEFT -> true
+                KeyEvent.KEYCODE_DPAD_RIGHT -> onTabClickListener?.onSideButtonNavigateRight() ?: false
                 KeyEvent.KEYCODE_DPAD_UP -> false
                 KeyEvent.KEYCODE_DPAD_DOWN -> true
                 else -> false
@@ -130,6 +131,7 @@ class TabBarView @JvmOverloads constructor(
             }
             when (keyCode) {
                 KeyEvent.KEYCODE_DPAD_LEFT -> true
+                KeyEvent.KEYCODE_DPAD_RIGHT -> onTabClickListener?.onSideButtonNavigateRight() ?: false
                 KeyEvent.KEYCODE_DPAD_UP -> false
                 KeyEvent.KEYCODE_DPAD_DOWN -> false
                 else -> false
@@ -262,6 +264,7 @@ class TabBarView @JvmOverloads constructor(
         fun onTabSelected(index: Int)
         fun onTabReselected(index: Int)
         fun onTabNavigateRight(index: Int): Boolean
+        fun onSideButtonNavigateRight(): Boolean
         fun onSearchClick()
         fun onSettingClick()
         fun onAvatarClick()

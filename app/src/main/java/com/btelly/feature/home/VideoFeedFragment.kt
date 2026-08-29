@@ -18,6 +18,7 @@ import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.core.ui.base.RecyclerViewPoolPrewarmer
 import com.btelly.core.ui.focus.tv.TvDataChangeReason
 import com.btelly.core.ui.render.FirstScreenRenderer
+import com.btelly.event.AppEventHub
 import com.btelly.feature.player.PlayerInstancePool
 import com.btelly.model.video.VideoModel
 import com.btelly.ui.activity.MainActivity
@@ -25,6 +26,7 @@ import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import org.koin.android.ext.android.inject
 
 abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, MainActivity.OnVideoBlockedListener {
 
@@ -36,6 +38,8 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     protected open val showInitialLoadingIndicator: Boolean = true
 
     private val mainNavigationViewModel: MainNavigationViewModel by activityViewModels()
+    private val appEventHub: AppEventHub by inject()
+    private var lastErrorMessage: String? = null
     private var pendingScrollToTopAfterRefresh = false
     private var initialLoadStarted = false
     private var initialLoadAfterFirstDrawArmed = false
@@ -213,6 +217,29 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
                 }
             }
         }
+
+        // 无网络启动（盒子开机网络未就绪）时首屏失败停在错误页；网络恢复后自动重试一次，
+        // 用户无需手动按重试。只在错误态 + 列表为空时触发，避免打断正常浏览。
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                appEventHub.events.collectLatest { event ->
+                    if (event !is AppEventHub.Event.NetworkRecovered) {
+                        return@collectLatest
+                    }
+                    if (view == null || isLoading) {
+                        return@collectLatest
+                    }
+                    if (lastErrorMessage == null || (adapter?.contentCount() ?: 0) > 0) {
+                        return@collectLatest
+                    }
+                    AppLog.i(
+                        "STARTUP",
+                        "network recovered, auto retry feed after error: $lastErrorMessage"
+                    )
+                    refresh()
+                }
+            }
+        }
     }
 
     override fun onRetryClick() {
@@ -234,6 +261,7 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
     }
 
     private fun renderState(state: FeedUiState<VideoModel>) {
+        lastErrorMessage = state.errorMessage
         isLoading = state.loadingInitial || state.refreshing || state.appending
         hasMore = state.hasMore
         setRefreshing(state.refreshing)

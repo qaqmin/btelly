@@ -9,6 +9,8 @@ class AppEventHub {
     sealed interface Event {
         data object UserSessionChanged : Event
 
+        data object NetworkRecovered : Event
+
         data class PlaybackProgressUpdated(
             val aid: Long,
             val cid: Long,

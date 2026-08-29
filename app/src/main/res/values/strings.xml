@@ -358,6 +358,7 @@
 
     <string name="negative_sequence">倒序</string>
     <string name="net_error">服务器开小差了，要重试吗？</string>
+    <string name="net_unavailable">网络连接不可用，请检查电视网络后重试</string>
     <string name="new_series_update">新番更新表</string>
     <string name="next">接下来：</string>
     <string name="next_ep">下一集</string>

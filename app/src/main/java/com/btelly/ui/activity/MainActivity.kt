@@ -46,6 +46,7 @@ import com.btelly.feature.player.PlayerInstancePool
 import com.btelly.feature.player.PlayerLaunchContext
 import com.btelly.feature.player.VideoPlayerFragment
 import com.btelly.core.common.log.AppLog
+import com.btelly.core.common.net.NetworkRecoveryMonitor
 import com.btelly.core.ui.navigation.TabBarView
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.common.settings.AppSettingsDataStore
@@ -203,6 +204,9 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
                     "new=${new?.javaClass?.simpleName}#${new?.id} " +
                     "inTabBar=${new?.let { isInsideTabBar(it) } ?: false}"
             )
+        }
+        NetworkRecoveryMonitor.start(this) {
+            appEventHub.dispatch(AppEventHub.Event.NetworkRecovered)
         }
         applyBackgroundImage()
         applyCategoryEntryVisibility()
@@ -440,6 +444,12 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         }
         val anchorView = currentFocus
         val handled = focusCurrentMainContent(anchorView, preferSpatialEntry = true)
+        return true
+    }
+
+    override fun onSideButtonNavigateRight(): Boolean {
+        val anchorView = currentFocus
+        focusCurrentMainContent(anchorView, preferSpatialEntry = true)
         return true
     }
 
