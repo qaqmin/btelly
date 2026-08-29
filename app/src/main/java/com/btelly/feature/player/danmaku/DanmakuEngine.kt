@@ -144,6 +144,19 @@ internal class DanmakuEngine(
     private val cacheManager: CacheManager,
 ) : DanmakuEngineMainApi, DanmakuEngineActionApi {
     private val density: Float = displayMetrics.density.takeIf { it.isFinite() && it > 0f } ?: 1f
+
+    /** TV 盒子 GPU 合成能力弱（实测 act>90 时掉帧），同屏上限比手机更紧。 */
+    private val isTvDevice: Boolean =
+        (appContext.getSystemService(Context.UI_MODE_SERVICE) as? android.app.UiModeManager)
+            ?.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
+
+    private fun maxOnScreenLimit(cfg: DanmakuConfig): Int =
+        when {
+            cfg.maxOnScreen > 0 -> cfg.maxOnScreen
+            isTvDevice -> DEFAULT_TV_MAX_ON_SCREEN
+            else -> DEFAULT_MAX_ON_SCREEN
+        }
+
     // ---- Data ----
     private val actionStateLock = Any()
     private var items: MutableList<DanmakuItem> = mutableListOf()
@@ -250,6 +263,9 @@ internal class DanmakuEngine(
     private var cachedStyle: CacheStyle? = null
     private var cachedStyleGeneration: Int = -1
     private var cachedStyleOutlinePadPx: Float = -1f
+
+    // admit 日志采样计数（action 线程私有）。
+    private var admitLogCounter: Int = 0
 
     // ---- Draw (main thread only) ----
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -372,6 +388,11 @@ internal class DanmakuEngine(
             item.cacheState = DanmakuCacheState.Init
             item.pendingCacheGeneration = -1
             // 在场条目建图失败（内存不足/位图被回收）：重新排队重试，避免直接掉进超时丢弃。
+            // 加退避：预算耗尽时每帧重试只会反复失败（实测刷数百条 FAIL 日志），
+            // 退避让位图池有时间被释放路径回填。
+            item.cacheRetryNotBeforeMs =
+                currentPositionMs.coerceAtMost((Int.MAX_VALUE - CACHE_FAIL_RETRY_BACKOFF_MS).toLong()).toInt() +
+                    CACHE_FAIL_RETRY_BACKOFF_MS
             if (item.inActive) uncachedActive.addLast(item)
             // entry 为空=内存不足建图失败；tryAcquire 失败=bitmap已被回收。
             if (AppLog.isEnabled) {
@@ -631,7 +652,10 @@ internal class DanmakuEngine(
             // being drawn. Read the snapshot-owned lease instead of mutable item state.
             val entry = snapshot.cacheEntries[i]
             if (entry != null && !entry.isRecycled && snapshot.cacheGenerations[i] == styleGen) {
-                canvas.drawBitmap(entry.bitmap, x, yTop, bitmapPaint)
+                // x 量化到 0.5px：部分 TV GPU 对任意浮点坐标的位图采样/合成走慢路径，
+                // 0.5px 步进视觉不可感知（滚动速度 ~0.35px/ms，即每 ~1.4ms 移动一格）。
+                val drawX = (x * 2f).roundToInt() * 0.5f
+                canvas.drawBitmap(entry.bitmap, drawX, yTop, bitmapPaint)
                 cachedDrawn++
                 continue
             }
@@ -1149,8 +1173,11 @@ internal class DanmakuEngine(
         val releaseAt = currentUiFrameId + 1
         var admitted = 0
         var skippedPreviouslyAdmitted = 0
+        val onScreenLimit = maxOnScreenLimit(config)
         while (index < items.size && items[index].timeMs() <= nowMs) {
             val item = items[index]
+            // 超过同屏上限：停止补放扫描，条目留给 spawnNewItems 在腾出空间后处理。
+            if (active.size >= onScreenLimit) break
             index++
             if (item.data.text.isBlank()) continue
             if (item.timeMs() < admitSinceMs) {
@@ -1374,6 +1401,8 @@ internal class DanmakuEngine(
         maxYTop: Float,
     ) {
         if (pending.isEmpty()) return
+        // 同屏上限内不再重试 pending：条目会按 age 上限自然放弃，避免高密度时队列空转。
+        if (active.size >= maxOnScreenLimit(config)) return
         val pendingCount = pending.size
         var processed = 0
         var indexInQueue = 0
@@ -1431,10 +1460,14 @@ internal class DanmakuEngine(
     ) {
         skipOld(nowMs, rollingDurationMs)
         dropIfLagging(nowMs)
+        val onScreenLimit = maxOnScreenLimit(config)
         var spawnAttempts = 0
         while (index < items.size && items[index].timeMs() <= nowMs) {
             if (spawnAttempts >= MAX_SPAWN_PER_FRAME) break
             val item = items[index]
+            // 超过同屏上限：停止投放，条目留在时间线上，等退场腾出空间后入场
+            //（仍在 lag 窗口内；超窗由 dropIfLagging 丢弃）。
+            if (active.size >= onScreenLimit) break
             index++
             spawnAttempts++
             if (item.data.text.isBlank()) continue
@@ -1653,10 +1686,17 @@ internal class DanmakuEngine(
         var requested = 0
 
         // ---- 1) 在场未缓存条目（最老等待者优先）----
-        while (uncachedActive.isNotEmpty() && requested < MAX_CACHE_REQUESTS_PER_FRAME) {
+        // scanBudget 限定单帧扫描圈数：退避未到期的条目放回队尾，避免空转循环。
+        val nowMsForRetry = currentPositionMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        var scanBudget = uncachedActive.size
+        while (uncachedActive.isNotEmpty() && requested < MAX_CACHE_REQUESTS_PER_FRAME && scanBudget-- > 0) {
             if (cacheManager.queueDepth() >= MAX_CACHE_QUEUE_DEPTH) return
             val item = uncachedActive.removeFirst()
             if (!item.inActive) continue // 已退场，stale 条目直接丢弃
+            if (item.cacheRetryNotBeforeMs > nowMsForRetry) {
+                uncachedActive.addLast(item) // 退避未到期：放回队尾下轮再看
+                continue
+            }
             if (hasValidCache(item, style.generation)) continue // 预取已送达
             if (item.cacheState == DanmakuCacheState.Rendering) continue // 已在途
             enqueueCacheRequest(item, style)
@@ -1751,6 +1791,7 @@ internal class DanmakuEngine(
         item.cacheState = DanmakuCacheState.Init
         item.cacheGeneration = -1
         item.pendingCacheGeneration = -1
+        item.cacheRetryNotBeforeMs = 0
     }
 
     private fun clearLaneReferenceIfMatch(item: DanmakuItem) {
@@ -1855,7 +1896,9 @@ internal class DanmakuEngine(
         // 弹幕入场记录。若同一 t=ms + text 出现两次 activate，即为"重复入场"。
         // dmid = 弹幕唯一 ID（B 站协议 dmid）：同 dmid 两次 admit = 引擎重放；
         // dmid 不同但内容相同 = 数据里真实存在多条（合并策略问题）。
-        if (AppLog.isEnabled) {
+        // 弹幕入场记录（1/8 采样：高密度下每条都拼字符串+format，日志开销本身成为卡顿源）。
+        // 采样不破坏"重复入场"排查：同 dmid 重复出现仍有概率被抓到。
+        if (AppLog.isEnabled && admitLogCounter++ % ADMIT_LOG_SAMPLE == 0) {
             AppLog.w(
                 TAG,
                 "admit kind=$kind t=${item.timeMs()}ms dmid=${item.data.dmid ?: item.data.midHash?.takeLast(6) ?: "-"} " +
@@ -2006,6 +2049,16 @@ internal class DanmakuEngine(
         private const val MAX_PREFETCH_REQUESTS_PER_FRAME = 8
         private const val MAX_CACHE_QUEUE_DEPTH = 48
         private const val MAX_CACHE_WAIT_MS = 1_600
+
+        /** 建图失败（预算耗尽）后的重试退避：给释放路径时间回填位图池。 */
+        private const val CACHE_FAIL_RETRY_BACKOFF_MS = 250
+
+        /** 同屏弹幕数上限（TV / 非 TV 自动档）。 */
+        private const val DEFAULT_TV_MAX_ON_SCREEN = 50
+        private const val DEFAULT_MAX_ON_SCREEN = 80
+
+        /** admit 日志采样步长（每 N 条输出 1 条）。 */
+        private const val ADMIT_LOG_SAMPLE = 8
         private const val ADMISSION_HISTORY_PRUNE_INTERVAL_MS = 1_000
         private const val DRAW_MISS_LOG_INTERVAL_MS = 500L
 

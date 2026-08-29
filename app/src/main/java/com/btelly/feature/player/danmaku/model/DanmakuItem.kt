@@ -29,6 +29,12 @@ internal class DanmakuItem(
     // ---- Active state (action thread only) ----
     var kind: DanmakuKind = DanmakuKind.SCROLL
     var lane: Int = 0
+
+    /**
+     * 建图失败（预算耗尽等）后的重试退避时间点（引擎时钟 ms，action 线程私有）。
+     * 防止预算紧张时同一 item 每帧重入队空转刷日志。releaseItemCache 时归零。
+     */
+    var cacheRetryNotBeforeMs: Int = 0
     /**
      * 是否当前在场（action 线程私有）。activate() 置 true，所有从 active 列表移除的路径置 false。
      * 替代 O(n) 的 `item in active` 线性扫描（applyCacheResult/rebuildScene 每帧/每条都会查）。

@@ -50,6 +50,7 @@ internal class CacheManager(
         private const val MSG_BUILD_CACHE = 2001
         private const val MSG_CLEAR = 2002
         private const val MSG_RELEASE = 2099
+        private const val MSG_FLUSH_RELEASED = 2003
 
         private const val CACHE_POOL_MAX_COUNT: Int = 72
 
@@ -177,6 +178,16 @@ internal class CacheManager(
         }
     }
 
+    /**
+     * 延迟回收队列：主线程（drainReleasedBitmaps）只做出队并转投本队列，
+     * 真正的 pool 归还/bitmap.recycle()（触发 NativeAllocationRegistry 与驱动侧纹理释放，
+     * 突发时可达每帧 24 条）由 cache 线程在 MSG_FLUSH_RELEASED 中执行，避免顶到 vsync。
+     * recycleFlushPosted 去重：同时最多挂起一个 flush 消息。
+     */
+    private val recycleLock = Any()
+    private val recycleQueue = ArrayDeque<SharedCacheEntry>()
+    private val recycleFlushPosted = java.util.concurrent.atomic.AtomicBoolean(false)
+
     fun drainReleasedBitmaps(currentFrameId: Int) {
         var drained = 0
         // 溢出队列持有更早的条目：非空时优先处理，其头部若未到期则环形队列同样等待。
@@ -192,6 +203,24 @@ internal class CacheManager(
                     releaseRing.pollEntry() ?: break
                 }
             drained++
+            synchronized(recycleLock) { recycleQueue.addLast(entry) }
+        }
+        if (drained > 0) flushRecycleQueueAsync()
+    }
+
+    private fun flushRecycleQueueAsync() {
+        if (!recycleFlushPosted.compareAndSet(false, true)) return
+        val sent = runCatching { handler.sendEmptyMessage(MSG_FLUSH_RELEASED) }.isSuccess
+        if (!sent) {
+            // cache 线程已退出（release 后的迟到 drain）：主线程兜底同步回收。
+            recycleFlushPosted.set(false)
+            flushRecycleQueueSync()
+        }
+    }
+
+    private fun flushRecycleQueueSync() {
+        while (true) {
+            val entry = synchronized(recycleLock) { recycleQueue.removeFirstOrNull() } ?: break
             processReleasedEntry(entry)
         }
     }
@@ -229,17 +258,29 @@ internal class CacheManager(
                     queueDepth.decrementAndGet()
                     buildCache(req)
                 }
+                MSG_FLUSH_RELEASED -> {
+                    recycleFlushPosted.set(false)
+                    flushRecycleQueueSync()
+                    // drain 与本消息竞态新入队：再挂一个 flush 兜底。
+                    if (synchronized(recycleLock) { recycleQueue.isNotEmpty() }) {
+                        flushRecycleQueueAsync()
+                    }
+                }
                 MSG_CLEAR -> {
+                    recycleFlushPosted.set(false)
                     queueDepth.set(0)
                     clearSharedCacheStore()
                     releaseAllPendingEntries()
+                    flushRecycleQueueSync()
                     pool.clear()
                 }
                 MSG_RELEASE -> {
                     removeCallbacksAndMessages(null)
+                    recycleFlushPosted.set(false)
                     queueDepth.set(0)
                     clearSharedCacheStore()
                     releaseAllPendingEntries()
+                    flushRecycleQueueSync()
                     pool.clear()
                     runCatching { thread.quitSafely() }
                 }
