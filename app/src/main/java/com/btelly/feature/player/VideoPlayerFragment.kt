@@ -1,5 +1,8 @@
 package com.btelly.feature.player
 
+import com.btelly.feature.player.PlayerContentGuards
+import com.btelly.core.common.format.MediaFormatUtils
+import com.btelly.core.common.format.NumberUtils
 import android.content.Intent
 import android.os.Bundle
 import android.os.Build
@@ -1333,20 +1336,20 @@ class VideoPlayerFragment : Fragment() {
         if (videoFormat != null) {
             val w = videoFormat.width
             val h = videoFormat.height
-            sb.appendLine("分辨率: ${w}x${h}${formatAspectRatio(w, h)}")
-            val codec = formatCodecName(videoFormat.sampleMimeType)
+            sb.appendLine("分辨率: ${w}x${h}${MediaFormatUtils.formatAspectRatio(w, h)}")
+            val codec = MediaFormatUtils.formatCodecName(videoFormat.sampleMimeType)
             val bitrate = if (videoFormat.bitrate > 0) " ${videoFormat.bitrate / 1000}kbps" else ""
             sb.appendLine("视频: $codec$bitrate")
         }
         val audioFormat = p.audioFormat
         if (audioFormat != null) {
-            val codec = formatCodecName(audioFormat.sampleMimeType)
+            val codec = MediaFormatUtils.formatCodecName(audioFormat.sampleMimeType)
             val sr = if (audioFormat.sampleRate > 0) " ${audioFormat.sampleRate}Hz" else ""
             sb.appendLine("音频: $codec$sr")
         }
         if (p.duration > 0) {
-            val pos = formatMs(p.currentPosition)
-            val dur = formatMs(p.duration)
+            val pos = NumberUtils.formatTimeMs(p.currentPosition)
+            val dur = NumberUtils.formatTimeMs(p.duration)
             val speed = p.playbackParameters.speed
             sb.appendLine("进度: $pos / $dur (${speed}x)")
         }
@@ -1364,54 +1367,6 @@ class VideoPlayerFragment : Fragment() {
             sb.append("状态: $stateLabel")
         }
         return sb.toString().trimEnd()
-    }
-
-    private fun formatCodecName(mimeType: String?): String {
-        if (mimeType == null) return "未知"
-        return when {
-            mimeType.contains("avc") || mimeType.contains("h264") -> "AVC (H.264)"
-            mimeType.contains("hevc") || mimeType.contains("h265") -> "HEVC (H.265)"
-            mimeType.contains("av01") -> "AV1"
-            mimeType.contains("vp9") -> "VP9"
-            mimeType.contains("vp8") -> "VP8"
-            mimeType.contains("aac") -> "AAC"
-            mimeType.contains("opus") -> "Opus"
-            mimeType.contains("mp4a") -> "AAC"
-            mimeType.contains("ec-3") || mimeType.contains("eac3") -> "E-AC-3"
-            mimeType.contains("ac-3") -> "AC-3"
-            mimeType.contains("flac") -> "FLAC"
-            mimeType.contains("vorbis") -> "Vorbis"
-            else -> mimeType.substringAfterLast("/")
-        }
-    }
-
-    private fun formatAspectRatio(w: Int, h: Int): String {
-        if (w <= 0 || h <= 0) return ""
-        val gcd = gcd(w, h)
-        val rw = w / gcd
-        val rh = h / gcd
-        if (rw > 30 || rh > 30) return ""
-        return " ($rw:$rh)"
-    }
-
-    private fun gcd(a: Int, b: Int): Int {
-        var x = a
-        var y = b
-        while (y != 0) {
-            val t = y
-            y = x % y
-            x = t
-        }
-        return x
-    }
-
-    private fun formatMs(ms: Long): String {
-        val totalSec = ms / 1000
-        val h = totalSec / 3600
-        val m = (totalSec % 3600) / 60
-        val s = totalSec % 60
-        return if (h > 0) String.format(Locale.getDefault(), "%d:%02d:%02d", h, m, s)
-        else String.format(Locale.getDefault(), "%02d:%02d", m, s)
     }
 
     private fun applyPlayerSettings(settings: PlayerSettings) {
@@ -1514,7 +1469,7 @@ class VideoPlayerFragment : Fragment() {
 
         val metaParts = buildList {
             video.owner?.name?.takeIf { it.isNotBlank() }?.let(::add)
-            video.stat?.view?.takeIf { it > 0 }?.let { add("${formatCount(it)}播放") }
+            video.stat?.view?.takeIf { it > 0 }?.let { add("${NumberUtils.formatCount(it)}播放") }
             if (video.pubDate > 0) {
                 add(TimeUtils.formatTime(video.pubDate))
             }
@@ -1581,29 +1536,11 @@ class VideoPlayerFragment : Fragment() {
     }
 
     private fun isVideoBlockedByMinorProtection(video: VideoModel): Boolean {
-        return ContentFilter.isVideoBlocked(
-            context = requireContext(),
-            typeName = video.typeName,
-            title = video.title,
-            teenageMode = video.teenageMode,
-            desc = video.desc,
-            authorName = video.authorName,
-            aid = video.aid,
-            bvid = video.bvid,
-            coverUrl = video.coverUrl,
-            typeId = video.typeId
-        )
+        return PlayerContentGuards.isVideoBlocked(requireContext(), video)
     }
 
     private fun isEpisodeBlockedByMinorProtection(episode: VideoPlayerViewModel.PlayableEpisode): Boolean {
-        return ContentFilter.isVideoBlocked(
-            context = requireContext(),
-            typeName = "",
-            title = episode.title,
-            aid = episode.aid,
-            bvid = episode.bvid,
-            coverUrl = episode.cover
-        )
+        return PlayerContentGuards.isEpisodeBlocked(requireContext(), episode)
     }
 
     private fun showChooseEpisodeDialog() {
@@ -1637,7 +1574,7 @@ class VideoPlayerFragment : Fragment() {
         playerView.setSubTitle(
             buildList {
                 video.owner?.name?.takeIf { it.isNotBlank() }?.let(::add)
-                video.viewCount.takeIf { it > 0L }?.let { add("${formatCount(it)}播放") }
+                video.viewCount.takeIf { it > 0L }?.let { add("${NumberUtils.formatCount(it)}播放") }
                 val publishTime = when {
                     video.pubDate > 0L -> video.pubDate
                     video.createTime > 0L -> video.createTime
@@ -1671,14 +1608,6 @@ class VideoPlayerFragment : Fragment() {
         parentFragmentManager.commit {
             replace(R.id.player_container, fragment, tag)
             addToBackStack(tag)
-        }
-    }
-
-    private fun formatCount(count: Long): String {
-        return when {
-            count >= 100000000L -> String.format(Locale.getDefault(), "%.1f亿", count / 100000000.0)
-            count >= 10000L -> String.format(Locale.getDefault(), "%.1f万", count / 10000.0)
-            else -> count.toString()
         }
     }
 
