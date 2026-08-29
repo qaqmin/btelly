@@ -61,11 +61,6 @@
 -keep class * extends androidx.lifecycle.ViewModel { <init>(...); }
 -keep class com.btelly.feature.**ViewModel { *; }
 
-# AkDanmaku（内嵌弹幕引擎，Ashley ECS 使用反射创建组件）
--keep class com.kuaishou.akdanmaku.** { *; }
--keep class com.badlogicgames.ashley.** { *; }
--keep class com.badlogicgames.gdx.** { *; }
-
 # 通用 Android 优化
 -dontwarn javax.annotation.**
 -dontwarn kotlin.Unit

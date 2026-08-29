@@ -37,6 +37,7 @@ class BTellyApplication : Application() {
     
     companion object {
         private const val TAG = "AppStartup"
+        private const val LEGACY_KEY_DANMAKU_LITE_ENGINE = "danmaku_lite_engine"
 
         lateinit var instance: BTellyApplication
             private set
@@ -102,6 +103,9 @@ class BTellyApplication : Application() {
             AppLog.i(TAG, "STARTUP sessionRuntimeInit start reason=$reason")
             // 登录态只需要设置缓存、Cookie 和持久化用户资料，不需要先构造 OkHttp/Retrofit。
             trace("initSettingsBlocking", startMs) { initSettingsBlocking(reason) }
+            // 清理已下线的"弹幕引擎"设置（老包可能存"关"=功能优先引擎，该引擎已删除，
+            // 播放器现已固定轻量引擎）。removeAsync 幂等，key 不存在时不会写盘。
+            cleanupLegacyDanmakuEngineSetting()
             // 青少年模式：设置缓存就绪后刷新休息状态，让 restingFlow 反映持久化中的真实值
             com.btelly.core.common.content.TeenModeTimer.initOnStartup()
             trace("initNetworkSession", startMs) { initNetworkSession() }
@@ -154,6 +158,11 @@ class BTellyApplication : Application() {
 
     private fun initSettingsBlocking(reason: String) {
         KoinPlatform.getKoin().get<AppSettingsDataStore>().initCacheBlocking(reason)
+    }
+
+    private fun cleanupLegacyDanmakuEngineSetting() {
+        KoinPlatform.getKoin().get<AppSettingsDataStore>()
+            .removeAsync(LEGACY_KEY_DANMAKU_LITE_ENGINE)
     }
 
     private fun initFileCache() {

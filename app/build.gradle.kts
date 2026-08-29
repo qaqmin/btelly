@@ -263,11 +263,6 @@ dependencies {
     // Protobuf (弹幕解析)
     implementation("com.google.protobuf:protobuf-javalite:3.24.0")
 
-    // 官方弹幕引擎源码已内嵌在工程中。
-    // Keep gdx core for utility classes used by the embedded danmaku engine.
-    implementation("com.badlogicgames.gdx:gdx:1.10.0")
-    implementation("com.badlogicgames.ashley:ashley:1.7.3")
-
     // 二维码解析
     implementation("com.google.zxing:core:3.5.2")
 

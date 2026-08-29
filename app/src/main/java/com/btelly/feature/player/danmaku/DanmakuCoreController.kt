@@ -28,11 +28,10 @@ import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 /**
- * 上游实现 弹幕引擎适配控制器（性能优先模式）。
+ * 上游实现 弹幕引擎适配控制器（唯一弹幕引擎）。
  *
- * 和 [com.btelly.feature.player.view.MyPlayerDanmakuController] 提供**同形 API**，
- * 让 [com.btelly.feature.player.view.MyPlayerView] 用相同的调用模式驱动两个引擎
- * （功能优先=原 AkDanmaku，性能优先=本类 + [DanmakuView]）。
+ * 实现 [DanmakuController]/[LiveDanmakuController]，由
+ * [com.btelly.feature.player.view.MyPlayerView] 以引擎中立接口驱动。
  *
  * 职责：
  *  - 数据预处理：过滤（[BiliDanmakuFilterPolicy]）+ 合并重复（[DanmakuDuplicateMergePolicy]）
@@ -40,9 +39,9 @@ import kotlin.math.abs
  *  - 设置映射：把共享的 [DanmakuSettingsSnapshot] 翻译成引擎的 [DanmakuConfig]。
  *  - 播放同步：通过 positionProvider 回调让引擎自驱动，seek 时主动通知。
  *
- * 不支持（性能优先模式）：特殊/脚本弹幕、表情/高赞图标。
- * 智能过滤、重复合并和 VIP 渐变与功能优先模式共用引擎中立实现。
- * 智能防挡由引擎外层的中立宿主统一裁剪，不依赖功能优先引擎。
+ * 不支持：特殊/脚本弹幕、表情/高赞图标。
+ * 智能过滤、重复合并和 VIP 渐变为引擎中立实现。
+ * 智能防挡由引擎外层的中立宿主统一裁剪。
  */
 class DanmakuCoreController(
     private val context: Context,
@@ -62,7 +61,7 @@ class DanmakuCoreController(
         private const val LIVE_EMIT_BATCH_MS = 50L
         private const val TAIL_PATCH_MERGE_WINDOW_MS = 2_000
 
-        // ---- 漂移监督器（三段式对表，阈值对齐兼容引擎 MyPlayerDanmakuController）----
+        // ---- 漂移监督器（三段式对表，阈值沿用已移除功能向引擎的线上值）----
         /** 对表周期：电视端 1.5s，软同步收敛速率 ≈ 33ms/s（5% × 1.5s 拍间隔内持续生效）。 */
         private const val DRIFT_SYNC_INTERVAL_MS = 1_500L
         /** 死区：偏差在此以内完全忽略，弹幕按原速走。 */
@@ -104,7 +103,7 @@ class DanmakuCoreController(
     @Volatile
     private var currentPlaybackSpeed: Float = 1f
 
-    // ---- 漂移监督器：三段式对表（对齐兼容引擎 MyPlayerDanmakuController 的线上策略）----
+    // ---- 漂移监督器：三段式对表（沿用已移除功能向引擎的线上策略）----
     // 平滑时钟独立积分后与视频位置的偏差必须被持续治理，否则积累到 DanmakuTimer 的
     // 2s 硬重锚阈值时一步回拉，在屏弹幕位置倒跳重滚（"同一条弹幕再滚一遍"）。
     private var driftSyncJob: Job? = null
@@ -112,7 +111,6 @@ class DanmakuCoreController(
 
     /**
      * 数据预处理协程作用域：把排序/过滤/合并/转换丢到后台线程，避免阻塞主线程。
-     * 参考 MyPlayerDanmakuController.controllerScope 的模式。
      */
     private val controllerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     /** replace 换代，append 继承当前代际并串行等待，避免连续增量互相作废。 */
@@ -443,7 +441,7 @@ class DanmakuCoreController(
 
     /**
      * 漂移监督器：周期比较引擎平滑时钟与视频位置，三段式治理
-     * （策略对齐兼容引擎 MyPlayerDanmakuController 的线上实现）：
+     * （策略沿用已移除功能向引擎的线上实现）：
      *  1. |drift| ≤ 死区(250ms)：factor=1，弹幕按原速走；
      *  2. 死区 < |drift| ≤ 硬阈值(2000ms)：factor ±5% 软同步，数秒内无感收敛；
      *  3. |drift| > 硬阈值：连续 3 拍去抖确认后按方向硬校准——
@@ -833,8 +831,7 @@ class DanmakuCoreController(
     /**
      * 设置面板 textSize(30-55) → textSizeScale。
      *
-     * 完全对齐 MyPlayerDanmakuController.toDanmakuTextScale 的映射表，
-     * 保证两引擎同一档位产生相同比例的字号。
+     * 映射表沿用已移除功能向引擎的 toDanmakuTextScale，保证档位视觉不变。
      */
     private fun Int.toDmTextScale(): Float = when (this) {
         30 -> 0.55f; 31 -> 0.6f; 32 -> 0.65f; 33 -> 0.7f; 34 -> 0.75f
@@ -850,7 +847,7 @@ class DanmakuCoreController(
 
     /**
      * screenArea → 引擎 area(0-1)。
-     * 对齐 MyPlayerDanmakuController.toDanmakuScreenPart 的映射。
+     * 映射沿用已移除功能向引擎的 toDanmakuScreenPart。
      */
     private fun Int.toDmArea(): Float = when (this) {
         -1 -> 1f / 8f

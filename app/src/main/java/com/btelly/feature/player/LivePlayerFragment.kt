@@ -155,8 +155,7 @@ class LivePlayerFragment : Fragment() {
     }
 
     private fun setupPlayer() {
-        // 直播统一使用性能优先引擎，不再依赖功能优先引擎的直播实现。
-        binding.playerView.setDanmakuEngineMode(true)
+        binding.playerView.setupDanmakuEngine()
         val liveHeaders = mapOf(
             "Origin" to "https://live.bilibili.com/",
             "Referer" to if (roomId > 0L) {

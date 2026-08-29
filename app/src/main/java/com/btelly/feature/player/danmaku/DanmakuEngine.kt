@@ -482,10 +482,10 @@ internal class DanmakuEngine(
                 actionMetricsValid = true
             }
             // 度量高度对齐 akdanmaku SimpleRenderer.getCacheHeight：descent - ascent + leading。
-            // leading 对 CJK 字体通常为 0，但西文/混排时可能有值，补上保证两套引擎行高基准一致。
+            // leading 对 CJK 字体通常为 0，但西文/混排时可能有值，补上保证行高基准与视觉档位一致。
             val textBoxHeight = (actionFontMetrics.descent - actionFontMetrics.ascent + actionFontMetrics.leading) + outlinePad * 2f
             // 统一行高倍率：laneHeight = textBoxHeight × factor，factor 来自 DanmakuTrackSpacing。
-            // 与 akdanmaku（margin = itemHeight × (factor-1)）共用同一语义，两套引擎视觉间距一致。
+            // 与 akdanmaku（margin = itemHeight × (factor-1)）语义一致，保留原有视觉间距。
             // factor<1 时 laneHeight<textBoxHeight，吃掉 fontMetrics 度量留白使同屏容纳更多行；
             // 下限 0.65×textBoxHeight 保证相邻 lane 字形不重叠。
             val laneHeight = (textBoxHeight * cfg.trackSpacing.factor).coerceAtLeast(textBoxHeight * 0.65f)

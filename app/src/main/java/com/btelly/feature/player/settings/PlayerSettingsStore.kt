@@ -34,13 +34,7 @@ data class PlayerSettings(
     val sponsorBlockAutoSkip: Boolean = true,
     // 音量均衡：挂载 DynamicsProcessing 限制器 + LoudnessEnhancer。默认关闭——
     // 这些系统音效在大量电视盒子上驱动实现有 bug，会引入失真（电音）。
-    val audioNormalize: Boolean = false,
-    // 弹幕引擎：false=功能优先（AkDanmaku 全功能：防挡/渐变/特殊弹幕，但重），
-    // true=性能优先（轻量引擎：纯色滚动弹幕 + 独立智能防挡，无渐变/特殊，但流畅）。
-    // 切换需重新进入播放生效。
-    // 默认 true：电视端 GPU/CPU 渲染能力弱，akdanmaku 的 View.onDraw+clipPath 防挡
-    // 易导致卡顿；轻量引擎更流畅。用户可在设置切回 akdanmaku 以获得全功能。
-    val danmakuLiteEngine: Boolean = true
+    val audioNormalize: Boolean = false
 )
 
 private object VideoQualityDefaults {
@@ -75,7 +69,6 @@ object PlayerSettingsStore {
     private const val KEY_SPONSOR_BLOCK_ENABLED = "sponsor_block_enabled"
     private const val KEY_SPONSOR_BLOCK_AUTO_SKIP = "sponsor_block_auto_skip"
     private const val KEY_AUDIO_NORMALIZE = "audio_normalize"
-    private const val KEY_DANMAKU_LITE_ENGINE = "danmaku_lite_engine"
 
     fun load(context: Context): PlayerSettings {
         fun readSetting(key: String): String? = appSettings.getCachedString(key)
@@ -117,8 +110,6 @@ object PlayerSettingsStore {
             append(readSetting(KEY_SPONSOR_BLOCK_AUTO_SKIP).orEmpty())
             append("|")
             append(readSetting(KEY_AUDIO_NORMALIZE).orEmpty())
-            append("|")
-            append(readSetting(KEY_DANMAKU_LITE_ENGINE).orEmpty())
         }
         if (snapshot == lastSettingsSnapshot) {
             return cachedSettings!!
@@ -202,10 +193,6 @@ object PlayerSettingsStore {
             audioNormalize = parseToggle(
                 readSetting(KEY_AUDIO_NORMALIZE),
                 defaultValue = false
-            ),
-            danmakuLiteEngine = parseToggle(
-                readSetting(KEY_DANMAKU_LITE_ENGINE),
-                defaultValue = true
             )
         )
         cachedSettings = settings
@@ -216,12 +203,6 @@ object PlayerSettingsStore {
     fun saveAfterPlayMode(mode: AfterPlayMode) {
         appSettings.putStringAsync(KEY_AFTER_PLAY, mode.toSettingValue())
         cachedSettings = cachedSettings?.copy(afterPlayMode = mode)
-        lastSettingsSnapshot = null
-    }
-
-    fun saveDanmakuLiteEngine(enabled: Boolean) {
-        appSettings.putStringAsync(KEY_DANMAKU_LITE_ENGINE, if (enabled) "开" else "关")
-        cachedSettings = cachedSettings?.copy(danmakuLiteEngine = enabled)
         lastSettingsSnapshot = null
     }
 
