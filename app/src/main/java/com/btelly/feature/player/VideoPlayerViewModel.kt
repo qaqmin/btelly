@@ -75,11 +75,6 @@ class VideoPlayerViewModel(
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
-    private data class SubtitleLoadResult(
-        val data: SubtitleData?,
-        val httpCode: Int? = null
-    )
-
     enum class EpisodeCatalogSource {
         PAGES,
         UGC_SEASON,
@@ -100,7 +95,6 @@ class VideoPlayerViewModel(
         const val SAVED_SEEK_POSITION_MS = "saved_player_seek_position_ms"
         const val SAVED_QUALITY_ID = "saved_player_quality_id"
         const val SAVED_AUDIO_QUALITY_ID = "saved_player_audio_quality_id"
-        const val SAVED_SUBTITLE_INDEX = "saved_player_subtitle_index"
 
         // 跨 VM 实例记录最近播放过的 cid，用于同视频重播热路径检测
         private val recentlyPlayedCids = linkedSetOf<Long>()
@@ -353,17 +347,18 @@ class VideoPlayerViewModel(
     var useDashPlayback: Boolean = true
 
     // Keeps stream selection and fallback policy out of the ViewModel's lifecycle code.
+    private val cdnPreconnector = CdnPreconnector(playerOkHttpClient)
     private val streamResolver = VideoPlayerStreamResolver(
         dataSourceFactory = dataSourceFactory,
-        urlNormalizer = ::normalizeUrl
+        urlNormalizer = VideoPlayerUrlUtils::normalizeUrl
     )
     private val dashMediaSourceFactory = VideoPlayerDashMediaSourceFactory(
         dataSourceFactory = cacheDataSourceFactory,
-        urlNormalizer = ::normalizeUrl
+        urlNormalizer = VideoPlayerUrlUtils::normalizeUrl
     )
     private val douyinWarmupManager = DouyinPlaybackWarmupManager(
         dataSourceFactory = cacheDataSourceFactory,
-        urlNormalizer = ::normalizeUrl
+        urlNormalizer = VideoPlayerUrlUtils::normalizeUrl
     )
     private var currentDashSession: VideoPlaybackSession? = null
     private val qualityPolicy = VideoPlayerQualityPolicy()
@@ -380,11 +375,7 @@ class VideoPlayerViewModel(
         logTag = TAG
     )
 
-    private val subtitleCache = object : LinkedHashMap<String, SubtitleData>(8, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, SubtitleData>): Boolean {
-            return size > 8
-        }
-    }
+
 
     private val _videoInfo = MutableStateFlow<VideoDetailModel?>(null)
     val videoInfo: StateFlow<VideoDetailModel?> = _videoInfo
@@ -450,14 +441,23 @@ class VideoPlayerViewModel(
     private val _selectedVideoCodec = MutableStateFlow<VideoCodecEnum?>(null)
     val selectedVideoCodec: StateFlow<VideoCodecEnum?> = _selectedVideoCodec
 
-    private val _subtitles = MutableStateFlow<List<SubtitleInfoModel>>(emptyList())
-    val subtitles: StateFlow<List<SubtitleInfoModel>> = _subtitles
 
-    private val _selectedSubtitleIndex = MutableStateFlow(-1)
-    val selectedSubtitleIndex: StateFlow<Int> = _selectedSubtitleIndex
 
-    private val _currentSubtitleText = MutableStateFlow<String?>(null)
-    val currentSubtitleText: StateFlow<String?> = _currentSubtitleText
+
+    private val subtitleController = SubtitlePlaybackController(
+        scope = viewModelScope,
+        okHttpClient = okHttpClient,
+        playInfoGateway = playInfoGateway,
+        savedStateHandle = savedStateHandle,
+        currentAid = { currentAid },
+        currentBvid = { currentBvid },
+        currentCid = { currentCid },
+        currentPositionMs = { _currentPosition.value }
+    )
+    val subtitles: StateFlow<List<SubtitleInfoModel>> get() = subtitleController.subtitles
+    val selectedSubtitleIndex: StateFlow<Int> get() = subtitleController.selectedSubtitleIndex
+    val currentSubtitleText: StateFlow<String?> get() = subtitleController.currentSubtitleText
+    fun selectSubtitle(index: Int) = subtitleController.selectSubtitle(index)
 
     // ==================== 弹幕系统（转发到 DanmakuPlaybackController）====================
     val danmaku: StateFlow<List<DmModel>> get() = danmakuController.danmaku
@@ -518,14 +518,8 @@ class VideoPlayerViewModel(
     private var currentSeasonId: Long? = null
     private var currentEpId: Long? = null
     private var currentPlayInfo: PlayInfoModel? = null
-    private var currentSubtitleData: SubtitleData? = null
-    private var currentSubtitleCueIndex: Int = 0
-    private var subtitleLoadToken: Long = 0L
-    private var subtitleOwnerBvid: String? = null
-    private var subtitleOwnerCid: Long = 0L
     private var currentGraphVersion: Long = 0L
     private var currentSettings: PlayerSettings = PlayerSettingsStore.load(appContext)
-    private var shouldAutoSelectSubtitle = currentSettings.showSubtitleByDefault
     private val heartbeatReporter = PlaybackHeartbeatReporter(
         apiService = apiService,
         sessionGateway = sessionGateway,
@@ -742,7 +736,7 @@ class VideoPlayerViewModel(
         savedStateHandle[SAVED_SEEK_POSITION_MS] = pendingSeekPositionMs.coerceAtLeast(0L)
         savedStateHandle[SAVED_QUALITY_ID] = requestedQualityId ?: selectedQualityId ?: 0
         savedStateHandle[SAVED_AUDIO_QUALITY_ID] = requestedAudioId ?: selectedAudioId ?: 0
-        savedStateHandle[SAVED_SUBTITLE_INDEX] = _selectedSubtitleIndex.value
+        subtitleController.persistSelection()
     }
 
     fun consumeSavedSnapshot(): SavedPlayerSnapshot? {
@@ -756,7 +750,7 @@ class VideoPlayerViewModel(
         val seekPositionMs = savedStateHandle.remove<Long>(SAVED_SEEK_POSITION_MS) ?: 0L
         val qualityId = savedStateHandle.remove<Int>(SAVED_QUALITY_ID) ?: 0
         val audioQualityId = savedStateHandle.remove<Int>(SAVED_AUDIO_QUALITY_ID) ?: 0
-        val subtitleIndex = savedStateHandle.remove<Int>(SAVED_SUBTITLE_INDEX) ?: -1
+        val subtitleIndex = subtitleController.consumePersistedSelection()
         return SavedPlayerSnapshot(
             aid = aid,
             bvid = bvid,
@@ -874,10 +868,6 @@ class VideoPlayerViewModel(
         viewModelScope.launch {
             _isLoading.value = true
             currentPlayInfo = null
-            subtitleLoadToken++
-            currentSubtitleData = null
-            subtitleOwnerBvid = null
-            subtitleOwnerCid = 0L
             currentGraphVersion = 0L
             AppLog.i(TAG, "subtitle_trace reset_by_loadVideoInfo cid=$currentCid bvid=$currentBvid")
             loadedPlayerExtrasCid = 0L
@@ -889,16 +879,13 @@ class VideoPlayerViewModel(
             selectedAudioId = null
             selectedCodec = null
             didApplyLastPlayPosition = pendingSeekPositionMs > 0L
-            shouldAutoSelectSubtitle = currentSettings.showSubtitleByDefault
             heartbeatReporter.clear()
             fallbackController.reset()
             // 自动连播倒计时已经准备好的同一目标不能在入口重置时被清掉，否则会退回冷启动链路。
             clearPreloadedPlaybackIfDifferent(currentPlayRequestIdentity(), cancelJob = false)
             hasReachedFirstFrame = false
             currentDashSession = null
-            _selectedSubtitleIndex.value = -1
-            _currentSubtitleText.value = null
-            currentSubtitleCueIndex = 0
+            subtitleController.resetForNewVideo(currentSettings.showSubtitleByDefault)
             danmakuController.clear()
             sponsorLoadJob?.cancel()
             sponsorBlockUseCase.reset()
@@ -1019,13 +1006,7 @@ class VideoPlayerViewModel(
         currentBvid = episode.bvid.takeIf { it.isNotBlank() } ?: targetBvid ?: currentBvid.orEmpty()
         currentSeasonId = targetSeasonId ?: currentSeasonId
         currentEpId = targetEpId ?: currentEpId
-        subtitleLoadToken++
-        currentSubtitleData = null
-        subtitleOwnerBvid = null
-        subtitleOwnerCid = 0L
-        currentSubtitleCueIndex = 0
-        _selectedSubtitleIndex.value = -1
-        _currentSubtitleText.value = null
+        subtitleController.resetSession()
         AppLog.i(TAG, "subtitle_trace reset_by_selectEpisode cid=$currentCid bvid=$currentBvid")
         _interactionModel.value = null
         _interactionHiddenVars.value = null
@@ -1078,13 +1059,7 @@ class VideoPlayerViewModel(
         didApplyLastPlayPosition = false
         currentSeasonId = null
         currentEpId = null
-        subtitleLoadToken++
-        currentSubtitleData = null
-        subtitleOwnerBvid = null
-        subtitleOwnerCid = 0L
-        currentSubtitleCueIndex = 0
-        _selectedSubtitleIndex.value = -1
-        _currentSubtitleText.value = null
+        subtitleController.resetSession()
         danmakuController.markDmMaskIdle()
         clearPreloadedPlaybackIfDifferent(currentPlayRequestIdentity(), cancelJob = false)
         loadPlayUrl(preferLastPlayTime = false)
@@ -1145,87 +1120,7 @@ class VideoPlayerViewModel(
         )
     }
 
-    fun selectSubtitle(index: Int) {
-        val requestToken = ++subtitleLoadToken
-        _selectedSubtitleIndex.value = index
-        savedStateHandle[SAVED_SUBTITLE_INDEX] = index
-        if (index < 0) {
-            currentSubtitleData = null
-            subtitleOwnerBvid = null
-            subtitleOwnerCid = 0L
-            currentSubtitleCueIndex = 0
-            _currentSubtitleText.value = null
-            AppLog.i(TAG, "subtitle_trace select_off cid=$currentCid bvid=$currentBvid")
-            return
-        }
-        val subtitle = _subtitles.value.getOrNull(index) ?: run {
-            AppLog.w(
-                TAG,
-                "subtitle_trace select_no_track cid=$currentCid bvid=$currentBvid " +
-                    "index=$index size=${_subtitles.value.size}"
-            )
-            return
-        }
-        // [诊断] loadSubtitleData 需要网络请求。请求期间切换视频时，旧结果可能写入当前字幕状态。
-        // 记录请求归属和轨道摘要，便于确认轨道来自 detail 还是 playerInfo。
-        val reqCid = currentCid
-        val reqBvid = currentBvid
-        AppLog.i(
-            TAG,
-            "subtitle_trace select_enter cid=$reqCid bvid=$reqBvid index=$index " +
-                "lan=${subtitle.lan} url=${subtitle.subtitleUrl} " +
-                "allTracks=${subtitleTracksSummary(_subtitles.value)}"
-        )
-        viewModelScope.launch {
-            var loadedResult = loadSubtitleData(subtitle, reqBvid, reqCid)
-            if (shouldRefreshSubtitleTrack(subtitle, loadedResult.httpCode)) {
-                val refreshedTracks = playInfoGateway.requestPlayerInfoData(
-                    aid = currentAid,
-                    bvid = reqBvid,
-                    cid = reqCid,
-                    cacheBustTimestamp = System.currentTimeMillis()
-                )?.subtitle?.subtitles.orEmpty()
-                val refreshedTrack = refreshedSubtitleTrackFor(subtitle, refreshedTracks)
-                if (refreshedTrack != null) {
-                    AppLog.i(
-                        TAG,
-                        "subtitle_trace load_retry_fresh_track cid=$reqCid bvid=$reqBvid " +
-                            "code=${loadedResult.httpCode} lan=${refreshedTrack.lan}"
-                    )
-                    loadedResult = loadSubtitleData(refreshedTrack, reqBvid, reqCid)
-                }
-            }
-            val loaded = loadedResult.data
-            if (!shouldApplySubtitleLoadResult(
-                    activeToken = subtitleLoadToken,
-                    resultToken = requestToken,
-                    requestCid = reqCid,
-                    requestBvid = reqBvid,
-                    currentCid = currentCid,
-                    currentBvid = currentBvid
-                )
-            ) {
-                AppLog.w(
-                    TAG,
-                    "subtitle_trace data_drop_stale reqCid=$reqCid reqBvid=$reqBvid " +
-                        "curCid=$currentCid curBvid=$currentBvid index=$index token=$requestToken " +
-                        "activeToken=$subtitleLoadToken " +
-                        "cues=${loaded?.body?.size ?: 0}"
-                )
-                return@launch
-            }
-            currentSubtitleData = loaded
-            subtitleOwnerBvid = reqBvid
-            subtitleOwnerCid = reqCid
-            currentSubtitleCueIndex = 0
-            AppLog.i(
-                TAG,
-                "subtitle_trace data_set cid=$currentCid bvid=$currentBvid " +
-                    "index=$index cues=${loaded?.body?.size ?: 0}"
-            )
-            updateSubtitleText(_currentPosition.value)
-        }
-    }
+
 
     fun updatePlaybackPosition(
         positionMs: Long,
@@ -1245,7 +1140,7 @@ class VideoPlayerViewModel(
                 _duration.value = sanitizedDurationMs
             }
         }
-        updateSubtitleText(sanitizedPositionMs)
+        subtitleController.updateSubtitleText(sanitizedPositionMs)
         checkSponsorBlock(sanitizedPositionMs)
         // 弹幕分段同步：检测 seek 跳变并补齐目标位置弹幕，同时更新 lastSync 和加载分段。
         // 整体由 controller 封装，pendingSeekPositionMs 已在上方写入。
@@ -1521,7 +1416,7 @@ class VideoPlayerViewModel(
             )
             if (dashRoutePlan != null && dashRoutePlan.routes.isNotEmpty()) {
                 val route = dashRoutePlan.routes.first()
-                val sessionExpiryMs = resolveSessionExpiryMs(route)
+                val sessionExpiryMs = VideoPlayerUrlUtils.resolveSessionExpiryMs(route)
                 try {
                     val sourceWithState = dashMediaSourceFactory.createMediaSourceWithCdnState(route)
                     dashMediaSource = sourceWithState.mediaSource
@@ -1713,7 +1608,7 @@ class VideoPlayerViewModel(
         _episodes.value = episodeItems
         _selectedEpisodeIndex.value = selectedIndex
         _relatedVideos.value = emptyList()
-        _subtitles.value = emptyList()
+        subtitleController.setSubtitles(emptyList())
         AppLog.i(TAG, "subtitle_trace tracks_clear_source=pgc cid=$currentCid bvid=$currentBvid")
 
 
@@ -1859,7 +1754,7 @@ class VideoPlayerViewModel(
                         val detailSubtitleTracks = detail.view?.subtitle?.list
                             ?.map { it.toSubtitleInfoModel() }
                             .orEmpty()
-                        _subtitles.value = detailSubtitleTracks
+                        subtitleController.setSubtitles(detailSubtitleTracks)
                         AppLog.i(
                             TAG,
                             "subtitle_trace tracks_set_source=detail_hot cid=$currentCid bvid=$currentBvid " +
@@ -1944,7 +1839,7 @@ class VideoPlayerViewModel(
                         val detailSubtitleTracks = detail.view?.subtitle?.list
                             ?.map { it.toSubtitleInfoModel() }
                             .orEmpty()
-                        _subtitles.value = detailSubtitleTracks
+                        subtitleController.setSubtitles(detailSubtitleTracks)
                         AppLog.i(
                             TAG,
                             "subtitle_trace tracks_set_source=detail_cached cid=$currentCid bvid=$currentBvid " +
@@ -2054,7 +1949,7 @@ class VideoPlayerViewModel(
         val detailSubtitleTracks = detail.view?.subtitle?.list
             ?.map { it.toSubtitleInfoModel() }
             .orEmpty()
-        _subtitles.value = detailSubtitleTracks
+        subtitleController.setSubtitles(detailSubtitleTracks)
         AppLog.i(
             TAG,
             "subtitle_trace tracks_set_source=detail_sync cid=$currentCid bvid=$currentBvid " +
@@ -2062,7 +1957,7 @@ class VideoPlayerViewModel(
                 "count=${detailSubtitleTracks.size} " +
                 "tracks=${subtitleTracksSummary(detailSubtitleTracks)}"
         )
-        maybeAutoSelectSubtitle()
+        subtitleController.maybeAutoSelectSubtitle()
         val resolvedIdentity = currentPlayRequestIdentity()
         val canReuse = preparedPlaybackDeferred != null &&
             canReusePreparedPlayback(initialIdentity, resolvedIdentity)
@@ -2191,7 +2086,7 @@ class VideoPlayerViewModel(
         )
 
         viewModelScope.launch(Dispatchers.IO) {
-            triggerCdnPreconnectForPlayInfo(initialPlayInfo)
+            cdnPreconnector.forPlayInfo(initialPlayInfo)
         }
 
         val preferredAudioId = requestedAudioId ?: selectedAudioId
@@ -2236,10 +2131,10 @@ class VideoPlayerViewModel(
                     val firstRoute = dashRoutePlan.routes.first()
 
                     viewModelScope.launch(Dispatchers.IO) {
-                        triggerCdnPreconnectForRoute(firstRoute)
+                        cdnPreconnector.forRoute(firstRoute)
                     }
 
-                    val sessionExpiryMs = resolveSessionExpiryMs(firstRoute)
+                    val sessionExpiryMs = VideoPlayerUrlUtils.resolveSessionExpiryMs(firstRoute)
                     try {
                         val sourceWithState = dashMediaSourceFactory.createMediaSourceWithCdnState(firstRoute)
                         dashMediaSource = sourceWithState.mediaSource
@@ -2727,7 +2622,7 @@ class VideoPlayerViewModel(
                 }
                 var wrapper = initialWrapper
                 var subtitleTracks = wrapper.subtitle?.subtitles.orEmpty()
-                var detailTracks = _subtitles.value
+                var detailTracks = subtitleController.subtitlesValue()
                 var trustedTracks = trustedPlayerInfoSubtitleTracks(detailTracks, subtitleTracks)
                 if (shouldRetryPlayerInfoSubtitleTracks(detailTracks, subtitleTracks)) {
                     AppLog.w(
@@ -2753,7 +2648,7 @@ class VideoPlayerViewModel(
                     if (retryWrapper != null) {
                         wrapper = retryWrapper
                         subtitleTracks = wrapper.subtitle?.subtitles.orEmpty()
-                        detailTracks = _subtitles.value
+                        detailTracks = subtitleController.subtitlesValue()
                         trustedTracks = trustedPlayerInfoSubtitleTracks(detailTracks, subtitleTracks)
                     }
                 }
@@ -2768,13 +2663,13 @@ class VideoPlayerViewModel(
                             "playerInfoTracks=${subtitleTracksSummary(subtitleTracks)}"
                     )
                     if (trustedTracks.isNotEmpty()) {
-                        _subtitles.value = trustedTracks
+                        subtitleController.setSubtitles(trustedTracks)
                         AppLog.i(
                             TAG,
                             "subtitle_trace tracks_set_source=playerInfo cid=$currentCid bvid=$currentBvid " +
                                 "count=${trustedTracks.size}"
                         )
-                        maybeAutoSelectSubtitle()
+                        subtitleController.maybeAutoSelectSubtitle()
                     } else {
                         AppLog.w(
                             TAG,
@@ -2922,170 +2817,18 @@ class VideoPlayerViewModel(
         return selectionSnapshot.takeIf { it.selectedQualityId != null || it.selectedAudioId != null || it.selectedCodec != null }
     }
 
-    private suspend fun loadSubtitleData(
-        track: SubtitleInfoModel,
-        bvid: String?,
-        cid: Long
-    ): SubtitleLoadResult =
-        withContext(Dispatchers.IO) {
-            if (!isTrustedBilibiliSubtitleUrl(track.subtitleUrl)) {
-                AppLog.w(TAG, "subtitle_trace load_drop_untrusted_url lan=${track.lan} cid=$cid bvid=$bvid")
-                return@withContext SubtitleLoadResult(data = null)
-            }
-            val normalizedUrl = normalizeBilibiliSubtitleUrl(track.subtitleUrl)
-            val cacheKey = buildSubtitleCueCacheKey(bvid, cid, track, normalizedUrl)
-            subtitleCache[cacheKey]?.let {
-                AppLog.i(TAG, "subtitle_trace load_cache_hit key=$cacheKey cues=${it.body?.size ?: 0}")
-                return@withContext SubtitleLoadResult(data = it)
-            }
-            AppLog.i(TAG, "subtitle_trace load_net_start url=$normalizedUrl lan=${track.lan}")
 
-            runCatching {
-                val request = Request.Builder()
-                    .url(normalizedUrl)
-                    .cacheControl(CacheControl.FORCE_NETWORK)
-                    .header("Referer", "https://www.bilibili.com")
-                    .header("Cache-Control", "no-cache")
-                    .header("Pragma", "no-cache")
-                    .header(
-                        "User-Agent",
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                            "(KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
-                    )
-                    .build()
-                okHttpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        return@use SubtitleLoadResult(data = null, httpCode = response.code)
-                    }
-                    SubtitleLoadResult(
-                        data = response.body?.charStream()?.use { reader ->
-                            gson.fromJson(reader, SubtitleData::class.java)
-                        }
-                    )
-                }
-            }.getOrElse { SubtitleLoadResult(data = null) }.also { result ->
-                result.data?.let { subtitleData ->
-                    subtitleCache[cacheKey] = subtitleData
-                // [诊断] 打印首条 cue 的内容，用于判断接口返回的字幕文本是否属于当前视频。
-                // 如果这里的内容就已经是别的视频的台词，说明是服务端返回错（URL/cid 都对但内容错），
-                // 客户端无法修复；如果内容对但用户仍觉错，则疑点在时间轴/显示环节。
-                    val firstCue = subtitleData.body?.firstOrNull()
-                    AppLog.i(
-                        TAG,
-                        "subtitle_trace load_net_ok url=$normalizedUrl cues=${subtitleData.body?.size ?: 0} " +
-                            "firstFrom=${firstCue?.from} firstTo=${firstCue?.to} " +
-                            "firstText=${firstCue?.content?.replace('\n', ' ')?.take(40)}"
-                    )
-                }
-                if (result.data == null) {
-                    AppLog.w(
-                        TAG,
-                        "subtitle_trace load_net_empty url=$normalizedUrl lan=${track.lan} code=${result.httpCode}"
-                    )
-                }
-            }
-        }
 
-    private fun maybeAutoSelectSubtitle() {
-        if (!shouldAutoSelectSubtitle) {
-            AppLog.i(TAG, "subtitle_trace auto_select_skip reason=disabled cid=$currentCid bvid=$currentBvid")
-            return
-        }
-        val subtitles = _subtitles.value
-        if (subtitles.isEmpty()) {
-            AppLog.i(TAG, "subtitle_trace auto_select_skip reason=empty cid=$currentCid bvid=$currentBvid")
-            return
-        }
-        shouldAutoSelectSubtitle = false
-        AppLog.i(TAG, "subtitle_trace auto_select cid=$currentCid bvid=$currentBvid size=${subtitles.size}")
-        selectSubtitle(0)
-    }
 
-    private fun updateSubtitleText(positionMs: Long) {
-        if (subtitleOwnerBvid != currentBvid || subtitleOwnerCid != currentCid) {
-            currentSubtitleCueIndex = 0
-            _currentSubtitleText.value = null
-            return
-        }
-        val data = currentSubtitleData?.body.orEmpty()
-        if (_selectedSubtitleIndex.value < 0 || data.isEmpty()) {
-            currentSubtitleCueIndex = 0
-            if (_currentSubtitleText.value != null) {
-                _currentSubtitleText.value = null
-            }
-            return
-        }
-        val positionSeconds = positionMs / 1000f
-        val cue = data.findCueAt(positionSeconds)
-        val subtitleText = cue?.content
-        // [诊断] 命中切换时打印位置 + cue 区间 + 内容,确认时间轴是否对齐。
-        // 若 from/to 与 position 相差很远,说明时间轴错位(疑点在 findCueAt 或服务端时间轴);
-        // 若区间对齐但内容不符当前画面,疑点在服务端返回的字幕文本本身。
-        if (cue != null && _currentSubtitleText.value != subtitleText) {
-            AppLog.i(
-                TAG,
-                "subtitle_trace show posMs=$positionMs cueFrom=${cue.from} cueTo=${cue.to} " +
-                    "deltaSec=${(positionSeconds - cue.from)} cid=$currentCid " +
-                    "text=${cue.content.replace('\n', ' ').take(40)}"
-            )
-        }
-        if (_currentSubtitleText.value != subtitleText) {
-            _currentSubtitleText.value = subtitleText
-        }
-    }
 
-    private fun List<SubtitleItem>.findCueAt(positionSeconds: Float): SubtitleItem? {
-        if (isEmpty()) {
-            currentSubtitleCueIndex = 0
-            return null
-        }
-        var index = currentSubtitleCueIndex.coerceIn(0, lastIndex)
-        if (positionSeconds < this[index].from) {
-            while (index > 0 && positionSeconds < this[index].from) {
-                index--
-            }
-        } else {
-            while (index < lastIndex && positionSeconds > this[index].to) {
-                index++
-            }
-        }
-        currentSubtitleCueIndex = index
-        val cue = this[index]
-        return cue.takeIf { positionSeconds >= it.from && positionSeconds <= it.to }
-    }
 
-    private fun normalizeUrl(rawUrl: String): String {
-        return when {
-            rawUrl.startsWith("//") -> "https:$rawUrl"
-            rawUrl.startsWith("http://") || rawUrl.startsWith("https://") -> rawUrl
-            else -> "https://$rawUrl"
-        }
-    }
+
+
 
     // [诊断] 把字幕轨道列表压缩成 "lan=url尾段" 的短摘要，便于在日志里对照
     // detail 与 playerInfo 两个接口返回的轨道是否一致、是否串台。
     // url 只取最后一个 '/' 之后的部分并截断，避免日志被超长 url 淹没。
-    private fun subtitleTracksSummary(tracks: List<SubtitleInfoModel>?): String {
-        if (tracks.isNullOrEmpty()) return "[]"
-        return tracks.joinToString(prefix = "[", postfix = "]", separator = ",") { t ->
-            subtitleTrackBindingKey(t)
-        }
-    }
 
-    private fun extractUrlExpiryMs(url: String): Long {
-        val uri = android.net.Uri.parse(url)
-        val expiresParam = uri.getQueryParameter("expires")
-            ?: uri.getQueryParameter("deadline")
-            ?: return 0L
-        val expiresSeconds = expiresParam.toLongOrNull() ?: return 0L
-        return expiresSeconds * 1000L
-    }
-
-    private fun resolveSessionExpiryMs(route: DashRoute): Long {
-        val videoExpiry = extractUrlExpiryMs(route.videoRepresentation.baseUrl)
-        val audioExpiry = route.audioRepresentation?.baseUrl?.let(::extractUrlExpiryMs) ?: Long.MAX_VALUE
-        return minOf(videoExpiry, audioExpiry).takeIf { it > 0L } ?: 0L
-    }
 
     private fun DetailSubtitleItem.toSubtitleInfoModel(): SubtitleInfoModel {
         return SubtitleInfoModel(
@@ -3114,61 +2857,6 @@ class VideoPlayerViewModel(
         return url.substringAfter("/bangumi/play/ss", "")
             .takeWhile { it.isDigit() }
             .toLongOrNull() ?: 0L
-    }
-
-    private suspend fun preconnectCdnHosts(videoUrls: List<String>, audioUrls: List<String>) {
-        val uniqueHosts = mutableSetOf<String>()
-        for (url in videoUrls + audioUrls) {
-            try {
-                val host = URL(url).host
-                if (host.isNotBlank()) {
-                    uniqueHosts.add(host)
-                }
-            } catch (_: Exception) {
-                continue
-            }
-        }
-
-        if (uniqueHosts.isEmpty()) {
-            return
-        }
-
-        coroutineScope {
-            uniqueHosts.forEach { host ->
-                launch(Dispatchers.IO) {
-                    runCatching {
-                        val request = Request.Builder()
-                            .url("https://$host")
-                            .head()
-                            .build()
-                        playerOkHttpClient.newCall(request).execute().use { }
-                    }
-                }
-            }
-        }
-
-    }
-
-    private suspend fun triggerCdnPreconnectForRoute(route: DashRoute?) {
-        if (route == null) return
-        try {
-            val allUrls = route.videoUrls + route.audioUrls
-            if (allUrls.isEmpty()) return
-            preconnectCdnHosts(route.videoUrls, route.audioUrls)
-        } catch (_: Exception) {
-        }
-    }
-
-    private suspend fun triggerCdnPreconnectForPlayInfo(playInfo: PlayInfoModel) {
-        try {
-            val dash = playInfo.dash ?: return
-            val videoUrls = dash.video?.mapNotNull { it.realBaseUrl.ifEmpty { null } }.orEmpty()
-            val audioUrls = dash.audio?.mapNotNull { it.realBaseUrl.ifEmpty { null } }.orEmpty()
-            val allUrls = videoUrls + audioUrls
-            if (allUrls.isEmpty()) return
-            preconnectCdnHosts(videoUrls, audioUrls)
-        } catch (_: Exception) {
-        }
     }
 
     private fun checkSponsorBlock(positionMs: Long) {
