@@ -2,13 +2,15 @@ package com.btelly.feature.player.danmaku
 
 import com.btelly.core.common.log.AppLog
 import kotlin.math.abs
+import kotlin.math.exp
 
 /**
  * AkDanmaku-style timer:
  * - Uses System.nanoTime() for smooth advancement.
  * - Prioritizes a monotonic local clock while playing for stable motion.
- * - Re-anchors only on explicit playback events (seek/resume/speed change).
- * - Keeps a coarse fallback sync for extreme unreported discontinuities.
+ * - Re-anchors hard only on explicit playback events (seek).
+ * - Corrections (resume/drift/idle gaps) converge gradually instead of hard
+ *   re-anchoring, so on-screen danmaku never visibly jump in a single frame.
  */
 internal class DanmakuTimer {
     @Volatile
@@ -37,6 +39,10 @@ internal class DanmakuTimer {
             field = value.coerceIn(0.9, 1.1)
         }
 
+    /** 渐进追赶进行中（未吸合）：用于日志只记首尾、不逐帧刷屏。 */
+    @Volatile
+    private var correcting: Boolean = false
+
     /**
      * 轻量时钟校准（硬同步）：只移动平滑位置，不动 lastFrameNanos，
      * dt 连续性保持。与 reset() 的区别是不打 anchor 日志、不算 seek。
@@ -45,6 +51,7 @@ internal class DanmakuTimer {
      */
     fun syncTo(positionMs: Long) {
         smoothPositionMs = positionMs.coerceAtLeast(0L).toDouble()
+        correcting = false
     }
 
     fun reset(
@@ -59,6 +66,7 @@ internal class DanmakuTimer {
         lastSeekSerial = seekSerial
         lastPlaying = isPlaying
         lastPlaybackSpeed = normalizeSpeed(playbackSpeed)
+        correcting = false
     }
 
     fun currentPositionMs(): Long = smoothPositionMs.toLong()
@@ -94,44 +102,59 @@ internal class DanmakuTimer {
         }
 
         val dtNanos = (nowNanos - lastNanos).coerceAtLeast(0L)
+        val dtMs = dtNanos.toDouble() / 1_000_000.0
         lastFrameNanos = nowNanos
         lastSeekSerial = seekSerial
 
         if (!isPlaying) {
             // 暂停/恢复瞬间 ExoPlayer 的 raw position 常会回退几十~上百毫秒
-            // （解码器缓冲固有行为）。若此时无条件重锚到 raw，弹幕会瞬间"时间倒流"。
-            // 修复：暂停瞬间保留当前平滑位置不动；暂停中也只允许往前纠偏，禁止回退。
+            // （解码器缓冲固有行为）。暂停瞬间保留当前平滑位置不动，绝不回退。
             if (lastPlaying) {
                 // 刚从播放切到暂停：保持弹幕停在当前平滑位置，绝不回退。
-                // 记录暂停边界的 raw 差值：恢复瞬间重锚若回拉，这里是上游证据。
+                // 记录暂停边界的 raw 差值：恢复瞬间若偏差偏大，这里是上游证据。
                 AppLog.i(
                     DIAG_TAG,
                     "pause-edge smooth=${smoothPositionMs.toLong()}ms raw=${raw.toLong()}ms " +
                         "rawDelta=${deltaLabel(raw - smoothPositionMs)}"
                 )
-            } else if (raw - smoothPositionMs >= IDLE_REANCHOR_THRESHOLD_MS) {
-                // 暂停中，raw 明显往前跳（如 seek 到更晚位置），才向前重锚。
-                val before = smoothPositionMs
-                smoothPositionMs = raw
-                AppLog.i(
-                    DIAG_TAG,
-                    "anchor kind=idle-jump before=${before.toLong()}ms after=${smoothPositionMs.toLong()}ms " +
-                        "delta=${deltaLabel(smoothPositionMs - before)}"
-                )
+            } else {
+                // 暂停中只允许向前纠偏（禁止回退原则不变）；由一次性硬锚改为渐进收敛，
+                // 避免暂停画面上弹幕瞬间整体前跳。
+                val forwardGap = raw - smoothPositionMs
+                if (correcting) {
+                    if (forwardGap <= CATCH_UP_TOLERANCE_MS) {
+                        correcting = false
+                        AppLog.i(
+                            DIAG_TAG,
+                            "anchor kind=idle-end gap=${deltaLabel(forwardGap)} " +
+                                "smooth=${smoothPositionMs.toLong()}ms"
+                        )
+                    } else {
+                        smoothPositionMs = convergeTo(raw, dtMs)
+                    }
+                } else if (forwardGap >= IDLE_REANCHOR_THRESHOLD_MS) {
+                    correcting = true
+                    AppLog.i(
+                        DIAG_TAG,
+                        "anchor kind=idle-begin gap=${deltaLabel(forwardGap)} " +
+                            "smooth=${smoothPositionMs.toLong()}ms raw=${raw.toLong()}ms"
+                    )
+                }
             }
             lastPlaying = false
             lastPlaybackSpeed = speed
             return smoothPositionMs.toLong()
         }
 
+        // 恢复播放/倍速变化：不再一次性硬锚到 raw（吸收 PR #53 的收敛思路）——
+        // 缓冲期间弹幕停在原地而 raw 已前进时，硬锚会让屏上所有弹幕同帧整体前移
+        // （"统一大跳"）。这里只记录偏差，交由下方连续渐进追赶无感吸收。
         if (!lastPlaying || abs(speed - lastPlaybackSpeed) >= SPEED_CHANGE_EPSILON) {
-            val before = smoothPositionMs
-            smoothPositionMs = raw
+            val kind = if (!lastPlaying) "resume" else "speed"
             AppLog.i(
                 DIAG_TAG,
-                "anchor kind=${if (!lastPlaying) "resume" else "speed"} " +
-                    "before=${before.toLong()}ms after=${smoothPositionMs.toLong()}ms " +
-                    "delta=${deltaLabel(smoothPositionMs - before)} speed=$speed"
+                "anchor kind=$kind smooth=${smoothPositionMs.toLong()}ms raw=${raw.toLong()}ms " +
+                    "gap=${deltaLabel(raw - smoothPositionMs)} speed=$speed"
             )
             lastPlaying = true
             lastPlaybackSpeed = speed
@@ -139,30 +162,80 @@ internal class DanmakuTimer {
         }
 
         if (dtNanos > 0L) {
-            val dtMs = dtNanos.toDouble() / 1_000_000.0
             smoothPositionMs += dtMs * speed * softSyncFactor
         }
 
         // Clamp for safety.
         if (!smoothPositionMs.isFinite() || abs(smoothPositionMs) > 1e15) {
             smoothPositionMs = raw
+            correcting = false
         }
         if (smoothPositionMs < 0.0) smoothPositionMs = 0.0
-        if (abs(raw - smoothPositionMs) >= EXTREME_DRIFT_REANCHOR_THRESHOLD_MS) {
-            // Treat this as an unreported discontinuity instead of gradually bending speed.
-            // delta 为负 = 平滑位置被回拉（"弹幕倒退/重放误判"上游），
-            // 为正 = 播放位置前跳（"elapsed 突增导致弹幕提前退场"上游）。
-            val before = smoothPositionMs
-            smoothPositionMs = raw
-            AppLog.w(
+
+        // 连续渐进追赶：吸收 resume 残留偏差与未报告漂移（原 EXTREME_DRIFT 硬锚取消）。
+        // 与漂移监督器（DanmakuCoreController 三段式）的分工：死区(250ms)内维持
+        // "不动"语义；超过死区由本体的指数收敛快速对齐（±5% 软同步每秒仅收敛 5%，
+        // 对缓冲/暂停恢复残留太慢）；超过硬阈值的 seek 重建仍由监督器主导，本收敛
+        // 只是其去抖窗口内的平滑过渡。
+        val gap = raw - smoothPositionMs
+        if (!correcting && abs(gap) >= CATCH_UP_ENGAGE_GAP_MS) {
+            correcting = true
+            AppLog.i(
                 DIAG_TAG,
-                "anchor kind=drift(before=${before.toLong()}ms raw=${raw.toLong()}ms) " +
-                    "after=${smoothPositionMs.toLong()}ms delta=${deltaLabel(smoothPositionMs - before)}"
+                "anchor kind=catchup-begin gap=${deltaLabel(gap)} " +
+                    "smooth=${smoothPositionMs.toLong()}ms raw=${raw.toLong()}ms"
             )
         }
+        if (correcting) {
+            runCatchUp(raw, dtMs)
+        }
+
         lastPlaying = true
         lastPlaybackSpeed = speed
         return smoothPositionMs.toLong()
+    }
+
+    /**
+     * 将平滑位置向 raw 渐进收敛（指数衰减，时间常数 [CATCH_UP_TIME_CONSTANT_MS]），
+     * 偏差收敛到 [CATCH_UP_TOLERANCE_MS] 内吸合并结束本次追赶。
+     * 偏差超过 [HARD_REANCHOR_GAP_MS] 时退回一次性硬锚——数秒级的未报告跳变若用
+     * 指数收敛，弹幕会长时间数倍速快进，观感反而差于直接跳变。
+     * 回退方向的收敛由引擎 stepTime 的单调钳制吸收（在屏弹幕冻结等 raw 追上）。
+     */
+    private fun runCatchUp(raw: Double, deltaMs: Double) {
+        val gap = raw - smoothPositionMs
+        if (abs(gap) >= HARD_REANCHOR_GAP_MS) {
+            val before = smoothPositionMs
+            smoothPositionMs = raw
+            correcting = false
+            AppLog.w(
+                DIAG_TAG,
+                "anchor kind=catchup-hard before=${before.toLong()}ms " +
+                    "after=${smoothPositionMs.toLong()}ms delta=${deltaLabel(smoothPositionMs - before)}"
+            )
+            return
+        }
+        smoothPositionMs = convergeTo(raw, deltaMs)
+        if (abs(raw - smoothPositionMs) <= CATCH_UP_TOLERANCE_MS) {
+            correcting = false
+            AppLog.i(
+                DIAG_TAG,
+                "anchor kind=catchup-end gap=${deltaLabel(raw - smoothPositionMs)} " +
+                    "smooth=${smoothPositionMs.toLong()}ms"
+            )
+        }
+    }
+
+    /**
+     * 将平滑位置向目标 target 渐进收敛：以指数衰减速率逼近，避免把 raw 的一次性
+     * 偏差放大成"所有弹幕同帧整体跳变"；偏差小于 [CATCH_UP_TOLERANCE_MS] 时直接吸合。
+     */
+    private fun convergeTo(target: Double, deltaMs: Double): Double {
+        val diff = target - smoothPositionMs
+        if (!diff.isFinite()) return target
+        if (abs(diff) <= CATCH_UP_TOLERANCE_MS) return target
+        val rate = 1.0 - exp(-deltaMs.coerceAtLeast(0.0) / CATCH_UP_TIME_CONSTANT_MS)
+        return smoothPositionMs + diff * rate
     }
 
     private fun deltaLabel(delta: Double): String =
@@ -178,7 +251,15 @@ internal class DanmakuTimer {
         private const val DIAG_TAG = "BTellyDmDiag"
 
         private const val IDLE_REANCHOR_THRESHOLD_MS = 120.0
-        private const val EXTREME_DRIFT_REANCHOR_THRESHOLD_MS = 2_000.0
         private const val SPEED_CHANGE_EPSILON = 0.0001
+
+        // 渐进追赶触发阈值：对齐漂移监督器死区（DRIFT_NEUTRAL_TOLERANCE_MS = 250ms）。
+        private const val CATCH_UP_ENGAGE_GAP_MS = 250.0
+        // 偏差收敛到该值内直接吸合（肉眼看不出跳变）。
+        private const val CATCH_UP_TOLERANCE_MS = 30.0
+        // 收敛时间常数（ms）：单帧(~16ms)收敛约 5%，300ms 收敛约 63%，1s 收敛约 96%。
+        private const val CATCH_UP_TIME_CONSTANT_MS = 300.0
+        // 超过该偏差退回一次性硬锚（监督器 >2s 的 seek 重建通常已介入，此处为兜底）。
+        private const val HARD_REANCHOR_GAP_MS = 5_000.0
     }
 }
