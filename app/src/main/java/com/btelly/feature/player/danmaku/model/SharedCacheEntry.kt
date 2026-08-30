@@ -18,8 +18,15 @@ import java.util.concurrent.atomic.AtomicInteger
 internal class SharedCacheEntry(val bitmap: Bitmap) {
     private val refCount = AtomicInteger(0)
 
+    companion object {
+        /** 全局 acquire/release 对账（诊断引用泄漏用）：acquire 总数 - release 总数 = 活引用数。 */
+        @JvmField val acquiredTotal = java.util.concurrent.atomic.AtomicLong(0)
+        @JvmField val releasedTotal = java.util.concurrent.atomic.AtomicLong(0)
+    }
+
     /** 引用计数 +1（item 命中或共享表持有时调用）。 */
     fun acquire() {
+        acquiredTotal.incrementAndGet()
         refCount.incrementAndGet()
     }
 
@@ -27,7 +34,10 @@ internal class SharedCacheEntry(val bitmap: Bitmap) {
         while (true) {
             val current = refCount.get()
             if (current <= 0 || bitmap.isRecycled) return false
-            if (refCount.compareAndSet(current, current + 1)) return true
+            if (refCount.compareAndSet(current, current + 1)) {
+                acquiredTotal.incrementAndGet()
+                return true
+            }
         }
     }
 
@@ -35,7 +45,10 @@ internal class SharedCacheEntry(val bitmap: Bitmap) {
      * 引用计数 -1，返回 true 表示归零，调用方应回收 bitmap。
      * 返回 false 表示仍有引用持有，bitmap 必须保持存活。
      */
-    fun release(): Boolean = refCount.decrementAndGet() <= 0
+    fun release(): Boolean {
+        releasedTotal.incrementAndGet()
+        return refCount.decrementAndGet() <= 0
+    }
 
     val isRecycled: Boolean get() = bitmap.isRecycled
 }

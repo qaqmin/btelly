@@ -105,7 +105,7 @@ data class DanmakuConfig(
     val area: Float,
     val laneDensity: DanmakuLaneDensity,
     val trackSpacing: DanmakuTrackSpacing = DanmakuTrackSpacing.DEFAULT,
-    /** 同屏弹幕数上限（TV 实测 act>90 时 GPU 合成掉帧）。0 = 按设备类型自动（TV 50 / 其他 80）。 */
+    /** 同屏弹幕数上限（并发渲染性能约束；满员即弃、不排队）。0 = 自适应：下限 100、按渲染帧率自动增减（初始 TV 100 / 其他 160）。 */
     val maxOnScreen: Int = 0,
 )
 

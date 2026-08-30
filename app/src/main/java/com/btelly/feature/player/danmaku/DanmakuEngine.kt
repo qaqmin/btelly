@@ -145,16 +145,33 @@ internal class DanmakuEngine(
 ) : DanmakuEngineMainApi, DanmakuEngineActionApi {
     private val density: Float = displayMetrics.density.takeIf { it.isFinite() && it > 0f } ?: 1f
 
-    /** TV 盒子 GPU 合成能力弱（实测 act>90 时掉帧），同屏上限比手机更紧。 */
+    /** TV 盒子 GPU 合成能力弱，同屏上限自动档比手机更紧。 */
     private val isTvDevice: Boolean =
         (appContext.getSystemService(Context.UI_MODE_SERVICE) as? android.app.UiModeManager)
             ?.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
 
+    /** 主屏刷新率（自适应上限的判定基准），取不到时按 60Hz。 */
+    private val displayRefreshHz: Float =
+        runCatching {
+            (appContext.getSystemService(Context.DISPLAY_SERVICE) as? android.hardware.display.DisplayManager)
+                ?.getDisplay(android.view.Display.DEFAULT_DISPLAY)?.refreshRate
+        }.getOrNull()?.takeIf { it >= 30f } ?: 60f
+
+    /**
+     * 自适应同屏上限：下限 [ADAPTIVE_FLOOR]，按渲染帧率自动增减，硬顶 [ADAPTIVE_CEILING]。
+     * 用户显式配置 DanmakuConfig.maxOnScreen > 0 时固定不走自适应。
+     */
+    private val adaptiveOnScreenLimit = AdaptiveOnScreenLimit(
+        seed = if (isTvDevice) DEFAULT_TV_MAX_ON_SCREEN else DEFAULT_MAX_ON_SCREEN,
+        floor = ADAPTIVE_FLOOR,
+        ceiling = ADAPTIVE_CEILING,
+        refreshHz = displayRefreshHz,
+    )
+
     private fun maxOnScreenLimit(cfg: DanmakuConfig): Int =
         when {
             cfg.maxOnScreen > 0 -> cfg.maxOnScreen
-            isTvDevice -> DEFAULT_TV_MAX_ON_SCREEN
-            else -> DEFAULT_MAX_ON_SCREEN
+            else -> adaptiveOnScreenLimit.limit
         }
 
     // ---- Data ----
@@ -266,6 +283,10 @@ internal class DanmakuEngine(
 
     // admit 日志采样计数（action 线程私有）。
     private var admitLogCounter: Int = 0
+
+    // 满员丢弃计数与限频日志打点（action 线程私有）：满员即弃是"弹幕变稀"的直接上游证据。
+    private var capDropTotal: Int = 0
+    private var lastCapDropLogMs: Int = 0
 
     // ---- Draw (main thread only) ----
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -490,6 +511,8 @@ internal class DanmakuEngine(
             } else {
                 lastNowMs
             }
+            // 弹幕时钟有前进 ≈ 正在播放（暂停/缓冲时时钟冻结），供自适应上限判定用。
+            val clockAdvanced = nowMs != lastNowMs
             lastNowMs = nowMs
 
             val topInset = viewportTopInsetPx.coerceIn(0, height)
@@ -580,6 +603,21 @@ internal class DanmakuEngine(
             debugPendingCount = pending.size
             debugNextAtMs = items.getOrNull(index)?.timeMs()
             publishSnapshotIfDirty(nowMs)
+
+            // 自适应同屏上限：按渲染帧率窗口化增减（详见 AdaptiveOnScreenLimit）。
+            val adjustedLimit = adaptiveOnScreenLimit.onFrame(
+                wallNowMs = android.os.SystemClock.elapsedRealtime(),
+                activeCount = active.size,
+                clockAdvanced = clockAdvanced,
+            )
+            if (adjustedLimit != null) {
+                AppLog.i(
+                    TAG,
+                    "adaptive on-screen limit -> $adjustedLimit " +
+                        "fps=${"%.1f".format(adaptiveOnScreenLimit.lastWindowFps)} " +
+                        "maxAct=${adaptiveOnScreenLimit.lastWindowMaxAct} refresh=${displayRefreshHz}Hz"
+                )
+            }
         }
     }
 
@@ -1297,7 +1335,8 @@ internal class DanmakuEngine(
                     val rawPx = distancePx / rollingDurationMs.toFloat()
                     val shortPx = width.toFloat() / rollingDurationMs.toFloat()
                     val maxPx = shortPx * MAX_LONG_SCROLL_SPEED_RATIO
-                    a.pxPerMs = min(rawPx, maxPx)
+                    // 与入场路径同一扰动因子（确定性），保证样式重建前后速度不变。
+                    a.pxPerMs = (min(rawPx, maxPx) * scrollSpeedJitterFactor(a)).coerceAtMost(maxPx)
                     a.durationMs = computeScrollDurationMs(distancePx, a.pxPerMs, rollingDurationMs)
                 }
             }
@@ -1462,15 +1501,28 @@ internal class DanmakuEngine(
         dropIfLagging(nowMs)
         val onScreenLimit = maxOnScreenLimit(config)
         var spawnAttempts = 0
+        var droppedByCap = 0
         while (index < items.size && items[index].timeMs() <= nowMs) {
             if (spawnAttempts >= MAX_SPAWN_PER_FRAME) break
             val item = items[index]
-            // 超过同屏上限：停止投放，条目留在时间线上，等退场腾出空间后入场
-            //（仍在 lag 窗口内；超窗由 dropIfLagging 丢弃）。
-            if (active.size >= onScreenLimit) break
             index++
             spawnAttempts++
             if (item.data.text.isBlank()) continue
+            // 同屏上限语义 = 并发数上限，不是"排队等位"：满员（含硬顶余量）时当场放弃该条，
+            // 入场时刻永远等于弹幕自身的发送时间。此前满员条目留在时间线上等退场腾位
+            //（lag 窗口 MAX_CATCH_UP_LAG_MS），在高密度等宽文本视频（如满屏单字：速度/时长
+            // 全相同）里退场时刻高度相关，形成"整批退场 → 积压整批迟到入场"的极限环：
+            // 批间数十帧无槽位释放、积压被 dropIfLagging 整段丢弃，观感为
+            // "弹幕一批一批出现、中间断层"。改为满员即弃后，退场时刻由发送时间自然错开，
+            // 槽位释放连续，极限环无法成形；上限本身完整保留（并发渲染数的性能约束不变）。
+            if (active.size >= onScreenLimit + ON_SCREEN_OVERSHOOT) {
+                droppedByCap++
+                capDropTotal++
+                if (!item.inActive && item.cacheEntry != null) {
+                    releaseItemCache(item, releaseAtFrameId = currentUiFrameId + 1)
+                }
+                continue
+            }
             tryAdmitItem(
                 item = item,
                 nowMs = nowMs,
@@ -1482,7 +1534,17 @@ internal class DanmakuEngine(
                 laneHeight = laneHeight,
                 topInset = topInset,
                 maxYTop = maxYTop,
-                allowPending = true,
+                // 软上限之上不再排队重试：要么当场有轨道要么放弃，杜绝时间性积压。
+                allowPending = active.size < onScreenLimit,
+            )
+        }
+        if (droppedByCap > 0 && AppLog.isEnabled && nowMs - lastCapDropLogMs >= 1_000) {
+            // 满员丢弃是"弹幕变稀"的直接上游证据，限频采样留痕。
+            lastCapDropLogMs = nowMs
+            AppLog.w(
+                TAG,
+                "spawn capDrop frame=$droppedByCap total=$capDropTotal " +
+                    "active=${active.size} limit=$onScreenLimit now=${nowMs}ms"
             )
         }
     }
@@ -1580,7 +1642,10 @@ internal class DanmakuEngine(
         val rawPx = distancePx / rollingDurationMs.toFloat()
         val shortPx = width.toFloat() / rollingDurationMs.toFloat()
         val maxPx = shortPx * MAX_LONG_SCROLL_SPEED_RATIO
-        val pxNew = min(rawPx, maxPx)
+        // 每条弹幕叠加确定性速度扰动：等宽文本（如满屏单字）原始速度完全相同 → 时长相同 →
+        // 退场时刻相同，与同屏上限叠加形成"整批进出场"极限环；扰动使退场时刻散开，
+        // 槽位释放恢复连续。速度差异 ±12% 与文本宽度带来的自然差异（±11%）同量级，不可感知。
+        val pxNew = (min(rawPx, maxPx) * scrollSpeedJitterFactor(item)).coerceAtMost(maxPx)
         val durationMs =
             computeScrollDurationMs(
                 distancePx = distancePx,
@@ -2053,9 +2118,22 @@ internal class DanmakuEngine(
         /** 建图失败（预算耗尽）后的重试退避：给释放路径时间回填位图池。 */
         private const val CACHE_FAIL_RETRY_BACKOFF_MS = 250
 
-        /** 同屏弹幕数上限（TV / 非 TV 自动档）。 */
-        private const val DEFAULT_TV_MAX_ON_SCREEN = 50
-        private const val DEFAULT_MAX_ON_SCREEN = 80
+        /**
+         * 同屏弹幕数上限自适应档：种子值（自适应会按帧率在 [ADAPTIVE_FLOOR]～
+         * [ADAPTIVE_CEILING] 间自动增减，见 AdaptiveOnScreenLimit）。
+         */
+        private const val DEFAULT_TV_MAX_ON_SCREEN = 100
+        private const val DEFAULT_MAX_ON_SCREEN = 160
+
+        /** 自适应同屏上限的下限/硬顶。 */
+        private const val ADAPTIVE_FLOOR = 100
+        private const val ADAPTIVE_CEILING = 400
+
+        /**
+         * 同屏软上限之上允许的即时入场余量：满员时若轨道恰好可用，仍可入场至该硬顶。
+         * 硬顶随自适应上限一起浮动（自适应值 + 本余量）。
+         */
+        private const val ON_SCREEN_OVERSHOOT = 16
 
         /** admit 日志采样步长（每 N 条输出 1 条）。 */
         private const val ADMIT_LOG_SAMPLE = 8
@@ -2074,6 +2152,28 @@ internal class DanmakuEngine(
 
     }
 
+}
+
+/**
+ * 每条弹幕的确定性滚动速度扰动因子（1 ± [SCROLL_SPEED_JITTER]）。
+ * 以 dmid/midHash/text/时间为种子，同一条弹幕在任何重放、重建、样式代际下速度一致。
+ *
+ * 为什么需要：滚动速度按文本宽度计算，等宽文本（如满屏单字）速度/时长完全相同，
+ * 退场时刻高度相关；同屏上限满员时若退场成批，入场也随之成批。速度扰动让退场时刻
+ * 由发送时间自然错开，槽位释放保持连续。±12% 与文本宽度本身带来的速度差异同量级，
+ * 视觉上不可感知。
+ */
+internal const val SCROLL_SPEED_JITTER = 0.12f
+
+internal fun scrollSpeedJitterFactor(item: DanmakuItem): Float {
+    var h = (item.data.dmid?.hashCode() ?: 0) xor
+        (item.data.midHash?.hashCode() ?: 0) xor
+        (item.data.text.hashCode() * 31) xor
+        item.timeMs()
+    h *= 0x5BD1E995
+    h = h xor (h ushr 15)
+    val unit = (h and 0xFFFF) / 65535f
+    return 1f + (unit - 0.5f) * 2f * SCROLL_SPEED_JITTER
 }
 
 /**
