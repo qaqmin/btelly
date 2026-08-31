@@ -136,6 +136,8 @@
         <item name="android:textColor">@color/exo_white_opacity_70</item>
         <item name="android:text">·</item>
     </style>
+    <style name="LightTheme" parent="@style/WhiteTheme">
+    </style>
     <style name="PinkTheme" parent="@style/LightTheme">
         <item name="backgroundColor">@color/systemBackgroundColorPink</item>
         <item name="buttonBackgroundColor">@color/buttonBackgroundPink</item>
@@ -170,6 +172,33 @@
         <item name="android:textSize">@dimen/px32</item>
         <item name="android:textStyle">bold</item>
         <item name="android:background">@android:color/transparent</item>
+    </style>
+    <style name="Theme.BTelly" parent="@style/Theme.AppCompat.NoActionBar">
+        <item name="android:textColorPrimary">@color/textColor</item>
+        <item name="android:textColorSecondary">@color/subTextColor</item>
+        <item name="android:windowBackground">@color/systemBackgroundColor</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="31">@color/systemBackgroundColor</item>
+        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="31">@null</item>
+        <item name="android:windowAnimationStyle">@style/WindowAnimationTransition</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="backgroundColor">@color/systemBackgroundColor</item>
+        <item name="buttonBackgroundColor">@color/divideColor</item>
+        <item name="colorAccent">@color/colorAccent</item>
+        <item name="colorControlHighlight">@color/colorAccent2</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorOnSecondary">@color/black</item>
+        <item name="colorPrimary">@color/purple_500</item>
+        <item name="colorPrimaryVariant">@color/purple_700</item>
+        <item name="colorSecondary">@color/teal_200</item>
+        <item name="colorSecondaryVariant">@color/teal_700</item>
+        <item name="dividerColor">@color/divideColor</item>
+        <item name="fourthBackgroundColor">@color/fourthBackgroundColor</item>
+        <item name="subBackgroundColor">@color/subBackgroundColor</item>
+        <item name="tabBarHighlight">@color/fourthBackgroundColor</item>
+        <item name="tabBarNormal">@color/tab_normal</item>
+        <item name="tabBarSelected">@color/white</item>
+        <item name="thirdBackgroundColor">@color/backgroundColor</item>
     </style>
     <style name="Theme.BTelly" parent="@style/Theme.BTelly">
     </style>
