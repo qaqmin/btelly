@@ -335,9 +335,6 @@ class LiveListFragment : BaseFragment<FragmentLiveListBinding>(), LiveTabPage {
         return focusPrimaryContent()
     }
 
-    private fun focusTopTab(): Boolean {
-        return (parentFragment as? LiveFragment)?.focusCurrentTab() == true
-    }
 
     override fun scrollToTop() {
         binding.recyclerView.smoothScrollToPosition(0)
@@ -350,18 +347,6 @@ class LiveListFragment : BaseFragment<FragmentLiveListBinding>(), LiveTabPage {
         viewModel.startArea(parentAreaId, areaId, preserveExisting = adapter.itemCount > 0)
     }
 
-    private fun logLiveListFirstDraw(itemCount: Int) {
-        val startMs = currentOpenStartMs
-        if (startMs <= 0L || itemCount <= 0) return
-        FirstScreenRenderer.logFirstFrame(
-            recyclerView = binding.recyclerView,
-            page = pageTag(),
-            startMs = startMs,
-            itemCount = itemCount,
-            source = "visible"
-        )
-        currentOpenStartMs = 0L
-    }
 
     private fun pageTag(): String = "LiveList/${title.ifBlank { areaId.toString() }}"
 

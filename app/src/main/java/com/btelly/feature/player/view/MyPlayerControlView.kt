@@ -108,7 +108,6 @@ class MyPlayerControlView @JvmOverloads constructor(
     private var dmEnabled: Boolean = true
     private var mirrorEnabled: Boolean = false
     private var ffDuration: Long = DEFAULT_FAST_FORWARD_MS
-    private var needToHideBars: Boolean = true
     private var isScrubbing: Boolean = false
     private var timeBarMinUpdateIntervalMs: Int = DEFAULT_TIME_BAR_MIN_UPDATE_INTERVAL_MS
     private var showMultiWindowTimeBar: Boolean = false
@@ -1082,9 +1081,6 @@ class MyPlayerControlView @JvmOverloads constructor(
         timeBar.setSponsorDuration(durationMs)
     }
 
-    private fun dp(value: Int): Int {
-        return (value * resources.displayMetrics.density).toInt()
-    }
 }
 
 

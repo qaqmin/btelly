@@ -67,7 +67,7 @@ val networkModule = module {
 
 val repositoryModule = module {
     single { com.btelly.repository.remote.AllSeriesRepository(get()) }
-    single { com.btelly.repository.remote.AuthRepository(get(), get()) }
+    single { com.btelly.repository.remote.AuthRepository(get()) }
     single { com.btelly.repository.remote.TvAuthRepository(get(named("noCookie"))) }
     single { com.btelly.repository.remote.FavoriteRepository(get(), get(), get()) }
     single { com.btelly.repository.remote.HomeLaneRepository(get(), get(), get(), get()) }

@@ -781,7 +781,6 @@ class DanmakuCoreController(
         )
     }
 
-    private fun viewHasData(): Boolean = rawItems.isNotEmpty()
 
     private fun buildConfig(snapshot: DanmakuSettingsSnapshot): DanmakuConfig {
         // 字号对齐 AkDanmaku SimpleRenderer.updatePaint 公式：

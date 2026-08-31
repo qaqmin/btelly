@@ -454,20 +454,6 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
         return if (type == TYPE_ANIMATION) 2 else 3
     }
 
-    private fun logFirstSectionsDraw(itemCount: Int, source: String) {
-        val startMs = latestOpenStartMs
-        val rv = recyclerView
-        if (startMs <= 0L || itemCount <= 0 || rv == null) return
-        FirstScreenRenderer.logFirstFrame(
-            recyclerView = rv,
-            page = pageTag(),
-            event = "first_sections_draw",
-            startMs = startMs,
-            itemCount = itemCount,
-            source = source
-        )
-        latestOpenStartMs = 0L
-    }
 
     private fun showMyFollowingDialog(followType: Int) {
         if (!isAdded || view == null) return

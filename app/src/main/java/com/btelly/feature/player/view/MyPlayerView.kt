@@ -100,8 +100,6 @@ class MyPlayerView @JvmOverloads constructor(
         const val SHOW_BUFFERING_WHEN_PLAYING = 1
         const val SHOW_BUFFERING_ALWAYS = 2
 
-        private const val SURFACE_TYPE_SURFACE_VIEW = 1
-        private const val SURFACE_TYPE_TEXTURE_VIEW = 2
         private const val KEYCODE_SYSTEM_NAVIGATION_UP_COMPAT = 280
         private const val KEYCODE_SYSTEM_NAVIGATION_DOWN_COMPAT = 281
         private const val KEYCODE_SYSTEM_NAVIGATION_LEFT_COMPAT = 282
@@ -3071,31 +3069,6 @@ class MyPlayerView @JvmOverloads constructor(
         return false
     }
 
-    /**
-     * DO NOT CALL: dead code. Only use if explicitly requested.
-     * Originally did a single immediate seek ±N seconds with showControllerSeek overlay.
-     * Replaced by handleTapAccumulate which uses showSwipeSeek (centered arrow, no circle clip).
-     */
-    private fun doSingleKeySeek(forward: Boolean) {
-        val currentPlayer = player ?: return
-        if (currentPlayer.playbackState == Player.STATE_ENDED ||
-            currentPlayer.playbackState == Player.STATE_IDLE
-        ) return
-        if (!currentPlayer.isCurrentMediaItemSeekable || currentPlayer.duration <= 0L) return
-
-        val seekMs = (pendingSeekSeconds ?: seekOverlayView?.seekSeconds ?: 10) * 1000L
-        val deltaMs = seekMs * if (forward) 1 else -1
-        val targetMs = (currentPlayer.currentPosition + deltaMs).coerceIn(0L, currentPlayer.duration)
-        currentPlayer.seekTo(targetMs)
-        syncDanmakuPosition(targetMs, forceSeek = true)
-
-        ensureSeekOverlay("controller_seek")?.showControllerSeek(
-            targetPositionMs = targetMs,
-            durationMs = currentPlayer.duration,
-            deltaMs = deltaMs,
-            showBottomProgress = false
-        )
-    }
 
     private fun restoreControllerAfterGesture(showIndefinitely: Boolean = false) {
         if (showIndefinitely) {

@@ -37,9 +37,6 @@ class DefaultTimeBar @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr), TimeBar {
 
     companion object {
-        private const val SCRUBBER_DRAGGING = 0
-        private const val SCRUBBER_ENABLED = 1
-        private const val SCRUBBER_DISABLED = 2
     }
 
     private val listeners = CopyOnWriteArraySet<TimeBar.OnScrubListener>()
@@ -69,7 +66,6 @@ class DefaultTimeBar @JvmOverloads constructor(
     private val scrubberPadding: Int
 
     private val formatBuilder = StringBuilder()
-    private val formatter = Formatter(formatBuilder, Locale.getDefault())
 
     private var duration: Long = C.TIME_UNSET
     private var position: Long = 0

@@ -691,9 +691,6 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
         ownerDetailDialog = OwnerDetailDialog(
             context = requireContext(),
             owner = owner,
-            onOpenSpace = { mid ->
-                openInHostContainer(UserSpaceFragment.newInstance(mid))
-            },
             onPlayVideo = { video, playQueue ->
                 VideoRouteNavigator.openVideo(
                     context = requireContext(),
@@ -719,24 +716,6 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
         dialog.show()
     }
 
-    private fun showActionDialog() {
-        val currentAid = videoView?.aid ?: videoModel?.aid ?: return
-        val currentBvid = videoView?.bvid ?: videoModel?.bvid ?: return
-        val ownerMid = videoView?.owner?.mid ?: videoModel?.owner?.mid ?: 0L
-
-        actionDialog?.dismiss()
-        actionDialog = PlayerActionDialog(
-            context = requireContext(),
-            aid = currentAid,
-            bvid = currentBvid,
-            ownerMid = ownerMid
-        ).apply {
-            setOnDismissListener {
-                refreshActionState()
-            }
-            show()
-        }
-    }
 
     private fun toggleLike() {
         if (!sessionGateway.isLoggedIn()) {

@@ -50,7 +50,6 @@ internal class DanmakuPlayer(
     private val cacheManager =
         CacheManager(
             appContext = view.context.applicationContext,
-            density = view.resources.displayMetrics.density,
             onCacheResult = { result ->
                 actionHandler.obtainMessage(MSG_OP_CACHE_RESULT, result).sendToTarget()
             },

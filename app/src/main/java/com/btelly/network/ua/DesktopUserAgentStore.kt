@@ -8,7 +8,6 @@ import kotlin.random.Random
 
 class DesktopUserAgentStore(
     private val defaultUserAgent: String,
-    private val preferenceName: String,
     private val preferenceKey: String
 ) {
 

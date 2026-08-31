@@ -374,9 +374,6 @@ class AllSeriesFragment : BaseFragment<FragmentAllSeriesBinding>(), OnBackPresse
         return handled
     }
 
-    private fun focusPrimaryContent(): Boolean {
-        return focusFilterPanel() || focusContentGrid()
-    }
 
     private fun focusBackButton(): Boolean {
         val handled = binding.buttonBack1.requestFocus()

@@ -32,7 +32,6 @@ class VideoPlayerOverlayController(
     private val overlayCoordinator: PlayerOverlayCoordinator,
     private val uiCoordinator: PlaybackUiCoordinator,
     private val sessionCoordinator: PlayerSessionCoordinator,
-    private val playerProvider: () -> androidx.media3.common.Player?,
     private val latestVideoInfoProvider: () -> VideoDetailModel?,
     private val relatedAdapter: VideoAdapter,
     private val viewRelated: View,
@@ -370,9 +369,6 @@ class VideoPlayerOverlayController(
         OwnerDetailDialog(
             context = activity,
             owner = owner,
-            onOpenSpace = { mid ->
-                onOpenFragmentFromHost(UserSpaceFragment.newInstance(mid), "user_space")
-            },
             onPlayVideo = { video, playQueue ->
                 hideContentPanel(restoreFocus = false)
                 onHideNextPreview()

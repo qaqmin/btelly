@@ -58,8 +58,6 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
 
     companion object {
         private const val TAG = "MarmotLiveActivity"
-        private const val DESKTOP_UA =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         /** DataStore key：上次观看频道的 URL（下次进直播恢复）。 */
         private const val KEY_LAST_CHANNEL_URL = "marmot_last_channel_url"
 

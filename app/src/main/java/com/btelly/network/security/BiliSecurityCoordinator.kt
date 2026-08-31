@@ -39,7 +39,6 @@ import org.json.JSONObject
 class BiliSecurityCoordinator(
     private val tag: String,
     private val apiService: ApiService,
-    private val noCookieApiService: ApiService,
     private val okHttpClient: OkHttpClient,
     private val cookieManager: CookieManager,
     private val userAgentProvider: () -> String,
@@ -71,7 +70,6 @@ class BiliSecurityCoordinator(
     private var buvidActivatedMid: Long = 0L
     private var buvidActivatedDay: Long = 0L
     private var lastCookieInfoCheckMs: Long = 0L
-    private var cookieRefreshCheckedDay: Long = 0L
 
     private val correspondPublicKey: PublicKey by lazy {
         val derBase64 =

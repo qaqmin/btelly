@@ -132,14 +132,6 @@ class HomeFragment : Fragment(), MainTabFocusTarget {
         )
     }
 
-    private fun postTopTabEvent(position: Int) {
-        mainNavigationViewModel.dispatch(
-            MainNavigationViewModel.Event.SecondaryTabReselected(
-                host = MainNavigationViewModel.SecondaryTabHost.HOME,
-                position = position
-            )
-        )
-    }
 
     fun focusCurrentTab(anchorView: View? = view?.findFocus() ?: activity?.currentFocus): Boolean {
         val currentBinding = _binding ?: return false

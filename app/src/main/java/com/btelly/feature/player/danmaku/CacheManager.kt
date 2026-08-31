@@ -41,7 +41,6 @@ internal data class CacheBuildResult(
 
 internal class CacheManager(
     private val appContext: Context,
-    private val density: Float,
     private val onCacheResult: (CacheBuildResult) -> Unit,
 ) {
     companion object {

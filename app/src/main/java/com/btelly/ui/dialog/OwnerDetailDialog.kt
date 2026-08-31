@@ -42,7 +42,6 @@ import org.koin.core.component.inject
 class OwnerDetailDialog(
     context: Context,
     private val owner: Owner,
-    private val onOpenSpace: (Long) -> Unit,
     private val onPlayVideo: (VideoModel, List<VideoModel>) -> Unit,
     private val currentAid: Long = 0L,
     private val currentVideoId: String = ""
@@ -51,7 +50,6 @@ class OwnerDetailDialog(
     private val binding = DialogOwnerDetailBinding.inflate(LayoutInflater.from(context))
     private val userRepository: UserRepository by inject()
     private val sessionGateway: SessionStateRepository by inject()
-    private val appEventHub: AppEventHub by inject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val videoAdapter = VideoAdapter(
         onItemFocusedWithView = { view, position ->

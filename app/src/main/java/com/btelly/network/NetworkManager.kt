@@ -31,7 +31,6 @@ object NetworkManager {
     private const val API_BASE = "https://api.bilibili.com/"
     private const val DEFAULT_UA =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
-    private const val PREF_NAME = "app_settings"
     private const val KEY_CURRENT_UA = "currentUA"
     private const val AUTH_INVALID_CODE = -101
     private const val KEY_REFRESH_TOKEN = "bili_refresh_token"
@@ -51,7 +50,6 @@ object NetworkManager {
 
     private val userAgentStore = DesktopUserAgentStore(
         defaultUserAgent = DEFAULT_UA,
-        preferenceName = PREF_NAME,
         preferenceKey = KEY_CURRENT_UA
     )
     private val sessionStore = NetworkSessionStore(
@@ -123,7 +121,6 @@ object NetworkManager {
         BiliSecurityCoordinator(
             tag = TAG,
             apiService = apiService,
-            noCookieApiService = noCookieApiService,
             okHttpClient = internalOkHttpClient,
             cookieManager = internalCookieManager,
             userAgentProvider = { currentUserAgentValue },

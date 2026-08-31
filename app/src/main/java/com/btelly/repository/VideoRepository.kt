@@ -24,7 +24,6 @@ class VideoRepository(
 ) {
 
     private companion object {
-        private const val TAG = "VideoRepository"
     }
 
     suspend fun getRecommendList(

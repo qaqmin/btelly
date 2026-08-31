@@ -567,7 +567,6 @@ class VideoPlayerFragment : Fragment() {
             overlayCoordinator = overlayCoordinator,
             uiCoordinator = uiCoordinator,
             sessionCoordinator = sessionCoordinator,
-            playerProvider = { player },
             latestVideoInfoProvider = { latestVideoInfo },
             relatedAdapter = relatedAdapter,
             viewRelated = viewRelated,

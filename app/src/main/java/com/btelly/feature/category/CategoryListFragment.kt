@@ -106,42 +106,6 @@ class CategoryListFragment : BaseListFragment<VideoModel>(), com.btelly.ui.activ
 
     private var childDetachListener: RecyclerView.OnChildAttachStateChangeListener? = null
 
-    private fun installFocusProtection() {
-        val rv = recyclerView ?: return
-        childDetachListener = object : RecyclerView.OnChildAttachStateChangeListener {
-            override fun onChildViewAttachedToWindow(view: View) = Unit
-
-            override fun onChildViewDetachedFromWindow(detached: View) {
-                val focused = activity?.currentFocus ?: return
-                if (focused !== detached && !isDescendantOf(focused, detached)) return
-                val lm = layoutManager ?: return
-                val first = lm.findFirstVisibleItemPosition()
-                val last = lm.findLastVisibleItemPosition()
-                if (first == RecyclerView.NO_POSITION) return
-                val detachedPos = rv.getChildAdapterPosition(detached)
-                if (lm is androidx.recyclerview.widget.GridLayoutManager && detachedPos != RecyclerView.NO_POSITION) {
-                    val spanCount = lm.spanCount
-                    val column = lm.spanSizeLookup.getSpanIndex(detachedPos, spanCount)
-                    for (pos in last downTo first) {
-                        val holder = rv.findViewHolderForAdapterPosition(pos)
-                        if (holder != null && holder.itemView !== detached) {
-                            val posColumn = lm.spanSizeLookup.getSpanIndex(pos, spanCount)
-                            if (posColumn == column && holder.itemView.requestFocus()) {
-                                return
-                            }
-                        }
-                    }
-                }
-                for (pos in last downTo first) {
-                    val holder = rv.findViewHolderForAdapterPosition(pos)
-                    if (holder != null && holder.itemView !== detached && holder.itemView.requestFocus()) {
-                        return
-                    }
-                }
-            }
-        }
-        childDetachListener?.let { rv.addOnChildAttachStateChangeListener(it) }
-    }
 
     private fun isDescendantOf(view: android.view.View, ancestor: android.view.View): Boolean {
         var current: android.view.View? = view
@@ -157,13 +121,6 @@ class CategoryListFragment : BaseListFragment<VideoModel>(), com.btelly.ui.activ
         return "${view.javaClass.simpleName}($idName)"
     }
 
-    private fun keyName(keyCode: Int): String = when (keyCode) {
-        KeyEvent.KEYCODE_DPAD_UP -> "UP"
-        KeyEvent.KEYCODE_DPAD_DOWN -> "DOWN"
-        KeyEvent.KEYCODE_DPAD_LEFT -> "LEFT"
-        KeyEvent.KEYCODE_DPAD_RIGHT -> "RIGHT"
-        else -> keyCode.toString()
-    }
 
     override fun onDestroyView() {
         globalFocusListener?.let {

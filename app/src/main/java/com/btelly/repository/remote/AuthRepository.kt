@@ -9,7 +9,6 @@ import com.btelly.network.session.NetworkSessionGateway
 
 class AuthRepository(
     private val apiService: ApiService,
-    private val sessionGateway: NetworkSessionGateway
 ) {
 
     suspend fun getQrCode(): Result<BaseResponse<ScanQrModel>> =

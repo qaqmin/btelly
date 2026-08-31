@@ -115,7 +115,6 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
             },
             onLeftEdge = { (activity as? MainActivity)?.focusLeftFunctionArea() == true },
             onRightEdge = { focusNearestVideoCard() },
-            debugTag = null
         )
         binding.recyclerViewLeft.layoutManager = LinearLayoutManager(requireContext())
         binding.recyclerViewLeft.adapter = upAdapter
@@ -541,13 +540,6 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
         contentContainer?.visibility = View.GONE
     }
 
-    private fun restoreVideoFocus() {
-        if (viewError?.visibility == View.VISIBLE || videoAdapter.itemCount == 0) {
-            return
-        }
-        val targetPosition = lastFocusedVideoPosition.coerceIn(0, videoAdapter.itemCount - 1)
-        videoFocusController?.requestFocusPosition(targetPosition)
-    }
 
     // 重试 16 次 × 48ms ≈ 768ms：真机大屏 Activity 转场动画可能 >400ms，
     // 原 8 次(384ms) 窗口不足，易在动画期间耗尽重试导致焦点丢失。

@@ -2,9 +2,6 @@
 <resources>
     <color name="abc_decor_view_status_guard">#000000</color>
     <color name="abc_decor_view_status_guard_light">#ffffff</color>
-    <color name="abc_search_url_text_normal">#7fa87f</color>
-    <color name="abc_search_url_text_pressed">@android:color/black</color>
-    <color name="abc_search_url_text_selected">@android:color/black</color>
     <color name="accent_material_dark">@color/material_deep_teal_200</color>
     <color name="accent_material_light">@color/material_deep_teal_500</color>
     <color name="androidx_core_ripple_material_light">#1f000000</color>
@@ -13,15 +10,9 @@
     <color name="backgroundColorLight">#cfcfcf</color>
     <color name="background_floating_material_dark">@color/material_grey_800</color>
     <color name="background_floating_material_light">@android:color/white</color>
-    <color name="background_gradient_end">#dddddd</color>
-    <color name="background_gradient_start">#000000</color>
     <color name="background_material_dark">@color/material_grey_850</color>
     <color name="background_material_light">@color/material_grey_50</color>
     <color name="black">#000000</color>
-    <color name="bright_foreground_disabled_material_dark">#80ffffff</color>
-    <color name="bright_foreground_disabled_material_light">#80000000</color>
-    <color name="bright_foreground_inverse_material_dark">@color/bright_foreground_material_light</color>
-    <color name="bright_foreground_inverse_material_light">@color/bright_foreground_material_dark</color>
     <color name="bright_foreground_material_dark">@android:color/white</color>
     <color name="bright_foreground_material_light">@android:color/black</color>
     <color name="buttonBackgroundBlue">#05278d</color>
@@ -35,11 +26,8 @@
     <color name="call_notification_decline_color">#d93025</color>
     <color name="cardview_dark_background">#424242</color>
     <color name="cardview_light_background">#ffffff</color>
-    <color name="cardview_shadow_end_color">#03000000</color>
-    <color name="cardview_shadow_start_color">#37000000</color>
     <color name="colorAccent">#bb86fc</color>
     <color name="colorAccent2">#88bb86fc</color>
-    <color name="design_bottom_navigation_shadow_color">#14000000</color>
     <color name="design_dark_default_color_background">#121212</color>
     <color name="design_dark_default_color_error">#cf6679</color>
     <color name="design_dark_default_color_on_background">#ffffff</color>
@@ -66,14 +54,10 @@
     <color name="design_default_color_secondary">#03dac6</color>
     <color name="design_default_color_secondary_variant">#018786</color>
     <color name="design_default_color_surface">#ffffff</color>
-    <color name="design_fab_shadow_end_color">@android:color/transparent</color>
-    <color name="design_fab_shadow_mid_color">#14000000</color>
-    <color name="design_fab_shadow_start_color">#44000000</color>
     <color name="design_fab_stroke_end_inner_color">#0a000000</color>
     <color name="design_fab_stroke_end_outer_color">#0f000000</color>
     <color name="design_fab_stroke_top_inner_color">#1affffff</color>
     <color name="design_fab_stroke_top_outer_color">#2effffff</color>
-    <color name="design_snackbar_background_color">#323232</color>
     <color name="divideColor">#444444</color>
     <color name="divideColorBlue">#254db4</color>
     <color name="divideColorClassic">#444444</color>
@@ -85,11 +69,8 @@
     <color name="seek_overlay_tap_circle_color">#18ffffff</color>
     <color name="error_color_material_dark">#ff7043</color>
     <color name="error_color_material_light">#ff5722</color>
-    <color name="exo_black_opacity_60">#98000000</color>
     <color name="exo_black_opacity_70">#b3000000</color>
-    <color name="exo_bottom_bar_background">#b0000000</color>
     <color name="exo_edit_mode_background_color">#f4f3f0</color>
-    <color name="exo_styled_error_message_background">#80808080</color>
     <color name="exo_white">#ffffff</color>
     <color name="exo_white_opacity_70">#b3ffffff</color>
     <color name="foreground_material_dark">@android:color/white</color>
@@ -117,7 +98,6 @@
     <color name="mtrl_scrim_color">#52000000</color>
     <color name="mtrl_textinput_default_box_stroke_color">#6b000000</color>
     <color name="mtrl_textinput_disabled_color">#1f000000</color>
-    <color name="mtrl_textinput_focused_box_stroke_color">#00000000</color>
     <color name="mtrl_textinput_hovered_box_stroke_color">#de000000</color>
     <color name="notification_action_color_filter">@color/androidx_core_secondary_text_default_material_light</color>
     <color name="notification_icon_bg_color">#9e9e9e</color>
@@ -128,19 +108,13 @@
     <color name="primary_material_dark">@color/material_grey_900</color>
     <color name="primary_material_light">@color/material_grey_100</color>
     <color name="primary_text_default_material_dark">#ffffff</color>
-    <color name="primary_text_default_material_light">#de000000</color>
     <color name="primary_text_disabled_material_dark">#4dffffff</color>
-    <color name="primary_text_disabled_material_light">#39000000</color>
-    <color name="purple_200">#bb86fc</color>
     <color name="purple_500">#6200ee</color>
     <color name="purple_700">#3700b3</color>
     <color name="red">#e74c3c</color>
     <color name="ripple_material_dark">#33ffffff</color>
     <color name="ripple_material_light">#1f000000</color>
     <color name="secondary_text_default_material_dark">#b3ffffff</color>
-    <color name="secondary_text_default_material_light">#8a000000</color>
-    <color name="secondary_text_disabled_material_dark">#36ffffff</color>
-    <color name="secondary_text_disabled_material_light">#24000000</color>
     <color name="subBackgroundColor">#232323</color>
     <color name="subBackgroundColorBlue">#002686</color>
     <color name="subBackgroundColorClassic">#44000000</color>
@@ -180,9 +154,7 @@
     <color name="thirdBackgroundColorPink">#c4a6b4</color>
     <color name="thirdBackgroundColorPurple">#3c2d45</color>
     <color name="thirdBackgroundColorRed">#640019</color>
-    <color name="tooltip_background_dark">#e6616161</color>
     <color name="tooltip_background_light">#e6ffffff</color>
     <color name="transparent">#00000000</color>
     <color name="white">#ffffff</color>
-    <color name="white_70">#b3ffffff</color>
 </resources>

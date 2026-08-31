@@ -15,7 +15,6 @@ class DynamicUpAdapter(
     private val onItemFocused: (() -> Unit)? = null,
     private val onLeftEdge: () -> Boolean = { false },
     private val onRightEdge: () -> Boolean = { false },
-    private val debugTag: String? = null
 ) : RecyclerView.Adapter<DynamicUpAdapter.ViewHolder>() {
 
     private val items = ArrayList<FollowingModel>()

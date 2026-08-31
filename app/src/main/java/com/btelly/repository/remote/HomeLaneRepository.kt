@@ -308,87 +308,10 @@ class HomeLaneRepository(
         return indexType
     }
 
-    private fun parseHeaders(headers: JsonArray?): List<HomeLaneHeader> {
-        return headers.orEmpty()
-            .mapNotNull { element ->
-                val obj = element.asJsonObjectOrNull() ?: return@mapNotNull null
-                val title = obj.string("title")
-                val url = obj.string("url")
-                if (title.isBlank() && url.isBlank()) {
-                    null
-                } else {
-                    HomeLaneHeader(title = title, url = url)
-                }
-            }
-    }
 
-    private fun parseTimelineDays(items: JsonArray?): List<TimeLineADayModel> {
-        return items.orEmpty()
-            .map { item ->
-                val obj = item.asJsonObject
-                val dayOfWeek = obj.int("day_of_week")
-                val episodes = obj.arrayOrNull("episodes").orEmpty().map { episode ->
-                    val episodeObject = episode.asJsonObject
-                    SeriesTimeLineModel(
-                        cover = episodeObject.string("cover"),
-                        delay = episodeObject.int("delay"),
-                        delayReason = episodeObject.string("delay_reason"),
-                        epCover = episodeObject.string("ep_cover"),
-                        episodeId = episodeObject.long("episode_id"),
-                        pubIndex = episodeObject.string("pub_index"),
-                        pubTime = episodeObject.string("pub_time"),
-                        pubTs = episodeObject.long("pub_ts"),
-                        published = episodeObject.int("published"),
-                        seasonId = episodeObject.long("season_id"),
-                        squareCover = episodeObject.string("square_cover"),
-                        title = episodeObject.string("title"),
-                        dayOfWeek = dayOfWeek
-                    )
-                }
-                TimeLineADayModel(
-                    date = obj.string("date"),
-                    dateTs = obj.long("date_ts"),
-                    dayOfWeek = dayOfWeek,
-                    episodes = episodes,
-                    isToday = obj.int("is_today")
-                )
-            }
-    }
 
-    private fun parseSeriesCards(items: JsonArray?): List<LaneItemModel> {
-        return items.orEmpty().mapNotNull { it.asJsonObjectOrNull()?.toSeriesCard() }
-    }
 
-    private fun parseFeedSeriesCards(items: JsonArray?): List<LaneItemModel> {
-        return items.orEmpty().flatMap { item ->
-            val obj = item.asJsonObjectOrNull() ?: return@flatMap emptyList()
-            obj.arrayOrNull("sub_items").orEmpty()
-                .mapNotNull { subItem -> subItem.asJsonObjectOrNull()?.toSeriesCard() }
-        }
-    }
 
-    private fun parseCinemaCards(items: JsonArray?): List<LaneItemModel> {
-        return items.orEmpty().mapNotNull { item ->
-            val obj = item.asJsonObjectOrNull() ?: return@mapNotNull null
-            val link = obj.string("link").ifBlank { obj.string("blink") }
-            val parsed = parseBangumiLink(link)
-            val title = obj.string("title")
-            val cover = obj.string("img").ifBlank { obj.string("simg") }
-            if (title.isBlank() || cover.isBlank()) {
-                return@mapNotNull null
-            }
-            LaneItemModel(
-                seasonId = parsed.first,
-                title = title,
-                cover = cover,
-                desc = obj.string("desc"),
-                subTitle = obj.string("desc"),
-                link = link,
-                oid = parsed.second,
-                badgeInfo = obj.badgeInfoOrNull()
-            )
-        }
-    }
 
     private fun JsonObject.toSeriesCard(): LaneItemModel? {
         val title = string("title")

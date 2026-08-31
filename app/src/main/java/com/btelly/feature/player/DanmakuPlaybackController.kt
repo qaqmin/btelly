@@ -90,13 +90,10 @@ internal class DanmakuPlaybackController(
     )
 
     companion object {
-        private const val TAG = "DanmakuPlayback"
         private const val FIRST_FRAME_DM_MASK_LOAD_DELAY_MS = 2_500L
-        private const val FIRST_DANMAKU_PARTIAL_END_MS = 120_000L
         private const val FIRST_DANMAKU_INITIAL_PARSE_END_MS = 60_000L
         private const val FIRST_DANMAKU_INITIAL_RANGE_END_MS = FIRST_DANMAKU_INITIAL_PARSE_END_MS
         private const val FIRST_DANMAKU_TAIL_PREFETCH_AHEAD_MS = 10_000L
-        private const val FIRST_DANMAKU_FAR_TAIL_MIN_DELAY_MS = 60_000L
         const val DANMAKU_SEGMENT_DURATION_MS = 360_000L
         private const val DANMAKU_PUBLISH_DIAG_THRESHOLD_MS = 4L
         // seek 跳变阈值：播放位置前进超过此值视为用户快进，需主动补全目标位置弹幕数据。
@@ -619,89 +616,7 @@ internal class DanmakuPlaybackController(
         return "$aid#$cid#$segmentIndex"
     }
 
-    private fun resolveInitialTailLoadDelayMs(boundaryMs: Long, minDelayMs: Long): Long {
-        val positionMs = context.currentPositionMs.coerceAtLeast(0L)
-        // 已越过该 tail 边界（如续播或 seek 跳过）则立即加载，避免该区间弹幕断档。
-        if (positionMs >= boundaryMs) return 0L
-        val targetDelayMs = boundaryMs - positionMs - FIRST_DANMAKU_TAIL_PREFETCH_AHEAD_MS
-        return maxOf(minDelayMs, targetDelayMs.coerceAtLeast(0L))
-    }
 
-    private suspend fun loadAndPublishInitialTailRange(
-        cid: Long,
-        aid: Long,
-        segmentIndex: Int,
-        loadGeneration: Long,
-        basePayload: SpecialDanmakuPayload,
-        delayMs: Long,
-        rangeStartMs: Long,
-        rangeEndMs: Long
-    ) {
-        PlaybackStartupTrace.log(
-            traceId = context.startupTraceId,
-            startElapsedMs = context.startupTraceStartElapsedMs,
-            step = "danmaku_tail_load_deferred",
-            message = "segment=$segmentIndex delayMs=$delayMs range=${MediaFormatUtils.formatDanmakuRange(rangeStartMs, rangeEndMs)}"
-        )
-        delay(delayMs)
-        if (!isActiveDanmakuRequest(loadGeneration)) return
-        // 二次确认覆盖范围：延迟期间 seek/预加载可能已覆盖此 range 的前段，
-        // 跳过或推进起点，避免重复请求与发布（解决 historyDropped 重复丢弃）。
-        val coveredNow = withContext(Dispatchers.Main) {
-            danmakuSegmentCoveredUntilMs[segmentIndex] ?: 0L
-        }
-        val effectiveRangeStart = maxOf(rangeStartMs, coveredNow)
-        if (effectiveRangeStart >= rangeEndMs) {
-            PlaybackStartupTrace.log(
-                traceId = context.startupTraceId,
-                startElapsedMs = context.startupTraceStartElapsedMs,
-                step = "danmaku_tail_load_skipped",
-                message = "segment=$segmentIndex range=${MediaFormatUtils.formatDanmakuRange(rangeStartMs, rangeEndMs)} covered=$coveredNow"
-            )
-            return
-        }
-        val tailPayload = loadDanmakuSegmentPayload(
-            cid = cid,
-            aid = aid,
-            segmentIndices = listOf(segmentIndex),
-            expectedSegmentCount = 0,
-            rangeStartMs = effectiveRangeStart,
-            rangeEndMs = rangeEndMs
-        )
-        if (!isActiveDanmakuRequest(loadGeneration)) return
-        withContext(Dispatchers.Main) {
-            if (!isActiveDanmakuRequest(loadGeneration)) return@withContext
-            val currentPayload = danmakuSegmentPayloads[segmentIndex] ?: basePayload
-            val existingRegularKeys = currentPayload.regularItems
-                .mapTo(HashSet(currentPayload.regularItems.size)) { it.danmakuIdentityKey() }
-            val tailRegularCandidates = tailPayload.regularItems
-                .filter { it.progress >= effectiveRangeStart && it.progress < rangeEndMs }
-                .sortedBy { it.progress }
-            val tailRegularItems = tailRegularCandidates.filter { existingRegularKeys.add(it.danmakuIdentityKey()) }
-            val mergedPayload = SpecialDanmakuPayload(
-                regularItems = (currentPayload.regularItems + tailRegularItems).distinctRegularDanmaku()
-            )
-            val droppedRegular = tailRegularCandidates.size - tailRegularItems.size
-            if (droppedRegular > 0 ||
-                tailPayload.regularItems.any { it.progress < effectiveRangeStart || it.progress >= rangeEndMs }
-            ) {
-                PlaybackStartupTrace.log(
-                    traceId = context.startupTraceId,
-                    startElapsedMs = context.startupTraceStartElapsedMs,
-                    step = "danmaku_tail_dedup",
-                    message = "segment=$segmentIndex range=${MediaFormatUtils.formatDanmakuRange(effectiveRangeStart, rangeEndMs)} tailRegular=${tailPayload.regularItems.size} appendRegular=${tailRegularItems.size} droppedRegular=$droppedRegular"
-                )
-            }
-            danmakuSegmentPayloads[segmentIndex] = mergedPayload
-            danmakuSegmentCoveredUntilMs[segmentIndex] = rangeEndMs
-            if (rangeEndMs >= DANMAKU_SEGMENT_DURATION_MS) {
-                danmakuLoadedSegments.add(segmentIndex)
-            }
-            if (tailRegularItems.isNotEmpty()) {
-                publishDanmaku(tailRegularItems, replace = false)
-            }
-        }
-    }
 
     private suspend fun loadDanmakuSegmentPayload(
         cid: Long,

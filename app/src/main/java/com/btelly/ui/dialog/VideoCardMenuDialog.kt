@@ -137,7 +137,6 @@ class VideoCardMenuDialog(
             OwnerDetailDialog(
                 context = context,
                 owner = owner,
-                onOpenSpace = { _ -> },
                 onPlayVideo = { v, playQueue ->
                     VideoRouteNavigator.openVideo(
                         context = context,

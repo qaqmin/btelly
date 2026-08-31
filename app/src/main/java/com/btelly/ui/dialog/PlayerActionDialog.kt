@@ -476,14 +476,7 @@ class PlayerActionDialog(
         }
     }
 
-    private fun handleAuthExpired() {
-        toast(context.getString(R.string.login_expired))
-        dismiss()
-    }
 
-    private fun showRiskControlHint() {
-        Toast.makeText(context, "账号被风控了，请到B站官方App或网页端完成验证后再试", Toast.LENGTH_LONG).show()
-    }
 
     private companion object {
         const val KEY_GIVE_COIN_NUMBER_SETTINGS = "give_coin_number"
