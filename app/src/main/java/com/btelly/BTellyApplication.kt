@@ -209,6 +209,9 @@ class BTellyApplication : Application() {
                 KoinPlatform.getKoin().get<com.btelly.event.AppEventHub>()
                     .dispatch(com.btelly.event.AppEventHub.Event.UserSessionChanged)
             }
+            // 等首屏接口响应的空闲期顺手把内容过滤的关键词自动机构建好（首启一次性 ~20ms）。
+            // 单开子协程并行：不推迟下面的首屏请求发出。
+            launch { com.btelly.core.common.content.ContentFilter.prewarm() }
             runCatching {
                 KoinPlatform.getKoin().get<RecommendFeedRepository>().preloadFirstPage()
             }.onFailure {

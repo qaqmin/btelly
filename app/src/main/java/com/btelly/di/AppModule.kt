@@ -17,6 +17,7 @@ import com.btelly.repository.AllSeriesRepository
 import com.btelly.repository.AuthRepository
 import com.btelly.repository.FavoriteRepository
 import com.btelly.repository.HomeLaneRepository
+import com.btelly.repository.PersonalFeedPrewarmer
 import com.btelly.repository.LiveRepository
 import com.btelly.repository.SearchRepository
 import com.btelly.repository.SeriesRepository
@@ -84,6 +85,7 @@ val repositoryModule = module {
     single { SeriesRepository(get()) }
     single { VideoRepository(get(), get()) }
     single { UserRepository(get(), get(), get()) }
+    single { PersonalFeedPrewarmer(get(), get(), get()) }
     single { RecommendFeedRepository(androidContext()) }
     single { HotFeedRepository() }
     single { HomeLaneFeedRepository(get()) }
@@ -102,7 +104,7 @@ val viewModelModule = module {
     viewModel { LiveViewModel(get()) }
     viewModel { LiveListViewModel(get()) }
     viewModel { LiveRecommendViewModel(get()) }
-    viewModel { MeListViewModel(get()) }
+    viewModel { MeListViewModel(get(), get()) }
     viewModel { MeViewModel(get(), get()) }
     viewModel { SearchViewModel(get()) }
     viewModel { LivePlayerViewModel(get(), LiveDanmakuManager(get(), get(), get())) }
