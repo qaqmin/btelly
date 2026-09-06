@@ -8,6 +8,7 @@ import android.util.TypedValue
 import android.view.View
 import com.btelly.core.common.log.AppLog
 import com.btelly.feature.player.danmaku.common.BiliDanmakuStyle
+import com.btelly.feature.player.danmaku.emote.DanmakuEmoteRepository
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.Locale
@@ -228,6 +229,8 @@ class DanmakuView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         AppLog.i(DIAG_TAG, "view ATTACH ${width}x${height}")
+        // 表情词典预热（磁盘 + 网络，24h 刷新一次；异步无阻塞）。
+        DanmakuEmoteRepository.warmup(context)
         updateViewportIfNeeded()
         startPerfLoggingIfNeeded()
     }
