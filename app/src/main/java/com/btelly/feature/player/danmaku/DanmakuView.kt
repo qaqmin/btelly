@@ -32,6 +32,13 @@ class DanmakuView @JvmOverloads constructor(
     @Volatile private var perfLastDrawMs: Float = 0f
     @Volatile private var perfLastDrawAtUptimeMs: Long = 0L
 
+    // draw 滚动窗口统计（主线程调用；随 DanmakuPerf 输出后重置）：
+    // 单次采样 perfLastDrawMs 三秒才命中一帧，看不到偶发尖峰；max/over8 用来暴露偶发长帧。
+    private var perfDrawMaxMs: Float = 0f
+    private var perfDrawOver8Count: Int = 0
+    private var perfDrawSumMs: Float = 0f
+    private var perfDrawCount: Int = 0
+
     private var lastConfig: DanmakuConfig? = null
     private var lastRawPositionMs: Long = 0L
     private var lastPositionChangeUptimeMs: Long = 0L
@@ -254,7 +261,7 @@ class DanmakuView @JvmOverloads constructor(
 
         perfFramesSinceLog++
         val sampleDraw = perfDrawSampleRequested.getAndSet(false)
-        val measureDraw = debugEnabled || sampleDraw
+        val measureDraw = debugEnabled || sampleDraw || AppLog.isEnabled
         val drawStartedAtNs = if (measureDraw) System.nanoTime() else 0L
 
         fun finishDrawSample() {
@@ -264,6 +271,12 @@ class DanmakuView @JvmOverloads constructor(
             if (sampleDraw) {
                 perfLastDrawMs = drawMs
                 perfLastDrawAtUptimeMs = SystemClock.uptimeMillis()
+            }
+            if (AppLog.isEnabled) {
+                perfDrawCount++
+                perfDrawSumMs += drawMs
+                if (drawMs > perfDrawMaxMs) perfDrawMaxMs = drawMs
+                if (drawMs > 8f) perfDrawOver8Count++
             }
         }
 
@@ -394,10 +407,17 @@ class DanmakuView @JvmOverloads constructor(
             }
         val actAgeMs = if (sample.actAtUptimeMs > 0L) (now - sample.actAtUptimeMs).coerceAtLeast(0L) else -1L
         val drawAgeMs = if (perfLastDrawAtUptimeMs > 0L) (now - perfLastDrawAtUptimeMs).coerceAtLeast(0L) else -1L
+        val drawAvgMs = if (perfDrawCount > 0) perfDrawSumMs / perfDrawCount else 0f
+        val drawMaxMs = perfDrawMaxMs
+        val drawOver8 = perfDrawOver8Count
+        val drawTotal = perfDrawCount
+        val rt = Runtime.getRuntime()
+        val heapUsedMb = (rt.totalMemory() - rt.freeMemory()) / (1024L * 1024L)
+        val heapTotalMb = rt.totalMemory() / (1024L * 1024L)
 
         AppLog.i(
             "DanmakuPerf",
-            buildString(220) {
+            buildString(320) {
                 append("dm=").append(if (config.enabled) "on" else "off")
                 append(" play=").append(isPlaying)
                 append(" spd=").append(String.format(Locale.US, "%.2f", playbackSpeed))
@@ -415,6 +435,10 @@ class DanmakuView @JvmOverloads constructor(
                 append(" actMs=").append(String.format(Locale.US, "%.2f", sample.actMs))
                 append(" age=").append(actAgeMs).append("ms")
                 append(" drawMs=").append(String.format(Locale.US, "%.2f", perfLastDrawMs))
+                append(" drawAvg=").append(String.format(Locale.US, "%.2f", drawAvgMs))
+                append(" drawMax=").append(String.format(Locale.US, "%.2f", drawMaxMs))
+                append(" over8=").append(drawOver8).append('/').append(drawTotal)
+                append(" heap=").append(heapUsedMb).append('/').append(heapTotalMb).append("MB")
                 append(" drawAge=").append(drawAgeMs).append("ms")
                 append(" idle=").append(idleCycles).append('/').append(idleWakes).append('/').append(idleResumes)
                 append(" wake=").append(sample.lastIdleWakeDelayMs).append('/').append(sample.lastIdleWakeLatenessMs).append("ms")
@@ -425,6 +449,10 @@ class DanmakuView @JvmOverloads constructor(
         // Ask action thread to sample act cost for the next log interval.
         player.requestPerfSample()
         perfDrawSampleRequested.set(true)
+        perfDrawMaxMs = 0f
+        perfDrawOver8Count = 0
+        perfDrawSumMs = 0f
+        perfDrawCount = 0
     }
 
     internal fun invalidateDanmakuAreaOnAnimation() {

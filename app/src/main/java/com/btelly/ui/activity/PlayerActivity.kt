@@ -10,7 +10,9 @@ import android.content.Intent
 import androidx.core.app.ActivityOptionsCompat
 import android.os.Build
 import android.os.Bundle
+import android.os.Looper
 import android.os.SystemClock
+import android.util.Printer
 import android.util.TypedValue
 import android.view.KeyEvent
 import android.view.View
@@ -560,6 +562,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        installMainThreadJankMonitor()
         handleIntent(intent)
     }
 
@@ -1556,6 +1559,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     }
 
     override fun onDestroy() {
+        uninstallMainThreadJankMonitor()
         playerView.removeCallbacks(resumePlaybackRunnable)
         stopProgressUpdates()
         stopTeenModeTicker()
@@ -1573,6 +1577,45 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     }
 
     // --- Helper methods (delegated from Fragment logic) ---
+
+    /**
+     * 主线程慢消息诊断（AppLog 开启时安装）：单条消息 dispatch 超过 10ms 即打点，
+     * 用于把 UI 掉帧归因到具体消息（Choreographer doFrame / 进度刷新 / 其他回调）。
+     * Printer 每条消息由框架拼一次字符串，仅在诊断期安装，onDestroy 卸载。
+     */
+    private var mainThreadJankPrinter: Printer? = null
+    private var jankMsgStartNs = 0L
+    private var jankMsgText: String = ""
+    private var lastJankLogAtMs = 0L
+
+    private fun installMainThreadJankMonitor() {
+        if (!AppLog.isEnabled) return
+        if (mainThreadJankPrinter != null) return
+        val printer = Printer { text ->
+            if (text.startsWith(">")) {
+                jankMsgStartNs = System.nanoTime()
+                jankMsgText = text
+            } else if (jankMsgStartNs != 0L) {
+                val costMs = (System.nanoTime() - jankMsgStartNs) / 1_000_000L
+                jankMsgStartNs = 0L
+                if (costMs >= 10L) {
+                    val now = SystemClock.uptimeMillis()
+                    if (now - lastJankLogAtMs >= 200L) {
+                        lastJankLogAtMs = now
+                        AppLog.w("MainThreadJank", "main msg cost=${costMs}ms ${jankMsgText.take(140)}")
+                    }
+                }
+            }
+        }
+        Looper.getMainLooper().setMessageLogging(printer)
+        mainThreadJankPrinter = printer
+    }
+
+    private fun uninstallMainThreadJankMonitor() {
+        val printer = mainThreadJankPrinter ?: return
+        mainThreadJankPrinter = null
+        Looper.getMainLooper().setMessageLogging(null)
+    }
 
     private data class StartupTrace(
         val sequence: Int,

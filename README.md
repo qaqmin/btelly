@@ -6,7 +6,8 @@
 
 - 🎬 **视频播放** - 番剧、电影、电视剧、UGC 视频
 - 📡 **直播 & CCTV** - 直播弹幕；央视 1-17 套遥控器上下切台
-- 💬 **弹幕引擎** - AkDanmaku 高性能引擎，支持人物区域智能防挡
+- 💬 **弹幕引擎** - 轻量化引擎，支持人物区域智能防挡。
+- ✈️ **空降助手** - 自动跳过恰饭/开场/片尾片段，进度条显示片段标记
 - 🎮 **互动视频 / 抖音模式** - 互动分支选择；上下滑动切换推荐
 - 👶 **青少年模式** - 家长控制的内容过滤
 - 🖱️ **长按快捷操作** - 视频卡片长按唤起快捷菜单
@@ -18,7 +19,7 @@
 - **Coroutines + Flow + LiveData** 异步
 - **Retrofit + OkHttp + Gson** 网络层
 - **Media3 (ExoPlayer)** 视频播放（CCTV 走 WebView）
-- **AkDanmaku** 弹幕引擎
+- **弹幕引擎**（Protobuf 协议解析）
 - **DataStore Preferences** 数据存储
 - **AndroidX** UI 组件
 - **minSdk 23 (Android 6.0)** / **targetSdk 35 (Android 15)**
