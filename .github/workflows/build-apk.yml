@@ -78,7 +78,7 @@ jobs:
             echo "VERSION_CHANGED=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Build Release APK
+      - name: Build Release & Debug APK
         if: steps.check_version.outputs.VERSION_CHANGED == 'true'
         env:
           KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
@@ -88,7 +88,7 @@ jobs:
         run: |
           KEYSTORE_PATH="$GITHUB_WORKSPACE/app/keystore.jks"
           printf '%s' "$KEYSTORE_FILE" | base64 -d > "$KEYSTORE_PATH"
-          ./gradlew assembleReleaseRenamed \
+          ./gradlew assembleReleaseRenamed assembleDebugRenamed \
             -Pandroid.injected.signing.store.file="$KEYSTORE_PATH" \
             -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
             -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
@@ -100,6 +100,13 @@ jobs:
         with:
           name: BTelly-v${{ steps.get_version.outputs.VERSION_NAME }}-release
           path: app/build/outputs/renamed_apk/release/BTelly-v${{ steps.get_version.outputs.VERSION_NAME }}-release.apk
+
+      - name: Upload Debug APK
+        if: steps.check_version.outputs.VERSION_CHANGED == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: BTelly-v${{ steps.get_version.outputs.VERSION_NAME }}-debug
+          path: app/build/outputs/renamed_apk/debug/BTelly-v${{ steps.get_version.outputs.VERSION_NAME }}-debug.apk
 
       - name: Extract changelog
         if: steps.check_version.outputs.VERSION_CHANGED == 'true'
