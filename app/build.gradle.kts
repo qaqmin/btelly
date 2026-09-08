@@ -54,8 +54,8 @@ android {
         applicationId = (project.findProperty("applicationId") as? String) ?: "com.btelly"
         minSdk = 23
         targetSdk = 35
-        versionCode = 80
-        versionName = "1.6.20"
+        versionCode = 81
+        versionName = "1.6.21"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
