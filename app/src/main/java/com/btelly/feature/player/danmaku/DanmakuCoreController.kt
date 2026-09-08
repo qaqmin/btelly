@@ -588,7 +588,9 @@ class DanmakuCoreController(
         val trackHeight = (currentConfig.textSizeSp * density * currentConfig.trackSpacing.factor)
             .coerceAtLeast(24f)
         val tracks = (visibleHeight / trackHeight).toInt().coerceAtLeast(3)
-        return (tracks * 2).coerceIn(6, 160)
+        // 每轨道并发约 2~3 条（追尾判定控制），×3 对齐轨道实际承载；
+        // 性能兜底仍在：throttle(30条/100ms)、引擎同屏自适应上限、轨道追尾判定。
+        return (tracks * 3).coerceIn(6, 160)
     }
 
     private fun resetLiveState() {
