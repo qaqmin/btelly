@@ -41,11 +41,6 @@ class FavoriteDetailFragment : BaseFragment<FragmentFavoriteDetailBinding>() {
         private const val ARG_FOLDER_ID = "folder_id"
         private const val ARG_TITLE = "title"
 
-        // 从播放器返回后，焦点恢复到列表内的轮询参数：
-        // 覆盖 Activity 转场动画时长（真机大屏动画可能 >250ms），失败后兜底聚焦返回键。
-        private const val RESTORE_FOCUS_RETRY_TIMES = 6
-        private const val RESTORE_FOCUS_RETRY_DELAY_MS = 120L
-
         fun newInstance(folderId: Long, title: String): FavoriteDetailFragment {
             return FavoriteDetailFragment().apply {
                 arguments = bundleOf(
@@ -360,19 +355,12 @@ class FavoriteDetailFragment : BaseFragment<FragmentFavoriteDetailBinding>() {
                 // ② 退而求其次用 lastFocusedPosition。
                 // 注意：返回时 buttonBack 的 setOnFocusChangeListener 会把 lastFocusedPosition
                 // 重置为 NO_POSITION，故不能单独依赖 lastFocusedPosition。
-                var restoreAction: (() -> Unit)? = null
-                if (controller != null && controller.hasCapturedAnchor()) {
-                    // 用强制恢复（restoreCapturedFocusPosition），不用 restoreCapturedAnchor：
-                    // 后者会在"焦点已落在返回按钮等列表外部 View"时跳过，导致焦点停在返回按钮。
-                    val c = controller
-                    restoreAction = { c.restoreCapturedFocusPosition() }
-                } else if (lastFocusedPosition != RecyclerView.NO_POSITION) {
-                    val target = lastFocusedPosition.coerceIn(0, favoriteAdapter.itemCount - 1)
-                    restoreAction = { controller?.requestFocusPosition(target) }
-                }
-                if (restoreAction != null) {
-                    restoreAction()
-                    retryRestoreFocus(restoreAction, retryLeft = RESTORE_FOCUS_RETRY_TIMES)
+                if (controller != null &&
+                    (controller.hasCapturedAnchor() || lastFocusedPosition != RecyclerView.NO_POSITION)
+                ) {
+                    // 统一走带仲裁的恢复入口（强制拉回 + 真实落点轮询 + 数据落地等待，
+                    // 且恢复窗口内 onDataChanged 不会与其互派重试链），手写 retry 轮询已删除。
+                    controller.restoreFocusAfterReturn(onFailed = { restoreFallbackFocus() })
                 } else {
                     requestBackFocus()
                 }
@@ -383,34 +371,21 @@ class FavoriteDetailFragment : BaseFragment<FragmentFavoriteDetailBinding>() {
     }
 
     /**
-     * 轮询确认焦点是否已恢复到列表内。
-     *
-     * 背景：从播放器 `finish()` 返回时带 Activity 转场动画，`onResume` 里首次
-     * 恢复动作可能因 RecyclerView 子项尚未 attach / 未进入可见区
-     * （`RecyclerViewFocusOperator.requestAttachedPositionFocus` 的
-     * `isAttachedToWindow` / `isPartiallyVisible` 前置检查）而静默失败，且
-     * `requestFocusPosition` / `restoreCapturedAnchor` 返回值不可靠（内部失败也返回 true）。
-     * 真机（Android 7.1 电视盒子 + 红外遥控器）大屏转场动画耗时更长，250ms 重试窗口可能不足。
-     *
-     * 这里用 [hasFocusInList] 判断真实焦点落点：只要焦点回到列表内即视为恢复成功；
-     * 否则每 [RESTORE_FOCUS_RETRY_DELAY_MS] 重试一次 [restoreAction]，
-     * 重试耗尽仍无焦点则兜底聚焦返回键，避免焦点彻底消失。
+     * 锚点恢复失败后的兜底：lastFocusedPosition 仍有效则聚焦该位置，
+     * 仍失败（以 [TvListFocusController.hasFocusInList] 真实落点为准，
+     * `requestFocusPosition` 返回值不可靠——内部失败也返回 true）再退返回键。
      */
-    private fun retryRestoreFocus(restoreAction: () -> Unit, retryLeft: Int) {
+    private fun restoreFallbackFocus() {
         if (!isAdded) return
-        val controller = tvFocusController ?: return
-        if (controller.hasFocusInList()) {
-            return
-        }
-        if (retryLeft <= 0) {
+        val target = lastFocusedPosition
+            .takeIf { it != RecyclerView.NO_POSITION }
+            ?.coerceIn(0, favoriteAdapter.itemCount - 1)
+        if (target == null ||
+            tvFocusController?.requestFocusPosition(target) != true ||
+            tvFocusController?.hasFocusInList() != true
+        ) {
             requestBackFocus()
-            return
         }
-        binding.recyclerViewVideos.postDelayed({
-            if (!isAdded) return@postDelayed
-            restoreAction()
-            retryRestoreFocus(restoreAction, retryLeft - 1)
-        }, RESTORE_FOCUS_RETRY_DELAY_MS)
     }
 
     private fun requestBackFocus() {
@@ -419,16 +394,6 @@ class FavoriteDetailFragment : BaseFragment<FragmentFavoriteDetailBinding>() {
             if (isAdded && !binding.buttonBack.hasFocus()) {
                 binding.buttonBack.requestFocus()
             }
-        }
-    }
-
-    private fun requestItemFocus(position: Int, retries: Int = 6) {
-        val holder = binding.recyclerViewVideos.findViewHolderForAdapterPosition(position)
-        if (holder?.itemView?.requestFocus() == true) {
-            return
-        }
-        if (retries > 0) {
-            binding.recyclerViewVideos.post { requestItemFocus(position, retries - 1) }
         }
     }
 

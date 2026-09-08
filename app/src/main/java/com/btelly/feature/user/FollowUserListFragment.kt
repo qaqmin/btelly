@@ -18,6 +18,10 @@ import com.btelly.model.user.FollowingModel
 import com.btelly.repository.UserRepository
 import com.btelly.ui.adapter.FollowUserAdapter
 import com.btelly.core.ui.base.BaseFragment
+import com.btelly.core.ui.focus.hasFocusInChildren
+import com.btelly.core.ui.focus.tv.GridTvFocusStrategy
+import com.btelly.core.ui.focus.tv.ListAdapterTvFocusBridge
+import com.btelly.core.ui.focus.tv.TvListFocusController
 import com.btelly.feature.detail.UserSpaceFragment
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
@@ -35,10 +39,6 @@ class FollowUserListFragment : BaseFragment<FragmentFollowUserListBinding>() {
         private const val ARG_USER_ID = "user_id"
         private const val ARG_TYPE = "type"
 
-        // 焦点恢复到列表内的轮询参数（覆盖转场动画窗口，失败后兜底返回键）
-        private const val RESTORE_FOCUS_RETRY_TIMES = 6
-        private const val RESTORE_FOCUS_RETRY_DELAY_MS = 120L
-
         fun newInstance(userId: Long, type: Int): FollowUserListFragment {
             return FollowUserListFragment().apply {
                 arguments = bundleOf(
@@ -53,6 +53,7 @@ class FollowUserListFragment : BaseFragment<FragmentFollowUserListBinding>() {
     private val userRepository: UserRepository by inject()
 
     private lateinit var adapter: FollowUserAdapter
+    private var tvFocusController: TvListFocusController? = null
     private var userId: Long = 0L
     private var type: Int = TYPE_FOLLOWING
     private var currentPage = 1
@@ -113,6 +114,29 @@ class FollowUserListFragment : BaseFragment<FragmentFollowUserListBinding>() {
                 }
             }
         })
+        installTvFocusController()
+    }
+
+    /**
+     * 只接「锚点捕获 + 返回恢复/初始聚焦」的轻量 controller：D-pad 导航、数据变化
+     * 停泊均不接线（本页按键行为保持框架默认），FollowUserAdapter 经
+     * [ListAdapterTvFocusBridge] 提供稳定 key（用户 mid）。
+     */
+    private fun installTvFocusController() {
+        tvFocusController?.release()
+        tvFocusController = TvListFocusController(
+            recyclerView = binding.recyclerView,
+            adapter = ListAdapterTvFocusBridge(adapter) { it.mid.toString() },
+            strategy = GridTvFocusStrategy { SPAN_COUNT },
+            canLoadMore = { false },
+            loadMore = {}
+        )
+    }
+
+    override fun onDestroyView() {
+        tvFocusController?.release()
+        tvFocusController = null
+        super.onDestroyView()
     }
 
     override fun initData() {
@@ -195,7 +219,7 @@ class FollowUserListFragment : BaseFragment<FragmentFollowUserListBinding>() {
             if (!hasRequestedInitialFocus && currentPage == 1) {
                 hasRequestedInitialFocus = true
                 if (adapter.itemCount > 0) {
-                    requestItemFocus(0)
+                    tvFocusController?.requestFocusPosition(0)
                 } else {
                     requestBackFocus()
                 }
@@ -237,6 +261,7 @@ class FollowUserListFragment : BaseFragment<FragmentFollowUserListBinding>() {
     private fun onUserClick(user: FollowingModel) {
         if (user.mid > 0) {
             lastFocusedPosition = adapter.getFocusedPosition()
+            tvFocusController?.captureCurrentAnchor()
             openInHostContainer(UserSpaceFragment.newInstance(user.mid))
         }
     }
@@ -246,50 +271,33 @@ class FollowUserListFragment : BaseFragment<FragmentFollowUserListBinding>() {
         binding.recyclerView.post {
             if (!isAdded) return@post
             if (binding.recyclerView.isVisible && adapter.itemCount > 0 && lastFocusedPosition != RecyclerView.NO_POSITION) {
-                val targetPosition = lastFocusedPosition.coerceIn(0, adapter.itemCount - 1)
-                binding.recyclerView.scrollToPosition(targetPosition)
-                requestItemFocus(targetPosition)
-                // 轮询确认真实焦点落点（转场动画/布局未就绪窗口），失败才兜底返回键
-                retryRestoreFocus(targetPosition, retryLeft = RESTORE_FOCUS_RETRY_TIMES)
+                val controller = tvFocusController
+                if (controller != null && controller.hasCapturedAnchor()) {
+                    // 统一走带仲裁的返回恢复：锚点即点击时的用户卡片（稳定 key 经
+                    // ListAdapterTvFocusBridge 重解析），转场轮询/数据落地等待内置，
+                    // 手写 retry 轮询已删除。失败走 lastFocusedPosition 兜底。
+                    controller.restoreFocusAfterReturn(onFailed = { restoreFallbackFocus() })
+                } else {
+                    restoreFallbackFocus()
+                }
             } else {
                 requestBackFocus()
             }
         }
     }
 
-    /**
-     * 轮询确认真实焦点是否已恢复到列表内。
-     *
-     * 背景：`requestItemFocus` 内部以 `requestFocus() == true` 判断成功，但 `requestFocus`
-     * 在 touch mode / view 未 attach / 转场动画期间可能返回 false，且重试耗尽后静默放弃；
-     * 返回值也不可靠。这里改用"焦点是否真正落在列表内"作为成功判据，覆盖转场动画窗口，
-     * 重试耗尽仍无焦点则兜底聚焦返回键，避免焦点彻底消失。
-     */
-    private fun retryRestoreFocus(targetPosition: Int, retryLeft: Int) {
+    /** 锚点恢复失败后的兜底：lastFocusedPosition 单次聚焦（返回值不可靠，以真实落点为准），再退返回键。 */
+    private fun restoreFallbackFocus() {
         if (!isAdded) return
-        if (hasFocusInRecyclerView()) {
-            return
-        }
-        if (retryLeft <= 0) {
+        val targetPosition = lastFocusedPosition
+            .takeIf { it != RecyclerView.NO_POSITION }
+            ?.coerceIn(0, adapter.itemCount - 1)
+        if (targetPosition == null ||
+            tvFocusController?.requestFocusPosition(targetPosition) != true ||
+            !binding.recyclerView.hasFocusInChildren()
+        ) {
             requestBackFocus()
-            return
         }
-        binding.recyclerView.postDelayed({
-            if (!isAdded) return@postDelayed
-            requestItemFocus(targetPosition)
-            retryRestoreFocus(targetPosition, retryLeft - 1)
-        }, RESTORE_FOCUS_RETRY_DELAY_MS)
-    }
-
-    /** 当前真实焦点是否落在用户列表 RecyclerView 内。 */
-    private fun hasFocusInRecyclerView(): Boolean {
-        val focused = binding.recyclerView.rootView?.findFocus() ?: return false
-        var v: View? = focused
-        while (v != null) {
-            if (v === binding.recyclerView) return true
-            v = v.parent as? View
-        }
-        return false
     }
 
     private fun requestBackFocus() {
@@ -298,16 +306,6 @@ class FollowUserListFragment : BaseFragment<FragmentFollowUserListBinding>() {
             if (isAdded && !binding.buttonBack.hasFocus()) {
                 binding.buttonBack.requestFocus()
             }
-        }
-    }
-
-    private fun requestItemFocus(position: Int, retries: Int = 6) {
-        val holder = binding.recyclerView.findViewHolderForAdapterPosition(position)
-        if (holder?.itemView?.requestFocus() == true) {
-            return
-        }
-        if (retries > 0) {
-            binding.recyclerView.post { requestItemFocus(position, retries - 1) }
         }
     }
 }

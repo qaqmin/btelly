@@ -115,6 +115,20 @@ class MyPlayerView @JvmOverloads constructor(
         private const val RESUME_HINT_MARGIN_BOTTOM_DP = 22
         private const val RESUME_HINT_CONTROLLER_OFFSET_DP = 130
         private const val RESUME_HINT_ANIMATION_MS = 120L
+
+        /** 是否为 seek 键（左右方向键及部分电视 ROM 的系统导航兼容键码）。 */
+        internal fun isSeekKeyCode(keyCode: Int): Boolean {
+            return keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT ||
+                keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT ||
+                keyCode == KEYCODE_SYSTEM_NAVIGATION_LEFT_COMPAT ||
+                keyCode == KEYCODE_SYSTEM_NAVIGATION_RIGHT_COMPAT
+        }
+
+        /** seek 键是否为「前进」方向。 */
+        internal fun isForwardSeekKeyCode(keyCode: Int): Boolean {
+            return keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT ||
+                keyCode == KEYCODE_SYSTEM_NAVIGATION_RIGHT_COMPAT
+        }
     }
 
     private var contentFrame: AspectRatioFrameLayout? = null
@@ -1084,45 +1098,67 @@ class MyPlayerView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * 播放器按键分发序列。各分支的判定顺序与拆分前完全一致（按键分发顺序敏感，
+     * 例如 BACK 必须先查设置面板、再查 seek 会话、才是退出逻辑）——调整顺序前
+     * 务必理解现有依赖。各步骤职责见对应 handleXxx 方法。
+     */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        val isBackKey = event.keyCode == KeyEvent.KEYCODE_BACK
-        // [DEBUG] 诊断小米电视确定键播放/暂停失效问题，定位后删除
+        logDpadCenterDiagnostics(event)
+        // 吞掉"控制器隐藏时 DOWN 已切换播放/暂停"对应的 ACTION_UP（厂商 ROM 兼容）
+        if (consumeVendorOkKeyUp(event)) {
+            return true
+        }
+        if (!ensurePlayerAndControllerForKey(event)) {
+            return super.dispatchKeyEvent(event)
+        }
+        // If focus is outside this MyPlayerView (e.g. on the related-videos panel),
+        // let the event propagate normally so D-pad navigation works within the panel.
+        if (shouldDeferKeyToOutsideFocus(event)) {
+            return super.dispatchKeyEvent(event)
+        }
+        handleSettingPanelKeys(event)?.let { return it }
+        handleActiveSeekSessionKeys(event)?.let { return it }
+        handleBackCancelSeekKeys(event)?.let { return it }
+        handleTimebarSeekKeys(event)?.let { return it }
+        handleTapCommitSeekKeys(event)?.let { return it }
+        handleDoubleTapModeKeys(event)?.let { return it }
+        handleControllerDpadKeys(event)?.let { return it }
+        return dispatchMediaAndSuperFallbackKeys(event)
+    }
+
+    /** [DEBUG] 诊断小米电视确定键播放/暂停失效问题，定位后删除。 */
+    private fun logDpadCenterDiagnostics(event: KeyEvent) {
         if (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER) {
             AppLog.d("DpadCenter", "dispatchKeyEvent code=${event.keyCode} action=${event.action} repeat=${event.repeatCount} ctrlVisible=${controller?.isFullyVisible()} player=${player != null}")
         }
-        // 吞掉"控制器隐藏时 DOWN 已切换播放/暂停"对应的 ACTION_UP。
-        // 否则 UP 落到刚获焦的 buttonPlay 上，框架默认行为 performClick 会二次切换，
-        // 与 DOWN 抵消 → 表现为按确定键无反应（小米电视首次按下必现）。
-        if (consumedOkKeyUp &&
-            event.action == KeyEvent.ACTION_UP &&
-            (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)
-        ) {
-            AppLog.d("DpadCenter", "consume ACTION_UP code=${event.keyCode} (DOWN already toggled)")
-            consumedOkKeyUp = false
-            return true
-        }
-        if (event.action == KeyEvent.ACTION_DOWN &&
-            event.keyCode != KeyEvent.KEYCODE_DPAD_CENTER &&
-            event.keyCode != KeyEvent.KEYCODE_ENTER
-        ) {
-            // 其它键的 DOWN：清除可能残留的标记，避免误吞后续不相关的 UP
-            consumedOkKeyUp = false
-        }
-        if (player == null) return super.dispatchKeyEvent(event)
-        if (controller == null && event.action == KeyEvent.ACTION_DOWN && !isBackKey) {
+    }
+
+    /** player/controller 就绪检查：未就绪时返回 false，事件交给 super。 */
+    private fun ensurePlayerAndControllerForKey(event: KeyEvent): Boolean {
+        if (player == null) return false
+        if (controller == null && event.action == KeyEvent.ACTION_DOWN && event.keyCode != KeyEvent.KEYCODE_BACK) {
             ensureController("key")
         }
-        if (controller == null) return super.dispatchKeyEvent(event)
+        return controller != null
+    }
 
-        // If focus is outside this MyPlayerView (e.g. on the related-videos panel),
-        // let the event propagate normally so D-pad navigation works within the panel.
+    /** 焦点在本 View 之外（如相关视频面板）时放行，事件正常传播供面板内 D-pad 导航。 */
+    private fun shouldDeferKeyToOutsideFocus(event: KeyEvent): Boolean {
         if (isDpadKey(event.keyCode)) {
             val focused = findFocus()
             if (focused != null && !isViewDescendant(focused)) {
-                return super.dispatchKeyEvent(event)
+                return true
             }
         }
+        return false
+    }
 
+    /**
+     * 设置面板相关按键：MENU 呼出、BACK 逐级返回/取消恢复进度弹层、面板显示期间
+     * 的事件整体转发。返回 null 表示与本组无关，继续后续分发。
+     */
+    private fun handleSettingPanelKeys(event: KeyEvent): Boolean? {
         if (event.keyCode == KeyEvent.KEYCODE_MENU &&
             event.action == KeyEvent.ACTION_DOWN &&
             settingView?.isShowing() != true
@@ -1150,13 +1186,18 @@ class MyPlayerView @JvmOverloads constructor(
         if (settingView?.isShowing() == true) {
             return settingView?.dispatchKeyEvent(event) ?: super.dispatchKeyEvent(event)
         }
+        return null
+    }
 
+    /**
+     * 活跃 seek 会话期间的按键：seek 键继续喂给会话；其它键（如 BACK）取消会话并
+     * 清理 UI 后返回 null 继续后续分发（取消本身不消费按键）。
+     */
+    private fun handleActiveSeekSessionKeys(event: KeyEvent): Boolean? {
         if (seekSession?.isActive() == true) {
-            if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
-                || event.keyCode == KEYCODE_SYSTEM_NAVIGATION_LEFT_COMPAT || event.keyCode == KEYCODE_SYSTEM_NAVIGATION_RIGHT_COMPAT) {
+            if (isSeekKeyCode(event.keyCode)) {
                 return handleSeekSessionKeyEvent(event)
             }
-            // Non-seek key during active session (e.g. BACK): cancel session and clean up UI
             seekSession?.cancel()
             cancelPendingHoldStart()
             cancelPendingExitSeekProgressOnly()
@@ -1164,131 +1205,147 @@ class MyPlayerView @JvmOverloads constructor(
             seekOverlayView?.cancelSwipeSeek()
             controller?.exitSeekProgressOnly()
         }
+        return null
+    }
 
-        // Cancel any seek on BACK key
-        if (isBackKey && event.action == KeyEvent.ACTION_DOWN) {
-            val wasTimebarSeek = timebarSeekActive
-            val wasSeeking = wasTimebarSeek || tapCommitRunnable != null
-            if (timebarSeekActive) {
-                cancelTimebarSeekLoop()
-                cancelTimebarSeekIdle()
-                timebarSeekActive = false
-            }
-            if (tapCommitRunnable != null) {
-                cancelTapCommit()
-                tapAccumulateDeltaMs = 0L
-                tapAccumulateBaseMs = 0L
-            }
-            if (wasSeeking) {
-                cancelPendingHoldStart()
-                cancelPendingExitSeekProgressOnly()
-                controller?.cancelSeekPreview()
-                seekOverlayView?.cancelSwipeSeek()
-                controller?.exitSeekProgressOnly()
-                // Restore appropriate UI state
-                if (wasTimebarSeek) {
-                    controller?.show()
-                    controller?.startProgressUpdates()
-                }
-                uiCoordinator?.transition(com.btelly.feature.player.UiEvent.SeekCancelled)
-                return true
-            }
+    /** BACK 取消进行中的 timebar seek / 轻点累积提交；确有取消动作时消费按键。 */
+    private fun handleBackCancelSeekKeys(event: KeyEvent): Boolean? {
+        if (event.keyCode != KeyEvent.KEYCODE_BACK || event.action != KeyEvent.ACTION_DOWN) {
+            return null
         }
-
-        // Timebar-focused seek has priority: always route LEFT/RIGHT to timebar when it's focused
-        if (timebarSeekActive && (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
-                || event.keyCode == KEYCODE_SYSTEM_NAVIGATION_LEFT_COMPAT || event.keyCode == KEYCODE_SYSTEM_NAVIGATION_RIGHT_COMPAT)) {
-            val forward = event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
-                || event.keyCode == KEYCODE_SYSTEM_NAVIGATION_RIGHT_COMPAT
-            return handleTimebarSeekKeyEvent(event, forward)
+        val wasTimebarSeek = timebarSeekActive
+        val wasSeeking = wasTimebarSeek || tapCommitRunnable != null
+        if (timebarSeekActive) {
+            cancelTimebarSeekLoop()
+            cancelTimebarSeekIdle()
+            timebarSeekActive = false
         }
+        if (tapCommitRunnable != null) {
+            cancelTapCommit()
+            tapAccumulateDeltaMs = 0L
+            tapAccumulateBaseMs = 0L
+        }
+        if (wasSeeking) {
+            cancelPendingHoldStart()
+            cancelPendingExitSeekProgressOnly()
+            controller?.cancelSeekPreview()
+            seekOverlayView?.cancelSwipeSeek()
+            controller?.exitSeekProgressOnly()
+            // Restore appropriate UI state
+            if (wasTimebarSeek) {
+                controller?.show()
+                controller?.startProgressUpdates()
+            }
+            uiCoordinator?.transition(com.btelly.feature.player.UiEvent.SeekCancelled)
+            return true
+        }
+        return null
+    }
 
-        // When tap accumulation is active (commit pending), controller is in progress-only mode.
-        // Route seek keys to handleSeekSessionKeyEvent to avoid falling through to maybeShowController.
-        if (tapCommitRunnable != null &&
-            (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
-                || event.keyCode == KEYCODE_SYSTEM_NAVIGATION_LEFT_COMPAT || event.keyCode == KEYCODE_SYSTEM_NAVIGATION_RIGHT_COMPAT)) {
+    /** timebar 持焦 seek 优先：LEFT/RIGHT 始终路由给进度条。 */
+    private fun handleTimebarSeekKeys(event: KeyEvent): Boolean? {
+        if (timebarSeekActive && isSeekKeyCode(event.keyCode)) {
+            return handleTimebarSeekKeyEvent(event, isForwardSeekKeyCode(event.keyCode))
+        }
+        return null
+    }
+
+    /** 轻点累积提交挂起中：seek 键路由给 seek 会话，避免落入 maybeShowController。 */
+    private fun handleTapCommitSeekKeys(event: KeyEvent): Boolean? {
+        if (tapCommitRunnable != null && isSeekKeyCode(event.keyCode)) {
             return handleSeekSessionKeyEvent(event)
         }
+        return null
+    }
 
-        if (gestureListener.isDoubleTapping) {
-            if (event.action == KeyEvent.ACTION_DOWN &&
-                (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
-                    || event.keyCode == KEYCODE_SYSTEM_NAVIGATION_LEFT_COMPAT || event.keyCode == KEYCODE_SYSTEM_NAVIGATION_RIGHT_COMPAT)
-            ) {
-                gestureListener.cancelInDoubleTapMode()
-                handleSeekSessionKeyEvent(event)
-            } else {
-                gestureListener.handleKeyDown(event)
+    /** 双击手势模式（长按 seek）期间接管全部按键。 */
+    private fun handleDoubleTapModeKeys(event: KeyEvent): Boolean? {
+        if (!gestureListener.isDoubleTapping) {
+            return null
+        }
+        if (event.action == KeyEvent.ACTION_DOWN && isSeekKeyCode(event.keyCode)) {
+            gestureListener.cancelInDoubleTapMode()
+            handleSeekSessionKeyEvent(event)
+        } else {
+            gestureListener.handleKeyDown(event)
+        }
+        return true
+    }
+
+    /**
+     * 控制栏可见性相关的 D-pad 分发。可见态：seek 键路由（timebar 持焦优先）、
+     * DOWN 打开相关视频面板；隐藏态：抖音式导航、OK 直切播放暂停（厂商补丁）、
+     * 方向键聚焦按钮，隐藏态一律消费按键。返回 null 继续媒体键/super 兜底。
+     */
+    private fun handleControllerDpadKeys(event: KeyEvent): Boolean? {
+        if (!isDpadKey(event.keyCode) || !useController) {
+            return null
+        }
+        val isSeekKey = isSeekKeyCode(event.keyCode)
+        val controllerVisible = controller?.isFullyVisible() == true
+        if (isSeekKey && controller?.isTimebarFocused() == true) {
+            return handleTimebarSeekKeyEvent(event, isForwardSeekKeyCode(event.keyCode))
+        }
+        if (isSeekKey && event.action == KeyEvent.ACTION_DOWN) {
+            if (!controllerVisible || controller?.isScrubbingTimeBar() == true) {
+                return handleSeekSessionKeyEvent(event)
+            }
+        } else if (isSeekKey && event.action == KeyEvent.ACTION_UP) {
+            if (seekSession?.isActive() == true || pendingHoldStartRunnable != null) {
+                return handleSeekSessionKeyEvent(event)
+            }
+        }
+        // When controller is visible and a button (not timebar) has focus,
+        // pressing DOWN opens the related videos panel if the related button is visible.
+        if (controllerVisible
+            && event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+            && event.action == KeyEvent.ACTION_DOWN
+            && controller?.isTimebarFocused() != true
+            && controller?.isRelatedButtonVisible() == true
+        ) {
+            controller?.onRelatedButtonClick()
+            return true
+        }
+        if (!controllerVisible) {
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                handleControllerHiddenDpadKeyDown(event)
             }
             return true
         }
+        return null
+    }
 
-        val isDpadKey = isDpadKey(event.keyCode)
-        val isSeekKey = event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT
-            || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
-            || event.keyCode == KEYCODE_SYSTEM_NAVIGATION_LEFT_COMPAT
-            || event.keyCode == KEYCODE_SYSTEM_NAVIGATION_RIGHT_COMPAT
-
-        if (isDpadKey && useController) {
-            val controllerVisible = controller?.isFullyVisible() == true
-            if (isSeekKey && controller?.isTimebarFocused() == true) {
-                val forward = event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
-                    || event.keyCode == KEYCODE_SYSTEM_NAVIGATION_RIGHT_COMPAT
-                return handleTimebarSeekKeyEvent(event, forward)
-            }
-            if (isSeekKey && event.action == KeyEvent.ACTION_DOWN) {
-                if (!controllerVisible || controller?.isScrubbingTimeBar() == true) {
-                    return handleSeekSessionKeyEvent(event)
-                }
-            } else if (isSeekKey && event.action == KeyEvent.ACTION_UP) {
-                if (seekSession?.isActive() == true || pendingHoldStartRunnable != null) {
-                    return handleSeekSessionKeyEvent(event)
-                }
-            }
-            // When controller is visible and a button (not timebar) has focus,
-            // pressing DOWN opens the related videos panel if the related button is visible.
-            if (controllerVisible
-                && event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN
-                && event.action == KeyEvent.ACTION_DOWN
-                && controller?.isTimebarFocused() != true
-                && controller?.isRelatedButtonVisible() == true
+    /**
+     * 控制栏隐藏态的 DOWN 键处理：抖音式导航 → 手势接管 → 显示控制栏并路由焦点。
+     * OK/Enter 直接切换播放/暂停：不走 focusButtonByKeyDown 的 performClick 路径——
+     * 部分 Android 9 ROM（小米电视）在控制器刚淡入、Button 未完成布局/获焦时会
+     * 丢弃 performClick，导致首次按确定键只弹出播控栏却无法暂停/播放。
+     */
+    private fun handleControllerHiddenDpadKeyDown(event: KeyEvent) {
+        if (handleDouyinNavigationKey(event)) {
+            return
+        }
+        // [DEBUG] 诊断小米电视确定键播放/暂停失效问题，定位后删除
+        val dtDouble = gestureListener.isDoubleTapping
+        AppLog.d("DpadCenter", "!ctrlVisible branch code=${event.keyCode} dtDouble=$dtDouble")
+        if (!gestureListener.handleKeyDown(event) && !gestureListener.isDoubleTapping) {
+            maybeShowController(true)
+            if (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                event.keyCode == KeyEvent.KEYCODE_ENTER
             ) {
-                controller?.onRelatedButtonClick()
-                return true
-            }
-            if (!controllerVisible) {
-                if (event.action == KeyEvent.ACTION_DOWN) {
-                    if (handleDouyinNavigationKey(event)) {
-                        return true
-                    }
-                    // [DEBUG] 诊断小米电视确定键播放/暂停失效问题，定位后删除
-                    val dtDouble = gestureListener.isDoubleTapping
-                    AppLog.d("DpadCenter", "!ctrlVisible branch code=${event.keyCode} dtDouble=$dtDouble")
-                    if (!gestureListener.handleKeyDown(event) && !gestureListener.isDoubleTapping) {
-                        maybeShowController(true)
-                        // OK/Enter 键：直接切换播放/暂停。
-                        // 不走 focusButtonByKeyDown 的 performClick 路径——部分
-                        // Android 9 ROM（小米电视）在控制器刚淡入、Button 未完成
-                        // 布局/获焦时会丢弃 performClick，导致首次按确定键只弹出
-                        // 播控栏却无法暂停/播放。其它方向键仍走 focus 路由显示焦点。
-                        if (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-                            event.keyCode == KeyEvent.KEYCODE_ENTER
-                        ) {
-                            AppLog.d("DpadCenter", "calling togglePlayPauseFromKey code=${event.keyCode}")
-                            controller?.togglePlayPauseFromKey()
-                            // DOWN 已切换，标记吞掉对应 UP，防止 UP 触发 buttonPlay.performClick 二次切换
-                            consumedOkKeyUp = true
-                        } else {
-                            AppLog.d("DpadCenter", "calling focusButtonByKeyDown code=${event.keyCode}")
-                            controller?.focusButtonByKeyDown(event)
-                        }
-                    }
-                }
-                return true
+                AppLog.d("DpadCenter", "calling togglePlayPauseFromKey code=${event.keyCode}")
+                controller?.togglePlayPauseFromKey()
+                // DOWN 已切换，标记吞掉对应 UP，防止 UP 触发 buttonPlay.performClick 二次切换
+                consumedOkKeyUp = true
+            } else {
+                AppLog.d("DpadCenter", "calling focusButtonByKeyDown code=${event.keyCode}")
+                controller?.focusButtonByKeyDown(event)
             }
         }
+    }
 
+    /** 媒体键与框架兜底：媒体键拦截 → super 分发 → D-pad 兜底路由。 */
+    private fun dispatchMediaAndSuperFallbackKeys(event: KeyEvent): Boolean {
         if (controller?.dispatchMediaKeyEvent(event) == true) {
             maybeShowController(true)
             return true
@@ -1300,12 +1357,37 @@ class MyPlayerView @JvmOverloads constructor(
             return true
         }
 
-        if (isDpadKey && useController && event.action == KeyEvent.ACTION_DOWN) {
+        if (isDpadKey(event.keyCode) && useController && event.action == KeyEvent.ACTION_DOWN) {
             maybeShowController(true)
             val handled = controller?.handleDpadWhenSuperNotHandled(event) ?: false
             return handled
         }
 
+        return false
+    }
+
+    /**
+     * 厂商 ROM 兼容（小米电视 Android 9）：控制器隐藏时按 OK/Enter，DOWN 已直接
+     * togglePlayPauseFromKey（见 dispatchKeyEvent 主流程），此处吞掉对应 ACTION_UP——
+     * 否则 UP 落到刚获焦的 buttonPlay，框架默认 performClick 二次切换、与 DOWN 抵消，
+     * 表现为按确定键无反应（小米电视首次按下必现）。其它键的 DOWN 清除标记，
+     * 避免误吞后续不相关的 UP。
+     */
+    private fun consumeVendorOkKeyUp(event: KeyEvent): Boolean {
+        if (consumedOkKeyUp &&
+            event.action == KeyEvent.ACTION_UP &&
+            (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)
+        ) {
+            AppLog.d("DpadCenter", "consume ACTION_UP code=${event.keyCode} (DOWN already toggled)")
+            consumedOkKeyUp = false
+            return true
+        }
+        if (event.action == KeyEvent.ACTION_DOWN &&
+            event.keyCode != KeyEvent.KEYCODE_DPAD_CENTER &&
+            event.keyCode != KeyEvent.KEYCODE_ENTER
+        ) {
+            consumedOkKeyUp = false
+        }
         return false
     }
 

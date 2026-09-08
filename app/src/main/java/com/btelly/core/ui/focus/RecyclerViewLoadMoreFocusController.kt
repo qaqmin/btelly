@@ -13,6 +13,7 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.StaggeredGridLayoutManager
 import com.btelly.R
 import com.btelly.core.common.log.AppLog
+import com.btelly.core.ui.focus.tv.RvFocusParking
 
 class RecyclerViewLoadMoreFocusController(
     private val recyclerView: RecyclerView,
@@ -46,7 +47,7 @@ class RecyclerViewLoadMoreFocusController(
     private var installed = false
     private var pendingFocusAfterLoadMoreAnchorPos = RecyclerView.NO_POSITION
     private var pendingFocusAfterLoadMoreTargetPos = RecyclerView.NO_POSITION
-    private var focusParkedDescendantFocusability: Int? = null
+    private val focusParking = RvFocusParking(recyclerView, overrideRecyclerFocusable = false)
     private val focusRetryDelayMillis = 16L
     private val focusRetryMaxAttempts = 30
     private val focusProtectWindowMs = 500L
@@ -57,8 +58,6 @@ class RecyclerViewLoadMoreFocusController(
     private var lastKnownFocusedSpanIndex: Int? = null
     private var detachFocusRestoreToken = 0
     private var originalOverScrollMode: Int? = null
-    private var originalDefaultFocusHighlightEnabled: Boolean? = null
-    private var didSuppressDefaultFocusHighlight = false
     private var focusHighlightListener: ViewTreeObserver.OnGlobalFocusChangeListener? = null
 
     private val adapterObserver = object : RecyclerView.AdapterDataObserver() {
@@ -148,22 +147,13 @@ class RecyclerViewLoadMoreFocusController(
         clearPendingFocusAfterLoadMore()
         unparkFocusInRecyclerViewIfNeeded()
         removeDefaultFocusHighlightSuppressionHook()
-        restoreRecyclerDefaultFocusHighlightIfSuppressed()
+        focusParking.restoreDefaultFocusHighlightIfNeeded()
         originalOverScrollMode?.let { mode ->
             if (recyclerView.overScrollMode == View.OVER_SCROLL_NEVER) {
                 recyclerView.overScrollMode = mode
             }
         }
         originalOverScrollMode = null
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            originalDefaultFocusHighlightEnabled?.let { enabled ->
-                if (!recyclerView.defaultFocusHighlightEnabled) {
-                    recyclerView.defaultFocusHighlightEnabled = enabled
-                }
-            }
-        }
-        originalDefaultFocusHighlightEnabled = null
-        didSuppressDefaultFocusHighlight = false
         log("release", "state=${stateSummary()}")
     }
 
@@ -231,7 +221,7 @@ class RecyclerViewLoadMoreFocusController(
         }
 
         val focused = recyclerView.rootView?.findFocus()
-        if (focused != null && !isDescendantOf(focused, recyclerView)) {
+        if (focused != null && !focused.isDescendantOf(recyclerView)) {
             clearPendingFocusAfterLoadMore()
             return false
         }
@@ -304,7 +294,7 @@ class RecyclerViewLoadMoreFocusController(
     private fun handleDpadDown(target: View, position: Int): Boolean {
         val rootItem = recyclerView.findContainingItemView(target) ?: target
         val next = FocusFinder.getInstance().findNextFocus(recyclerView, rootItem, View.FOCUS_DOWN)
-        if (next != null && isDescendantOf(next, recyclerView)) {
+        if (next != null && next.isDescendantOf(recyclerView)) {
             val nextPosition = resolveAdapterPosition(next)
             if (isValidDownCandidate(position, nextPosition)) {
                 log("handleDown.nextFocus", "from=$position next=${viewSummary(next)}")
@@ -354,7 +344,7 @@ class RecyclerViewLoadMoreFocusController(
     private fun handleDpadDownFallback(target: View): Boolean {
         val rootItem = recyclerView.findContainingItemView(target) ?: target
         val next = FocusFinder.getInstance().findNextFocus(recyclerView, rootItem, View.FOCUS_DOWN)
-        if (next != null && isDescendantOf(next, recyclerView)) {
+        if (next != null && next.isDescendantOf(recyclerView)) {
             val currentPosition = resolveAdapterPosition(target) ?: lastKnownFocusedAdapterPos
             val nextPosition = resolveAdapterPosition(next)
             if (currentPosition == RecyclerView.NO_POSITION || isValidDownCandidate(currentPosition, nextPosition)) {
@@ -422,13 +412,13 @@ class RecyclerViewLoadMoreFocusController(
         }
 
         val focused = recyclerView.rootView?.findFocus()
-        val focusWasInThisRecycler = focused != null && isDescendantOf(focused, recyclerView)
+        val focusWasInThisRecycler = focused != null && focused.isDescendantOf(recyclerView)
         if (!focusWasInThisRecycler && focused != null) {
             log("detach.skipExternalFocus", "child=${viewSummary(detachedChild)} focused=${viewSummary(focused)}")
             return
         }
 
-        val detachingContainedFocus = focused != null && isDescendantOf(focused, detachedChild)
+        val detachingContainedFocus = focused != null && focused.isDescendantOf(detachedChild)
         if (!detachingContainedFocus && focused != null) {
             log("detach.skipOtherChild", "child=${viewSummary(detachedChild)} focused=${viewSummary(focused)}")
             return
@@ -463,7 +453,7 @@ class RecyclerViewLoadMoreFocusController(
         }
 
         val focused = recyclerView.rootView?.findFocus()
-        if (focused != null && focused !== recyclerView && isDescendantOf(focused, recyclerView)) {
+        if (focused != null && focused !== recyclerView && focused.isDescendantOf(recyclerView)) {
             log("restoreAfterDetach.alreadyFocused", "focused=${viewSummary(focused)} state=${stateSummary()}")
             return true
         }
@@ -538,17 +528,12 @@ class RecyclerViewLoadMoreFocusController(
         }
 
         val focused = recyclerView.rootView?.findFocus()
-        if (focused != null && focused !== recyclerView && !isDescendantOf(focused, recyclerView)) {
+        if (focused != null && focused !== recyclerView && !focused.isDescendantOf(recyclerView)) {
             log("park.skipExternalFocus", "focused=${viewSummary(focused)}")
             return
         }
 
-        suppressRecyclerDefaultFocusHighlight()
-
-        if (focusParkedDescendantFocusability == null) {
-            focusParkedDescendantFocusability = recyclerView.descendantFocusability
-            recyclerView.descendantFocusability = ViewGroup.FOCUS_BEFORE_DESCENDANTS
-        }
+        focusParking.applyParkOverrides()
 
         if (recyclerView.isFocused || recyclerView.requestFocus()) {
             log(
@@ -565,14 +550,14 @@ class RecyclerViewLoadMoreFocusController(
             val currentFocused = recyclerView.rootView?.findFocus()
             if (currentFocused != null &&
                 currentFocused !== recyclerView &&
-                !isDescendantOf(currentFocused, recyclerView)
+                !currentFocused.isDescendantOf(recyclerView)
             ) {
                 log("park.retrySkipExternal", "focused=${viewSummary(currentFocused)}")
-                restoreRecyclerDefaultFocusHighlightIfSuppressed()
+                focusParking.restoreDefaultFocusHighlightIfNeeded()
                 return@postIfAlive
             }
 
-            suppressRecyclerDefaultFocusHighlight()
+            focusParking.suppressDefaultFocusHighlight()
             if (!recyclerView.isFocused) {
                 recyclerView.requestFocus()
             }
@@ -587,57 +572,28 @@ class RecyclerViewLoadMoreFocusController(
     }
 
     private fun unparkFocusInRecyclerViewIfNeeded() {
-        val original = focusParkedDescendantFocusability ?: return
-        focusParkedDescendantFocusability = null
-        recyclerView.descendantFocusability = original
-    }
-
-    private fun suppressRecyclerDefaultFocusHighlight() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            return
-        }
-        if (originalDefaultFocusHighlightEnabled == null) {
-            originalDefaultFocusHighlightEnabled = recyclerView.defaultFocusHighlightEnabled
-        }
-        if (recyclerView.defaultFocusHighlightEnabled) {
-            recyclerView.defaultFocusHighlightEnabled = false
-            didSuppressDefaultFocusHighlight = true
-        }
-    }
-
-    private fun restoreRecyclerDefaultFocusHighlightIfSuppressed() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !didSuppressDefaultFocusHighlight) {
-            return
-        }
-        val original = originalDefaultFocusHighlightEnabled ?: return
-        if (!recyclerView.defaultFocusHighlightEnabled) {
-            recyclerView.defaultFocusHighlightEnabled = original
-        }
-        didSuppressDefaultFocusHighlight = false
+        focusParking.clearParkOverrides()
     }
 
     private fun ensureDefaultFocusHighlightSuppressionHook() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || focusHighlightListener != null) {
             return
         }
-        if (originalDefaultFocusHighlightEnabled == null) {
-            originalDefaultFocusHighlightEnabled = recyclerView.defaultFocusHighlightEnabled
-        }
         val listener = ViewTreeObserver.OnGlobalFocusChangeListener { oldFocus, newFocus ->
             if (!installed) {
                 return@OnGlobalFocusChangeListener
             }
             if (newFocus === recyclerView) {
-                suppressRecyclerDefaultFocusHighlight()
+                focusParking.suppressDefaultFocusHighlight()
                 maybeRecoverRecyclerFocus("globalFocus")
             } else if (oldFocus === recyclerView) {
-                restoreRecyclerDefaultFocusHighlightIfSuppressed()
+                focusParking.restoreDefaultFocusHighlightIfNeeded()
             }
         }
         focusHighlightListener = listener
         runCatching { recyclerView.viewTreeObserver.addOnGlobalFocusChangeListener(listener) }
         if (recyclerView.isFocused) {
-            suppressRecyclerDefaultFocusHighlight()
+            focusParking.suppressDefaultFocusHighlight()
             maybeRecoverRecyclerFocus("installFocused")
         }
     }
@@ -655,14 +611,14 @@ class RecyclerViewLoadMoreFocusController(
 
     private fun tryFocusNextDownFromCurrent(): Boolean {
         val focused = recyclerView.findFocus() ?: return false
-        if (!isDescendantOf(focused, recyclerView)) {
+        if (!focused.isDescendantOf(recyclerView)) {
             return false
         }
         val itemView = recyclerView.findContainingItemView(focused) ?: return false
         val currentPosition = resolveAdapterPosition(itemView)
         val next = FocusFinder.getInstance().findNextFocus(recyclerView, itemView, View.FOCUS_DOWN)
         val nextPosition = next?.let(::resolveAdapterPosition)
-        if (next != null && isDescendantOf(next, recyclerView) && isValidDownCandidate(currentPosition, nextPosition)) {
+        if (next != null && next.isDescendantOf(recyclerView) && isValidDownCandidate(currentPosition, nextPosition)) {
             log("tryFocusNextDown.success", "from=${viewSummary(itemView)} next=${viewSummary(next)}")
             next.requestFocus()
             return true
@@ -816,7 +772,7 @@ class RecyclerViewLoadMoreFocusController(
             return false
         }
         val focused = recyclerView.rootView?.findFocus()
-        return focused == null || isDescendantOf(focused, recyclerView)
+        return focused == null || focused.isDescendantOf(recyclerView)
     }
 
     private fun isPartiallyVisibleInRecycler(itemView: View): Boolean {
@@ -981,17 +937,6 @@ class RecyclerViewLoadMoreFocusController(
             is GridLayoutManager -> layoutManager.spanSizeLookup.getSpanIndex(position, spanCount)
             else -> position % spanCount
         }
-    }
-
-    private fun isDescendantOf(view: View, ancestor: View): Boolean {
-        var current: View? = view
-        while (current != null) {
-            if (current === ancestor) {
-                return true
-            }
-            current = current.parent as? View
-        }
-        return false
     }
 
     private inline fun RecyclerView.postIfAlive(crossinline action: () -> Unit) {

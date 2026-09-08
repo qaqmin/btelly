@@ -29,6 +29,7 @@ import com.btelly.feature.user.FollowUserListFragment
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
 import com.btelly.core.common.content.ContentFilter
+import com.btelly.core.ui.focus.hasFocusInChildren
 import com.btelly.core.ui.focus.tv.GridTvFocusStrategy
 import com.btelly.core.ui.focus.tv.OffsetTvFocusableAdapter
 import com.btelly.core.ui.focus.tv.TvDataChangeReason
@@ -106,7 +107,7 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.btelly.u
                 }
             },
             onMoveToContent = {
-                requestVideoFocus(lastFocusedVideoPosition)
+                requestContentFocus(lastFocusedVideoPosition)
             }
         )
         videoAdapter = VideoAdapter(
@@ -283,7 +284,7 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.btelly.u
                             hasRequestedInitialFocus = true
                             requestHeaderFocus(FocusArea.BACK)
                         } else if (lastFocusedArea == FocusArea.CONTENT) {
-                            requestVideoFocus(lastFocusedVideoPosition)
+                            requestContentFocus(lastFocusedVideoPosition)
                         } else {
                             Unit
                         }
@@ -456,7 +457,23 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.btelly.u
         if (!isAdded) return
         binding.root.post {
             if (!isAdded) return@post
-            if (lastFocusedArea == FocusArea.CONTENT && requestVideoFocus(lastFocusedVideoPosition)) {
+            val controller = tvFocusController
+            if (lastFocusedArea == FocusArea.CONTENT &&
+                controller != null &&
+                controller.hasCapturedAnchor()
+            ) {
+                // 统一走带仲裁的返回恢复：controller 锚点即点击时的视频卡片
+                // （含 header offset 的稳定 key 重解析），失败退 header 区域/返回键
+                controller.restoreFocusAfterReturn(
+                    onFailed = {
+                        if (!binding.recyclerViewVideos.hasFocusInChildren()) {
+                            requestHeaderFocus(lastFocusedArea)
+                        }
+                    }
+                )
+                return@post
+            }
+            if (lastFocusedArea == FocusArea.CONTENT && requestContentFocus(lastFocusedVideoPosition)) {
                 return@post
             }
             requestHeaderFocus(lastFocusedArea)
@@ -494,9 +511,13 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.btelly.u
         }
     }
 
-    private fun requestVideoFocus(position: Int, retries: Int = 6): Boolean {
+    /**
+     * 聚焦内容区视频卡片（header offset 已换算为绝对位置）。布局未就绪时的等待与
+     * 重试由 controller 的 RVFocusOp（PreDraw + 重试链）承担，不再手写递归轮询。
+     */
+    private fun requestContentFocus(position: Int): Boolean {
         // 视图已销毁（onDestroyView 后 binding 为 null）时，Adapter 的遥控器按键
-        // 回调可能晚到，直接放弃，避免 NPE 崩溃。递归重试的每次调用都会经过此检查。
+        // 回调可能晚到，直接放弃，避免 NPE 崩溃。
         if (!isAdded || rootView == null) return false
         val itemCount = videoAdapter.contentCount()
         if (itemCount == 0) {
@@ -511,16 +532,8 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.btelly.u
         if (tvFocusController?.requestFocusPosition(absolutePosition) == true) {
             return true
         }
-        val holder = binding.recyclerViewVideos.findViewHolderForAdapterPosition(absolutePosition)
-        if (holder?.itemView?.requestFocus() == true) {
-            return true
-        }
-
-        if (retries > 0) {
-            binding.recyclerViewVideos.scrollToPosition(absolutePosition)
-            binding.recyclerViewVideos.post { requestVideoFocus(targetPosition, retries - 1) }
-        }
-        return false
+        return binding.recyclerViewVideos.findViewHolderForAdapterPosition(absolutePosition)
+            ?.itemView?.requestFocus() == true
     }
 
     private fun installTvFocusController() {

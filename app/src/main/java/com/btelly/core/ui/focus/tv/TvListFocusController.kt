@@ -1,14 +1,13 @@
 package com.btelly.core.ui.focus.tv
 
-import android.os.Build
 import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.View
-import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.core.common.log.AppLog
+import com.btelly.core.ui.focus.isDescendantOf
 
 class TvListFocusController(
     private val recyclerView: RecyclerView,
@@ -39,10 +38,18 @@ class TvListFocusController(
 
     // restoreFocusAfterReturn 轮询单飞行标志：同一 controller 同时只允许一轮恢复轮询。
     private var returnFocusPollingActive = false
+
+    // 返回恢复仲裁：轮询窗口期间「正在恢复的目标位置」。窗口内 onDataChanged 只作为
+    // 「数据已落地」事件（挂起停泊/锚点/append 恢复——它们与轮询互派 RVFocusOp 重试链、
+    // focusToken 互踩 STALE，是返回焦点风暴的挤兑源）；外部恢复类请求
+    // （Fragment 层旧轮询的 restoreCapturedFocusPosition/requestFocusPosition）与该目标
+    // 不一致时并入当前意图、一致时幂等跳过，不再重复派生。
+    private var activeReturnRestorePosition: Int? = null
+
+    // onDataChanged 触发的「数据已落地」恢复去重：一次数据变化只 post 一帧恢复一次。
+    private var pendingRestoreAfterDataChange = false
     private var restoreOutsideFocusUntilMs = 0L
-    private var parkedDescendantFocusability: Int? = null
-    private var parkedRecyclerFocusable: Boolean? = null
-    private var parkedDefaultFocusHighlightEnabled: Boolean? = null
+    private val focusParking = RvFocusParking(recyclerView, overrideRecyclerFocusable = true)
     private val globalFocusListener = ViewTreeObserver.OnGlobalFocusChangeListener { oldFocus, newFocus ->
         if (!restoreFocusOnFocusedDetach) {
             return@OnGlobalFocusChangeListener
@@ -50,8 +57,8 @@ class TvListFocusController(
         if (SystemClock.uptimeMillis() > restoreOutsideFocusUntilMs) {
             return@OnGlobalFocusChangeListener
         }
-        val oldFocusInsideList = oldFocus != null && isDescendantOf(oldFocus, recyclerView)
-        val newFocusInsideList = newFocus != null && isDescendantOf(newFocus, recyclerView)
+        val oldFocusInsideList = oldFocus != null && oldFocus.isDescendantOf(recyclerView)
+        val newFocusInsideList = newFocus != null && newFocus.isDescendantOf(recyclerView)
         logD(
             "globalFocusDuringMove: old=${describeView(oldFocus)} oldInside=$oldFocusInsideList " +
                 "new=${describeView(newFocus)} newInside=$newFocusInsideList " +
@@ -80,8 +87,8 @@ class TvListFocusController(
                 return
             }
             val focused = recyclerView.rootView?.findFocus()
-            val focusInsideDetached = focused != null && isDescendantOf(focused, view)
-            val focusOutsideList = focused != null && !isDescendantOf(focused, recyclerView)
+            val focusInsideDetached = focused != null && focused.isDescendantOf(view)
+            val focusOutsideList = focused != null && !focused.isDescendantOf(recyclerView)
             logD(
                 "childDetached: view=${describeView(view)} focused=${describeView(focused)} " +
                     "focusInsideDetached=$focusInsideDetached focusOutsideList=$focusOutsideList " +
@@ -184,10 +191,22 @@ class TvListFocusController(
                 "capturedAnchor=${capturedAnchor?.adapterPosition} rootFocus=${describeView(recyclerView.rootView?.findFocus())}"
         )
         if (adapter.focusableItemCount() <= 0) {
-            currentAnchor = null
-            capturedAnchor = null
-            pendingMoveAfterLoadMore = null
+            clearAnchorsAndPendingOps()
             operator.cancelPendingFocus()
+            endReturnRestorePolling("dataCleared")
+            return
+        }
+
+        // 返回恢复窗口期间，数据变化的处置由仲裁器决策：数据落地事件 post 一帧后单次
+        // 恢复（停泊/锚点/append 恢复挂起，否则与恢复轮询互派重试链、focusToken 互踩
+        // STALE——返回焦点风暴根因）；用户主动刷新则中止恢复，交由刷新焦点流程接管。
+        if (returnFocusPollingActive) {
+            if (ReturnRestoreArbiter.shouldAbortForDataChange(reason)) {
+                clearAnchorForUserRefresh()
+                endReturnRestorePolling("userRefresh")
+            } else {
+                scheduleRestoreAfterDataLanded()
+            }
             return
         }
 
@@ -220,15 +239,7 @@ class TvListFocusController(
                 if (resolved != RecyclerView.NO_POSITION && adapter.isFocusablePosition(resolved)) {
                     val capturedResolved = resolved
                     // Park: make RV itself focusable and take focus away from children
-                    if (parkedDescendantFocusability == null) {
-                        parkedDescendantFocusability = recyclerView.descendantFocusability
-                        recyclerView.descendantFocusability = ViewGroup.FOCUS_BEFORE_DESCENDANTS
-                    }
-                    if (parkedRecyclerFocusable == null) {
-                        parkedRecyclerFocusable = recyclerView.isFocusable
-                        recyclerView.isFocusable = true
-                    }
-                    suppressRecyclerDefaultFocusHighlight()
+                    focusParking.applyParkOverrides()
                     recyclerView.requestFocus()
                     logD("parkFocus: anchor=$resolved reason=$reason")
                     // After layout completes, restore focus to the correct child
@@ -244,7 +255,7 @@ class TvListFocusController(
 
         // Don't steal focus if something outside the RecyclerView currently has focus
         val focused = recyclerView.rootView?.findFocus()
-        if (focused != null && !isDescendantOf(focused, recyclerView)) {
+        if (focused != null && !focused.isDescendantOf(recyclerView)) {
             return
         }
 
@@ -265,7 +276,7 @@ class TvListFocusController(
             return false
         }
         val focused = recyclerView.rootView?.findFocus()
-        val focusInsideList = focused != null && isDescendantOf(focused, recyclerView)
+        val focusInsideList = focused != null && focused.isDescendantOf(recyclerView)
         val focusDetachedOrHidden = focused != null && (!focused.isAttachedToWindow || !focused.isShown)
         if (focused != null && !focusInsideList && !focusDetachedOrHidden && !allowWhenFocusOutside) {
             logD("ensureValidFocus: skip reason=$reason outsideFocus=${describeView(focused)}")
@@ -357,6 +368,9 @@ class TvListFocusController(
         if (!adapter.isFocusablePosition(position)) {
             return false
         }
+        if (mergeIntoActiveReturnRestore(position, "requestFocusPosition")) {
+            return true
+        }
         val anchor = strategy.anchorFor(
             position = position,
             stableKey = adapter.stableKeyAt(position),
@@ -376,7 +390,7 @@ class TvListFocusController(
      */
     fun hasFocusInList(): Boolean {
         val focused = recyclerView.rootView?.findFocus() ?: return false
-        return isDescendantOf(focused, recyclerView)
+        return focused.isDescendantOf(recyclerView)
     }
 
     /**
@@ -431,6 +445,9 @@ class TvListFocusController(
         if (position == RecyclerView.NO_POSITION || !adapter.isFocusablePosition(position)) {
             logD("restoreCapturedFocusPosition: pos=$position NOT focusable, skip")
             return false
+        }
+        if (mergeIntoActiveReturnRestore(position, "restoreCapturedFocusPosition")) {
+            return true
         }
         logD("restoreCapturedFocusPosition: pos=$position offset=${anchor.offsetTop}")
         return focusPosition(position, anchor.offsetTop, "returnFocus", allowOutsideFocus = true)
@@ -488,21 +505,22 @@ class TvListFocusController(
         var attempts = 0
         var waits = 0
         returnFocusPollingActive = true
+        activeReturnRestorePosition = position
         val runnable = object : Runnable {
             override fun run() {
                 if (token != userNavigationToken) {
                     logD("restoreFocusAfterReturn: abort, user navigated")
-                    returnFocusPollingActive = false
+                    endReturnRestorePolling("userNavigated")
                     return
                 }
                 if (recyclerView.rootView == null || !recyclerView.isAttachedToWindow) {
                     logD("restoreFocusAfterReturn: abort, not attached")
-                    returnFocusPollingActive = false
+                    endReturnRestorePolling("notAttached")
                     return
                 }
                 if (hasFocusInList()) {
                     logD("restoreFocusAfterReturn: restored on retry $attempts, pos=$position")
-                    returnFocusPollingActive = false
+                    endReturnRestorePolling("restored")
                     onRestored()
                     return
                 }
@@ -516,7 +534,7 @@ class TvListFocusController(
                     waits++
                     if (waits > RETURN_FOCUS_WAIT_LIMIT) {
                         logD("restoreFocusAfterReturn: RV not ready within limit, onFailed (pos=$position)")
-                        returnFocusPollingActive = false
+                        endReturnRestorePolling("notReadyLimit")
                         onFailed()
                         return
                     }
@@ -526,7 +544,7 @@ class TvListFocusController(
                 attempts++
                 if (attempts > retryTimes) {
                     logD("restoreFocusAfterReturn: retries exhausted, onFailed (pos=$position)")
-                    returnFocusPollingActive = false
+                    endReturnRestorePolling("retriesExhausted")
                     onFailed()
                     return
                 }
@@ -536,6 +554,70 @@ class TvListFocusController(
         }
         recyclerView.postDelayed(runnable, retryDelayMs)
         logD("restoreFocusAfterReturn: scheduled retry, pos=$position")
+    }
+
+    /** 结束返回恢复轮询窗口，清空仲裁槽位。 */
+    private fun endReturnRestorePolling(reason: String) {
+        if (returnFocusPollingActive || activeReturnRestorePosition != null) {
+            logD("endReturnRestorePolling: reason=$reason")
+        }
+        returnFocusPollingActive = false
+        activeReturnRestorePosition = null
+    }
+
+    /**
+     * 返回恢复窗口内的仲裁：恢复类焦点请求不与轮询并发派生。返回 true 表示已并入
+     * 当前恢复意图、调用方无需再自行派生（其轮询以 hasFocusInList 真实落点为准）。
+     */
+    private fun mergeIntoActiveReturnRestore(position: Int, caller: String): Boolean {
+        val active = activeReturnRestorePosition
+        val merged = ReturnRestoreArbiter.shouldMergeRequest(
+            activePosition = active,
+            requestedPosition = position,
+            hasPendingFocusForActive = active?.let(operator::hasPendingFocusFor) == true
+        )
+        if (!merged) {
+            return false
+        }
+        if (active != null && active != position) {
+            logD("$caller: merged into active restore pos=$active, skip pos=$position")
+        } else {
+            logD("$caller: identical restore pos=$position already pending, skip")
+        }
+        return true
+    }
+
+    private fun clearAnchorsAndPendingOps() {
+        currentAnchor = null
+        capturedAnchor = null
+        pendingMoveAfterLoadMore = null
+    }
+
+    /**
+     * 返回恢复窗口内 onDataChanged 的「数据已落地」处理：post 一帧（布局完成后）
+     * 执行一次强制恢复，结果由轮询 tick 校验。去重保证一次数据变化只恢复一次。
+     */
+    private fun scheduleRestoreAfterDataLanded() {
+        if (pendingRestoreAfterDataChange) {
+            return
+        }
+        pendingRestoreAfterDataChange = true
+        recyclerView.post {
+            pendingRestoreAfterDataChange = false
+            if (!returnFocusPollingActive) {
+                return@post
+            }
+            val anchor = capturedAnchor ?: currentAnchor ?: return@post
+            val position = resolveAnchorPosition(anchor)
+            if (position == RecyclerView.NO_POSITION || !adapter.isFocusablePosition(position)) {
+                logD("restoreAfterDataLanded: anchor invalid, wait for polling")
+                return@post
+            }
+            // 数据重建后锚点（stableKey）可能解析到新位置，先同步仲裁槽位再单次恢复
+            activeReturnRestorePosition = position
+            logD("restoreAfterDataLanded: single restore pos=$position")
+            restoreCapturedFocusPosition()
+        }
     }
 
     fun restoreCapturedAnchor(): Boolean {
@@ -563,7 +645,7 @@ class TvListFocusController(
         // 播放器返回应改用 [restoreFocusAfterReturn]（强制拉回 + 轮询校验）。
         val focused = recyclerView.rootView?.findFocus()
         if (focused != null &&
-            !isDescendantOf(focused, recyclerView) &&
+            !focused.isDescendantOf(recyclerView) &&
             focused.isAttachedToWindow &&
             focused.isShown &&
             focused.isFocusable
@@ -593,6 +675,7 @@ class TvListFocusController(
                 recyclerView.viewTreeObserver.removeOnGlobalFocusChangeListener(globalFocusListener)
             }
         }
+        endReturnRestorePolling("release")
         refreshFocusTarget = null
         restoreAllFocus()
         clearAnchorForUserRefresh()
@@ -632,7 +715,7 @@ class TvListFocusController(
             if (resolved == RecyclerView.NO_POSITION || focusedPosition == resolved) {
                 return@postDelayed
             }
-            val focusInsideList = focused != null && isDescendantOf(focused, recyclerView)
+            val focusInsideList = focused != null && focused.isDescendantOf(recyclerView)
             if (focused != null && !focusInsideList && !restoreAppendFocusFromOutside) {
                 return@postDelayed
             }
@@ -702,13 +785,14 @@ class TvListFocusController(
         allowOutsideFocus: Boolean = false
     ): Boolean {
         val focused = recyclerView.rootView?.findFocus()
-        if (focused != null && !isDescendantOf(focused, recyclerView) && reason != "move" && reason != "primary" && !allowOutsideFocus) {
+        if (focused != null && !focused.isDescendantOf(recyclerView) && reason != "move" && reason != "primary" && !allowOutsideFocus) {
             logD("focusPosition: BLOCKED reason=$reason focus outside RV on ${describeView(focused)}")
             return false
         }
         logD("focusPosition: pos=$position offset=$offsetTop reason=$reason focused=${describeView(focused)}")
         return operator.focusPosition(position, offsetTop, reason) { focusedPosition ->
-            restoreOutsideFocusUntilMs = TvFocusMovePolicy.restoreWindowAfterFocused()
+            // 焦点落定即关闭「外部焦点恢复窗口」：目标已获焦，无需再防外部抢焦
+            restoreOutsideFocusUntilMs = 0L
             unparkFocusInRecyclerViewIfNeeded()
             currentAnchor = strategy.anchorFor(
                 position = focusedPosition,
@@ -824,15 +908,6 @@ class TvListFocusController(
             ?: recyclerView.getChildAdapterPosition(itemView)
     }
 
-    private fun isDescendantOf(view: View, ancestor: View): Boolean {
-        var current: View? = view
-        while (current != null) {
-            if (current === ancestor) return true
-            current = current.parent as? View
-        }
-        return false
-    }
-
     private fun directionName(direction: Int): String = when (direction) {
         View.FOCUS_UP -> "UP"
         View.FOCUS_DOWN -> "DOWN"
@@ -864,7 +939,7 @@ class TvListFocusController(
 
     private fun parkFocusIfTargetNeedsScroll(targetPosition: Int) {
         val focused = recyclerView.rootView?.findFocus()
-        val focusIsOutsideList = focused != null && focused !== recyclerView && !isDescendantOf(focused, recyclerView)
+        val focusIsOutsideList = focused != null && focused !== recyclerView && !focused.isDescendantOf(recyclerView)
         if (!TvFocusParkingPolicy.shouldParkFocusForPendingTarget(
                 hasAttachedFocusableTarget = hasAttachedFocusableItem(targetPosition),
                 focusIsOutsideList = focusIsOutsideList
@@ -876,30 +951,16 @@ class TvListFocusController(
             return
         }
 
-        if (parkedDescendantFocusability == null) {
-            parkedDescendantFocusability = recyclerView.descendantFocusability
-            recyclerView.descendantFocusability = ViewGroup.FOCUS_BEFORE_DESCENDANTS
-        }
-        if (parkedRecyclerFocusable == null) {
-            parkedRecyclerFocusable = recyclerView.isFocusable
-            recyclerView.isFocusable = true
-        }
-        suppressRecyclerDefaultFocusHighlight()
+        focusParking.applyParkOverrides()
 
         val handled = recyclerView.isFocused || recyclerView.requestFocus()
         logD("parkFocus: target=$targetPosition handled=$handled focused=${describeView(recyclerView.rootView?.findFocus())}")
     }
 
     private fun unparkFocusInRecyclerViewIfNeeded() {
-        parkedDescendantFocusability?.let { original ->
-            recyclerView.descendantFocusability = original
-            parkedDescendantFocusability = null
-        }
-        parkedRecyclerFocusable?.let { original ->
-            recyclerView.isFocusable = original
-            parkedRecyclerFocusable = null
-        }
-        restoreRecyclerDefaultFocusHighlightIfNeeded()
+        focusParking.clearParkOverrides()
+        // 调用点均为「焦点即将/已经落到 child」，此时恢复高亮安全
+        focusParking.restoreDefaultFocusHighlightIfNeeded()
     }
 
     private fun hasAttachedFocusableItem(position: Int): Boolean {
@@ -922,27 +983,6 @@ class TvListFocusController(
             val parentBottom = recyclerView.height - recyclerView.paddingBottom
             itemView.bottom > parentTop && itemView.top < parentBottom
         }
-    }
-
-    private fun suppressRecyclerDefaultFocusHighlight() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            return
-        }
-        if (parkedDefaultFocusHighlightEnabled == null) {
-            parkedDefaultFocusHighlightEnabled = recyclerView.defaultFocusHighlightEnabled
-        }
-        if (recyclerView.defaultFocusHighlightEnabled) {
-            recyclerView.defaultFocusHighlightEnabled = false
-        }
-    }
-
-    private fun restoreRecyclerDefaultFocusHighlightIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            return
-        }
-        val original = parkedDefaultFocusHighlightEnabled ?: return
-        recyclerView.defaultFocusHighlightEnabled = original
-        parkedDefaultFocusHighlightEnabled = null
     }
 
     /**
@@ -974,8 +1014,42 @@ internal object TvFocusMovePolicy {
     fun shouldHandleDownAfterStrategyMiss(orientation: Int?): Boolean {
         return orientation != RecyclerView.HORIZONTAL
     }
+}
 
-    fun restoreWindowAfterFocused(): Long {
-        return 0L
+/**
+ * 返回恢复窗口（returnFocusPollingActive）内的仲裁决策，纯函数以便单元测试。
+ *
+ * 背景（返回焦点风暴）：多路恢复并发时各自派生 RVFocusOp 重试链、focusToken 互踩
+ * STALE，约 1 秒内数十次 requestFocus 全失败。仲裁目标：窗口内同一时刻只有一个
+ * 恢复意图、一次数据落地只恢复一次。
+ */
+internal object ReturnRestoreArbiter {
+
+    /**
+     * 外部恢复类请求（restoreCapturedFocusPosition / requestFocusPosition）是否
+     * 并入当前恢复意图（不派生新重试链）：
+     * - 无当前意图（窗口未开）：不并入，走正常路径；
+     * - 目标与当前意图不一致：并入——两路并发正是风暴来源，以窗口意图为准；
+     * - 目标一致且 RVFocusOp 已有同位置待聚焦意图：幂等跳过，避免重复排队。
+     */
+    fun shouldMergeRequest(
+        activePosition: Int?,
+        requestedPosition: Int,
+        hasPendingFocusForActive: Boolean
+    ): Boolean {
+        val active = activePosition ?: return false
+        if (active != requestedPosition) {
+            return true
+        }
+        return hasPendingFocusForActive
+    }
+
+    /**
+     * 恢复窗口内 onDataChanged 是否应中止恢复：用户主动刷新意味着锚点即将被清、
+     * 用户意图已变（刷新后有专门的刷新焦点流程），恢复继续只会互踩；其余数据变化
+     * 属于「数据已落地」，等待布局完成后单次恢复即可。
+     */
+    fun shouldAbortForDataChange(reason: TvDataChangeReason): Boolean {
+        return reason == TvDataChangeReason.USER_REFRESH
     }
 }

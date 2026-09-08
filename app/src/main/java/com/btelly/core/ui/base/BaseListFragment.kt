@@ -18,6 +18,7 @@ import com.btelly.core.ui.focus.TabContentFocusHelper
 import com.btelly.core.ui.focus.tv.GridTvFocusStrategy
 import com.btelly.core.ui.focus.tv.TvDataChangeReason
 import com.btelly.core.ui.focus.tv.TvFocusStrategy
+import com.btelly.core.ui.focus.isDescendantOf
 import com.btelly.core.ui.focus.tv.TvFocusableAdapter
 import com.btelly.core.ui.focus.tv.TvListFocusController
 import com.btelly.core.ui.refresh.SwipeRefreshHelper
@@ -420,17 +421,6 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
                 }
             }
         ).also { it.install() }
-    }
-
-    private fun View.isDescendantOf(ancestor: View): Boolean {
-        var current: View? = this
-        while (current != null) {
-            if (current === ancestor) {
-                return true
-            }
-            current = current.parent as? View
-        }
-        return false
     }
 
     protected fun isPendingReturnRestore(): Boolean = false

@@ -174,9 +174,9 @@ internal class PlayerControlFocusCoordinator(
     }
 
     fun requestPlayPauseFocus() {
-        val result = if (buttonPlay.visibility == View.VISIBLE) {
+        if (buttonPlay.visibility == View.VISIBLE) {
             buttonPlay.requestFocus()
-        } else false
+        }
     }
 
     fun requestTimeBarFocus() {
@@ -308,13 +308,5 @@ internal class PlayerControlFocusCoordinator(
             nextIndex += step
         }
         return true
-    }
-
-    private fun View.idName(): String {
-        return try {
-            resources.getResourceEntryName(id)
-        } catch (_: Exception) {
-            "unknown"
-        }
     }
 }
