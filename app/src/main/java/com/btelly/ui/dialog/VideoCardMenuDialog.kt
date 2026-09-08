@@ -65,6 +65,9 @@ class VideoCardMenuDialog(
         video.historyBusiness == "live"
     private val supportsWatchLater = !isLiveFeedbackCard &&
         (video.aid > 0L || video.bvid.isNotBlank())
+    // 视频详情页仅对普通视频开放，直播卡片无详情可看。
+    private val supportsVideoDetail = !isLiveFeedbackCard &&
+        (video.aid > 0L || video.bvid.isNotBlank())
     private val supportsHistoryRecordDelete = onHistoryRecordDeleted != null &&
         video.historyRecordKid.isNotBlank()
     // UP 主信息是否就绪：owner 缺失或 mid<=0 时（如关注/动态页扁平结构未带 owner），
@@ -116,6 +119,13 @@ class VideoCardMenuDialog(
                 removeWatchLater()
             } else {
                 addWatchLater()
+            }
+        }
+
+        binding.buttonVideoDetail.setOnClickListener {
+            dismiss()
+            if (!VideoRouteNavigator.openVideoDetail(context, video)) {
+                VideoRouteNavigator.openVideo(context, video)
             }
         }
 
@@ -551,6 +561,7 @@ class VideoCardMenuDialog(
         binding.buttonDeleteHistoryRecord.visibility =
             if (supportsHistoryRecordDelete) View.VISIBLE else View.GONE
         binding.buttonWatchLater.visibility = if (supportsWatchLater) View.VISIBLE else View.GONE
+        binding.buttonVideoDetail.visibility = if (supportsVideoDetail) View.VISIBLE else View.GONE
         binding.buttonUpSpace.visibility = if (supportsUpSpace) View.VISIBLE else View.GONE
         recomputeFocusChain()
         binding.textFavoriteSummary.text = context.getString(R.string.menu_favorite_summary)
@@ -588,6 +599,7 @@ class VideoCardMenuDialog(
         val focusableButtons = buildList {
             if (supportsHistoryRecordDelete) add(R.id.button_delete_history_record)
             if (supportsWatchLater) add(R.id.button_watch_later)
+            if (supportsVideoDetail) add(R.id.button_video_detail)
             if (supportsUpSpace) add(R.id.button_up_space)
         }
         val indexById = focusableButtons.withIndex().associate { (i, id) -> id to i }

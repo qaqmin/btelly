@@ -208,6 +208,8 @@
     <string name="menu_favorite">收藏</string>
     <string name="menu_already_favorited">已收藏</string>
     <string name="menu_favorite_summary">短按收藏/取消收藏，长按选择收藏夹</string>
+    <string name="menu_video_detail">视频详情</string>
+    <string name="menu_video_detail_summary">查看简介、标签与互动数据</string>
     <string name="menu_up_space">UP主主页</string>
     <string name="menu_up_space_summary">展示UP视频列表</string>
     <string name="menu_delete_history_record">删除该记录</string>

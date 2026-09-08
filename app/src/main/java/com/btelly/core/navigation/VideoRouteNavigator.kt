@@ -68,6 +68,23 @@ object VideoRouteNavigator {
         )
     }
 
+    /**
+     * 显式打开视频详情页（标签/简介/互动数据），不受“显示视频详情页”设置开关限制，
+     * 供长按菜单等用户明确表达意图的入口使用。
+     */
+    fun openVideoDetail(
+        context: Context,
+        video: VideoModel,
+        playQueue: List<VideoModel> = emptyList()
+    ): Boolean {
+        val hostActivity = findMainActivityHost(context)
+        if (hostActivity != null) {
+            hostActivity.openInHostContainer(VideoDetailFragment.newInstance(video, playQueue))
+            return true
+        }
+        return false
+    }
+
     fun openHistory(
         context: Context,
         historyVideo: HistoryVideoModel,
