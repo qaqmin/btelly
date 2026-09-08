@@ -1,6 +1,7 @@
 package com.btelly.core.ui.focus.tv
 
 import android.view.View
+import android.view.ViewTreeObserver
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -21,6 +22,9 @@ class RecyclerViewFocusOperator(
         focusToken++
         pendingFocusPosition = RecyclerView.NO_POSITION
     }
+
+    /** 是否已有排队中的待聚焦意图（[focusPosition] 派生、尚未成功也未作废）。 */
+    fun hasPendingFocusFor(position: Int): Boolean = pendingFocusPosition == position
 
     fun focusPosition(
         position: Int,
@@ -59,8 +63,38 @@ class RecyclerViewFocusOperator(
             }
         }
 
-        scheduleAttachRetry(position, offsetTop, token, retryLeft = 5, onFocused = onFocused)
+        scheduleFocusAfterNextLayout(position, offsetTop, token, onFocused)
         return true
+    }
+
+    /**
+     * 滚动/数据变化后的首次聚焦等待：下一次 PreDraw（此时布局已完成，holder 应已 attach）
+     * 再尝试聚焦，恢复延迟从「下一轮 50ms tick」收敛到下一帧。PreDraw 未命中的极端情况
+     * （holder 仍未就绪等）退回 [scheduleAttachRetry] 兜底，总兜底时长不变。
+     */
+    private fun scheduleFocusAfterNextLayout(
+        position: Int,
+        offsetTop: Int,
+        token: Int,
+        onFocused: ((Int) -> Unit)?
+    ) {
+        val listener = object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                // 回调时原 observer 可能已 merge 失效，必须经 view 当前 observer 移除
+                recyclerView.viewTreeObserver.removeOnPreDrawListener(this)
+                if (token != focusToken || !recyclerView.isAttachedToWindow) {
+                    AppLog.d(TAG, "focusPosition preDraw: stale token=$token current=$focusToken, pos=$position")
+                    return true
+                }
+                if (requestAttachedPositionFocus(position, onFocused)) {
+                    pendingFocusPosition = RecyclerView.NO_POSITION
+                    return true
+                }
+                scheduleAttachRetry(position, offsetTop, token, retryLeft = 5, onFocused = onFocused)
+                return true
+            }
+        }
+        recyclerView.viewTreeObserver.addOnPreDrawListener(listener)
     }
 
     /**

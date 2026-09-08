@@ -199,8 +199,6 @@ class MyPlayerControlView @JvmOverloads constructor(
         centerControls = findViewById(R.id.exo_center_controls)
         bottomBar = findViewById(R.id.exo_bottom_bar)
         titleContainer = findViewById(R.id.view_title)
-        titleContainer.setOnFocusChangeListener { _, hasFocus ->
-        }
 
         // Focus routing is kept in a dedicated coordinator so player actions stay separate.
         focusCoordinator = PlayerControlFocusCoordinator(

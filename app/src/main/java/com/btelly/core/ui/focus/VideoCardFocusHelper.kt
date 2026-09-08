@@ -83,7 +83,7 @@ object VideoCardFocusHelper {
 
             override fun onChildViewDetachedFromWindow(detached: View) {
                 val focused = detached.rootView.findFocus() ?: return
-                if (focused !== detached && !isDescendantOf(focused, detached)) return
+                if (focused !== detached && !focused.isDescendantOf(detached)) return
                 val lm = rv.layoutManager as? LinearLayoutManager ?: return
                 if (lm.orientation == RecyclerView.HORIZONTAL) {
                     return
@@ -162,7 +162,7 @@ object VideoCardFocusHelper {
             return false
         }
         val currentFocus = target.rootView.findFocus()
-        if (currentFocus == null || (currentFocus !== target && !isDescendantOf(currentFocus, target))) {
+        if (currentFocus == null || (currentFocus !== target && !currentFocus.isDescendantOf(target))) {
             AppLog.d(TAG, "ignore key=$keyCode because current focus is not target: focus=${currentFocus?.javaClass?.simpleName}")
             return false
         }
@@ -252,7 +252,7 @@ object VideoCardFocusHelper {
                             "${it.javaClass.simpleName}(pos=$nPos)"
                         } ?: "null"
                     }")
-                    if (nextFocus != null && isDescendantOf(nextFocus, rv)) {
+                    if (nextFocus != null && nextFocus.isDescendantOf(rv)) {
                         nextFocus.requestFocus()
                         return true
                     }
@@ -465,15 +465,6 @@ object VideoCardFocusHelper {
             current = current.parent
         }
         return null
-    }
-
-    private fun isDescendantOf(view: View, ancestor: View): Boolean {
-        var current: View? = view
-        while (current != null) {
-            if (current === ancestor) return true
-            current = current.parent as? View
-        }
-        return false
     }
 
     private fun Context.findMainActivity(): MainActivity? {

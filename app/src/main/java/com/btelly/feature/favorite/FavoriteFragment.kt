@@ -28,6 +28,10 @@ import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.log.PagePerfLogger
 import com.btelly.core.ui.focus.SpatialFocusNavigator
+import com.btelly.core.ui.focus.tv.GridTvFocusStrategy
+import com.btelly.core.ui.focus.tv.ListAdapterTvFocusBridge
+import com.btelly.core.ui.focus.tv.TvListFocusController
+import com.btelly.core.ui.focus.hasFocusInChildren
 import com.btelly.core.ui.focus.TabContentFocusHelper
 import com.btelly.core.ui.refresh.SwipeRefreshHelper
 import kotlinx.coroutines.flow.collectLatest
@@ -40,10 +44,6 @@ import org.koin.android.ext.android.inject
 class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
     companion object {
         private const val ARG_EMBEDDED = "embedded"
-
-        // 焦点恢复到列表内的轮询参数（覆盖转场动画窗口，失败后兜底返回键）
-        private const val RESTORE_FOCUS_RETRY_TIMES = 6
-        private const val RESTORE_FOCUS_RETRY_DELAY_MS = 120L
 
         fun newInstance() = FavoriteFragment()
 
@@ -58,6 +58,7 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
     private val userRepository: UserRepository by inject()
     private val feedPrewarmer: com.btelly.repository.PersonalFeedPrewarmer by inject()
     private lateinit var adapter: FavoriteFolderAdapter
+    private var tvFocusController: TvListFocusController? = null
     private var swipeRefreshLayout: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null
     private var embedded = false
     private var lastFocusedPosition = RecyclerView.NO_POSITION
@@ -83,6 +84,7 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
             onItemClick = { _, item ->
                 lastFocusedPosition = adapter.getFocusedPosition()
                 pendingRestoreFocus = true
+                tvFocusController?.captureCurrentAnchor()
                 openInHostContainer(FavoriteDetailFragment.newInstance(item.id, item.title))
             },
             onItemFocused = { position ->
@@ -143,6 +145,29 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
                 setProgressViewOffset(false, topOffset, endOffset)
             }
         }
+        installTvFocusController()
+    }
+
+    /**
+     * 只接「锚点捕获 + 返回恢复」的轻量 controller：D-pad 导航、数据变化停泊
+     * 均不接线（本页按键行为保持框架默认），FolderAdapter 经
+     * [ListAdapterTvFocusBridge] 提供稳定 key（folder id）。
+     */
+    private fun installTvFocusController() {
+        tvFocusController?.release()
+        tvFocusController = TvListFocusController(
+            recyclerView = binding.recyclerViewFavorite,
+            adapter = ListAdapterTvFocusBridge(adapter) { it.id.toString() },
+            strategy = GridTvFocusStrategy { 4 },
+            canLoadMore = { false },
+            loadMore = {}
+        )
+    }
+
+    override fun onDestroyView() {
+        tvFocusController?.release()
+        tvFocusController = null
+        super.onDestroyView()
     }
 
     override fun initData() {
@@ -418,58 +443,32 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
                 }
                 return@post
             }
-            val targetPosition = lastFocusedPosition
-                .takeIf { it != RecyclerView.NO_POSITION }
-                ?.coerceIn(0, adapter.itemCount - 1)
-                ?: 0
-            RecyclerViewFocusRestoreHelper.requestFocusAtPosition(
-                recyclerView = binding.recyclerViewFavorite,
-                position = targetPosition
-            )
-            // 轮询确认真实焦点落点（转场动画/布局未就绪窗口），失败才兜底返回键，
-            // 避免 requestFocusAtPosition 返回值不可靠导致焦点彻底丢失。
-            retryRestoreFocus(targetPosition, retryLeft = RESTORE_FOCUS_RETRY_TIMES)
-        }
-    }
-
-    /**
-     * 轮询确认真实焦点是否已恢复到收藏夹列表内。
-     *
-     * 背景：`RecyclerViewFocusRestoreHelper.requestFocusAtPosition` 在 holder 缺失时会
-     * `scrollToPosition` 后异步 `post` focusRequester，若此时 view 未布局 / touch mode /
-     * 转场动画期间，`requestFocus()` 可能失败且返回值不可靠。这里改用"焦点是否真正落在
-     * 列表内"作为成功判据，覆盖转场动画窗口，重试耗尽仍无焦点则兜底聚焦返回键。
-     */
-    private fun retryRestoreFocus(targetPosition: Int, retryLeft: Int) {
-        if (!isAdded) return
-        if (hasFocusInRecyclerView()) {
-            return
-        }
-        if (retryLeft <= 0) {
-            if (!embedded) {
-                requestBackFocus()
+            val controller = tvFocusController
+            if (controller != null && controller.hasCapturedAnchor()) {
+                // 统一走带仲裁的返回恢复：锚点即点击时的文件夹卡片（稳定 key 经
+                // ListAdapterTvFocusBridge 重解析），转场轮询/数据落地等待内置，
+                // 手写 retry 轮询已删除。失败走 lastFocusedPosition 兜底。
+                controller.restoreFocusAfterReturn(onFailed = { restoreFallbackFocus() })
+            } else {
+                restoreFallbackFocus()
             }
-            return
         }
-        binding.recyclerViewFavorite.postDelayed({
-            if (!isAdded) return@postDelayed
-            RecyclerViewFocusRestoreHelper.requestFocusAtPosition(
-                recyclerView = binding.recyclerViewFavorite,
-                position = targetPosition
-            )
-            retryRestoreFocus(targetPosition, retryLeft - 1)
-        }, RESTORE_FOCUS_RETRY_DELAY_MS)
     }
 
-    /** 当前真实焦点是否落在收藏夹列表 RecyclerView 内。 */
-    private fun hasFocusInRecyclerView(): Boolean {
-        val focused = binding.recyclerViewFavorite.rootView?.findFocus() ?: return false
-        var v: View? = focused
-        while (v != null) {
-            if (v === binding.recyclerViewFavorite) return true
-            v = v.parent as? View
+    /** 锚点恢复失败后的兜底：lastFocusedPosition 单次聚焦（返回值不可靠，以真实落点为准），再退空态/返回键。 */
+    private fun restoreFallbackFocus() {
+        if (!isAdded) return
+        val targetPosition = lastFocusedPosition
+            .takeIf { it != RecyclerView.NO_POSITION }
+            ?.coerceIn(0, adapter.itemCount - 1)
+            ?: 0
+        RecyclerViewFocusRestoreHelper.requestFocusAtPosition(
+            recyclerView = binding.recyclerViewFavorite,
+            position = targetPosition
+        )
+        if (!binding.recyclerViewFavorite.hasFocusInChildren()) {
+            requestFallbackFocus()
         }
-        return false
     }
 
     private fun requestBackFocus() {
@@ -497,17 +496,6 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
 
     private fun requestEmptyStateFocus(): Boolean {
         return binding.tvEmpty.requestFocus()
-    }
-
-    private fun requestItemFocus(position: Int, retries: Int = 6) {
-        val result = RecyclerViewFocusRestoreHelper.requestFocusAtPosition(
-            recyclerView = binding.recyclerViewFavorite,
-            position = position
-        )
-        if (result.handled || retries <= 0) {
-            return
-        }
-        binding.recyclerViewFavorite.post { requestItemFocus(position, retries - 1) }
     }
 
     private fun applySavedCover(folder: com.btelly.model.favorite.FavoriteFolderModel): com.btelly.model.favorite.FavoriteFolderModel {
