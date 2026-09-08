@@ -39,6 +39,17 @@ class DanmakuView @JvmOverloads constructor(
     private var perfDrawSumMs: Float = 0f
     private var perfDrawCount: Int = 0
 
+    // 帧级颤动探针（直播"滚动时颤一下"定位用；3s 平均 fps 掩盖单帧异常）：
+    // - gap25：相邻两次 onDraw 间隔 ≥25ms 的帧数（单帧拥塞=该帧弹幕位移双倍，肉眼即"颤一下"）
+    // - maxGap：窗口内最大帧间隔
+    // - jit：|smooth 步进 − 真实帧间隔| ≥8ms 的帧数（时钟跳变/追赶期速度异常，弹幕 x 由 smooth 决定）
+    // 两类探针把"颤动"二分为渲染拥塞 vs 时钟跳变；日志关闭时零开销。
+    private var perfFrameLastAtUpMs: Long = 0L
+    private var perfFrameLastSmoothMs: Long = 0L
+    private var perfFrameGapCount: Int = 0
+    private var perfFrameGapMaxMs: Long = 0L
+    private var perfSmoothJitCount: Int = 0
+
     private var lastConfig: DanmakuConfig? = null
     private var lastRawPositionMs: Long = 0L
     private var lastPositionChangeUptimeMs: Long = 0L
@@ -333,7 +344,30 @@ class DanmakuView @JvmOverloads constructor(
             playbackSpeed = speed,
             config = cfg,
         )
+        if (AppLog.isEnabled) {
+            recordFrameJitterProbe(isPlaying = isPlaying)
+        }
         finishDrawSample()
+    }
+
+    /**
+     * 帧级颤动探针（主线程 onDraw 末尾调用，仅在日志开启时工作）：
+     * 对比"相邻两次绘制的真实间隔"与"平滑时钟的实际步进"。
+     * gap≥25ms 记一次单帧拥塞；|smoothDelta − frameDt|≥8ms 记一次时钟跳变。
+     */
+    private fun recordFrameJitterProbe(isPlaying: Boolean) {
+        val nowUpMs = SystemClock.uptimeMillis()
+        val smoothNowMs = player.currentDanmakuPositionMs()
+        val lastAt = perfFrameLastAtUpMs
+        if (lastAt != 0L && isPlaying) {
+            val frameDtMs = nowUpMs - lastAt
+            if (frameDtMs > perfFrameGapMaxMs) perfFrameGapMaxMs = frameDtMs
+            if (frameDtMs >= 25L) perfFrameGapCount++
+            val smoothDtMs = smoothNowMs - perfFrameLastSmoothMs
+            if (kotlin.math.abs(smoothDtMs - frameDtMs) >= 8L) perfSmoothJitCount++
+        }
+        perfFrameLastAtUpMs = nowUpMs
+        perfFrameLastSmoothMs = smoothNowMs
     }
 
     private fun startPerfLoggingIfNeeded() {
@@ -443,6 +477,9 @@ class DanmakuView @JvmOverloads constructor(
                 append(" idle=").append(idleCycles).append('/').append(idleWakes).append('/').append(idleResumes)
                 append(" wake=").append(sample.lastIdleWakeDelayMs).append('/').append(sample.lastIdleWakeLatenessMs).append("ms")
                 append(" inv=").append(inv)
+                append(" gap25=").append(perfFrameGapCount)
+                append('/').append(perfFrameGapMaxMs).append("ms")
+                append(" jit=").append(perfSmoothJitCount)
             },
         )
 
@@ -453,6 +490,9 @@ class DanmakuView @JvmOverloads constructor(
         perfDrawOver8Count = 0
         perfDrawSumMs = 0f
         perfDrawCount = 0
+        perfFrameGapCount = 0
+        perfFrameGapMaxMs = 0L
+        perfSmoothJitCount = 0
     }
 
     internal fun invalidateDanmakuAreaOnAnimation() {

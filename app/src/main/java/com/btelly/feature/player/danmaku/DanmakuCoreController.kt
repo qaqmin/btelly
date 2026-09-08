@@ -272,17 +272,18 @@ class DanmakuCoreController(
         val snapshot = lastSnapshot ?: return
         if (!snapshot.enabled) return
         val nowMs = SystemClock.uptimeMillis()
+        // 直播弹幕恒立即透传，不看 mergeDuplicate 设置：合并批处理器要等满 800ms
+        // 合并窗口才放行（实测 emitted→append 稳定 ~900ms），直播弹幕比 B 站官方慢
+        // 近 1 秒。合并等待的收益（同文本 ×N）远低于即时性；视频场景的合并是离线
+        // 预知的、无此代价，不受影响。节流（100ms/30 条）与屏上密度上限仍然生效。
         emitLiveDanmakus(
             liveBatcher.offer(
                 item = dm,
                 nowMs = nowMs,
-                mergeEnabled = snapshot.mergeDuplicate,
+                mergeEnabled = false,
                 displayCapacity = estimateLiveDisplayCapacity(),
             )
         )
-        if (snapshot.mergeDuplicate && liveBatcher.pendingCount() > 0) {
-            scheduleLiveFlush()
-        }
     }
 
     override fun applySettings(snapshot: DanmakuSettingsSnapshot) {
