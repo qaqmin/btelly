@@ -320,7 +320,6 @@ internal class CacheManager(
         val pooled = pool.tryPut(bmp)
         if (!pooled) {
             recycleBitmap(bmp)
-            bitmapRecycled.incrementAndGet()
         } else {
             bitmapPutToPool.incrementAndGet()
         }
@@ -721,6 +720,10 @@ internal class CacheManager(
     private fun recycleBitmap(bitmap: Bitmap) {
         bitmapBudget.release(bitmap)
         runCatching { if (!bitmap.isRecycled) bitmap.recycle() }
+        // 统一在此计数：此前仅 tryPut 失败路径计数，预算腾挪（ensureBitmapCapacity
+        // 的 evictPooled/evictShared、池 clear、共享表淘汰）大量回收不计入，
+        // 日志 recycled=0 掩盖了"进池即被腾挪回收"的真实链路。
+        bitmapRecycled.incrementAndGet()
     }
 
     /**
@@ -909,7 +912,12 @@ internal class CacheManager(
             if (bitmap.width < minWidth || bitmap.height < minHeight) return false
             val dw = bitmap.width - minWidth
             val dh = bitmap.height - minHeight
-            return dw <= 48 && dh <= 24
+            // 宽度窗口 48px 时池几乎永不命中（弹幕位图宽度随文本长度 100~2000px 不等，
+            // 池化形同虚设，日志表现为 putToPool>0 而 poolCount≈0）。位图借出后会
+            // eraseColor 清底并按本次 metrics 重绘，多出的右侧/底部只是透明像素，
+            // 视觉无差异；放宽到 512px 换取实际复用（单次最多多占 ~300KB 纹理）。
+            // 高度由字号决定、会话内基本恒定，保留 24px 容差即可。
+            return dw <= 512 && dh <= 24
         }
     }
 

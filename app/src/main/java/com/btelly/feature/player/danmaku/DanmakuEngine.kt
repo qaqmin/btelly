@@ -1468,8 +1468,10 @@ internal class DanmakuEngine(
         }
         if (write < size) {
             active.subList(write, size).clear()
+            // 正常退场汇总（每次 1 条、高频）降为 D：W 级会刷屏淹没真正的告警；
+            // 异常退场（cacheWaitTimeout / EARLY-EXIT）仍在上文单独以 W 输出。
             if ((droppedTimeout > 0 || droppedNormal > 0) && AppLog.isEnabled) {
-                AppLog.w(
+                AppLog.d(
                     TAG,
                     "pruneExpired removed=${size - write} timeout=$droppedTimeout normal=$droppedNormal " +
                         "now=${nowMs}ms remain=${active.size}"

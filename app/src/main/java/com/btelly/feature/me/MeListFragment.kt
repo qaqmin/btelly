@@ -55,6 +55,9 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         private const val RESTORE_FOCUS_RETRY_TIMES = 6
         private const val RESTORE_FOCUS_RETRY_DELAY_MS = 120L
 
+        /** 性能打点请求起点的新鲜度上限：超过视为 Flow 重放旧数据，不再用作 elapsed 起点。 */
+        private const val REQUEST_START_FRESH_LIMIT_MS = 60_000L
+
         private const val ARG_TYPE = "type"
 
         fun newInstance(type: String): MeListFragment {
@@ -87,6 +90,15 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     private var tvFocusController: TvListFocusController? = null
     private var currentOpenStartMs = 0L
     private var latestRequestStartMs = 0L
+
+    /**
+     * 性能打点用的请求起点（陈旧保护）：
+     * 从播放器返回等场景 Flow 会重放旧数据，此时 latestRequestStartMs 仍是上一次请求
+     * （可能几分钟前）的时间戳，直接用作 startMs 会打出 elapsed=115428ms 这类误导日志。
+     * 超过阈值视为陈旧返回 0（mark 会记 elapsed=0ms），只反映真实请求窗口。
+     */
+    private fun freshRequestStartMs(): Long =
+        latestRequestStartMs.takeIf { it > 0L && PagePerfLogger.now() - it < REQUEST_START_FRESH_LIMIT_MS } ?: 0L
     private var lastTabSelectedAtMs = 0L
     private var lastRenderedHistorySignature = ""
     private var lastRenderedLaterSignature = ""
@@ -369,7 +381,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         PagePerfLogger.mark(
             pageTag(),
             "data_collected",
-            latestRequestStartMs,
+            freshRequestStartMs(),
             "raw=${videos.size} page=$currentPage"
         )
         val rawSignature = historyListSignature(videos)
@@ -408,7 +420,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                 recyclerView = binding.recyclerView,
                 page = pageTag(),
                 items = filtered,
-                startMs = currentOpenStartMs.takeIf { it > 0L } ?: latestRequestStartMs,
+                startMs = currentOpenStartMs.takeIf { it > 0L } ?: freshRequestStartMs(),
                 source = "network",
                 spanCount = 4,
                 setItems = { firstBatch, onCommitted ->
@@ -474,7 +486,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         PagePerfLogger.mark(
             pageTag(),
             "data_collected",
-            latestRequestStartMs,
+            freshRequestStartMs(),
             "raw=${videos.size}"
         )
         val rawSignature = videoListSignature(videos)
@@ -502,7 +514,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                 recyclerView = binding.recyclerView,
                 page = pageTag(),
                 items = filtered,
-                startMs = currentOpenStartMs.takeIf { it > 0L } ?: latestRequestStartMs,
+                startMs = currentOpenStartMs.takeIf { it > 0L } ?: freshRequestStartMs(),
                 source = "network",
                 spanCount = 4,
                 setItems = { firstBatch, onCommitted ->
@@ -1048,7 +1060,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     }
 
     private fun logMeFirstDraw(itemCount: Int, source: String = "network") {
-        val openStart = currentOpenStartMs.takeIf { it > 0L } ?: latestRequestStartMs
+        val openStart = currentOpenStartMs.takeIf { it > 0L } ?: freshRequestStartMs()
         if (openStart <= 0L || itemCount <= 0) return
         FirstScreenRenderer.logFirstFrame(
             recyclerView = binding.recyclerView,

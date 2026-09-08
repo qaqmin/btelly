@@ -36,6 +36,11 @@ object VideoLightCardFactory {
             id = R.id.click_view
             isClickable = true
             isFocusable = true
+            // 鼠标/触摸操作（模拟器验证、个别盒子接鼠标）会把窗口切进 touch mode：
+            // 此时仅 focusable=true 的 view 的 requestFocus() 直接返回 false，
+            // 从播放器返回后的焦点恢复会全部失败（RVFocusOp: requestFocus returned FALSE）。
+            // TV 卡片按惯例同时允许 touch mode 聚焦，遥控器行为不受影响。
+            isFocusableInTouchMode = true
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 defaultFocusHighlightEnabled = false
             }

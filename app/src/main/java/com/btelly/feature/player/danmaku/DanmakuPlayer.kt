@@ -120,6 +120,11 @@ internal class DanmakuPlayer(
     private var frameLoopIdle: Boolean = false
     private var scheduledIdleWakeAtUptimeMs: Long = 0L
 
+    // 主线程可读的"场景仍在动画"镜像（runFrameUpdate 维护，与 frameLoopIdle 互斥）。
+    // 主线程 draw 自续帧的依据：见 draw() 尾部注释。
+    @Volatile
+    private var frameLoopAnimating: Boolean = false
+
     internal fun debugSnapshot(): RenderSnapshotStats = engineMain.renderSnapshotStats()
 
     private var lastEnabled: Boolean = true
@@ -229,6 +234,7 @@ internal class DanmakuPlayer(
     fun stop() {
         if (!started) return
         started = false
+        frameLoopAnimating = false
         actionHandler.post {
             frameLoopIdle = false
             idleWakeDrawRequested.set(false)
@@ -366,6 +372,18 @@ internal class DanmakuPlayer(
             engineMain.draw(canvas, snapshot, config)
         } finally {
             engineMain.releaseRenderSnapshot(snapshot)
+        }
+
+        // 主线程自续帧：场景仍在滚动时由主线程直接预约下一帧重绘。
+        // 此前下一帧重绘完全依赖 action 线程每 vsync 跨线程 post 的 invalidate 请求；
+        // 两个线程被同一 vsync 并发唤醒，请求到达主线程时当帧调度窗口可能已关闭
+        //（控制器隐藏时该请求是页面唯一重绘驱动）→ 整帧无 traversal，概率性丢帧，
+        // 实测 onDraw 帧率 46-50fps，慢速弹幕肉眼可见"一卡一卡"。主线程在本线程
+        // Choreographer 上续帧后请求与 vsync 同线程无竞态；弹幕 x 坐标本就在主线程
+        // draw 现算（DanmakuEngine.draw），续帧画到的永远是最新位置。action 线程的
+        // invalidate 仍保留，用于数据变更/空闲唤醒等需要立即刷新的场景。
+        if (started && frameLoopAnimating) {
+            view.invalidateDanmakuAreaOnAnimation()
         }
     }
 
@@ -507,6 +525,7 @@ internal class DanmakuPlayer(
                     Choreographer.getInstance().removeFrameCallback(frameCallback)
                     started = false
                     frameLoopIdle = false
+                    frameLoopAnimating = false
                     idleWakeDrawRequested.set(false)
                     runCatching { actionThread.quitSafely() }
                     engineAction.release()
@@ -577,9 +596,11 @@ internal class DanmakuPlayer(
                 val schedule = engineAction.frameSchedule()
                 if (schedule.animate) {
                     frameLoopIdle = false
+                    frameLoopAnimating = true
                     // 下一帧 vsync 回调已在 MSG_FRAME_UPDATE 开头注册，无需重复。
                 } else {
                     frameLoopIdle = true
+                    frameLoopAnimating = false
                     idleCycleCount.incrementAndGet()
                     // 进入空闲：注销 vsync 回调（省电），改用 Handler 定时唤醒。
                     Choreographer.getInstance().removeFrameCallback(frameCallback)

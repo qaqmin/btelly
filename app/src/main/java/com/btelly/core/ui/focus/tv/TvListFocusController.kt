@@ -22,6 +22,12 @@ class TvListFocusController(
 ) {
     companion object {
         private const val TAG = "TvListFocus"
+
+        /** 返回焦点恢复：RV 未就绪（not shown / 无 holder）阶段的等待轮次上限（×120ms ≈ 3s）。 */
+        private const val RETURN_FOCUS_WAIT_LIMIT = 25
+
+        /** 刷新焦点抑制的兜底解除时限：目标未获得焦点则强制恢复全部 item 可聚焦。 */
+        private const val REFRESH_SUPPRESS_TIMEOUT_MS = 1_000L
     }
 
     private val operator = RecyclerViewFocusOperator(recyclerView, adapter)
@@ -30,6 +36,9 @@ class TvListFocusController(
     private var pendingMoveAfterLoadMore: TvFocusAnchor? = null
     private var refreshFocusTarget: Int? = null
     private var userNavigationToken = 0
+
+    // restoreFocusAfterReturn 轮询单飞行标志：同一 controller 同时只允许一轮恢复轮询。
+    private var returnFocusPollingActive = false
     private var restoreOutsideFocusUntilMs = 0L
     private var parkedDescendantFocusability: Int? = null
     private var parkedRecyclerFocusable: Boolean? = null
@@ -329,7 +338,19 @@ class TvListFocusController(
         }
         refreshFocusTarget = position
         suppressOtherFocus(position)
+        // 兜底：抑制的解除依赖目标卡片触发 onItemFocused（200ms 清理）或用户按键。
+        // 目标 holder 未就绪/焦点请求被拒时两条路都不会走，其他 item 将永久
+        // isFocusable=false（现场：pos=1 not focusable 重试到耗尽）。超时强制解除。
+        recyclerView.removeCallbacks(refreshSuppressTimeout)
+        recyclerView.postDelayed(refreshSuppressTimeout, REFRESH_SUPPRESS_TIMEOUT_MS)
         return focusPosition(position, 0, "refresh", allowOutsideFocus = true)
+    }
+
+    private val refreshSuppressTimeout = Runnable {
+        if (refreshFocusTarget != null) {
+            refreshFocusTarget = null
+            restoreAllFocus()
+        }
     }
 
     fun requestFocusPosition(position: Int, allowOutsideFocus: Boolean = false): Boolean {
@@ -437,6 +458,13 @@ class TvListFocusController(
         onRestored: () -> Unit = {},
         onFailed: () -> Unit = {}
     ) {
+        // 单飞行保护：上一轮恢复轮询还在跑时（转场/刷新未就绪期间会拉长），
+        // 新调用直接并入旧轮询，避免多路轮询并发各派生 RVFocusOp 重试链、
+        // 互相顶掉 token（STALE 刷屏）。
+        if (returnFocusPollingActive) {
+            logD("restoreFocusAfterReturn: polling already active, skip duplicate call")
+            return
+        }
         val anchor = capturedAnchor ?: currentAnchor ?: run {
             logD("restoreFocusAfterReturn: no anchor, onFailed")
             onFailed()
@@ -458,25 +486,48 @@ class TvListFocusController(
         // 转场动画 / 布局未就绪：轮询重试
         val token = userNavigationToken
         var attempts = 0
+        var waits = 0
+        returnFocusPollingActive = true
         val runnable = object : Runnable {
             override fun run() {
                 if (token != userNavigationToken) {
                     logD("restoreFocusAfterReturn: abort, user navigated")
+                    returnFocusPollingActive = false
                     return
                 }
                 if (recyclerView.rootView == null || !recyclerView.isAttachedToWindow) {
                     logD("restoreFocusAfterReturn: abort, not attached")
+                    returnFocusPollingActive = false
+                    return
+                }
+                if (hasFocusInList()) {
+                    logD("restoreFocusAfterReturn: restored on retry $attempts, pos=$position")
+                    returnFocusPollingActive = false
+                    onRestored()
+                    return
+                }
+                // 返回与网络刷新并发时 RV 可能长时间 not shown / 无 holder（真机实测
+                // >1.1s），固定 720ms 窗口会在就绪前耗尽。未就绪阶段不消耗重试次数、
+                // 也不调 restoreCapturedFocusPosition（每次调用都会派生 RVFocusOp 的
+                // 5×50ms 重试链，多 tick 并发即重试风暴），单独等待，上限 3s 兜底退出。
+                val holderReady =
+                    recyclerView.isShown && recyclerView.findViewHolderForAdapterPosition(position) != null
+                if (!holderReady) {
+                    waits++
+                    if (waits > RETURN_FOCUS_WAIT_LIMIT) {
+                        logD("restoreFocusAfterReturn: RV not ready within limit, onFailed (pos=$position)")
+                        returnFocusPollingActive = false
+                        onFailed()
+                        return
+                    }
+                    recyclerView.postDelayed(this, retryDelayMs)
                     return
                 }
                 attempts++
                 if (attempts > retryTimes) {
                     logD("restoreFocusAfterReturn: retries exhausted, onFailed (pos=$position)")
+                    returnFocusPollingActive = false
                     onFailed()
-                    return
-                }
-                if (hasFocusInList()) {
-                    logD("restoreFocusAfterReturn: restored on retry $attempts, pos=$position")
-                    onRestored()
                     return
                 }
                 restoreCapturedFocusPosition()
