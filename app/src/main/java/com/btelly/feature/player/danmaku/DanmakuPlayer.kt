@@ -303,6 +303,9 @@ internal class DanmakuPlayer(
         timer.softSyncFactor = factor.toDouble()
     }
 
+    /** 时钟速率环当前估计（性能行诊断用）。 */
+    fun currentTimerRate(): Float = timer.currentRateEstimate()
+
     /** 引擎当前消费的（已单调钳制的）平滑位置，供漂移监督器与视频位置对表。 */
     fun currentDanmakuPositionMs(): Long = engineAction.currentPositionMs()
 

@@ -43,6 +43,13 @@ internal class DanmakuTimer {
     @Volatile
     private var correcting: Boolean = false
 
+    // 速率环状态（step 主线程私有写；lastRawForRateMs 用 NaN 表示"待重建基准"）。
+    @Volatile
+    private var rateEstimate: Double = 1.0
+
+    @Volatile
+    private var lastRawForRateMs: Double = Double.NaN
+
     /**
      * 轻量时钟校准（硬同步）：只移动平滑位置，不动 lastFrameNanos，
      * dt 连续性保持。与 reset() 的区别是不打 anchor 日志、不算 seek。
@@ -52,6 +59,7 @@ internal class DanmakuTimer {
     fun syncTo(positionMs: Long) {
         smoothPositionMs = positionMs.coerceAtLeast(0L).toDouble()
         correcting = false
+        lastRawForRateMs = Double.NaN
     }
 
     fun reset(
@@ -67,9 +75,45 @@ internal class DanmakuTimer {
         lastPlaying = isPlaying
         lastPlaybackSpeed = normalizeSpeed(playbackSpeed)
         correcting = false
+        lastRawForRateMs = Double.NaN
     }
 
     fun currentPositionMs(): Long = smoothPositionMs.toLong()
+
+    /** 速率环当前估计（诊断/性能行用）。 */
+    fun currentRateEstimate(): Float = rateEstimate.toFloat()
+
+    /**
+     * 直播流速率自适应环：直播 ExoPlayer currentPosition 的实际推进速率可比墙钟慢
+     * 5~10%（低延迟流追帧/解码抖动固有特性）。若平滑时钟恒按墙钟速率推进，负向
+     * gap 会以恒定速率累积、每 2~4 秒越过追赶死区一次，触发回拉收敛——在引擎单调
+     * 钳制下表现为在屏弹幕集体冻结 300~500ms，即"直播弹幕周期性颤动"。
+     *
+     * 此环用 raw 实测推进速率（rawDt / 期望推进量）的指数滑动平均微调每帧推进量，
+     * 使平滑时钟与 raw 同速推进，gap 稳定在死区内、追赶不再触发。视频(VOD)模式
+     * raw 匀速推进，估计收敛于 1.0，行为与原时钟一致。
+     *
+     * 采样窗外的样本（缓冲停走 rawDt≈0、追帧突进、暂停恢复野点）只重置基准不采信，
+     * 防止瞬时跳变污染估计。与漂移监督器 softSyncFactor 的分工：本环管速率匹配
+     * （消除漂移来源，快环），监督器/追赶管残余偏差（慢环，稳态下基本不触发）。
+     */
+    private fun advanceRate(raw: Double, dtMs: Double, speed: Double): Double {
+        val expected = dtMs * speed
+        if (expected <= 0.0) return rateEstimate.coerceIn(RATE_MIN, RATE_MAX)
+        if (lastRawForRateMs.isNaN()) {
+            lastRawForRateMs = raw
+            return rateEstimate.coerceIn(RATE_MIN, RATE_MAX)
+        }
+        val rawDt = raw - lastRawForRateMs
+        lastRawForRateMs = raw
+        if (rawDt >= expected * RATE_SAMPLE_MIN_RATIO &&
+            rawDt <= expected * RATE_SAMPLE_MAX_RATIO + RATE_SAMPLE_PAD_MS
+        ) {
+            val alpha = 1.0 - exp(-dtMs / RATE_TIME_CONSTANT_MS)
+            rateEstimate += (rawDt / expected - rateEstimate) * alpha
+        }
+        return rateEstimate.coerceIn(RATE_MIN, RATE_MAX)
+    }
 
     fun step(
         nowNanos: Long,
@@ -107,6 +151,8 @@ internal class DanmakuTimer {
         lastSeekSerial = seekSerial
 
         if (!isPlaying) {
+            // 暂停中 raw 停走/回退，速率采样基准失效：恢复后从新基准重采。
+            lastRawForRateMs = Double.NaN
             // 暂停/恢复瞬间 ExoPlayer 的 raw position 常会回退几十~上百毫秒
             // （解码器缓冲固有行为）。暂停瞬间保留当前平滑位置不动，绝不回退。
             if (lastPlaying) {
@@ -162,7 +208,7 @@ internal class DanmakuTimer {
         }
 
         if (dtNanos > 0L) {
-            smoothPositionMs += dtMs * speed * softSyncFactor
+            smoothPositionMs += dtMs * speed * softSyncFactor * advanceRate(raw, dtMs, speed)
         }
 
         // Clamp for safety.
@@ -183,7 +229,8 @@ internal class DanmakuTimer {
             AppLog.i(
                 DIAG_TAG,
                 "anchor kind=catchup-begin gap=${deltaLabel(gap)} " +
-                    "smooth=${smoothPositionMs.toLong()}ms raw=${raw.toLong()}ms"
+                    "smooth=${smoothPositionMs.toLong()}ms raw=${raw.toLong()}ms " +
+                    "rate=${"%.3f".format(java.util.Locale.US, rateEstimate)}"
             )
         }
         if (correcting) {
@@ -261,5 +308,18 @@ internal class DanmakuTimer {
         private const val CATCH_UP_TIME_CONSTANT_MS = 300.0
         // 超过该偏差退回一次性硬锚（监督器 >2s 的 seek 重建通常已介入，此处为兜底）。
         private const val HARD_REANCHOR_GAP_MS = 5_000.0
+
+        // 速率环：估计收敛时间常数（直播流速率漂移约 -5~-10%，3s 常数下过渡期
+        // 累积偏差 < 死区 250ms，不会触发追赶）。
+        private const val RATE_TIME_CONSTANT_MS = 3_000.0
+
+        // 速率环输出钳制：±15% 覆盖常见直播流漂移，超出部分仍由追赶/监督器兜底。
+        private const val RATE_MIN = 0.85
+        private const val RATE_MAX = 1.15
+
+        // 采样窗：rawDt 在期望推进量的 [0.5, 2.0] 倍 + 100ms 内才采信。
+        private const val RATE_SAMPLE_MIN_RATIO = 0.5
+        private const val RATE_SAMPLE_MAX_RATIO = 2.0
+        private const val RATE_SAMPLE_PAD_MS = 100.0
     }
 }

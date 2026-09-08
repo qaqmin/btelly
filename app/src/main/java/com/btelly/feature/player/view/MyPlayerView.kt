@@ -251,6 +251,25 @@ class MyPlayerView @JvmOverloads constructor(
      */
     @Volatile
     private var danmakuPositionArmed = false
+
+    /**
+     * 直播弹幕独立时钟基准（elapsedRealtime，0=未激活）。直播弹幕时间线与
+     * player.currentPosition 解耦（对齐 上游实现 LivePlayerActivity.liveDanmakuPositionMs）：
+     * 直播流的 currentPosition 实际推进速率可比墙钟慢 5~10%（低延迟流追帧/解码抖动），
+     * 绑 player 会让平滑时钟周期性累积负偏差、触发追赶回拉，表现为弹幕周期性颤动；
+     * 且切后台返回后播放器追帧突进会造成弹幕位置跳变。独立墙钟下两者消失：
+     * 短暂离开恢复即无缝续滚；离开超过追赶阈值时恢复首帧平滑时钟直接对齐墙钟，
+     * 在屏旧弹幕一帧内超龄退场（等效"清屏重来"），新弹幕从返回点正常流入。
+     */
+    @Volatile
+    private var liveDanmakuClockBaseMs: Long = 0L
+
+    private fun liveDanmakuClockMs(): Long {
+        val base = liveDanmakuClockBaseMs
+        if (base <= 0L) return 0L
+        return (SystemClock.elapsedRealtime() - base)
+            .coerceIn(0L, Int.MAX_VALUE.toLong())
+    }
     private val uiFrameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNs: Long) {
             val lastFrameTimeNs = lastUiFrameTimeNs
@@ -2759,7 +2778,11 @@ class MyPlayerView @JvmOverloads constructor(
         liteDanmakuView = view
         liteDanmakuController = DanmakuCoreController(context) { liteDanmakuView }.also {
             it.playerPositionProvider = {
-                if (danmakuPositionArmed) player?.currentPosition ?: 0L else 0L
+                when {
+                    liveDanmakuClockBaseMs > 0L -> liveDanmakuClockMs()
+                    danmakuPositionArmed -> player?.currentPosition ?: 0L
+                    else -> 0L
+                }
             }
         }
         restoreOverlayZOrder()
@@ -2771,6 +2794,7 @@ class MyPlayerView @JvmOverloads constructor(
         startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
         startupTraceStartElapsedMs: Long = 0L
     ) {
+        liveDanmakuClockBaseMs = 0L
         syncDanmakuSettings()
         setupDanmakuEngine()
         activeDanmakuController()?.setData(data, filterContext, startupTraceId, startupTraceStartElapsedMs)
@@ -2786,6 +2810,8 @@ class MyPlayerView @JvmOverloads constructor(
     fun startLiveDanmaku() {
         syncDanmakuSettings()
         setupDanmakuEngine()
+        // 每次进入直播都重锚独立时钟（含切房间），配合 startLive 清空时间线。
+        liveDanmakuClockBaseMs = SystemClock.elapsedRealtime()
         activeLiveDanmakuController()?.startLive()
     }
 

@@ -480,6 +480,7 @@ class DanmakuView @JvmOverloads constructor(
                 append(" gap25=").append(perfFrameGapCount)
                 append('/').append(perfFrameGapMaxMs).append("ms")
                 append(" jit=").append(perfSmoothJitCount)
+                append(" rate=").append(String.format(Locale.US, "%.3f", player.currentTimerRate()))
             },
         )
 
