@@ -17,6 +17,7 @@ import android.text.TextPaint
 import android.text.TextUtils
 import android.util.AttributeSet
 import android.util.TypedValue
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
@@ -826,6 +827,15 @@ private class FlatVideoLightCardLayout @JvmOverloads constructor(
     private var titleRowHeight = 0
     private var lastContentWidth = -1
     private var lastDesiredHeight = -1
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        // focusableInTouchMode 的卡片首次 tap 会被框架先抢焦点（不 pressed、不 performClick），
+        // 先手动聚焦再走 super，让第一次点击同时完成聚焦与点击。
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && !isFocused) {
+            requestFocus()
+        }
+        return super.onTouchEvent(event)
+    }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val startNs = SystemClock.elapsedRealtimeNanos()
