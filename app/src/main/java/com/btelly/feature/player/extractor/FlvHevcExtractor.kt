@@ -4,6 +4,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.ParsableByteArray
+import androidx.media3.extractor.AacUtil
 import androidx.media3.extractor.Extractor
 import androidx.media3.extractor.ExtractorInput
 import androidx.media3.extractor.ExtractorOutput
@@ -13,6 +14,7 @@ import androidx.media3.extractor.SeekPoint
 import androidx.media3.extractor.TrackOutput
 import androidx.media3.extractor.AvcConfig
 import androidx.media3.extractor.HevcConfig
+import com.btelly.core.common.log.AppLog
 
 /**
  * FLV extractor that supports both AVC (H.264) and HEVC (H.265) video codecs.
@@ -34,6 +36,9 @@ class FlvHevcExtractor : Extractor {
         private const val PACKET_SEQ_START = 0
         private const val PACKET_NAL_UNIT = 1
 
+        private const val SOUND_FORMAT_MP3 = 2
+        private const val SOUND_FORMAT_A_LAW = 7
+        private const val SOUND_FORMAT_MU_LAW = 8
         private const val SOUND_FORMAT_AAC = 10
         private const val AAC_PACKET_SEQ_START = 0
         private const val AAC_PACKET_RAW = 1
@@ -48,10 +53,13 @@ class FlvHevcExtractor : Extractor {
         private const val PREV_TAG_SIZE = 4
 
         private val NAL_START_CODE = byteArrayOf(0, 0, 0, 1)
-        private val AAC_SAMPLE_RATES = intArrayOf(
-            96000, 88200, 64000, 48000, 44100, 32000,
-            24000, 22050, 16000, 12000, 11025, 8000, 7350
-        )
+
+        // FLV 音频头字节 soundRate 位(2 bits)对应的采样率档位,MP3 等 PCM 类格式用它声明 format
+        private val FLV_HEADER_SAMPLE_RATES = intArrayOf(5512, 11025, 22050, 44100)
+
+        // endTracks 兜底阈值:B 站 FLV 直播 tag 顺序不保证音频配置先于视频帧,
+        // 若音频始终未出现(纯视频流),最多容忍这么多样本后强制封盘,保证 prepare 不被卡死
+        private const val END_TRACKS_SOLO_SAMPLE_LIMIT = 60
     }
 
     private var state = STATE_HEADER
@@ -65,6 +73,9 @@ class FlvHevcExtractor : Extractor {
     private var audioTrack: TrackOutput? = null
     private var tracksEnded = false
     private var nalLengthSize = 4
+    private var videoFormatDeclared = false
+    private var audioFormatDeclared = false
+    private var emittedSampleCount = 0
 
     private val headerBuf = ParsableByteArray(FLV_HEADER_SIZE)
     private val tagHeaderBuf = ParsableByteArray(TAG_HEADER_SIZE)
@@ -188,7 +199,6 @@ class FlvHevcExtractor : Extractor {
             }
 
             PACKET_NAL_UNIT -> {
-                maybeEndTracks()
                 val track = videoTrack()
                 val rawBuf = ByteArray(payloadSize)
                 input.readFully(rawBuf, 0, payloadSize)
@@ -198,6 +208,8 @@ class FlvHevcExtractor : Extractor {
                     val flags = if (frameType == 1) C.BUFFER_FLAG_KEY_FRAME else 0
                     val ptsUs = tagTimestampUs + ctsOffset * 1000L
                     track.sampleMetadata(ptsUs, flags, annexB.size, 0, null)
+                    emittedSampleCount++
+                    maybeEndTracks()
                 }
             }
 
@@ -216,6 +228,8 @@ class FlvHevcExtractor : Extractor {
                 .setHeight(config.height)
                 .build()
         )
+        videoFormatDeclared = true
+        maybeEndTracks()
     }
 
     private fun parseHevcConfig(data: ParsableByteArray) {
@@ -229,6 +243,8 @@ class FlvHevcExtractor : Extractor {
                 .setHeight(config.height)
                 .build()
         )
+        videoFormatDeclared = true
+        maybeEndTracks()
     }
 
     private fun convertToAnnexB(raw: ByteArray, rawLength: Int): ByteArray {
@@ -266,6 +282,9 @@ class FlvHevcExtractor : Extractor {
 
     // ---- Audio ----
 
+    // 音频格式分布探针:每种 soundFormat 只记一次,用于排查"某类直播间无声"
+    private val loggedSoundFormats = mutableSetOf<Int>()
+
     private fun readAudioTag(input: ExtractorInput) {
         if (tagDataSize < 2) {
             input.skipFully(tagDataSize)
@@ -277,49 +296,110 @@ class FlvHevcExtractor : Extractor {
 
         val firstByte = hdr.readUnsignedByte()
         val soundFormat = (firstByte shr 4) and 0x0F
-        val payloadSize = tagDataSize - 1
+        if (loggedSoundFormats.add(soundFormat)) {
+            AppLog.i(
+                "FlvHevcExtractor",
+                "audio tag soundFormat=$soundFormat " +
+                    "(1=ADPCM,2=MP3,7=A-Law,8=mu-Law,10=AAC) tagDataSize=$tagDataSize"
+            )
+        }
 
-        if (soundFormat == SOUND_FORMAT_AAC) {
-            val aacPacketType = hdr.readUnsignedByte()
-            val aacPayload = tagDataSize - 2
-            when {
-                aacPacketType == AAC_PACKET_SEQ_START && aacPayload > 0 -> {
-                    val data = ParsableByteArray(aacPayload)
-                    input.readFully(data.data, 0, aacPayload)
-                    parseAacConfig(data)
-                }
+        when (soundFormat) {
+            SOUND_FORMAT_AAC -> readAacTag(input, hdr)
 
-                aacPacketType == AAC_PACKET_RAW && aacPayload > 0 -> {
+            SOUND_FORMAT_MP3 -> {
+                if (!audioFormatDeclared) {
+                    val sampleRateIndex = (firstByte shr 2) and 0x03
+                    val channelCount = if (firstByte and 0x01 == 1) 2 else 1
+                    audioTrack().format(
+                        Format.Builder()
+                            .setSampleMimeType(MimeTypes.AUDIO_MPEG)
+                            .setSampleRate(FLV_HEADER_SAMPLE_RATES.getOrElse(sampleRateIndex) { 44100 })
+                            .setChannelCount(channelCount)
+                            .build()
+                    )
+                    audioFormatDeclared = true
                     maybeEndTracks()
-                    val track = audioTrack()
-                    val audioBuf = ParsableByteArray(aacPayload)
-                    input.readFully(audioBuf.data, 0, aacPayload)
-                    track.sampleData(audioBuf, aacPayload)
-                    track.sampleMetadata(tagTimestampUs, C.BUFFER_FLAG_KEY_FRAME, aacPayload, 0, null)
                 }
-
-                else -> input.skipFully(aacPayload)
+                outputRawAudioPayload(input, tagDataSize - 1)
             }
-        } else {
-            input.skipFully(payloadSize)
+
+            SOUND_FORMAT_A_LAW, SOUND_FORMAT_MU_LAW -> {
+                if (!audioFormatDeclared) {
+                    audioTrack().format(
+                        Format.Builder()
+                            .setSampleMimeType(
+                                if (soundFormat == SOUND_FORMAT_A_LAW) MimeTypes.AUDIO_ALAW else MimeTypes.AUDIO_MLAW
+                            )
+                            .setSampleRate(8000)
+                            .setChannelCount(1)
+                            .build()
+                    )
+                    audioFormatDeclared = true
+                    maybeEndTracks()
+                }
+                outputRawAudioPayload(input, tagDataSize - 1)
+            }
+
+            else -> {
+                // 未知音频格式只能丢弃,但要保持流对齐:已读 2 字节,跳过剩余 tagDataSize-2
+                input.skipFully(tagDataSize - 2)
+            }
         }
     }
 
+    private fun readAacTag(input: ExtractorInput, hdr: ParsableByteArray) {
+        val aacPacketType = hdr.readUnsignedByte()
+        val aacPayload = tagDataSize - 2
+        when {
+            aacPacketType == AAC_PACKET_SEQ_START && aacPayload > 0 -> {
+                val data = ParsableByteArray(aacPayload)
+                input.readFully(data.data, 0, aacPayload)
+                parseAacConfig(data)
+            }
+
+            aacPacketType == AAC_PACKET_RAW && aacPayload > 0 -> {
+                val track = audioTrack()
+                val audioBuf = ParsableByteArray(aacPayload)
+                input.readFully(audioBuf.data, 0, aacPayload)
+                track.sampleData(audioBuf, aacPayload)
+                track.sampleMetadata(tagTimestampUs, C.BUFFER_FLAG_KEY_FRAME, aacPayload, 0, null)
+                emittedSampleCount++
+                maybeEndTracks()
+            }
+
+            else -> input.skipFully(aacPayload)
+        }
+    }
+
+    private fun outputRawAudioPayload(input: ExtractorInput, payloadSize: Int) {
+        if (payloadSize <= 0) return
+        val track = audioTrack()
+        val audioBuf = ParsableByteArray(payloadSize)
+        input.readFully(audioBuf.data, 0, payloadSize)
+        track.sampleData(audioBuf, payloadSize)
+        track.sampleMetadata(tagTimestampUs, C.BUFFER_FLAG_KEY_FRAME, payloadSize, 0, null)
+        emittedSampleCount++
+        maybeEndTracks()
+    }
+
     private fun parseAacConfig(data: ParsableByteArray) {
-        data.setPosition(0)
-        val b0 = data.readUnsignedByte()
-        val b1 = data.readUnsignedByte()
-        val freqIndex = ((b0 and 0x07) shl 1) or ((b1 shr 7) and 0x01)
-        val channelConfig = (b1 shr 3) and 0x0F
-        val sampleRate = AAC_SAMPLE_RATES.getOrElse(freqIndex) { 44100 }
+        // csd 直接用原始 AudioSpecificConfig 字节;AacUtil 负责解析(含 HE-AAC SBR/PS 的
+        // 采样率/声道修正),避免手写位解析在 HE-AAC 流上声明错误的 format
+        val asc = ByteArray(data.capacity())
+        System.arraycopy(data.data, 0, asc, 0, asc.size)
+        val config = AacUtil.parseAudioSpecificConfig(asc)
         audioTrack().format(
             Format.Builder()
                 .setSampleMimeType(MimeTypes.AUDIO_AAC)
-                .setSampleRate(sampleRate)
-                .setChannelCount(maxOf(channelConfig, 1))
-                .setInitializationData(listOf(byteArrayOf(b0.toByte(), b1.toByte())))
+                .setCodecs(config.codecs)
+                .setSampleRate(config.sampleRateHz)
+                .setChannelCount(config.channelCount)
+                .setInitializationData(listOf(asc))
                 .build()
         )
+        audioFormatDeclared = true
+        maybeEndTracks()
     }
 
     // ---- Track helpers ----
@@ -332,6 +412,17 @@ class FlvHevcExtractor : Extractor {
 
     private fun maybeEndTracks() {
         if (tracksEnded) return
+        // 封盘时机:音视频 format 都已声明(流里 tag 顺序不定,先到的视频帧不能提前封盘,
+        // 否则后到的音频轨会被 ProgressiveMediaPeriod 判为 "added after finishing" 永不启用 → 无声);
+        // 某类轨始终不出现时靠样本数兜底,避免纯视频流 prepare 卡死
+        val bothDeclared = videoFormatDeclared && audioFormatDeclared
+        val soloTimeout = emittedSampleCount >= END_TRACKS_SOLO_SAMPLE_LIMIT
+        if (!bothDeclared && !soloTimeout) return
+        AppLog.i(
+            "FlvHevcExtractor",
+            "endTracks videoFormat=$videoFormatDeclared audioFormat=$audioFormatDeclared " +
+                "samples=$emittedSampleCount soloTimeout=$soloTimeout"
+        )
         output.endTracks()
         output.seekMap(object : SeekMap {
             override fun isSeekable() = false
