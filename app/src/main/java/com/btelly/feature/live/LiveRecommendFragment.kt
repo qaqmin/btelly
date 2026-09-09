@@ -32,6 +32,8 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
     companion object {
         private const val CACHE_TTL_MS = 10 * 60 * 1000L
         private const val INITIAL_SECTION_BATCH_SIZE = 5
+        // 服务端下发的关注模块标题(xlive index/getList 的 module_info.title)
+        private const val FOLLOW_SECTION_TITLE = "我的关注"
 
         fun newInstance(): LiveRecommendFragment = LiveRecommendFragment()
     }
@@ -346,14 +348,7 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
         }
 
         val sections = mutableListOf<LiveRecommendSection>()
-        val hotRooms = ContentFilter.filterLiveRooms(requireContext(), data.recommendRoomList.orEmpty())
-        if (hotRooms.isNotEmpty()) {
-            sections += LiveRecommendSection(
-                title = getString(R.string.hot_live),
-                rooms = hotRooms
-            )
-        }
-        sections += data.roomList.orEmpty()
+        val moduleSections = data.roomList.orEmpty()
             .mapNotNull { wrapper ->
                 val rooms = ContentFilter.filterLiveRooms(requireContext(), wrapper.list.orEmpty())
                 if (rooms.isEmpty()) {
@@ -365,6 +360,16 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
                     )
                 }
             }
+        // 我的关注模块提到最顶,其余模块保持接口原始顺序
+        sections += moduleSections.filter { it.title.contains(FOLLOW_SECTION_TITLE) }
+        val hotRooms = ContentFilter.filterLiveRooms(requireContext(), data.recommendRoomList.orEmpty())
+        if (hotRooms.isNotEmpty()) {
+            sections += LiveRecommendSection(
+                title = getString(R.string.hot_live),
+                rooms = hotRooms
+            )
+        }
+        sections += moduleSections.filter { !it.title.contains(FOLLOW_SECTION_TITLE) }
         return sections
     }
 
