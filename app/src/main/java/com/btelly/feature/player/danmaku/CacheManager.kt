@@ -276,7 +276,7 @@ internal class CacheManager(
                 if (!releaseOverflowQueue.isEmpty()) {
                     val head = releaseOverflowQueue.peek() ?: break
                     if (head.releaseAtFrameId > currentFrameId) return
-                    releaseOverflowQueue.poll().entry
+                    releaseOverflowQueue.poll()?.entry ?: break
                 } else {
                     if (releaseRing.isEmpty()) break
                     if (releaseRing.peekReleaseAtFrameId() > currentFrameId) return
