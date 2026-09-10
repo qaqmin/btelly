@@ -21,6 +21,7 @@ import com.btelly.network.session.SessionStateRepository
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.ui.base.RecyclerViewPoolPrewarmer
 import com.btelly.core.ui.base.VideoRecyclerViewTuning
+import com.btelly.core.ui.base.adaptiveSpanCount
 import android.os.SystemClock
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.log.PagePerfLogger
@@ -144,7 +145,8 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
                 videoFocusController?.onDataChanged(TvDataChangeReason.REMOVE_ITEM)
             }
         )
-        binding.recyclerViewRight.layoutManager = WrapContentGridLayoutManager(requireContext(), 3)
+        binding.recyclerViewRight.layoutManager =
+            WrapContentGridLayoutManager(requireContext(), resources.adaptiveSpanCount(base = 3, wide = 6))
         binding.recyclerViewRight.adapter = videoAdapter
         VideoRecyclerViewTuning.apply(binding.recyclerViewRight, videoAdapter)
         RecyclerViewPoolPrewarmer.prewarm(
@@ -349,7 +351,7 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
                                 items = videos,
                                 startMs = currentOpenStartMs.takeIf { it > 0L } ?: latestVideoRequestStartMs,
                                 source = "first_screen",
-                                spanCount = 3,
+                                spanCount = resources.adaptiveSpanCount(base = 3, wide = 6),
                                 setItems = { firstBatch, onCommitted ->
                                     videoAdapter.setData(firstBatch, onCommitted)
                                 },

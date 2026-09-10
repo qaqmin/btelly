@@ -8,6 +8,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.btelly.databinding.CellLaneScrollableBinding
 import com.btelly.model.live.LiveRecommendSection
 import com.btelly.model.live.LiveRoomItem
+import com.btelly.core.ui.base.adaptiveSpanCount
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 
 class LiveRecommendAdapter(
@@ -69,7 +70,11 @@ class LiveRecommendAdapter(
         private val roomAdapter = LiveRoomAdapter(onRoomClick)
 
         init {
-            binding.recyclerView.layoutManager = object : WrapContentGridLayoutManager(binding.root.context, 4) {
+            // 列数须与 LiveRecommendFragment.applySections 的行高估算保持同一 adaptiveSpanCount 判定
+            binding.recyclerView.layoutManager = object : WrapContentGridLayoutManager(
+                binding.root.context,
+                binding.root.context.resources.adaptiveSpanCount()
+            ) {
                 override fun canScrollVertically(): Boolean = false
             }
             binding.recyclerView.adapter = roomAdapter

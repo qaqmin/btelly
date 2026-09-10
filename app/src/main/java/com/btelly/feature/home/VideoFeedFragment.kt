@@ -16,6 +16,7 @@ import com.btelly.core.common.log.PagePerfLogger
 import com.btelly.core.navigation.VideoRouteNavigator
 import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.core.ui.base.RecyclerViewPoolPrewarmer
+import com.btelly.core.ui.base.adaptiveSpanCount
 import com.btelly.core.ui.focus.tv.TvDataChangeReason
 import com.btelly.core.ui.render.FirstScreenRenderer
 import com.btelly.event.AppEventHub
@@ -71,7 +72,8 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
         )
     }
 
-    override fun getSpanCount(): Int = 4
+    // 超宽屏（如 5120×1600）4 列封面过大，adaptiveSpanCount 统一放宽到 8 列
+    override fun getSpanCount(): Int = resources.adaptiveSpanCount()
 
     override fun loadData(page: Int) {
         latestOpenStartMs = PagePerfLogger.now()

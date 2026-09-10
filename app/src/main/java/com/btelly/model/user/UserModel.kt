@@ -234,10 +234,7 @@ data class Vip(
     val nicknameColor: String = "",
     
     @SerializedName("role")
-    val role: Int = 0,
-    
-    @SerializedName("avatar_icon")
-    val avatarIcon: VipAvatarIcon? = null
+    val role: Int = 0
 )
 
 data class VipLabel(
@@ -261,22 +258,6 @@ data class VipLabel(
     
     @SerializedName("border_color")
     val borderColor: String = ""
-)
-
-data class VipAvatarIcon(
-    @SerializedName("icon_resource")
-    val iconResource: Map<String, IconResource>? = null,
-
-    @SerializedName("icon_source")
-    val iconSource: Any? = null
-)
-
-data class IconResource(
-    @SerializedName("src")
-    val src: String = "",
-    
-    @SerializedName("placeholder")
-    val placeholder: String = ""
 )
 
 data class Official(

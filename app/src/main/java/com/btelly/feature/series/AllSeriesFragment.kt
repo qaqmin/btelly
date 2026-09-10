@@ -26,6 +26,7 @@ import com.btelly.ui.adapter.SettingSelectionDialogAdapter
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.ui.base.OnBackPressedHandler
 import com.btelly.core.ui.base.RecyclerViewFocusRestoreHelper
+import com.btelly.core.ui.base.isWideScreen
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
 import com.btelly.core.ui.decoration.LinearSpacingItemDecoration
@@ -49,6 +50,8 @@ class AllSeriesFragment : BaseFragment<FragmentAllSeriesBinding>(), OnBackPresse
         private const val ARG_ENTRY_TITLE = "entryTitle"
         private const val MIN_CONTENT_SPAN_COUNT = 2
         private const val MAX_CONTENT_SPAN_COUNT = 6
+        // 超宽屏（如 5120×1600）下系列卡按 6 列上限仍过大，允许动态公式多算到 8 列
+        private const val MAX_CONTENT_SPAN_COUNT_WIDE = 8
         private const val BASELINE_CARD_WIDTH_PX = 180
         private const val BASELINE_CARD_SPACING_PX = 20
 
@@ -68,6 +71,10 @@ class AllSeriesFragment : BaseFragment<FragmentAllSeriesBinding>(), OnBackPresse
     }
 
     private val repository: AllSeriesRepository by inject()
+
+    private val maxContentSpanCount: Int by lazy {
+        if (resources.isWideScreen()) MAX_CONTENT_SPAN_COUNT_WIDE else MAX_CONTENT_SPAN_COUNT
+    }
 
     private var seasonType: Int = SeriesType.ANIME
     private var moreUrl: String = ""
@@ -157,7 +164,7 @@ class AllSeriesFragment : BaseFragment<FragmentAllSeriesBinding>(), OnBackPresse
         }
         binding.viewFilter.visibility = View.VISIBLE
 
-        gridLayoutManager = WrapContentGridLayoutManager(requireContext(), MAX_CONTENT_SPAN_COUNT)
+        gridLayoutManager = WrapContentGridLayoutManager(requireContext(), maxContentSpanCount)
         binding.recyclerView.layoutManager = gridLayoutManager
         binding.recyclerView.adapter = adapter
         binding.recyclerView.itemAnimator = null
@@ -175,7 +182,7 @@ class AllSeriesFragment : BaseFragment<FragmentAllSeriesBinding>(), OnBackPresse
         }
         originalSpacing = resources.getDimensionPixelSize(R.dimen.px20)
         gridSpacingDecoration = GridSpacingItemDecoration(
-            MAX_CONTENT_SPAN_COUNT,
+            maxContentSpanCount,
             originalSpacing,
             true
         )
@@ -608,7 +615,7 @@ class AllSeriesFragment : BaseFragment<FragmentAllSeriesBinding>(), OnBackPresse
         if (fixedSpanCount <= 0) {
             fixedSpanCount = ((availableWidth + BASELINE_CARD_SPACING_PX) /
                 (BASELINE_CARD_WIDTH_PX + BASELINE_CARD_SPACING_PX))
-                .coerceIn(MIN_CONTENT_SPAN_COUNT, MAX_CONTENT_SPAN_COUNT)
+                .coerceIn(MIN_CONTENT_SPAN_COUNT, maxContentSpanCount)
         }
         val spanCount = fixedSpanCount
         if (force || gridLayoutManager.spanCount != spanCount) {

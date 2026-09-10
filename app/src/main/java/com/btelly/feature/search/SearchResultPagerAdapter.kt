@@ -14,6 +14,7 @@ import com.btelly.model.search.SearchItemModel
 import com.btelly.model.search.SearchType
 import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.core.ui.base.VideoRecyclerViewTuning
+import com.btelly.core.ui.base.adaptiveSpanCount
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.common.log.AppLog
@@ -150,7 +151,10 @@ class SearchResultPagerAdapter(
     fun captureFocusAnchors() {
         focusedPageType = null
         holders.forEach { (type, holder) ->
-            if (holder.captureFocusAnchor()) {
+            // 焦点真实落在本页列表内即认定页归属，即使 holder 暂时解析不出 position
+            // （点击后启动播放器、itemView 处于 rebind 中间态 pos=-1），否则
+            // focusedPageType 丢失会导致恢复时 fallback 到别的页抢焦点。
+            if (holder.hasFocusInList() || holder.captureFocusAnchor()) {
                 focusedPageType = type
                 AppLog.d(TAG, "captureFocusAnchors: focusedPage=$type")
             }
@@ -160,6 +164,12 @@ class SearchResultPagerAdapter(
 
     fun restoreFocusAnchors() {
         AppLog.d(TAG, "restoreFocusAnchors: focusedPageType=$focusedPageType holders=${holders.keys}")
+        // 已有焦点落在某页列表内（如 TvListFocusController 已自恢复）时不再移动焦点，
+        // 避免 fallback 逻辑把焦点抢到别的页。
+        if (holders.values.any { it.hasFocusInList() }) {
+            AppLog.d(TAG, "restoreFocusAnchors: focus already inside a page list, skip")
+            return
+        }
         val focusedType = focusedPageType
         val focusedHolder = focusedType?.let { holders[it] }
         if (focusedHolder != null) {
@@ -170,11 +180,15 @@ class SearchResultPagerAdapter(
             }
             AppLog.d(TAG, "restoreFocusAnchors: FAILED on focused page=$focusedType, trying others")
         }
-        val restored = holders.entries.any { (type, holder) ->
-            val ok = holder.restoreFocusAnchor()
-            AppLog.d(TAG, "restoreFocusAnchors: fallback page=$type result=$ok")
-            ok
-        }
+        // fallback 只考虑可见页：ViewPager 离屏页（isShown=false）不可见却仍可获焦，
+        // 被它"恢复成功"等于把焦点抢走，表现为返回搜索结果后焦点消失。
+        val restored = holders.entries
+            .filter { it.value.isPageVisible() }
+            .any { (type, holder) ->
+                val ok = holder.restoreFocusAnchor()
+                AppLog.d(TAG, "restoreFocusAnchors: fallback page=$type result=$ok")
+                ok
+            }
         if (!restored) {
             AppLog.d(TAG, "restoreFocusAnchors: all FAILED, falling back to focusPrimaryContent")
             holders.values.forEach { it.focusPrimaryContent() }
@@ -197,12 +211,11 @@ class SearchResultPagerAdapter(
                 currentType = page.type
                 val spanCount = when (page.type) {
                     SearchType.Video,
-                    SearchType.LiveRoom -> 4
+                    SearchType.LiveRoom,
+                    SearchType.User -> binding.root.resources.adaptiveSpanCount()
 
                     SearchType.Animation,
-                    SearchType.FilmAndTv -> 6
-
-                    SearchType.User -> 4
+                    SearchType.FilmAndTv -> binding.root.resources.adaptiveSpanCount(base = 6, wide = 8)
                 }
                 currentSpanCount = spanCount
                 currentAdapter = SearchItemAdapter(
@@ -297,6 +310,14 @@ class SearchResultPagerAdapter(
 
         fun captureFocusAnchor(): Boolean {
             return tvFocusController?.captureCurrentAnchor() ?: false
+        }
+
+        fun hasFocusInList(): Boolean {
+            return tvFocusController?.hasFocusInList() == true
+        }
+
+        fun isPageVisible(): Boolean {
+            return itemView.isShown
         }
 
         fun restoreFocusAnchor(): Boolean {
