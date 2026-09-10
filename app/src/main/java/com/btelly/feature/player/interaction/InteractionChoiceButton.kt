@@ -8,6 +8,7 @@ import android.view.Gravity
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.core.content.res.ResourcesCompat
+import com.btelly.core.ui.base.ScaledTextView
 import com.btelly.model.interaction.InteractionEdgeQuestionChoiceModel
 import com.btelly.model.interaction.InteractionEdgeSkinModel
 
@@ -36,7 +37,7 @@ class InteractionChoiceButton @JvmOverloads constructor(
         background = backgroundDrawable
 
         // Text label
-        textView = TextView(context).apply {
+        textView = ScaledTextView(context).apply {
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
             textSize = 14f

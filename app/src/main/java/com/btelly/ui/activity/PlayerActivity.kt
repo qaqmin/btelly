@@ -42,6 +42,7 @@ import com.btelly.R
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.base.BaseActivity
+import com.btelly.core.ui.base.ScaledTextView
 import com.btelly.core.ui.system.ViewUtils
 import com.btelly.databinding.FragmentVideoPlayerBinding
 import com.btelly.event.AppEventHub
@@ -734,6 +735,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         slimTimelineRenderer = SlimTimelineRenderer(bottomProgressBar)
         textClock = binding.textClock
         textSubtitle = binding.textSubtitle
+        // 字幕有独立字号设置，不与 UI 文字缩放叠加
+        ScaledTextView.exempt(textSubtitle)
         textDebug = binding.textDebug
         viewNext = binding.viewNext
         viewRelated = binding.viewRelated

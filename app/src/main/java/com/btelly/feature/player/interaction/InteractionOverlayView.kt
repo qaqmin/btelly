@@ -11,6 +11,7 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.btelly.core.ui.base.ScaledTextView
 import com.btelly.core.common.log.AppLog
 import com.btelly.model.interaction.InteractionEdgeDimensionModel
 import com.btelly.model.interaction.InteractionEdgeQuestionChoiceModel
@@ -253,7 +254,7 @@ class InteractionOverlayView @JvmOverloads constructor(
 
     private fun startCountdown(durationSec: Long, choices: List<InteractionEdgeQuestionChoiceModel>) {
         val durationMs = durationSec * 1000L
-        val countdownView = TextView(context).apply {
+        val countdownView = ScaledTextView(context).apply {
             textSize = 18f
             setTextColor(0xFFFF4444.toInt())
             setTypeface(Typeface.DEFAULT, Typeface.BOLD)
@@ -315,7 +316,7 @@ class InteractionOverlayView @JvmOverloads constructor(
             return
         }
         if (backButton == null) {
-            backButton = TextView(context).apply {
+            backButton = ScaledTextView(context).apply {
                 text = "←"
                 textSize = 22f
                 setTextColor(0xFFFFFFFF.toInt())
@@ -358,7 +359,7 @@ class InteractionOverlayView @JvmOverloads constructor(
         }
 
         if (variablesTextView == null) {
-            variablesTextView = TextView(context).apply {
+            variablesTextView = ScaledTextView(context).apply {
                 textSize = 12f
                 setTextColor(0xFFFFFFFF.toInt())
                 setTypeface(Typeface.DEFAULT, Typeface.BOLD)

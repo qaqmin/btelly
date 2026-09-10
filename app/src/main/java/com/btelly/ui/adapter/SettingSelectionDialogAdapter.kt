@@ -12,6 +12,7 @@ class SettingSelectionDialogAdapter(
     private val options: List<String>,
     selectedIndex: Int,
     private val sortDirection: Int = -1,
+    private val onFocused: ((Int) -> Unit)? = null,
     private val onItemSelected: (Int) -> Unit
 ) : RecyclerView.Adapter<SettingSelectionDialogAdapter.SettingChoiceViewHolder>() {
 
@@ -61,6 +62,7 @@ class SettingSelectionDialogAdapter(
                 }
                 if (hasFocus) {
                     focusedPosition = position
+                    onFocused?.invoke(position)
                 } else if (focusedPosition == position) {
                     focusedPosition = RecyclerView.NO_POSITION
                 }

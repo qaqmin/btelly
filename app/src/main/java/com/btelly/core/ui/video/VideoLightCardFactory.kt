@@ -24,6 +24,7 @@ import android.widget.ImageView
 import androidx.core.content.ContextCompat
 import com.btelly.R
 import com.btelly.core.common.log.VideoCardPerfLogger
+import com.btelly.core.ui.base.UiTextScale
 import pl.droidsonroids.gif.GifDrawable
 import kotlin.math.ceil
 
@@ -951,10 +952,12 @@ private class LightCardMetrics private constructor(context: Context) {
     val historyDeviceMarginEnd = dimen(context, R.dimen.px5)
     val playingIconMarginEnd = dp(context, 4)
     val titleIconFallbackSize = dimen(context, R.dimen.px31)
-    val titleTextSize = dimenF(context, R.dimen.px31)
-    val ownerTextSize = dimenF(context, R.dimen.px22)
-    val metaTextSize = dimenF(context, R.dimen.px22)
-    val badgeTextSize = dimenF(context, R.dimen.px20)
+    // 卡片是自绘文字，跟随全局 UI 文字缩放（onMeasure 由字号推导高度，自动跟随）
+    val scaleSnapshot = UiTextScale.scale()
+    val titleTextSize = dimenF(context, R.dimen.px31) * scaleSnapshot
+    val ownerTextSize = dimenF(context, R.dimen.px22) * UiTextScale.scale()
+    val metaTextSize = dimenF(context, R.dimen.px22) * UiTextScale.scale()
+    val badgeTextSize = dimenF(context, R.dimen.px20) * UiTextScale.scale()
 
     private fun dimen(context: Context, resId: Int): Int = context.resources.getDimensionPixelSize(resId)
 
@@ -972,7 +975,10 @@ private class LightCardMetrics private constructor(context: Context) {
 
         fun get(context: Context): LightCardMetrics {
             val resources = context.resources
+            val scale = UiTextScale.scale()
             synchronized(cache) {
+                // Resources 实例在 Activity recreate 后可能复用，档位变化时按快照失效重建
+                cache[resources]?.takeIf { it.scaleSnapshot == scale } ?: cache.remove(resources)
                 return cache.getOrPut(resources) { LightCardMetrics(context.applicationContext ?: context) }
             }
         }

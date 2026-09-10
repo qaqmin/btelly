@@ -78,6 +78,9 @@
     <string name="dm_track_spacing">弹幕间距</string>
     <string name="resume_playback">恢复播放进度</string>
     <string name="dm_text_size">弹幕字体大小</string>
+    <string name="ui_text_size">UI文字大小</string>
+    <string name="ui_card_size">视频卡片大小</string>
+    <string name="ui_text_size_preview">预览：今天的热门视频</string>
     <string name="documentary">纪录片</string>
     <string name="dynamic">动态</string>
     <string name="empty">啥都没有</string>

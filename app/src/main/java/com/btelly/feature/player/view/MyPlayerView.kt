@@ -35,6 +35,7 @@ import android.view.animation.OvershootInterpolator
 import androidx.annotation.OptIn
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.media3.common.C
+import com.btelly.core.ui.base.ScaledTextView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
@@ -584,7 +585,7 @@ class MyPlayerView @JvmOverloads constructor(
             setBackgroundColor(0x66000000)
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
         }
-        val title = AppCompatTextView(context).apply {
+        val title = ScaledTextView(context).apply {
             setTextColor(Color.WHITE)
             textSize = 22f
             maxLines = 2
@@ -2398,13 +2399,13 @@ class MyPlayerView @JvmOverloads constructor(
                 setColor(0xCC111216.toInt())
             }
         }
-        val positionText = TextView(context).apply {
+        val positionText = ScaledTextView(context).apply {
             setTextColor(Color.WHITE)
             textSize = 13f
             includeFontPadding = false
             typeface = Typeface.DEFAULT_BOLD
         }
-        val actionText = TextView(context).apply {
+        val actionText = ScaledTextView(context).apply {
             text = context.getString(R.string.resume_hint_play_from_start)
             setTextColor(0xFFFF5A9E.toInt())
             textSize = 13f

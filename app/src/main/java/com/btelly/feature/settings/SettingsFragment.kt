@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Build
 import android.text.format.DateFormat
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.KeyEvent
@@ -29,6 +30,9 @@ import com.btelly.model.SettingModel
 import com.btelly.ui.adapter.SettingAdapter
 import com.btelly.ui.adapter.SettingSelectionDialogAdapter
 import com.btelly.core.ui.base.BaseFragment
+import com.btelly.core.ui.base.ScaledTextView
+import com.btelly.core.ui.base.UiCardSize
+import com.btelly.core.ui.base.UiTextScale
 import com.btelly.core.ui.decoration.LinearSpacingItemDecoration
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.cache.FileCacheManager
@@ -122,6 +126,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val KEY_AUDIO_NORMALIZE = "audio_normalize"
         private const val KEY_SEAMLESS_QUALITY_SWITCH = "seamless_quality_switch"
         private const val COMMON_POSITION_RISK_CONTROL = 6
+        private const val COMMON_POSITION_UI_TEXT_SIZE = 11
+        private const val COMMON_POSITION_CARD_SIZE = 12
         private val DM_SMART_FILTER_OPTIONS = arrayOf("关", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10")
 
         /**
@@ -209,7 +215,9 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.show_video_detail_page), "关"),
             SettingModel(getString(R.string.give_coin_number), "2"),
             SettingModel(getString(R.string.ipv4_only), "开"),
-            SettingModel(getString(R.string.douyin_mode), "关")
+            SettingModel(getString(R.string.douyin_mode), "关"),
+            SettingModel(getString(R.string.ui_text_size), "标准"),
+            SettingModel(getString(R.string.ui_card_size), "标准")
         )
 
         // 青少年模式分类：青少年保护开关 + 单次观看时长 + 休息时长 + 公益广告开关 + 公益广告间隔
@@ -413,7 +421,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             orientation = android.widget.LinearLayout.VERTICAL
             setBackgroundResource(R.drawable.dialog_background)
         }
-        val titleView = android.widget.TextView(requireContext()).apply {
+        val titleView = ScaledTextView(requireContext()).apply {
             text = "正在下载 X5 内核"
             setTextColor(textColor); textSize = 14f
             setTypeface(null, android.graphics.Typeface.BOLD)
@@ -438,7 +446,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             ).apply { setMargins(px40, px20, px40, 0) }
         }
         root.addView(progressBar)
-        val progressText = android.widget.TextView(requireContext()).apply {
+        val progressText = ScaledTextView(requireContext()).apply {
             text = "连接中…"
             setTextColor(textColor); textSize = 11f
             layoutParams = android.widget.LinearLayout.LayoutParams(
@@ -447,7 +455,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             ).apply { setMargins(px40, px14, px40, 0) }
         }
         root.addView(progressText)
-        val cancelButton = android.widget.TextView(requireContext()).apply {
+        val cancelButton = ScaledTextView(requireContext()).apply {
             text = "取消"; setTextColor(textColor); textSize = 12f
             setPadding(resources.getDimensionPixelSize(R.dimen.px16), px14, resources.getDimensionPixelSize(R.dimen.px16), px14)
             isClickable = true; isFocusable = true
@@ -530,6 +538,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             8 -> showCommonChoiceDialog(position, KEY_GIVE_COIN_NUMBER, arrayOf("1", "2"))
             9 -> toggleSetting(commonSettings, 9, KEY_IPV4_ONLY)
             10 -> toggleSetting(commonSettings, 10, KEY_DOUYIN_MODE)
+            COMMON_POSITION_UI_TEXT_SIZE -> showUiTextScaleDialog()
+            COMMON_POSITION_CARD_SIZE -> showCardSizeChoiceDialog()
             commonSettings.lastIndex - 1 -> {
                 val newValue = if (AppLog.isEnabled) "关" else "开"
                 AppLog.setEnabled(newValue == "开")
@@ -757,7 +767,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             setOnClickListener { dialog.dismiss() }
         }
 
-        root.addView(TextView(requireContext()).apply {
+        root.addView(ScaledTextView(requireContext()).apply {
             text = "发现新版本"
             setTextColor(textColor)
             textSize = 14f
@@ -774,7 +784,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             layoutParams = lp
         })
 
-        root.addView(TextView(requireContext()).apply {
+        root.addView(ScaledTextView(requireContext()).apply {
             val notes = if (releaseInfo.releaseNotes.isNotBlank()) {
                 getString(R.string.update_release_notes_format, releaseInfo.releaseNotes.take(300))
             } else ""
@@ -805,7 +815,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             val apkUrl = cachedReleaseInfo?.apkUrl
             if (apkUrl != null) startDownloadApk(apkUrl)
         }).forEach { (text, action) ->
-            actionContainer.addView(TextView(requireContext()).apply {
+            actionContainer.addView(ScaledTextView(requireContext()).apply {
                 this.text = text
                 setTextColor(textColor)
                 textSize = 12f
@@ -845,7 +855,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             setBackgroundResource(R.drawable.dialog_background)
         }
 
-        val titleView = TextView(requireContext()).apply {
+        val titleView = ScaledTextView(requireContext()).apply {
             text = "正在下载更新"
             setTextColor(textColor)
             textSize = 14f
@@ -872,7 +882,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         }
         root.addView(progressBar)
 
-        val progressText = TextView(requireContext()).apply {
+        val progressText = ScaledTextView(requireContext()).apply {
             text = "连接中…"
             setTextColor(textColor)
             textSize = 11f
@@ -882,7 +892,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         }
         root.addView(progressText)
 
-        val cancelButton = TextView(requireContext()).apply {
+        val cancelButton = ScaledTextView(requireContext()).apply {
             text = "取消"
             setTextColor(textColor)
             textSize = 12f
@@ -1074,6 +1084,13 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         applySavedValue(commonSettings, 8, KEY_GIVE_COIN_NUMBER)
         applySavedValue(commonSettings, 9, KEY_IPV4_ONLY)
         applySavedValue(commonSettings, 10, KEY_DOUYIN_MODE)
+        commonSettings[COMMON_POSITION_UI_TEXT_SIZE].info = UiTextScale.nameOf(
+            appSettings.getCachedString(UiTextScale.KEY_UI_TEXT_SCALE)?.toIntOrNull()
+                ?: UiTextScale.DEFAULT_PERCENT
+        )
+        commonSettings[COMMON_POSITION_CARD_SIZE].info = UiCardSize.nameOf(
+            appSettings.getCachedString(UiCardSize.KEY_UI_CARD_SIZE)?.toIntOrNull() ?: 0
+        )
 
         // 青少年模式分类：保护开关（从通用设置迁移）+ 观看时长 + 休息时长
         applySavedValue(teenSettings, 0, KEY_MINOR_PROTECTION)
@@ -1182,6 +1199,85 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         showChoiceDialog(playerSettings[position].title, playerSettings[position].info, options) { value ->
             updateSetting(playerSettings, position, value)
             appSettings.putStringAsync(key, value)
+        }
+    }
+
+    /** UI 文字大小：档位选择 + 底部实时预览，确认后 recreate 让全界面生效。 */
+    private fun showUiTextScaleDialog() {
+        val dialog = AppCompatDialog(requireContext(), R.style.DialogTheme)
+        dialog.setContentView(R.layout.dialog_ui_text_scale)
+        dialog.setCanceledOnTouchOutside(true)
+        dialog.findViewById<View>(R.id.dialog_root)?.setOnClickListener { dialog.dismiss() }
+
+        val titleView = dialog.findViewById<TextView>(R.id.top_title)
+        val recyclerView = dialog.findViewById<RecyclerView>(R.id.recyclerView)
+        titleView?.text = commonSettings[COMMON_POSITION_UI_TEXT_SIZE].title
+
+        // 预览文字按选中档位精确渲染：豁免 UI 缩放，由这里全权控制字号
+        val preview = dialog.findViewById<TextView>(R.id.preview_text)
+        ScaledTextView.exempt(preview)
+
+        val percents = UiTextScale.PERCENTS
+        val applyPreview: (Int) -> Unit = { index ->
+            preview?.setTextSize(
+                TypedValue.COMPLEX_UNIT_PX,
+                resources.getDimension(R.dimen.px32) * percents[index] / 100f
+            )
+        }
+
+        val savedPercent = appSettings.getCachedString(UiTextScale.KEY_UI_TEXT_SCALE)
+            ?.toIntOrNull() ?: UiTextScale.DEFAULT_PERCENT
+        val selectedIndex = UiTextScale.indexOf(savedPercent)
+        val options = UiTextScale.NAMES.mapIndexed { i, name -> "$name ${percents[i]}%" }
+
+        val choiceAdapter = SettingSelectionDialogAdapter(
+            options = options,
+            selectedIndex = selectedIndex,
+            onFocused = applyPreview
+        ) { index ->
+            val percent = percents[index]
+            updateSetting(commonSettings, COMMON_POSITION_UI_TEXT_SIZE, options[index])
+            appSettings.putStringAsync(UiTextScale.KEY_UI_TEXT_SCALE, percent.toString())
+            activity?.recreate()
+            dialog.dismiss()
+        }
+
+        val dialogLayoutManager = createExtraSpaceLayoutManager(
+            resources.getDimensionPixelSize(R.dimen.px100)
+        )
+        recyclerView?.layoutManager = dialogLayoutManager
+        recyclerView?.adapter = choiceAdapter
+        if (recyclerView != null && recyclerView.itemDecorationCount == 0) {
+            recyclerView.addItemDecoration(
+                LinearSpacingItemDecoration(
+                    resources.getDimensionPixelSize(R.dimen.px2),
+                    includeBottom = true
+                )
+            )
+        }
+        applyPreview(selectedIndex)
+
+        dialog.setOnShowListener {
+            recyclerView?.post {
+                choiceAdapter.requestInitialFocus(recyclerView)
+            }
+        }
+        dialog.show()
+    }
+
+    /** 视频卡片大小：选完 recreate，所有视频网格经 adaptiveSpanCount 统一生效。 */
+    private fun showCardSizeChoiceDialog() {
+        val savedOffset = appSettings.getCachedString(UiCardSize.KEY_UI_CARD_SIZE)
+            ?.toIntOrNull() ?: 0
+        showChoiceDialog(
+            commonSettings[COMMON_POSITION_CARD_SIZE].title,
+            UiCardSize.nameOf(savedOffset),
+            UiCardSize.NAMES
+        ) { value ->
+            val offset = UiCardSize.offsetAt(UiCardSize.NAMES.indexOf(value))
+            updateSetting(commonSettings, COMMON_POSITION_CARD_SIZE, value)
+            appSettings.putStringAsync(UiCardSize.KEY_UI_CARD_SIZE, offset.toString())
+            activity?.recreate()
         }
     }
 
@@ -1471,7 +1567,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             setOnClickListener { dialog.dismiss() }
         }
 
-        root.addView(TextView(requireContext()).apply {
+        root.addView(ScaledTextView(requireContext()).apply {
             text = "风控验证"
             setTextColor(textColor)
             textSize = 14f
@@ -1488,7 +1584,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             layoutParams = lp
         })
 
-        root.addView(TextView(requireContext()).apply {
+        root.addView(ScaledTextView(requireContext()).apply {
             text = msg
             setTextColor(textColor)
             textSize = 12f
@@ -1509,7 +1605,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         val actions = listOf("关闭", "编辑凭证", if (hasVoucher) "开始验证" else "填写凭证")
 
         actions.forEachIndexed { index, actionText ->
-            actionContainer.addView(TextView(requireContext()).apply {
+            actionContainer.addView(ScaledTextView(requireContext()).apply {
                 text = actionText
                 setTextColor(textColor)
                 textSize = 12f
@@ -1564,7 +1660,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             setBackgroundResource(R.drawable.dialog_background)
         }
 
-        root.addView(TextView(requireContext()).apply {
+        root.addView(ScaledTextView(requireContext()).apply {
             text = "编辑验证凭证"
             setTextColor(textColor)
             textSize = 14f
@@ -1630,7 +1726,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         listOf("清除" to { clearVoucher(); dialog.dismiss() },
                "取消" to { dialog.dismiss() },
                "保存" to { saveVoucher() }).forEachIndexed { index, (text, action) ->
-            actionContainer.addView(TextView(requireContext()).apply {
+            actionContainer.addView(ScaledTextView(requireContext()).apply {
                 this.text = text
                 setTextColor(textColor)
                 textSize = 12f
@@ -1687,7 +1783,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         val dialog = AppCompatDialog(requireContext(), R.style.DialogTheme)
         dialog.setCanceledOnTouchOutside(true)
 
-        val codeDisplayView = TextView(requireContext()).apply {
+        val codeDisplayView = ScaledTextView(requireContext()).apply {
             text = "? ? ? ? ? ? ? ?"
             setTextColor(textColor)
             textSize = 16f
@@ -1756,7 +1852,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             }
         }
 
-        root.addView(TextView(requireContext()).apply {
+        root.addView(ScaledTextView(requireContext()).apply {
             text = getString(R.string.minor_protection)
             setTextColor(textColor)
             textSize = 14f
@@ -1773,7 +1869,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             layoutParams = lp
         })
 
-        root.addView(TextView(requireContext()).apply {
+        root.addView(ScaledTextView(requireContext()).apply {
             text = "使用遥控器方向键输入魂斗罗秘籍才能关闭！"
             setTextColor(textColor)
             textSize = 12f

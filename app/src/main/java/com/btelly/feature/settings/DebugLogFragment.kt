@@ -10,6 +10,7 @@ import androidx.appcompat.widget.AppCompatTextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
+import com.btelly.core.ui.base.ScaledTextView
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.ui.navigation.navigateBackFromUi
@@ -112,7 +113,7 @@ class DebugLogFragment : BaseFragment<FragmentDebugLogBinding>() {
         val px14 = resources.getDimensionPixelSize(R.dimen.px14)
 
         FilterOption.ALL.forEachIndexed { index, option ->
-            val btn = AppCompatTextView(requireContext()).apply {
+            val btn = ScaledTextView(requireContext()).apply {
                 text = option.label
                 setTextColor(Color.WHITE)
                 textSize = 12f

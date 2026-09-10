@@ -8,6 +8,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.widget.LinearLayout
+import com.btelly.core.ui.base.ScaledTextView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -39,7 +40,7 @@ class GaiaVgateActivity : AppCompatActivity() {
             return
         }
 
-        status = TextView(this).apply { text = "正在请求验证…" }
+        status = ScaledTextView(this).apply { text = "正在请求验证…" }
         webView = WebView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f

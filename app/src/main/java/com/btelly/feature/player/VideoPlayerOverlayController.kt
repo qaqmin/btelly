@@ -21,6 +21,7 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import android.util.TypedValue
+import com.btelly.core.ui.base.ScaledTextView
 import com.btelly.R
 import com.btelly.model.video.VideoModel
 import com.btelly.model.video.detail.VideoDetailModel
@@ -32,7 +33,6 @@ import com.btelly.feature.detail.UserSpaceFragment
 import com.btelly.core.ui.base.VideoRecyclerViewTuning
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.feature.player.view.MyPlayerView
-import androidx.appcompat.widget.AppCompatTextView
 
 @UnstableApi
 class VideoPlayerOverlayController(
@@ -315,9 +315,9 @@ class VideoPlayerOverlayController(
         }
     }
 
-    private fun buildSeasonTab(label: String): AppCompatTextView {
+    private fun buildSeasonTab(label: String): ScaledTextView {
         val res = activity.resources
-        return AppCompatTextView(activity).apply {
+        return ScaledTextView(activity).apply {
             text = label
             setTextSize(TypedValue.COMPLEX_UNIT_PX, res.getDimension(R.dimen.px24))
             setTextColor(ContextCompat.getColor(activity, R.color.textColor))
