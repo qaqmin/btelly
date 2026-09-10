@@ -16,6 +16,7 @@ import com.btelly.ui.activity.LivePlayerActivity
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.core.ui.base.RecyclerViewPoolPrewarmer
+import com.btelly.core.ui.base.adaptiveSpanCount
 import com.btelly.feature.settings.SignInFragment
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.common.content.ContentFilter
@@ -90,7 +91,7 @@ class LiveListFragment : BaseFragment<FragmentLiveListBinding>(), LiveTabPage {
             }
         )
 
-        val layoutManager = WrapContentGridLayoutManager(requireContext(), 4)
+        val layoutManager = WrapContentGridLayoutManager(requireContext(), resources.adaptiveSpanCount())
         binding.recyclerView.layoutManager = layoutManager
         binding.recyclerView.adapter = adapter
         binding.recyclerView.itemAnimator = null
@@ -209,7 +210,7 @@ class LiveListFragment : BaseFragment<FragmentLiveListBinding>(), LiveTabPage {
                             items = rooms,
                             startMs = currentOpenStartMs,
                             source = "first_screen",
-                            spanCount = 4,
+                            spanCount = resources.adaptiveSpanCount(),
                             setItems = { firstBatch, onCommitted ->
                                 adapter.setData(firstBatch, onCommitted)
                             },

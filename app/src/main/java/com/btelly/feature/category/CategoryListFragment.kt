@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.btelly.model.video.VideoModel
 import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.core.ui.base.BaseListFragment
+import com.btelly.core.ui.base.adaptiveSpanCount
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.focus.tv.TvDataChangeReason
@@ -65,7 +66,7 @@ class CategoryListFragment : BaseListFragment<VideoModel>(), com.btelly.ui.activ
         )
     }
 
-    override fun getSpanCount(): Int = 4
+    override fun getSpanCount(): Int = resources.adaptiveSpanCount()
 
     override fun loadData(page: Int) {
         if (viewModel.loading.value) {

@@ -19,6 +19,7 @@ import com.btelly.model.lane.LaneItemModel
 import com.btelly.model.series.timeline.SeriesTimeLineModel
 import com.btelly.ui.activity.MainActivity
 import com.btelly.core.ui.base.BaseAdapter
+import com.btelly.core.ui.base.adaptiveSpanCount
 import java.util.concurrent.atomic.AtomicInteger
 
 class HomeLaneAdapter(
@@ -416,7 +417,8 @@ class HomeLaneAdapter(
         private var currentSection: HomeLaneSection? = null
 
         init {
-            binding.recyclerView.layoutManager = GridLayoutManager(binding.root.context, 6)
+            binding.recyclerView.layoutManager =
+                GridLayoutManager(binding.root.context, binding.root.resources.adaptiveSpanCount(base = 6, wide = 8))
             binding.recyclerView.adapter = adapter
             binding.recyclerView.itemAnimator = null
             binding.recyclerView.setHasFixedSize(true)
@@ -550,7 +552,8 @@ class HomeLaneAdapter(
         private var item: HomeLaneSection? = null
 
         init {
-            binding.recyclerView.layoutManager = GridLayoutManager(binding.root.context, 6)
+            binding.recyclerView.layoutManager =
+                GridLayoutManager(binding.root.context, binding.root.resources.adaptiveSpanCount(base = 6, wide = 8))
             binding.recyclerView.adapter = adapter
             binding.recyclerView.itemAnimator = null
             binding.recyclerView.setHasFixedSize(true)

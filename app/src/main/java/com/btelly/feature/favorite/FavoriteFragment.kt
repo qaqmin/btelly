@@ -24,6 +24,7 @@ import com.btelly.feature.me.MeTabPage
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
 import com.btelly.core.ui.base.RecyclerViewFocusRestoreHelper
+import com.btelly.core.ui.base.adaptiveSpanCount
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.log.PagePerfLogger
@@ -99,13 +100,14 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
             }
         }
 
-        binding.recyclerViewFavorite.layoutManager = WrapContentGridLayoutManager(requireContext(), 4)
+        val spanCount = resources.adaptiveSpanCount()
+        binding.recyclerViewFavorite.layoutManager = WrapContentGridLayoutManager(requireContext(), spanCount)
         binding.recyclerViewFavorite.adapter = adapter
         binding.recyclerViewFavorite.setHasFixedSize(true)
         if (binding.recyclerViewFavorite.itemDecorationCount == 0) {
             binding.recyclerViewFavorite.addItemDecoration(
                 GridSpacingItemDecoration(
-                    4,
+                    spanCount,
                     resources.getDimensionPixelSize(R.dimen.px20),
                     true
                 )

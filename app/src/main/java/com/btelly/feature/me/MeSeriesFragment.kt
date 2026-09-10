@@ -20,6 +20,7 @@ import com.btelly.repository.UserRepository
 import com.btelly.ui.adapter.SeriesAdapter
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.ui.base.RecyclerViewFocusRestoreHelper
+import com.btelly.core.ui.base.adaptiveSpanCount
 import com.btelly.feature.series.SeriesDetailFragment
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.common.cache.FileCacheManager
@@ -84,7 +85,8 @@ class MeSeriesFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage {
             }
         }, onTopEdgeUp = ::focusTopTab)
 
-        binding.recyclerView.layoutManager = WrapContentGridLayoutManager(requireContext(), 6)
+        binding.recyclerView.layoutManager =
+            WrapContentGridLayoutManager(requireContext(), resources.adaptiveSpanCount(base = 6, wide = 8))
         binding.recyclerView.adapter = adapter
         binding.recyclerView.setHasFixedSize(true)
         binding.emptyContainer.visibility = View.GONE

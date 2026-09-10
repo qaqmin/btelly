@@ -24,6 +24,7 @@ import com.btelly.ui.adapter.VideoAdapter
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.core.ui.base.VideoRecyclerViewTuning
+import com.btelly.core.ui.base.adaptiveSpanCount
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.common.content.ContentFilter
 import com.btelly.core.common.log.AppLog
@@ -160,7 +161,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
             }
         }
 
-        val layoutManager = WrapContentGridLayoutManager(requireContext(), 4)
+        val layoutManager = WrapContentGridLayoutManager(requireContext(), resources.adaptiveSpanCount())
         binding.recyclerView.layoutManager = layoutManager
         binding.recyclerView.adapter = historyAdapter ?: videoAdapter
         (historyAdapter ?: videoAdapter)?.let { adapter ->
@@ -418,7 +419,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                 items = filtered,
                 startMs = currentOpenStartMs.takeIf { it > 0L } ?: freshRequestStartMs(),
                 source = "network",
-                spanCount = 4,
+                spanCount = resources.adaptiveSpanCount(),
                 setItems = { firstBatch, onCommitted ->
                     adapter.setData(firstBatch, onCommitted)
                 },
@@ -512,7 +513,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                 items = filtered,
                 startMs = currentOpenStartMs.takeIf { it > 0L } ?: freshRequestStartMs(),
                 source = "network",
-                spanCount = 4,
+                spanCount = resources.adaptiveSpanCount(),
                 setItems = { firstBatch, onCommitted ->
                     adapter.setData(firstBatch, onCommitted)
                 },

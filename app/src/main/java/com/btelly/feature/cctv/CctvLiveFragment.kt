@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.RecyclerView
 import android.util.Log
 import com.btelly.R
 import com.btelly.core.ui.base.BaseFragment
+import com.btelly.core.ui.base.adaptiveSpanCount
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
 import com.btelly.core.ui.focus.tv.GridTvFocusStrategy
 import com.btelly.core.ui.focus.tv.TvListFocusController
@@ -27,6 +28,8 @@ import org.koin.android.ext.android.inject
 class CctvLiveFragment : BaseFragment<FragmentCctvLiveBinding>(), MainTabFocusTarget {
 
     private val okHttpClient: OkHttpClient by inject()
+    // 超宽屏（如 5120×1600）4 列频道卡过大，adaptiveSpanCount 统一放宽到 8 列
+    private val spanCount by lazy { resources.adaptiveSpanCount() }
     private lateinit var adapter: CctvChannelAdapter
     private val programRepository by lazy { CctvProgramRepository(okHttpClient) }
     private var tvFocusController: TvListFocusController? = null
@@ -56,12 +59,12 @@ class CctvLiveFragment : BaseFragment<FragmentCctvLiveBinding>(), MainTabFocusTa
             onItemClick = ::openChannel,
             onTopEdgeUp = { false }
         )
-        binding.recyclerView.layoutManager = WrapContentGridLayoutManager(requireContext(), SPAN_COUNT)
+        binding.recyclerView.layoutManager = WrapContentGridLayoutManager(requireContext(), spanCount)
         binding.recyclerView.adapter = adapter
         binding.recyclerView.itemAnimator = null
         binding.recyclerView.addItemDecoration(
             GridSpacingItemDecoration(
-                SPAN_COUNT,
+                spanCount,
                 resources.getDimensionPixelSize(R.dimen.px20),
                 true
             )
@@ -73,7 +76,7 @@ class CctvLiveFragment : BaseFragment<FragmentCctvLiveBinding>(), MainTabFocusTa
         tvFocusController = TvListFocusController(
             recyclerView = binding.recyclerView,
             adapter = adapter,
-            strategy = GridTvFocusStrategy { SPAN_COUNT },
+            strategy = GridTvFocusStrategy { spanCount },
             canLoadMore = { false },
             loadMore = {},
             debugName = "cctv"
@@ -243,7 +246,6 @@ class CctvLiveFragment : BaseFragment<FragmentCctvLiveBinding>(), MainTabFocusTa
 
     companion object {
         private const val TAG = "CctvLiveFragment"
-        private const val SPAN_COUNT = 4
         private const val KEY_FOCUS_CHANNEL_ID = "focus_channel_id"
 
         fun newInstance(): CctvLiveFragment = CctvLiveFragment()

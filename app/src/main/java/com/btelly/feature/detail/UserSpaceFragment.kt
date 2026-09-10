@@ -25,6 +25,7 @@ import com.btelly.core.ui.base.BaseAdapter
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.ui.base.BaseListFragment
 import com.btelly.core.ui.base.VideoRecyclerViewTuning
+import com.btelly.core.ui.base.adaptiveSpanCount
 import com.btelly.feature.user.FollowUserListFragment
 import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 import com.btelly.core.ui.decoration.GridSpacingItemDecoration
@@ -42,6 +43,9 @@ import org.koin.android.ext.android.inject
 
 class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.btelly.ui.activity.MainActivity.OnVideoBlockedListener {
 
+    // 超宽屏（如 5120×1600）4 列封面过大，adaptiveSpanCount 统一放宽到 8 列
+    private val spanCount by lazy { resources.adaptiveSpanCount() }
+
     private enum class FocusArea {
         BACK,
         FOLLOW,
@@ -52,7 +56,6 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.btelly.u
 
     companion object {
         private const val ARG_MID = "mid"
-        private const val SPAN_COUNT = 4
 
         fun newInstance(mid: Long): UserSpaceFragment {
             return UserSpaceFragment().apply {
@@ -134,12 +137,12 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.btelly.u
             videoAdapter
         )
 
-        val layoutManager = WrapContentGridLayoutManager(requireContext(), SPAN_COUNT)
+        val layoutManager = WrapContentGridLayoutManager(requireContext(), spanCount)
         layoutManager.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
             override fun getSpanSize(position: Int): Int {
                 return when {
-                    position == 0 -> SPAN_COUNT
-                    concatAdapter.getItemViewType(position) == BaseAdapter.LOAD_MORE_TYPE -> SPAN_COUNT
+                    position == 0 -> spanCount
+                    concatAdapter.getItemViewType(position) == BaseAdapter.LOAD_MORE_TYPE -> spanCount
                     else -> 1
                 }
             }
@@ -150,7 +153,7 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.btelly.u
         if (binding.recyclerViewVideos.itemDecorationCount == 0) {
             binding.recyclerViewVideos.addItemDecoration(
                 GridSpacingItemDecoration(
-                    SPAN_COUNT,
+                    spanCount,
                     resources.getDimensionPixelSize(R.dimen.px20),
                     includeEdge = true
                 )
@@ -541,7 +544,7 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.btelly.u
         tvFocusController = TvListFocusController(
             recyclerView = binding.recyclerViewVideos,
             adapter = OffsetTvFocusableAdapter(videoAdapter) { headerAdapter.itemCount },
-            strategy = GridTvFocusStrategy { SPAN_COUNT },
+            strategy = GridTvFocusStrategy { spanCount },
             canLoadMore = { hasMore },
             loadMore = {
                 if (!isLoading && hasMore) {
