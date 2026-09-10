@@ -58,6 +58,7 @@ import com.btelly.feature.player.settings.PlayerSettings
 import com.btelly.feature.player.settings.PlayerSettingsStore
 import com.btelly.feature.player.settings.AfterPlayMode
 import com.btelly.core.common.time.TimeUtils
+import com.btelly.core.ui.base.ScaledTextView
 import com.btelly.core.ui.navigation.navigateBackFromUi
 import com.btelly.core.ui.system.ViewUtils
 import kotlinx.coroutines.launch
@@ -475,6 +476,8 @@ class VideoPlayerFragment : Fragment() {
         slimTimelineRenderer = SlimTimelineRenderer(bottomProgressBar)
         textClock = binding.textClock
         textSubtitle = binding.textSubtitle
+        // 字幕有独立字号设置，不与 UI 文字缩放叠加
+        ScaledTextView.exempt(textSubtitle)
         textDebug = binding.textDebug
         viewNext = binding.viewNext
         viewRelated = binding.viewRelated

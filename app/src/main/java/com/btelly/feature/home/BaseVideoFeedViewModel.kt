@@ -27,7 +27,10 @@ abstract class BaseVideoFeedViewModel(
     override val uiState: StateFlow<FeedUiState<VideoModel>> = _uiState.asStateFlow()
 
     protected var currentPage = 0
-    private var hasLoadedInitial = false
+    private var initialLoadRequested = false
+
+    override val hasLoadedInitial: Boolean
+        get() = initialLoadRequested
 
     /** 子类可覆盖初始加载的启动方式（如推荐流需要 UNDISPATCHED 抢首帧）。 */
     protected open val initialLaunchStart: CoroutineStart = CoroutineStart.DEFAULT
@@ -53,8 +56,8 @@ abstract class BaseVideoFeedViewModel(
     protected open fun onPageFailed(page: Int, throwable: Throwable) {}
 
     final override fun loadInitial() {
-        if (hasLoadedInitial) return
-        hasLoadedInitial = true
+        if (initialLoadRequested) return
+        initialLoadRequested = true
         onInitialLaunched()
         viewModelScope.launch(start = initialLaunchStart) {
             loadPage(page = 1, replace = true, fromInitial = true)
