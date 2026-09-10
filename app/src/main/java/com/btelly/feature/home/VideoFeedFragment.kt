@@ -154,6 +154,19 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
 
     private fun startInitialLoad(showLoading: Boolean, reason: String) {
         if (initialLoadStarted) return
+        // recreate/重建后 Fragment 实例是新的，但 ViewModel 保留：hasLoadedInitial=true 会让
+        // 下面的 loadInitial() 变成 no-op——不发请求、不来新 state，先亮的转圈永远没人关掉
+        // （表现：设置页 recreate 后回到首页一直转圈）。此时直接用现有 state 渲染即可。
+        if (feedViewModel.hasLoadedInitial) {
+            initialLoadStarted = true
+            initialLoadAfterFirstDrawArmed = false
+            AppLog.i(
+                "STARTUP",
+                "${this::class.java.simpleName}.initialLoad skip reason=$reason (viewModel retained)"
+            )
+            renderState(feedViewModel.uiState.value)
+            return
+        }
         initialLoadStarted = true
         initialLoadAfterFirstDrawArmed = false
         val t0 = SystemClock.elapsedRealtime()
@@ -274,6 +287,8 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
             return
         }
 
+        // 数据/错误就绪后必须收掉转圈（幂等）：recreate 重建路径可能已经亮过 loading
+        showLoading(false)
         state.errorMessage?.let { message ->
             isLoading = false
             setRefreshing(false)
