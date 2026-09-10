@@ -876,7 +876,11 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                     this@PlayerActivity.isVideoBlockedByMinorProtection(video)
             }
         )
-        player = PlayerInstancePool.acquire(this).also {
+        player = PlayerInstancePool.acquire(
+            context = this,
+            expectBvid = intent.getStringExtra(EXTRA_BVID),
+            expectCid = intent.getLongExtra(EXTRA_CID, 0L)
+        ).also {
             it.playWhenReady = false
             enableVideoTrack(it)
             if (::playerSettings.isInitialized) {

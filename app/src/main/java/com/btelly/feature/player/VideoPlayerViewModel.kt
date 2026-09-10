@@ -1197,6 +1197,14 @@ class VideoPlayerViewModel(
         durationMs: Long,
         publishProgressState: Boolean = true
     ) {
+        // 跨视频进度隔离：复用的 player 实例在换源前可能还挂着上一个视频的源与位置
+        // （softDetach 只 stop 不清 position）。VM 会话 cid 与 player 实际挂载 cid 不
+        // 一致时，这里的 positionMs 属于上一个视频——写入会污染 pendingSeekPositionMs
+        // （新视频起播被续播到上个视频的退出位置）与 _currentPosition（心跳把假进度
+        // 错报给新视频，污染服务端历史）。cid 尚未确定（detail 未返回）时同样丢弃。
+        if (!PlayerInstancePool.isAttachedCid(currentCid)) {
+            return
+        }
         val sanitizedPositionMs = positionMs.coerceAtLeast(0L)
         val sanitizedDurationMs = durationMs.takeIf { it > 0L } ?: 0L
         if (!sponsorSkipPending) {
@@ -1465,6 +1473,16 @@ class VideoPlayerViewModel(
     }
 
     fun reportPlaybackHeartbeat(playType: Int = 0) {
+        // 进度归属校验：VM 会话身份与 player 实际挂载源不一致（复用实例换源窗口、
+        // 切集瞬间）时，position 属于别的视频，上报会把假进度写进服务端观看历史，
+        // 之后这个视频在任何端都会带着错误进度续播。
+        if (!PlayerInstancePool.isAttachedCid(currentCid)) {
+            AppLog.d(
+                TAG,
+                "heartbeat_skip source_mismatch aid=$currentAid cid=$currentCid pos=${_currentPosition.value}ms"
+            )
+            return
+        }
         heartbeatReporter.reportPlaybackHeartbeat(playType)
     }
 

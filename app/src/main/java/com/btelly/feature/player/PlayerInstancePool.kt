@@ -111,13 +111,53 @@ object PlayerInstancePool {
     fun isAttached(): Boolean = isAttached
 
     @Synchronized
-    fun acquire(context: Context): ExoPlayer {
+    fun acquire(context: Context, expectBvid: String? = null, expectCid: Long = 0L): ExoPlayer {
         cancelPendingRelease()
         val player = cachedPlayer ?: buildPlayer(context.applicationContext).also {
             cachedPlayer = it
         }
+        // 复用实例可能还挂着上一个视频的 MediaSource 与播放位置（softDetach 只 stop
+        // 不清 position、不清 MediaItems）。本次要播的身份与挂载源不一致时必须立即硬
+        // 重置，否则会有两个串台症状：
+        // 1. 换源前 progressCoordinator 把旧视频 position publish 给新会话的 VM，
+        //    污染 pendingSeekPositionMs——没看过的新视频带着上个视频的退出位置续播；
+        // 2. 换源前旧视频画面残留在新播放页上——点开 B 显示的是 A 的内容。
+        // 同 bvid（重进同一视频，intent 往往不带 cid）保留挂载源以维持热重播路径。
+        if (attachedSourceKey != null && !matchesExpectedSource(expectBvid, expectCid)) {
+            AppLog.w(
+                TAG,
+                "acquire source mismatch, hardReset: expectBvid=$expectBvid expectCid=$expectCid attached=$attachedSourceKey"
+            )
+            hardReset(player)
+        }
         isAttached = true
         return player
+    }
+
+    private fun matchesExpectedSource(expectBvid: String?, expectCid: Long): Boolean {
+        val key = attachedSourceKey ?: return true
+        // 调用方未提供任何期望身份（抖音模式等延续播放场景）时不做判定，保留挂载源，
+        // 进度污染由 VideoPlayerViewModel.updatePlaybackPosition 的 cid gate 拦截。
+        if (expectBvid.isNullOrBlank() && expectCid <= 0L) return true
+        val attachedBvid = key.substringBefore('#')
+        val attachedCid = key.substringAfter('#')
+        return when {
+            !expectBvid.isNullOrBlank() -> attachedBvid == expectBvid
+            else -> attachedCid == expectCid.toString()
+        }
+    }
+
+    /**
+     * player 实际挂载源的 cid 是否与 [cid] 一致（cid 是流与进度的真正归属键）。
+     *
+     * 供进度/心跳链路做归属校验：VM 的当前会话 cid 与 player 实际挂载 cid 不一致时，
+     * player 上报的 position 属于别的视频，不能写入本会话状态（详见
+     * VideoPlayerViewModel.updatePlaybackPosition 的 gate）。
+     */
+    @Synchronized
+    fun isAttachedCid(cid: Long): Boolean {
+        val key = attachedSourceKey ?: return false
+        return cid > 0L && key.substringAfter('#') == cid.toString()
     }
 
     @Synchronized
