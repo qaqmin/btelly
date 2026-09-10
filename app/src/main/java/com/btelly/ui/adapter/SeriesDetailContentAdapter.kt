@@ -327,14 +327,7 @@ class SeriesDetailContentAdapter(
             binding.textOrder.setText(R.string.positive_sequence)
             binding.buttonOrder.setOnClickListener {
                 inReverseOrder = !inReverseOrder
-                val layoutManager = binding.recyclerView.layoutManager as LinearLayoutManager
-                layoutManager.reverseLayout = inReverseOrder
-                binding.recyclerView.adapter = adapter
-                if (inReverseOrder) {
-                    binding.recyclerView.scrollToPosition(adapter.itemCount - 1)
-                } else {
-                    binding.recyclerView.scrollToPosition(0)
-                }
+                submitOrderedItems()
                 binding.textOrder.setText(
                     if (inReverseOrder) R.string.negative_sequence else R.string.positive_sequence
                 )
@@ -373,13 +366,15 @@ class SeriesDetailContentAdapter(
         }
 
         private fun bindEpisodes() {
-            adapter.submitList(items)
+            submitOrderedItems()
             binding.textOrder.setText(R.string.negative_sequence)
-            (binding.recyclerView.layoutManager as? LinearLayoutManager)?.reverseLayout = true
-            // 反序默认定位到最新一集
-            if (items.isNotEmpty()) {
-                binding.recyclerView.scrollToPosition(items.size - 1)
-            }
+        }
+
+        // 倒序通过提交反转列表实现：reverseLayout 会让铺不满一行的内容整体靠右
+        private fun submitOrderedItems() {
+            adapter.submitList(if (inReverseOrder) items.asReversed() else items)
+            // 反序时列表已反转，最新一集位于第 0 位
+            binding.recyclerView.scrollToPosition(0)
         }
 
         fun requestStoredFocus(): Boolean {
