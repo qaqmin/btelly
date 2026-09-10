@@ -506,6 +506,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                     if (player?.playWhenReady == true) {
                         playerView.resumeDanmaku()
                     }
+                    maybeShowPreviewHint()
                     hideNextPreview()
                 }
                 Player.STATE_ENDED -> {
@@ -516,6 +517,17 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                         player?.repeatMode = Player.REPEAT_MODE_OFF
                         player?.pause()
                         finish()
+                        return
+                    }
+                    // 试看流播完：提示后停在控制器，不自动连播（连播只会得到下一集的又一段试看）
+                    if (viewModel.isPreviewPlayback) {
+                        AppLog.i(TAG, "preview playback ended, show controller instead of autoplay")
+                        Toast.makeText(
+                            applicationContext,
+                            "试看片段已结束，完整观看本集需要大会员或登录",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        playerView.showController()
                         return
                     }
                     handlePlaybackEnded()
@@ -1884,6 +1896,22 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     }
 
     private fun hideNextPreview() { autoPlayController.hideNextPreview() }
+
+    /** 试看提示已提示过的 cid，避免 fallback 重建/STATE_READY 反复进入时重复弹 Toast。 */
+    private var previewHintShownCid = Long.MIN_VALUE
+
+    /** 起播检测到试看流时提示一次；同一集（cid）只提示一次，切集后重新提示。 */
+    private fun maybeShowPreviewHint() {
+        if (!viewModel.isPreviewPlayback) return
+        val cid = viewModel.previewContextCid
+        if (cid == previewHintShownCid) return
+        previewHintShownCid = cid
+        Toast.makeText(
+            applicationContext,
+            "本集为试看片段（约1分钟），完整观看需要大会员或登录",
+            Toast.LENGTH_LONG
+        ).show()
+    }
 
     private fun hideContentPanel() {
         overlayUiController.hideContentPanel()

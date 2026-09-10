@@ -299,5 +299,17 @@ data class Flac(
 
 data class PgcV2Result(
     @SerializedName("video_info")
-    val videoInfo: PlayInfoModel? = null
+    val videoInfo: PlayInfoModel? = null,
+
+    @SerializedName("play_check")
+    val playCheck: PgcPlayCheck? = null
+)
+
+data class PgcPlayCheck(
+    /**
+     * 播放权限判定：PLAY_PREVIEW = 试看（无权限/未登录，服务端只下发约 60s 的 durl 流）；
+     * PLAY_OK = 完整播放。app 依赖它区分"正片播完"与"试看流播完"，避免把试看结束伪装成卡死。
+     */
+    @SerializedName("play_detail")
+    val playDetail: String = ""
 )

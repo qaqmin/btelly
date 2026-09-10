@@ -30,6 +30,9 @@ import okhttp3.Request
 /** 可疑段预热的 UA 强制刷新最小间隔。 */
 private const val SUSPICIOUS_UA_REFRESH_MIN_INTERVAL_MS = 60_000L
 
+/** PGC play_check.play_detail 的试看值（完整播放为 PLAY_OK）。 */
+private const val PGC_PLAY_DETAIL_PREVIEW = "PLAY_PREVIEW"
+
 class VideoPlayerPlayInfoGateway(
     private val apiService: ApiService,
     private val noCookieApiService: ApiService,
@@ -64,6 +67,8 @@ class VideoPlayerPlayInfoGateway(
         val message: String,
         val data: PlayInfoModel?,
         val isTryLookBypass: Boolean = false,
+        /** PGC 试看流：play_check.play_detail=PLAY_PREVIEW，服务端只给约 60s 内容，完整观看需大会员/登录。 */
+        val isPreview: Boolean = false,
         val vVoucher: String = ""
     ) {
         val isSuccess: Boolean
@@ -960,7 +965,8 @@ class VideoPlayerPlayInfoGateway(
         return PlayInfoResult(
             code = code,
             message = message,
-            data = result?.videoInfo
+            data = result?.videoInfo,
+            isPreview = result?.playCheck?.playDetail == PGC_PLAY_DETAIL_PREVIEW
         )
     }
 

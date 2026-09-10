@@ -541,6 +541,17 @@ class VideoPlayerViewModel(
     private var currentEpId: Long? = null
     private var currentPlayInfo: PlayInfoModel? = null
     private var currentGraphVersion: Long = 0L
+
+    /**
+     * 当前会话是否为 PGC 试看流（play_check.play_detail=PLAY_PREVIEW）。
+     * @Volatile：requestPreparedPlayback 在 IO 协程写，主线程（ENDED/Toast）读。
+     */
+    @Volatile
+    var isPreviewPlayback: Boolean = false
+        private set
+
+    /** 当前播放的 cid，供 Activity 做按集去重的试看提示。 */
+    val previewContextCid: Long get() = currentCid
     private var currentSettings: PlayerSettings = PlayerSettingsStore.load(appContext)
     private val heartbeatReporter = PlaybackHeartbeatReporter(
         apiService = apiService,
@@ -2300,6 +2311,7 @@ class VideoPlayerViewModel(
             ?.let { bvid -> VideoPlayerPlayInfoCache.get(bvid = bvid, cid = identity.cid) }
             ?.takeIf { fallbackController.hasPlayableMedia(it) }
         val (initialPlayInfo, effectiveRequestedQualityId) = if (cachedPlayInfo != null) {
+            isPreviewPlayback = false
             cachedPlayInfo to preferredQualityId
         } else {
             val playInfoFetch = fallbackController.requestPlayInfoWithQualityFallback(
@@ -2333,6 +2345,7 @@ class VideoPlayerViewModel(
                 )
                 return null
             }
+            isPreviewPlayback = response.isPreview
             response.data to playInfoFetch.requestedQualityId
         }
 
@@ -2346,6 +2359,14 @@ class VideoPlayerViewModel(
             step = "playinfo_ready",
             message = "cid=${identity.cid} cached=${cachedPlayInfo != null} quality=$effectiveRequestedQualityId durationMs=${System.currentTimeMillis() - requestStartMs}"
         )
+
+        if (isPreviewPlayback) {
+            AppLog.w(
+                TAG,
+                "preview_playback cid=${identity.cid} epId=${identity.epId} — " +
+                    "server returned PLAY_PREVIEW trial stream, full playback requires vip/login"
+            )
+        }
 
         viewModelScope.launch(Dispatchers.IO) {
             cdnPreconnector.forPlayInfo(initialPlayInfo)
