@@ -571,7 +571,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
                 appSettings.putStringAsync(KEY_DM_SWITCH, value)
             }
             1 -> showDmChoiceDialog(position, KEY_DM_ALPHA, arrayOf("0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1.0"))
-            2 -> showDmChoiceDialog(position, KEY_DM_TEXT_SIZE, Array(26) { (30 + it).toString() })
+            2 -> showDmChoiceDialog(position, KEY_DM_TEXT_SIZE, Array(71) { (30 + it).toString() })
             3 -> showDmChoiceDialog(position, KEY_DM_SCREEN_AREA, arrayOf("1/8", "1/6", "1/4", "1/2", "3/4", "全屏"))
             4 -> showDmChoiceDialog(position, KEY_DM_SPEED, arrayOf("1", "2", "3", "4", "5", "6", "7", "8", "9"))
             5 -> showDmChoiceDialog(position, KEY_DM_TRACK_SPACING, arrayOf("紧凑", "标准", "宽松", "特宽"))

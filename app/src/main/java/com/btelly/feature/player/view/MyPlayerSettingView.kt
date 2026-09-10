@@ -35,7 +35,8 @@ class MyPlayerSettingView @JvmOverloads constructor(
         private const val SETTING_FOCUS_LOG_ENABLED = false
         internal val PLAYBACK_SPEEDS = floatArrayOf(0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
         internal val DM_ALPHA_VALUES = floatArrayOf(0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f)
-        internal val DM_TEXT_SIZE_VALUES = intArrayOf(30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55)
+        // 30-55 为历史档位；56-100 供超宽/低密度屏（如 5120×1600）放大使用
+        internal val DM_TEXT_SIZE_VALUES = IntArray(71) { 30 + it }
         internal val DM_AREA_VALUES = arrayOf(
             DmScreenArea.OneEighth,
             DmScreenArea.OneSixth,
