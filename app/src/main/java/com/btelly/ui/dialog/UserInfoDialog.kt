@@ -58,7 +58,7 @@ class UserInfoDialog(context: Context) : AppCompatDialog(context, R.style.Dialog
                 openOverlay(UserSpaceFragment.newInstance(mid), "user_space")
             }
         }
-        binding.textFollowing.setOnClickListener {
+        binding.viewStatFollowing.setOnClickListener {
             val mid = sessionGateway.getUserInfo()?.mid ?: 0L
             if (mid > 0L) {
                 openOverlay(
@@ -67,7 +67,7 @@ class UserInfoDialog(context: Context) : AppCompatDialog(context, R.style.Dialog
                 )
             }
         }
-        binding.textFollower.setOnClickListener {
+        binding.viewStatFollower.setOnClickListener {
             val mid = sessionGateway.getUserInfo()?.mid ?: 0L
             if (mid > 0L) {
                 openOverlay(
@@ -76,7 +76,7 @@ class UserInfoDialog(context: Context) : AppCompatDialog(context, R.style.Dialog
                 )
             }
         }
-        binding.textDynamic.setOnClickListener {
+        binding.viewStatDynamic.setOnClickListener {
             val mid = sessionGateway.getUserInfo()?.mid ?: 0L
             if (mid > 0L) {
                 openOverlay(UserSpaceFragment.newInstance(mid), "user_space")
@@ -136,20 +136,9 @@ class UserInfoDialog(context: Context) : AppCompatDialog(context, R.style.Dialog
     }
 
     private fun bindUserStat(stat: UserStatModel?) {
-        binding.textFollowing.text = buildString {
-            append(NumberUtils.formatCount((stat?.following ?: 0).toLong()))
-            append("\n")
-            append(context.getString(R.string.user_following))
-        }
-        binding.textFollower.text = buildString {
-            append(NumberUtils.formatCount((stat?.follower ?: 0).toLong()))
-            append("\n")
-            append(context.getString(R.string.user_follower))
-        }
-        binding.textDynamic.text = context.getString(
-            R.string.dynamic_count_,
-            stat?.dynamicCount ?: 0
-        )
+        binding.textFollowing.text = NumberUtils.formatCount((stat?.following ?: 0).toLong())
+        binding.textFollower.text = NumberUtils.formatCount((stat?.follower ?: 0).toLong())
+        binding.textDynamic.text = NumberUtils.formatCount((stat?.dynamicCount ?: 0).toLong())
     }
 
     private fun openOverlay(fragment: Fragment, tag: String) {

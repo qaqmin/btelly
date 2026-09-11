@@ -147,6 +147,8 @@
     <color name="teal_200">#03dac5</color>
     <color name="teal_700">#018786</color>
     <color name="textColor">#eeeeee</color>
+    <color name="biliPink">#FB7299</color>
+    <color name="focus_btn_text">#141414</color>
     <color name="textColorLight">#111111</color>
     <color name="thirdBackgroundColor">#454545</color>
     <color name="thirdBackgroundColorBlue">#00288e</color>
