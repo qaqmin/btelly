@@ -213,7 +213,7 @@ class UserSpaceHeaderAdapter(
                 vipAvatarSubscript = state.userInfo?.vip?.avatarSubscript ?: 0
             )
 
-            ImageLoader.loadCenterCrop(
+            ImageLoader.loadWideBanner(
                 imageView = binding.userSpaceTop.imageTop,
                 url = state.userInfo?.topPhoto,
                 placeholder = R.drawable.background_image,

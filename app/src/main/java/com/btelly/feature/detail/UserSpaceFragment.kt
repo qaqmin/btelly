@@ -276,10 +276,13 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.btelly.u
                         val items = ContentFilter.filterVideos(requireContext(), page.archives)
                         hasMore = page.hasMore
                         if (currentPage == 1) {
+                            // 先同步 footer 显隐：没有更多时不插“正在加载..”，避免永远转圈
+                            videoAdapter.setShowLoadMore(hasMore)
                             videoAdapter.setData(items)
                             tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
                         } else {
                             videoAdapter.addData(items)
+                            videoAdapter.setShowLoadMore(hasMore)
                             tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
                         }
                         headerAdapter.updateVideoCount(page.totalCount)

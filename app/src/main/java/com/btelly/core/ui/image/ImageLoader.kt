@@ -255,6 +255,25 @@ object ImageLoader {
         load(imageView, url, placeholder, error)
     }
 
+    /**
+     * 通栏横幅图（如用户空间头图）：显示宽度接近屏宽，走通用优化链会被压成
+     * 480/960 方图再拉伸，模糊严重。这里按屏幕宽度请求等比大图，CDN 不放大小图。
+     */
+    fun loadWideBanner(
+        imageView: ImageView,
+        url: String?,
+        placeholder: Int = 0,
+        error: Int = 0,
+        priority: Priority = Priority.NORMAL
+    ) {
+        val optimizedUrl = buildOptimizedWideBannerUrl(imageView, url)
+        val normalizedUrl = normalizeUrl(url)
+        loadInto(imageView, optimizedUrl, placeholder, error,
+            fallbackUrl = if (optimizedUrl != normalizedUrl) normalizedUrl else null,
+            priority = priority
+        )
+    }
+
     fun loadSmallSquare(
         imageView: ImageView,
         url: String?,
@@ -1292,6 +1311,17 @@ object ImageLoader {
             else -> "@480w_480h_1c.webp"
         }
         return appendImageSuffix(normalized, suffix)
+    }
+
+    private fun buildOptimizedWideBannerUrl(imageView: ImageView, url: String?): String {
+        val normalized = normalizeUrl(url)
+        if (!isBilibiliImageUrl(normalized)) return normalized
+        val screenWidth = imageView.resources.displayMetrics.widthPixels
+        val targetW = when (resolveImageQualityLevel()) {
+            0 -> (screenWidth / 2).coerceAtMost(1280)
+            else -> screenWidth
+        }.coerceIn(480, 2560)
+        return appendImageSuffix(normalized, "@${targetW}w.webp")
     }
 
     private fun buildOptimizedAvatarUrl(url: String?): String {
