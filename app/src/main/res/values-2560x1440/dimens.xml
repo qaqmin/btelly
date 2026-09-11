@@ -66,4 +66,6 @@
     <dimen name="px85">113px</dimen>
     <dimen name="px90">120px</dimen>
     <dimen name="px935">1246px</dimen>
+    <dimen name="px2">2.6px</dimen>
+    <dimen name="px64">85px</dimen>
 </resources>

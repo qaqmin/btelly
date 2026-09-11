@@ -44,4 +44,7 @@
     <dimen name="px800">533.2969px</dimen>
     <dimen name="px85">56.7px</dimen>
     <dimen name="px935">623.2969px</dimen>
+    <dimen name="px48">32px</dimen>
+    <dimen name="px60">40px</dimen>
+    <dimen name="px64">42.7px</dimen>
 </resources>

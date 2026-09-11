@@ -6,6 +6,7 @@
     android:gravity="center_horizontal"
     android:orientation="vertical">
 
+    <!-- 预览卡尺寸由 SecondsView 按屏幕宽高动态覆盖，这里只是初始兜底值 -->
     <FrameLayout
         android:id="@+id/preview_container"
         android:layout_width="248dp"
@@ -18,7 +19,7 @@
             android:id="@+id/preview_surface"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:layout_margin="1dp"
+            android:layout_margin="@dimen/px2"
             android:background="@drawable/seek_preview_surface"
             android:clipChildren="true">
 
@@ -35,26 +36,26 @@
     <LinearLayout
         android:id="@+id/triangle_container"
         android:layout_width="wrap_content"
-        android:layout_height="32dp"
+        android:layout_height="@dimen/px64"
         android:gravity="center"
         android:orientation="horizontal">
 
         <androidx.appcompat.widget.AppCompatImageView
             android:id="@+id/icon_1"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="@dimen/px48"
+            android:layout_height="@dimen/px60"
             app:srcCompat="@drawable/ic_play_triangle" />
 
         <androidx.appcompat.widget.AppCompatImageView
             android:id="@+id/icon_2"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="@dimen/px48"
+            android:layout_height="@dimen/px60"
             app:srcCompat="@drawable/ic_play_triangle" />
 
         <androidx.appcompat.widget.AppCompatImageView
             android:id="@+id/icon_3"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="@dimen/px48"
+            android:layout_height="@dimen/px60"
             app:srcCompat="@drawable/ic_play_triangle" />
     </LinearLayout>
 
@@ -62,16 +63,16 @@
         android:id="@+id/tv_seconds"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="@dimen/px20"
         android:fontFamily="sans-serif-medium"
         android:gravity="center"
         android:includeFontPadding="false"
         android:letterSpacing="0.01"
-        android:padding="4dp"
+        android:padding="@dimen/px8"
         android:shadowColor="@color/black"
         android:shadowDx="0"
         android:shadowDy="0"
         android:shadowRadius="5"
         android:textColor="@android:color/white"
-        android:textSize="23sp" />
+        android:textSize="@dimen/px48" />
 </LinearLayout>

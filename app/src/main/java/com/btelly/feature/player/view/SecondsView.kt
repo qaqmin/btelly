@@ -20,6 +20,7 @@ import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.constraintlayout.widget.ConstraintLayout
 import com.btelly.R
+import com.btelly.core.common.log.AppLog
 import java.util.Locale
 
 class SecondsView @JvmOverloads constructor(
@@ -53,6 +54,16 @@ class SecondsView @JvmOverloads constructor(
 
     private val previewSurface: FrameLayout
 
+    companion object {
+        private const val TAG = "SecondsView"
+
+        // 预览卡是视频帧的放大镜，锚定画面尺寸而不是 UI 缩放池：宽取屏宽 30%，
+        // 超宽屏（宽远大于高）时受屏高 50% 封顶，保证任何宽高比下都随分辨率放大
+        private const val PREVIEW_WIDTH_FRACTION = 0.30f
+        private const val PREVIEW_MAX_HEIGHT_FRACTION = 0.5f
+        private const val PREVIEW_ASPECT_RATIO = 16f / 9f
+    }
+
     init {
         val view = LayoutInflater.from(context).inflate(R.layout.seek_seconds_view, this, true)
         previewContainer = view.findViewById(R.id.preview_container)
@@ -67,9 +78,29 @@ class SecondsView @JvmOverloads constructor(
         previewSurface.clipToOutline = true
         previewImage.clipToOutline = true
 
+        applyPreviewCardSize()
+
         initAnimators()
         setForward(true)
         showPreviewLoading()
+    }
+
+    private fun applyPreviewCardSize() {
+        val metrics = resources.displayMetrics
+        val width = minOf(
+            metrics.widthPixels * PREVIEW_WIDTH_FRACTION,
+            metrics.heightPixels * PREVIEW_MAX_HEIGHT_FRACTION
+        ).toInt().coerceAtLeast(1)
+        val height = (width / PREVIEW_ASPECT_RATIO).toInt().coerceAtLeast(1)
+        previewContainer.layoutParams?.width = width
+        previewContainer.layoutParams?.height = height
+        previewContainer.requestLayout()
+        // px48 为布局内引用的资源，实际解析值可反推设备命中的 WxH 资源档位
+        AppLog.i(
+            TAG,
+            "previewCard ${width}x${height} screen=${metrics.widthPixels}x${metrics.heightPixels}" +
+                " density=${metrics.density} px48=${resources.getDimension(R.dimen.px48)}"
+        )
     }
 
     private fun initAnimators() {

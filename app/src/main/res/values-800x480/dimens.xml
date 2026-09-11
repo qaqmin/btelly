@@ -68,4 +68,5 @@
     <dimen name="px85">45.3px</dimen>
     <dimen name="px90">48px</dimen>
     <dimen name="px935">498.6953px</dimen>
+    <dimen name="px64">34.1px</dimen>
 </resources>
