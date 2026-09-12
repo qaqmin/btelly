@@ -359,7 +359,7 @@ class MarmotLiveActivity : BaseActivity<ActivityMarmotLiveBinding>() {
             <head>
               <meta charset="utf-8">
               <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-              <title>BTelly $channelId</title>
+              <title>B视机 $channelId</title>
               <style>
                 html,body,#player{width:100%;height:100%;margin:0;padding:0;background:#000;overflow:hidden;}
                 #player{position:fixed;left:0;top:0;z-index:1;}
