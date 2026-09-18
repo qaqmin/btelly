@@ -303,6 +303,14 @@ internal class DanmakuPlayer(
         timer.softSyncFactor = factor.toDouble()
     }
 
+    /**
+     * 速率自适应环开关：直播开（raw 推进速率可比墙钟慢 5~10% 需跟随），
+     * 点播关（防 currentPosition 帧量化被误测成超速，引发追赶锯齿）。
+     */
+    fun setRateLoopEnabled(enabled: Boolean) {
+        timer.rateLoopEnabled = enabled
+    }
+
     /** 时钟速率环当前估计（性能行诊断用）。 */
     fun currentTimerRate(): Float = timer.currentRateEstimate()
 

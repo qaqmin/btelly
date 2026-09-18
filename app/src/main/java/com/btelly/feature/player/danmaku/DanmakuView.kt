@@ -238,6 +238,11 @@ class DanmakuView @JvmOverloads constructor(
         player.updateTimeFactor(factor)
     }
 
+    /** 时钟速率环开关：直播开、点播关（详见 DanmakuTimer.rateLoopEnabled）。 */
+    fun setRateLoopEnabled(enabled: Boolean) {
+        player.setRateLoopEnabled(enabled)
+    }
+
     fun currentDanmakuPositionMs(): Long = player.currentDanmakuPositionMs()
 
     fun syncDanmakuTimerTo(positionMs: Long) {

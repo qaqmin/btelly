@@ -258,6 +258,9 @@ class DanmakuCoreController(
         appliedFilterContext = DanmakuFilterContext.EMPTY
         resetLiveState()
         liveMode = true
+        // 直播 raw 推进速率可比墙钟慢 5~10%，速率环开启跟随；点播路径在
+        // resetLiveState() 中保持关闭（防位置帧量化误测引发追赶锯齿）。
+        viewProvider()?.setRateLoopEnabled(true)
         livePaused = false
         renderingStopped = false
         dataStopped = false
@@ -596,6 +599,8 @@ class DanmakuCoreController(
     private fun resetLiveState() {
         liveMode = false
         livePaused = false
+        // 点播/停止：速率环关闭，平滑时钟回归纯墙钟推进 + 追赶兜底。
+        viewProvider()?.setRateLoopEnabled(false)
         clearLiveQueues()
     }
 

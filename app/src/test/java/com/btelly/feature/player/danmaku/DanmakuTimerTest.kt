@@ -3,12 +3,14 @@ package com.btelly.feature.player.danmaku
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.abs
 
 /**
  * 混合时钟策略的行为回归（硬锚仅限 seek，其余偏差渐进收敛）：
  * - resume/未报告漂移不得出现"同帧整体跳变"（PR #53 的动机）
  * - 偏差须在有限时间内收敛到 raw 附近（不能永久滞后）
  * - seek 仍瞬时硬锚、暂停边界仍不回退、softSyncFactor 仍然生效、极端漂移硬锚兜底
+ * - 速率环：阶梯刷新 raw 估计无偏（Z9X8K 忽快忽慢回归）、VOD 关环走墙钟、直播慢速可跟踪
  */
 class DanmakuTimerTest {
 
@@ -164,5 +166,70 @@ class DanmakuTimerTest {
         now += frameNs
         val pos = timer.step(now, rawMs, isPlaying = true, playbackSpeed = 1f, seekSerial = 0)
         assertEquals(rawMs, pos)
+    }
+
+    /**
+     * Z9X8K 回归：currentPosition 按帧阶梯刷新（5 帧 0 增量 + 1 帧跳 100ms，
+     * 长期平均速率精确 1.0）。旧逐帧 EMA 采样窗全拒 0 增量帧、只收跳变帧，
+     * 估计恒被推到钳制值 1.15 → 平滑时钟恒超速 → 周期性追赶收敛（滚动弹幕
+     * 忽快忽慢）。窗口累计比率估计必须收敛回 1.0、偏差不越死区。
+     */
+    @Test
+    fun steppedRawPositionConvergesToUnityRate() {
+        val timer = DanmakuTimer()
+        timer.rateLoopEnabled = true
+        var now = 0L
+        var rawMs = 60_000L
+        timer.step(now, rawMs, isPlaying = true, playbackSpeed = 1f, seekSerial = 0)
+        repeat(1_200) { i ->
+            now += frameNs
+            if ((i + 1) % 6 == 0) rawMs += 100
+            timer.step(now, rawMs, isPlaying = true, playbackSpeed = 1f, seekSerial = 0)
+        }
+        val rate = timer.currentRateEstimate().toDouble()
+        assertTrue("阶梯刷新下速率估计偏离 1.0：rate=$rate", rate in 0.95..1.05)
+        val gap = rawMs - timer.currentPositionMs()
+        assertTrue("平均速率 1.0 下偏差仍越过死区：gap=$gap", abs(gap) <= 250L)
+    }
+
+    /** VOD 关闭速率环：估计恒 1.0，平滑时钟严格按墙钟推进（±1 帧）。 */
+    @Test
+    fun vodDisablesRateLoopAndAdvancesByWallClock() {
+        val timer = DanmakuTimer()
+        timer.rateLoopEnabled = false
+        var now = 0L
+        var rawMs = 60_000L
+        timer.step(now, rawMs, isPlaying = true, playbackSpeed = 1f, seekSerial = 0)
+        val frames = 300
+        repeat(frames) { i ->
+            now += frameNs
+            if ((i + 1) % 6 == 0) rawMs += 100
+            timer.step(now, rawMs, isPlaying = true, playbackSpeed = 1f, seekSerial = 0)
+        }
+        assertEquals(1.0, timer.currentRateEstimate().toDouble(), 1e-9)
+        val expectedAdvanceMs = frames * frameNs / 1_000_000L
+        val advanceMs = timer.currentPositionMs() - 60_000L
+        assertTrue(
+            "点播关环后未按墙钟推进 advance=$advanceMs expected=$expectedAdvanceMs",
+            abs(advanceMs - expectedAdvanceMs) <= 17L,
+        )
+    }
+
+    /** 直播慢速 raw（~0.9x 墙钟）仍被跟踪，追帧突进野点不污染估计。 */
+    @Test
+    fun liveSlowRawRateTrackedWithOutlierRejection() {
+        val timer = DanmakuTimer()
+        timer.rateLoopEnabled = true
+        var now = 0L
+        var rawMs = 60_000L
+        timer.step(now, rawMs, isPlaying = true, playbackSpeed = 1f, seekSerial = 0)
+        repeat(900) { i ->
+            now += frameNs
+            rawMs += 15
+            if (i == 300) rawMs += 500 // 追帧突进：单帧大增量，作废半窗而非采信
+            timer.step(now, rawMs, isPlaying = true, playbackSpeed = 1f, seekSerial = 0)
+        }
+        val rate = timer.currentRateEstimate().toDouble()
+        assertTrue("直播慢速 raw 未被正确跟踪：rate=$rate", rate in 0.87..0.96)
     }
 }

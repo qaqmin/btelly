@@ -39,6 +39,17 @@ internal class DanmakuTimer {
             field = value.coerceIn(0.9, 1.1)
         }
 
+    /**
+     * 速率自适应环开关：直播开（raw 推进速率可比墙钟慢 5~10% 时需自适应跟随），
+     * 点播关（raw 匀速推进无需自适应；且部分设备 currentPosition 按帧阶梯刷新
+     * 会让估计偏离 1.0，平滑时钟恒定超速→周期性触发追赶收敛，观感为滚动弹幕
+     * 忽快忽慢，芝杜 Z9X8K 实测 rate 恒 1.08 即此病）。默认关：DanmakuView 会随
+     * 播放页销毁重建，timer 回到默认值，点播必须开箱即安全；直播经 startLive()
+     * 显式开启。
+     */
+    @Volatile
+    var rateLoopEnabled: Boolean = false
+
     /** 渐进追赶进行中（未吸合）：用于日志只记首尾、不逐帧刷屏。 */
     @Volatile
     private var correcting: Boolean = false
@@ -50,6 +61,10 @@ internal class DanmakuTimer {
     @Volatile
     private var lastRawForRateMs: Double = Double.NaN
 
+    // 当前估计窗口的累计量：expected 累计满 RATE_WINDOW_MS 出一次比率样本。
+    private var windowExpectedMs: Double = 0.0
+    private var windowRawMs: Double = 0.0
+
     /**
      * 轻量时钟校准（硬同步）：只移动平滑位置，不动 lastFrameNanos，
      * dt 连续性保持。与 reset() 的区别是不打 anchor 日志、不算 seek。
@@ -59,7 +74,7 @@ internal class DanmakuTimer {
     fun syncTo(positionMs: Long) {
         smoothPositionMs = positionMs.coerceAtLeast(0L).toDouble()
         correcting = false
-        lastRawForRateMs = Double.NaN
+        resetRateSampling()
     }
 
     fun reset(
@@ -75,7 +90,7 @@ internal class DanmakuTimer {
         lastPlaying = isPlaying
         lastPlaybackSpeed = normalizeSpeed(playbackSpeed)
         correcting = false
-        lastRawForRateMs = Double.NaN
+        resetRateSampling()
     }
 
     fun currentPositionMs(): Long = smoothPositionMs.toLong()
@@ -89,15 +104,25 @@ internal class DanmakuTimer {
      * gap 会以恒定速率累积、每 2~4 秒越过追赶死区一次，触发回拉收敛——在引擎单调
      * 钳制下表现为在屏弹幕集体冻结 300~500ms，即"直播弹幕周期性颤动"。
      *
-     * 此环用 raw 实测推进速率（rawDt / 期望推进量）的指数滑动平均微调每帧推进量，
-     * 使平滑时钟与 raw 同速推进，gap 稳定在死区内、追赶不再触发。视频(VOD)模式
-     * raw 匀速推进，估计收敛于 1.0，行为与原时钟一致。
+     * 此环用 raw 实测推进速率微调每帧推进量，使平滑时钟与 raw 同速推进，gap 稳定
+     * 在死区内、追赶不再触发。视频(VOD)模式由 [rateLoopEnabled] 直接关闭（见该
+     * 属性注释）。
      *
-     * 采样窗外的样本（缓冲停走 rawDt≈0、追帧突进、暂停恢复野点）只重置基准不采信，
-     * 防止瞬时跳变污染估计。与漂移监督器 softSyncFactor 的分工：本环管速率匹配
+     * 估计用"大窗口累计比率"（ΣrawDt ÷ Σexpected）而非逐帧样本滑动平均：部分设备
+     * currentPosition 按帧呈阶梯刷新（多次 0 增量 + 一次大增量），逐帧 EMA 的采样窗
+     * 只收跳变帧、全拒 0 增量帧，估计系统性偏高（Z9X8K 实测恒 1.08，而 3 秒尺度
+     * ΣrawDt/Σ墙钟实为 1.000）；窗口比率把 0 增量帧一并无偏计入，量化截断误差被
+     * 窗口时长摊薄（1s 窗口、~40ms 量化粒度 → 单窗噪声 ~4%，出样平滑后 <1%）。
+     *
+     * 采信窗外的样本（缓冲停走 rawDt<0、追帧突进）作废当前窗口只重置基准，防止
+     * 瞬时跳变污染比率。与漂移监督器 softSyncFactor 的分工：本环管速率匹配
      * （消除漂移来源，快环），监督器/追赶管残余偏差（慢环，稳态下基本不触发）。
      */
     private fun advanceRate(raw: Double, dtMs: Double, speed: Double): Double {
+        if (!rateLoopEnabled) {
+            resetRateSampling()
+            return 1.0
+        }
         val expected = dtMs * speed
         if (expected <= 0.0) return rateEstimate.coerceIn(RATE_MIN, RATE_MAX)
         if (lastRawForRateMs.isNaN()) {
@@ -106,13 +131,28 @@ internal class DanmakuTimer {
         }
         val rawDt = raw - lastRawForRateMs
         lastRawForRateMs = raw
-        if (rawDt >= expected * RATE_SAMPLE_MIN_RATIO &&
-            rawDt <= expected * RATE_SAMPLE_MAX_RATIO + RATE_SAMPLE_PAD_MS
-        ) {
-            val alpha = 1.0 - exp(-dtMs / RATE_TIME_CONSTANT_MS)
-            rateEstimate += (rawDt / expected - rateEstimate) * alpha
+        if (rawDt >= 0.0 && rawDt <= expected * RATE_SAMPLE_MAX_RATIO + RATE_SAMPLE_PAD_MS) {
+            windowRawMs += rawDt
+            windowExpectedMs += expected
+            if (windowExpectedMs >= RATE_WINDOW_MS) {
+                val sample = (windowRawMs / windowExpectedMs).coerceIn(RATE_MIN, RATE_MAX)
+                val alpha = 1.0 - exp(-windowExpectedMs / RATE_TIME_CONSTANT_MS)
+                rateEstimate += (sample - rateEstimate) * alpha
+                windowRawMs = 0.0
+                windowExpectedMs = 0.0
+            }
+        } else {
+            // 野点（回退/追帧突进）：作废半窗、从新基准重采，防止跳变污染比率。
+            windowRawMs = 0.0
+            windowExpectedMs = 0.0
         }
         return rateEstimate.coerceIn(RATE_MIN, RATE_MAX)
+    }
+
+    private fun resetRateSampling() {
+        lastRawForRateMs = Double.NaN
+        windowRawMs = 0.0
+        windowExpectedMs = 0.0
     }
 
     fun step(
@@ -152,7 +192,7 @@ internal class DanmakuTimer {
 
         if (!isPlaying) {
             // 暂停中 raw 停走/回退，速率采样基准失效：恢复后从新基准重采。
-            lastRawForRateMs = Double.NaN
+            resetRateSampling()
             // 暂停/恢复瞬间 ExoPlayer 的 raw position 常会回退几十~上百毫秒
             // （解码器缓冲固有行为）。暂停瞬间保留当前平滑位置不动，绝不回退。
             if (lastPlaying) {
@@ -317,8 +357,13 @@ internal class DanmakuTimer {
         private const val RATE_MIN = 0.85
         private const val RATE_MAX = 1.15
 
-        // 采样窗：rawDt 在期望推进量的 [0.5, 2.0] 倍 + 100ms 内才采信。
-        private const val RATE_SAMPLE_MIN_RATIO = 0.5
+        // 估计出样窗口：窗口内 ΣrawDt/Σexpected 出一次样本（再按时间常数平滑）。
+        // 窗口须远大于设备位置量化粒度（实测 ~20-40ms），把逐帧量化噪声摊薄成
+        // 窗口截断误差（1s 窗口、40ms 粒度 → ~4%，出样平滑后稳态波动 <1%）。
+        private const val RATE_WINDOW_MS = 1_000.0
+
+        // 采样窗上界：rawDt 超过期望推进量 2 倍 + 100ms 视为追帧突进野点，作废
+        // 半窗重采；下界放行 0 增量（阶梯刷新设备的常态帧，必须计入才是无偏）。
         private const val RATE_SAMPLE_MAX_RATIO = 2.0
         private const val RATE_SAMPLE_PAD_MS = 100.0
     }
