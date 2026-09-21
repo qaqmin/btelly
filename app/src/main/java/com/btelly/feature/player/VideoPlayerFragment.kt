@@ -2,6 +2,7 @@ package com.btelly.feature.player
 
 import com.btelly.feature.player.PlayerScreenLogic
 import com.btelly.feature.player.PlayerContentGuards
+import com.btelly.feature.player.engine.IjkPlayerEngine
 import com.btelly.core.common.format.NumberUtils
 import android.content.Intent
 import android.os.Bundle
@@ -121,7 +122,7 @@ class VideoPlayerFragment : Fragment() {
     private val appEventHub: AppEventHub by inject()
     private val viewModel: VideoPlayerViewModel by viewModel()
 
-    private var player: ExoPlayer? = null
+    private var player: Player? = null
     private val uiCoordinator = PlaybackUiCoordinator()
     private val overlayCoordinator = PlayerOverlayCoordinator()
     private var backgroundListener: AppBackgroundMonitor.BackgroundStateListener? = null
@@ -622,7 +623,8 @@ class VideoPlayerFragment : Fragment() {
                 it.playbackParameters = PlaybackParameters(playerSettings.defaultPlaybackSpeed)
             }
             it.addListener(playerListener)
-            it.addAnalyticsListener(playerPerfListener)
+            // AnalyticsListener 是 ExoPlayer 专属；ijk 内核下跳过（perf 追踪仅 Exo 路径可用）。
+            (it as? ExoPlayer)?.addAnalyticsListener(playerPerfListener)
         }
         playerView.setPlayer(player)
         playerView.setRenderEventListener(object : MyPlayerView.RenderEventListener {
@@ -942,7 +944,13 @@ class VideoPlayerFragment : Fragment() {
                         currentPlayer.playWhenReady = playbackRequest.playWhenReady
                     } else {
                         currentPlayer.stop()
-                        currentPlayer.setMediaSource(playbackRequest.mediaSource, startSeekPositionMs)
+                        val ijkSource = playbackRequest.ijkSource
+                        if (ijkSource != null && currentPlayer is IjkPlayerEngine) {
+                            // IjkPlayer 内核：本地 MPD/直连源装载（替代 setMediaSource）
+                            currentPlayer.setIjkSource(ijkSource, startSeekPositionMs)
+                        } else {
+                            (currentPlayer as? ExoPlayer)?.setMediaSource(playbackRequest.mediaSource, startSeekPositionMs)
+                        }
                         // 记录 player 实际挂载的源，供后续 zero_overhead_reuse 查询，
                         // 避免"VM 缓存命中但 player 挂的是别的视频"导致串台。
                         PlayerInstancePool.rememberAttachedSource(playbackRequest.bvid, playbackRequest.cid)
@@ -1578,7 +1586,7 @@ class VideoPlayerFragment : Fragment() {
         player?.removeListener(playerListener)
         // playerPerfListener 此前未移除：player 是 PlayerInstancePool 的共享单例，
         // 不移除会跨 Fragment 重建累积泄漏，每次重建都叠加一份 AnalyticsListener。
-        player?.removeAnalyticsListener(playerPerfListener)
+        (player as? ExoPlayer)?.removeAnalyticsListener(playerPerfListener)
         playerView.destroy()
         playerView.stopDanmaku()
         PlayerInstancePool.softDetach(player)

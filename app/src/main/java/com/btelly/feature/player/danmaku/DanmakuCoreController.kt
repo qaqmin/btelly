@@ -120,7 +120,14 @@ class DanmakuCoreController(
     private var prepareJob: Job? = null
     private var preloadTextureJob: Job? = null
     private var preloadedVipTextureKeys: Set<String> = emptySet()
-    private val liveBatcher = LiveDanmakuBatcher()
+    // 直播节流：默认 30 条/100ms（300/s）远超低端盒子的可持续渲染能力——每条独特
+    // 文本都要一张 ~300KB 文本位图，实测堆顶 40MB 时每轮 GC 回收 9.2MB LOS、
+    // GC total 2.4s，UI 被砍到 30fps 呈 PPT。收紧到 20 条/1000ms（20/s）：
+    // 屏幕同屏上限本就 ~50 条、单条存活 ~8s，20/s 足够填满轨道且位图 churn 降 15 倍。
+    private val liveBatcher = LiveDanmakuBatcher(
+        throttleWindowMs = 1_000L,
+        throttleMaxItems = 20,
+    )
     private var liveFlushJob: Job? = null
     private var liveEmissionJob: Job? = null
     private val liveEmissionBuffer = ArrayList<DmModel>(32)
@@ -498,13 +505,11 @@ class DanmakuCoreController(
                     )
                     consecutiveHardSyncCount = 0
                     view.updateDanmakuTimeFactor(1f)
-                    if (signedDrift > 0) {
-                        // 引擎超前：轻量校准，回退被引擎单调钳制吸收（在屏弹幕冻结等追上）。
-                        view.syncDanmakuTimerTo(videoPos)
-                    } else {
-                        // 引擎落后：完整 seek 重建（与用户 seek 同路径）。
-                        view.notifySeek(videoPos)
-                    }
+                    // 落后/超前统一轻量拨指针：落后分支曾走 notifySeek 完整重建（与用户
+                    // seek 同路径），ExoPlayer 直播下弹幕时钟持续落后视频位置，形成
+                    // "落后→硬校准→重建→又落后"每 6 秒一次的循环（画面幻灯片，12 次/场）。
+                    // 直播时钟只需静默拨正，绝不触发 seek 级重建。
+                    view.syncDanmakuTimerTo(videoPos)
                 } else {
                     // 未达去抖阈值：先软纠正过渡，给卡顿恢复留时间，避免偶发偏差直接硬校准。
                     view.updateDanmakuTimeFactor(softCorrectionFor(signedDrift))

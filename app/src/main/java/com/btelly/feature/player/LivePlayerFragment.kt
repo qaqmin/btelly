@@ -14,11 +14,16 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.btelly.feature.player.extractor.FlvHevcExtractor
+import com.btelly.feature.player.engine.IjkPlaybackSource
+import com.btelly.feature.player.engine.IjkPlayerEngine
+import com.btelly.feature.player.engine.PlayerEngineKind
 import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.flv.FlvExtractor
@@ -41,6 +46,10 @@ class LivePlayerFragment : Fragment() {
         const val ARG_ROOM_ID = "room_id"
         private const val MAX_RETRY_COUNT = 3
 
+        /** 原画档 qn（B 站直播画质_desc 10000=原画）：>= 此值的内容是未降帧的高帧率流，
+         *  走 ijk；蓝光(400)/超清(250) 等是平台降帧流，走 ExoPlayer。 */
+        private const val ORIGIN_QUALITY_QN = 10_000
+
         fun newInstance(roomId: Long): LivePlayerFragment {
             return LivePlayerFragment().apply {
                 arguments = Bundle().apply {
@@ -56,7 +65,7 @@ class LivePlayerFragment : Fragment() {
     private val viewModel: LivePlayerViewModel by viewModel()
     private val okHttpClient: OkHttpClient by inject()
 
-    private var player: ExoPlayer? = null
+    private var player: Player? = null
     private var roomId: Long = 0L
     private var retryCount = 0
     private var isRetrying = false
@@ -78,7 +87,10 @@ class LivePlayerFragment : Fragment() {
                     val needRebuild = when (error.errorCode) {
                         PlaybackException.ERROR_CODE_DECODING_FAILED,
                         PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
-                        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED -> true
+                        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                        // 看门狗上报的假死（prepare/播放停滞）：ijk 原生消息循环可能已死，
+                        // 仅重挂 dataSource 不保证恢复，必须整个引擎重建。
+                        PlaybackException.ERROR_CODE_TIMEOUT -> true
                         else -> false
                     }
                     if (needRebuild) rebuildPlayer()
@@ -113,6 +125,34 @@ class LivePlayerFragment : Fragment() {
                 binding.playerView.resumeDanmaku()
             } else if (player?.playbackState != Player.STATE_BUFFERING) {
                 binding.playerView.pauseDanmaku()
+            }
+        }
+
+        override fun onVideoSizeChanged(videoSize: VideoSize) {
+            val fmt = (player as? ExoPlayer)?.videoFormat
+            AppLog.i(
+                TAG,
+                "live video size=${videoSize.width}x${videoSize.height} " +
+                    "fps=${fmt?.frameRate} bitrate=${fmt?.bitrate} codec=${fmt?.sampleMimeType}"
+            )
+        }
+    }
+
+    /** 丢帧诊断：区分"解码器供帧不足"（dropped≈0）与"渲染器追同步丢帧"（dropped≈80%）。 */
+    private val videoStatsListener = object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+        private var dropped = 0
+        private var lastLogMs = 0L
+        override fun onDroppedVideoFrames(
+            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+            droppedFrames: Int,
+            elapsedMs: Long,
+        ) {
+            dropped += droppedFrames
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastLogMs >= 3_000L) {
+                lastLogMs = now
+                AppLog.w(TAG, "live_video_stats dropped3s=$dropped elapsed=${elapsedMs}ms")
+                dropped = 0
             }
         }
     }
@@ -154,7 +194,7 @@ class LivePlayerFragment : Fragment() {
         }
     }
 
-    private fun setupPlayer() {
+    private fun setupPlayer(useIjk: Boolean = false) {
         binding.playerView.setupDanmakuEngine()
         val liveHeaders = mapOf(
             "Origin" to "https://live.bilibili.com/",
@@ -170,6 +210,11 @@ class LivePlayerFragment : Fragment() {
                     "(KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
             )
             .setDefaultRequestProperties(liveHeaders)
+        // 恢复直播侧原始配置：自定义 FlvHevcExtractor（HEVC 直播房间需要）+ 直播专用
+        // LoadControl + mime 提示。LiveConfiguration 保持移除（其修的"seek PPT"实为
+        // 弹幕时钟问题，已另修）。内核按画质路由：原画(60fps 内容)走 ijk（ExoPlayer 在
+        // progressive-live 60fps 上实测仅 8~10fps，ijk 同解码器 ~50fps）；蓝光/超清是
+        // 平台降帧后的 30fps 流，走 ExoPlayer（同步优先，30fps 即内容原速）。
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setBufferDurationsMs(8_000, 30_000, 1_000, 2_000)
             .build()
@@ -178,18 +223,28 @@ class LivePlayerFragment : Fragment() {
                 if (extractor is FlvExtractor) FlvHevcExtractor() else extractor
             }.toTypedArray()
         }
-        player = ExoPlayer.Builder(requireContext())
-            .setRenderersFactory(PlayerInstancePool.createRenderersFactory(requireContext()))
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory))
-            .setLoadControl(loadControl)
-            .build()
-            .also {
-                PlayerPlaybackPolicy.apply(it)
-                if (com.btelly.feature.player.settings.PlayerSettingsStore.load(requireContext()).audioNormalize) {
-                    PlayerAudioNormalizer.attach(it)
+        player = if (useIjk) {
+            // 原画路由：ijk 同步 MediaCodec 路径，同解码器 ~50fps（ExoPlayer 仅 8~10fps）。
+            // 漂移由 IjkPlayerEngine 内建的 driftMs 软重锚兜底。
+            IjkPlayerEngine(requireContext())
+        } else {
+            ExoPlayer.Builder(requireContext())
+                .setRenderersFactory(PlayerInstancePool.createRenderersFactory(requireContext()))
+                .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory))
+                .setLoadControl(loadControl)
+                .build()
+                .also {
+                    PlayerPlaybackPolicy.apply(it)
+                    if (com.btelly.feature.player.settings.PlayerSettingsStore.load(requireContext()).audioNormalize) {
+                        PlayerAudioNormalizer.attach(it)
+                    }
                 }
+        }.also {
+            if (it is ExoPlayer) {
                 it.addListener(playerListener)
+                it.addAnalyticsListener(videoStatsListener)
             }
+        }
         binding.playerView.setPlayer(player)
         binding.playerView.setControllerAutoShow(true)
         binding.playerView.showHideFfRe(false)
@@ -248,20 +303,44 @@ class LivePlayerFragment : Fragment() {
             }
         })
 
-        // 初始化直播弹幕：启用弹幕，启动引擎（不等待数据）
-        binding.playerView.setDanmakuEnabled(true)
+        // 初始化直播弹幕：按持久化开关启用（此前硬编码 true，用户关弹幕后刷新会被强制打开），
+        // 随后启动引擎（不等待数据）。弹幕关时同步停掉 WebSocket，避免低端盒子上
+        // 空跑解析与播放线程抢 CPU。
+        val dmWanted = binding.playerView.isDanmakuEnabledByPref()
+        viewModel.setDanmakuStreamEnabled(dmWanted)
+        binding.playerView.onDanmakuEnabledChangedListener = { enabled ->
+            viewModel.setDanmakuStreamEnabled(enabled)
+        }
+        binding.playerView.setDanmakuEnabled(dmWanted)
         binding.playerView.startLiveDanmaku()
 
         syncPlaybackEnvironment()
     }
 
-    private fun rebuildPlayer() {
+    private fun rebuildPlayer(useIjk: Boolean = false) {
         player?.removeListener(playerListener)
         binding.playerView.stopDanmaku()
-        PlayerAudioNormalizer.release(player)
+        (player as? ExoPlayer)?.let(PlayerAudioNormalizer::release)
         player?.release()
         player = null
-        setupPlayer()
+        setupPlayer(useIjk = useIjk)
+    }
+
+    /**
+     * 直播解码追不上时仅记录遥测，不自动降画质：用户的最终目标是原画高帧率，
+     * 降画质等于从源头接受平台降帧（蓝光无 60 帧），与该目标冲突。
+     * 同步由引擎侧 framedrop=1（丢迟到帧追实时）+ 软重锚兜底，此处只留观测。
+     */
+    private fun onLiveDecodeStarved(driftMs: Long) {
+        val ladder = viewModel.qualities.value.sortedByDescending { it.qn }
+        val currentQn = viewModel.selectedQuality.value?.qn ?: return
+        val idx = ladder.indexOfFirst { it.qn == currentQn }
+        val next = ladder.getOrNull(idx + 1)
+        AppLog.w(
+            TAG,
+            "live_decode_starved 遥测：解码追不上 driftMs=$driftMs " +
+                "当前 qn=$currentQn 下一档=${next?.qn ?: "无"}（不自动降级，仅记录）",
+        )
     }
 
     private fun syncPlaybackEnvironment() {
@@ -278,13 +357,43 @@ class LivePlayerFragment : Fragment() {
             viewModel.playUrl.collect { url ->
                 url?.let {
                     binding.textError.visibility = View.GONE
-                    val mediaItem = MediaItem.Builder()
-                        .setUri(it)
-                        .setMimeType(resolveMimeType(it))
-                        .build()
-                    player?.setMediaItem(mediaItem)
-                    player?.prepare()
-                    player?.playWhenReady = true
+                    // 内核按编码+画质路由：
+                    // - HEVC 原画必须走 ExoPlayer：ijk 自带的 ffmpeg 没编 HEVC 解码器
+                    //   （实测 "Could not find codec parameters ... unknown codec"，codec id 12
+                    //   认不出），而 ExoPlayer 走 Android MediaCodec 直接调
+                    //   OMX.allwinner.video.decoder.hevc。且 /vendor/etc/media_codecs.xml 声明
+                    //   HEVC 解码器 blocks-per-second 是 AVC 的 1.87 倍、无 1080p 帧率上限，
+                    //   而 AVC 解码器 performance-point-1920x1080=50（1080p 只能 sustain 50fps）。
+                    // - AVC 原画（qn>=10000）走 ijk：ExoPlayer 的 AVC progressive-live 60fps
+                    //   路径实测仅 8~10fps（丢帧追同步），ijk 同解码器 ~50fps。
+                    // - 蓝光/超清是平台降帧的 30fps 流，走 ExoPlayer（同步、无停顿）。
+                    val isHevc = it.contains("codec=1", true) ||
+                        it.contains("prohevc", true) ||
+                        it.contains("hevc", true)
+                    val wantIjk = !isHevc &&
+                        (viewModel.selectedQuality.value?.qn ?: 0) >= ORIGIN_QUALITY_QN
+                    val currentIsIjk = player is IjkPlayerEngine
+                    if (wantIjk != currentIsIjk) {
+                        AppLog.i(TAG, "live engine route -> ${if (wantIjk) "ijk" else "exo"} (hevc=$isHevc qn=${viewModel.selectedQuality.value?.qn})")
+                        rebuildPlayer(useIjk = wantIjk)
+                    }
+                    val p = player
+                    if (p is IjkPlayerEngine) {
+                        // ijk：直连源装载（setMediaItem 在门面中不可用）
+                        p.onLiveDecodeStarved = { driftMs -> onLiveDecodeStarved(driftMs) }
+                        p.setIjkSource(IjkPlaybackSource.Direct(url = it, isLive = true), 0L)
+                        p.prepare()
+                        p.playWhenReady = true
+                    } else {
+                        val mediaItem = MediaItem.Builder()
+                            .setUri(it)
+                            .setMimeType(resolveMimeType(it))
+                            .build()
+                        p?.setMediaItem(mediaItem)
+                        p?.prepare()
+                        AppLog.i(TAG, "live stream url host=${runCatching { java.net.URI(it).host }.getOrNull()}")
+                        p?.playWhenReady = true
+                    }
                 }
             }
         }
@@ -384,7 +493,7 @@ class LivePlayerFragment : Fragment() {
         player?.removeListener(playerListener)
         binding.playerView.stopDanmaku()
         binding.playerView.destroy()
-        PlayerAudioNormalizer.release(player)
+        (player as? ExoPlayer)?.let(PlayerAudioNormalizer::release)
         player?.release()
         activity?.let { ViewUtils.keepScreenOn(it, false) }
         player = null

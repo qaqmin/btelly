@@ -6,6 +6,7 @@ import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -17,6 +18,8 @@ import androidx.media3.exoplayer.audio.DefaultAudioTrackBufferSizeProvider
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.media.VideoCodecSupport
+import com.btelly.feature.player.engine.IjkPlayerEngine
+import com.btelly.feature.player.engine.PlayerEngineKind
 import com.btelly.feature.player.settings.PlayerSettingsStore
 
 @UnstableApi
@@ -44,10 +47,14 @@ object PlayerInstancePool {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var cachedPlayer: ExoPlayer? = null
+    private var cachedIjkPlayer: IjkPlayerEngine? = null
     private var isAttached = false
     private var pendingReleaseRunnable: Runnable? = null
     @Volatile
     private var codecPrewarmStarted = false
+
+    /** 当前缓存的实例所属内核；acquire 时内核设置若变化则整体换轨。 */
+    private var cachedEngineKind: PlayerEngineKind = PlayerEngineKind.EXOPLAYER
 
     /**
      * player 当前实际挂载的 MediaSource 标识（"bvid#cid"）。
@@ -111,17 +118,35 @@ object PlayerInstancePool {
     fun isAttached(): Boolean = isAttached
 
     @Synchronized
-    fun acquire(context: Context, expectBvid: String? = null, expectCid: Long = 0L): ExoPlayer {
+    fun acquire(context: Context, expectBvid: String? = null, expectCid: Long = 0L): Player {
         cancelPendingRelease()
-        val player = cachedPlayer ?: buildPlayer(context.applicationContext).also {
-            cachedPlayer = it
+        val engineKind = PlayerEngineKind.load(context)
+        if (cachedPlayer == null && cachedIjkPlayer == null) {
+            cachedEngineKind = engineKind
         }
-        // 复用实例可能还挂着上一个视频的 MediaSource 与播放位置（softDetach 只 stop
-        // 不清 position、不清 MediaItems）。本次要播的身份与挂载源不一致时必须立即硬
-        // 重置，否则会有两个串台症状：
-        // 1. 换源前 progressCoordinator 把旧视频 position publish 给新会话的 VM，
-        //    污染 pendingSeekPositionMs——没看过的新视频带着上个视频的退出位置续播；
-        // 2. 换源前旧视频画面残留在新播放页上——点开 B 显示的是 A 的内容。
+        // 内核被设置页切换后，当前缓存实例整体换轨：旧实例直接释放（不跨内核复用）。
+        if (engineKind != cachedEngineKind) {
+            AppLog.i(TAG, "engine switched $cachedEngineKind -> $engineKind, release cached player")
+            releaseNow("engine_switch")
+            cachedEngineKind = engineKind
+        }
+        val player: Player = when (engineKind) {
+            PlayerEngineKind.IJKPLAYER -> {
+                val ijk = cachedIjkPlayer ?: IjkPlayerEngine(context.applicationContext).also {
+                    cachedIjkPlayer = it
+                }
+                ijk
+            }
+
+            PlayerEngineKind.EXOPLAYER -> {
+                cachedPlayer ?: buildPlayer(context.applicationContext).also {
+                    cachedPlayer = it
+                }
+            }
+        }
+        // 复用实例可能还挂着上一个视频的源与播放位置（softDetach 只 stop
+        // 不清 position、不清源）。本次要播的身份与挂载源不一致时必须立即硬
+        // 重置，否则会串台：旧视频位置污染新会话续播、旧画面残留。
         // 同 bvid（重进同一视频，intent 往往不带 cid）保留挂载源以维持热重播路径。
         if (attachedSourceKey != null && !matchesExpectedSource(expectBvid, expectCid)) {
             AppLog.w(
@@ -161,28 +186,32 @@ object PlayerInstancePool {
     }
 
     @Synchronized
-    fun softDetach(player: ExoPlayer?) {
-        if (player == null || player !== cachedPlayer) return
+    fun softDetach(player: Player?) {
+        if (player == null || !isCurrentCached(player)) return
         player.pause()
         isAttached = false
         player.playWhenReady = false
         player.stop()
         player.clearVideoSurface()
-        // 不调用 clearMediaItems()，保留 MediaSource 以便同一视频热重播。
-        // reuseSameSource 路径只需 prepare() + seekTo()，跳过 setMediaSource()。
+        // 不清除源，保留以备同一视频热重播（Exo 保留 MediaSource；ijk 保留 datasource）。
         schedule_release()
     }
 
     @Synchronized
-    fun hardReset(player: ExoPlayer?) {
-        if (player == null || player !== cachedPlayer) return
+    fun hardReset(player: Player?) {
+        if (player == null || !isCurrentCached(player)) return
         player.playWhenReady = false
+        // BasePlayer 的 clearMediaItems 为 final 且依赖 Timeline，ijk 门面需要显式清源。
+        (player as? IjkPlayerEngine)?.clearIjkSource()
         player.clearMediaItems()
         player.stop()
         player.playbackParameters = PlaybackParameters(1f)
-        // MediaItems 被清除，挂载状态归零。
+        // 源被清除，挂载状态归零。
         attachedSourceKey = null
     }
+
+    private fun isCurrentCached(player: Player): Boolean =
+        player === cachedPlayer || player === cachedIjkPlayer
 
     /**
      * 清空挂载状态标记，但不释放 player 实例。
@@ -201,8 +230,8 @@ object PlayerInstancePool {
     }
 
     @Synchronized
-    fun detach(player: ExoPlayer?, allowReuse: Boolean) {
-        if (player == null || player !== cachedPlayer) return
+    fun detach(player: Player?, allowReuse: Boolean) {
+        if (player == null || !isCurrentCached(player)) return
         if (!allowReuse) {
             releaseNow("detach_without_reuse")
             return
@@ -217,6 +246,9 @@ object PlayerInstancePool {
         cachedPlayer?.let(PlayerAudioNormalizer::release)
         cachedPlayer?.release()
         cachedPlayer = null
+        cachedIjkPlayer?.release()
+        cachedIjkPlayer = null
+        cachedEngineKind = PlayerEngineKind.EXOPLAYER
         // player 销毁，挂载状态归零。
         attachedSourceKey = null
     }
@@ -230,6 +262,9 @@ object PlayerInstancePool {
                 cachedPlayer?.let(PlayerAudioNormalizer::release)
                 cachedPlayer?.release()
                 cachedPlayer = null
+                cachedIjkPlayer?.release()
+                cachedIjkPlayer = null
+                cachedEngineKind = PlayerEngineKind.EXOPLAYER
                 // player 销毁，挂载状态归零。
                 attachedSourceKey = null
                 pendingReleaseRunnable = null
@@ -282,6 +317,17 @@ object PlayerInstancePool {
                 // 其效果等同把硬件 MediaCodec 渲染器排在最前。
                 setEnableDecoderFallback(true)
                 setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+
+                // 全志 OMX 盒子关键修复：media3 在 SDK≥31 上默认强制异步 MediaCodec 适配器，
+                // 该路径在 OMX.allwinner 上 setPortMode(DynamicANWBuffer) 失败后退化为
+                // CPU 逐帧拷贝（实测 MediaCodec 相关线程占 ~36% CPU，1080p 仅 8~30fps）。
+                // 强制同步适配器（ijk 同路径）后解码直出 Surface，同解码器可达 45~60fps。
+                runCatching {
+                    (getCodecAdapterFactory() as? androidx.media3.exoplayer.mediacodec.DefaultMediaCodecAdapterFactory)
+                        ?.forceDisableAsynchronous()
+                }.onFailure {
+                    AppLog.w(TAG, "forceDisableAsynchronous unavailable: ${it.message}")
+                }
 
                 // 构建期可观测性：记录检测到的硬解集合，便于诊断"是否落到软解"。
                 // getHardwareSupportedCodecs 已有缓存与后台预热，此处为常量时间。

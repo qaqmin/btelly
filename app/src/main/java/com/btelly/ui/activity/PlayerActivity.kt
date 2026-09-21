@@ -47,6 +47,7 @@ import com.btelly.core.ui.system.ViewUtils
 import com.btelly.databinding.FragmentVideoPlayerBinding
 import com.btelly.event.AppEventHub
 import com.btelly.feature.player.PlayerInstancePool
+import com.btelly.feature.player.engine.IjkPlayerEngine
 import com.btelly.feature.player.PlaybackStartSeekResolver
 import com.btelly.feature.player.PlaybackStartupTrace
 import com.btelly.feature.player.PlaybackUiCoordinator
@@ -241,7 +242,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
 
     private val viewModel: VideoPlayerViewModel by viewModel()
 
-    private var player: ExoPlayer? = null
+    private var player: Player? = null
     private val uiCoordinator = PlaybackUiCoordinator()
     private val overlayCoordinator = PlayerOverlayCoordinator()
 
@@ -890,7 +891,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 it.playbackParameters = PlaybackParameters(playerSettings.defaultPlaybackSpeed)
             }
             it.addListener(playerListener)
-            it.addAnalyticsListener(playerPerfListener)
+            // AnalyticsListener 是 ExoPlayer 专属；ijk 内核下跳过
+            (it as? ExoPlayer)?.addAnalyticsListener(playerPerfListener)
         }
         playerView.setPlayer(player)
         // 公益广告锁死模式：关闭控制器（不显示暂停/进度条/设置面板），隐藏各种按钮，强制不循环
@@ -1076,7 +1078,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         renderControllerChrome(View.GONE)
     }
 
-    private fun enableVideoTrack(targetPlayer: ExoPlayer) {
+    private fun enableVideoTrack(targetPlayer: Player) {
         targetPlayer.trackSelectionParameters = targetPlayer.trackSelectionParameters
             .buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
@@ -1213,7 +1215,13 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                     } else {
                         // 冷路径：不同视频，完整重建管线
                         currentPlayer.stop()
-                        currentPlayer.setMediaSource(playbackRequest.mediaSource, startSeekPositionMs)
+                        val ijkSource = playbackRequest.ijkSource
+                        if (ijkSource != null && currentPlayer is IjkPlayerEngine) {
+                            // IjkPlayer 内核：本地 MPD/直连源装载（替代 setMediaSource）
+                            currentPlayer.setIjkSource(ijkSource, startSeekPositionMs)
+                        } else {
+                            (currentPlayer as? ExoPlayer)?.setMediaSource(playbackRequest.mediaSource, startSeekPositionMs)
+                        }
                         // 记录 player 实际挂载的源，供后续 zero_overhead_reuse 查询，
                         // 避免"VM 缓存命中但 player 挂的是别的视频"导致串台。
                         PlayerInstancePool.rememberAttachedSource(playbackRequest.bvid, playbackRequest.cid)

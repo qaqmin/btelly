@@ -317,8 +317,12 @@ internal class DanmakuPlayer(
     /** 引擎当前消费的（已单调钳制的）平滑位置，供漂移监督器与视频位置对表。 */
     fun currentDanmakuPositionMs(): Long = engineAction.currentPositionMs()
 
-    /** 漂移监督器硬同步：轻量移动平滑时钟，不做场景重建（重建由单调钳制吸收回退）。 */
+    /** 漂移监督器硬同步：轻量移动平滑时钟，不做场景重建。 */
     fun syncTimerTo(positionMs: Long) {
+        // 拨指针前先放行引擎侧单调高水位：直播时钟被高水位卡住时（smooth 恒定、
+        // raw 已超前数秒），只改 timer 的 smoothPositionMs 会被 stepTime 的单调
+        // 钳制拒绝吸收，形成"每 1.5 秒空转、画面冻结"的死锁。用户 seek 即同此放行。
+        engineMain.allowClockBackwardTo(positionMs.coerceAtLeast(0L))
         timer.syncTo(positionMs)
     }
 

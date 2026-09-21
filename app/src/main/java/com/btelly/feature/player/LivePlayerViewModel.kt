@@ -66,6 +66,19 @@ class LivePlayerViewModel(
     val liveDanmaku: SharedFlow<DmModel> = danmakuManager.danmakuFlow
     val danmakuConnected: StateFlow<Boolean> = danmakuManager.isConnected
 
+    /** 弹幕显示开关：关闭时停掉 WebSocket，避免低端盒子上空跑解析拖垮播放线程。 */
+    private var danmakuStreamWanted = true
+
+    fun setDanmakuStreamEnabled(enabled: Boolean) {
+        if (danmakuStreamWanted == enabled) return
+        danmakuStreamWanted = enabled
+        if (enabled) {
+            if (currentRoomId > 0) danmakuManager.start(currentRoomId)
+        } else {
+            danmakuManager.stop()
+        }
+    }
+
     private var currentRoomId: Long = 0
     private var heartbeatJob: Job? = null
     private var durationJob: Job? = null
@@ -84,30 +97,34 @@ class LivePlayerViewModel(
                 onSuccess = { data ->
                     val durl = data.durl
                     if (!durl.isNullOrEmpty()) {
+                        // 必须先定画质再发 URL：LivePlayerFragment 的引擎路由在收到 URL 时
+                        // 读 selectedQuality 决策 ijk/ExoPlayer，顺序反了会永远路由到 ExoPlayer。
+                        data.qualityDescription?.let { qualities ->
+                            val mappedQualities = qualities.map {
+                                LiveQualityInfo(it.qn, it.desc)
+                            }.distinctBy { it.qn }
+                            _qualities.value = mappedQualities
+                            // 默认跟随房间当前画质（通常是原画）。蓝光/超清是平台降帧后的
+                            // 30fps 流，30fps 属正确行为；高帧率考验只在原画，故不封顶。
+                            _selectedQuality.value = mappedQualities.firstOrNull {
+                                it.qn == data.currentQn
+                            } ?: mappedQualities.firstOrNull()
+                        }
+
                         applyLines(durl)
 
                         AppLog.d(TAG, "loadLiveStream: liveTime=${data.liveTime} title=${data.roomTitle} anchor=${data.anchorName} qualities=${data.qualityDescription?.size}")
                         _roomTitle.value = data.roomTitle ?: ""
                         _anchorName.value = data.anchorName ?: ""
                         data.liveTime?.let { startLiveDuration(it) }
-
-                        data.qualityDescription?.let { qualities ->
-                            val mappedQualities = qualities.map {
-                                LiveQualityInfo(it.qn, it.desc)
-                            }.distinctBy { it.qn }
-                            _qualities.value = mappedQualities
-                            _selectedQuality.value = mappedQualities.firstOrNull {
-                                it.qn == data.currentQn
-                            } ?: mappedQualities.firstOrNull()
-                        }
                     } else {
                         _error.value = "无法获取直播流地址"
                     }
 
                     launchSupplementaryCalls(roomId)
 
-                    // 启动实时弹幕连接
-                    danmakuManager.start(roomId)
+                    // 启动实时弹幕连接（弹幕显示关闭时不连接）
+                    if (danmakuStreamWanted) danmakuManager.start(roomId)
                 },
                 onFailure = { e ->
                     _error.value = e.message ?: "加载直播失败"

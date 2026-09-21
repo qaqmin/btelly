@@ -248,6 +248,9 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-dash:1.9.3")
     implementation("androidx.media3:media3-exoplayer-hls:1.9.3")
 
+    // IjkPlayer 内核（Java API + 全 ABI libijkplayer.so 随包分发，无需运行时下载内核）
+    implementation(files("libs/ijkplayer-cmake-release.aar"))
+
     // 腾讯 TBS X5 WebView 内核（TV 直播可选内核）。版本取自参考反编译 tbs APP（SDK_VERSION_CODE 44286 / 4.3.0.386）。
     implementation("com.tencent.tbs:tbssdk:44286")
 

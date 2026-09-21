@@ -5,6 +5,7 @@ package com.btelly.feature.player
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.UnstableApi
 import com.btelly.core.common.log.AppLog
+import com.btelly.feature.player.engine.PlayerEngineKind
 import com.btelly.model.player.PlayInfoModel
 import com.btelly.model.video.quality.VideoCodecEnum
 import com.btelly.model.video.quality.VideoQuality
@@ -569,6 +570,12 @@ internal class PlaybackFallbackController(
         seekPositionMs: Long,
         reason: String
     ): Boolean {
+        // CDN 线路 fallback 重建的是 Exo DASH MediaSource，ijk 内核路径不适用
+        // （ijk 自带 reconnect；起播失败由上层 risk-control/try_look 兜底重试）。
+        if (PlayerEngineKind.load() == PlayerEngineKind.IJKPLAYER) {
+            AppLog.i(TAG, "fallback skipped under IjkPlayer kernel, reason=$reason")
+            return false
+        }
         val session = context.dashSession ?: return false
         val routePlan = session.routePlan ?: return false
         if (routeIndex !in routePlan.routes.indices) {

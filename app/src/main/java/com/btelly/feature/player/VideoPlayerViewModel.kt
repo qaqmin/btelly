@@ -42,6 +42,9 @@ import com.btelly.network.response.Base2Response
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.feature.player.cache.PlayerMediaCache
+import com.btelly.feature.player.engine.IjkPlaybackSource
+import com.btelly.feature.player.engine.IjkPlaybackSourceFactory
+import com.btelly.feature.player.engine.PlayerEngineKind
 import com.btelly.network.cookie.CookieManager
 import com.btelly.repository.UserRepository
 import com.btelly.feature.player.settings.PlayerSettings
@@ -215,6 +218,8 @@ class VideoPlayerViewModel(
 
     data class PlaybackRequest(
         val mediaSource: MediaSource,
+        // IjkPlayer 内核专用源；为 null 或宿主当前为 Exo 内核时走 mediaSource 路径。
+        val ijkSource: IjkPlaybackSource? = null,
         val aid: Long? = null,
         val bvid: String? = null,
         val cid: Long = 0L,
@@ -346,6 +351,9 @@ class VideoPlayerViewModel(
                 "Referer" to "https://www.bilibili.com"
             )
         )
+    // 播放内核在 VM 创建（=每次起播会话）时确定：设置页切换后下次播放生效，
+    // 与 PlayerInstancePool.acquire 的读取点保持同一语义。
+    private val playbackEngineKind: PlayerEngineKind = PlayerEngineKind.load()
     private val cacheDataSourceFactory = PlayerMediaCache.buildDataSourceFactory(
         appContext,
         upstreamDataSourceFactory
@@ -1585,6 +1593,7 @@ class VideoPlayerViewModel(
         }
         _playbackRequest.value = PlaybackRequest(
             mediaSource = mediaSource,
+            ijkSource = IjkPlaybackSourceFactory.buildFromPlayInfo(playInfo, playbackEngineKind),
             aid = currentAid,
             bvid = currentBvid,
             cid = currentCid,
@@ -1840,6 +1849,7 @@ class VideoPlayerViewModel(
                 val effectiveSeekMs = resumePositionMs ?: 0L
                 _playbackRequest.value = PlaybackRequest(
                     mediaSource = cachedPlayback.mediaSource,
+                    ijkSource = IjkPlaybackSourceFactory.buildFromPlayInfo(playInfo, playbackEngineKind),
                     aid = initialIdentity.aid,
                     bvid = replayBvid,
                     cid = initialIdentity.cid,
@@ -2586,6 +2596,7 @@ class VideoPlayerViewModel(
 
         _playbackRequest.value = PlaybackRequest(
             mediaSource = preparedPlayback.mediaSource,
+            ijkSource = IjkPlaybackSourceFactory.buildFromPlayInfo(preparedPlayback.playInfo, playbackEngineKind),
             aid = preparedPlayback.identity.aid,
             bvid = preparedPlayback.identity.bvid,
             cid = preparedPlayback.identity.cid,

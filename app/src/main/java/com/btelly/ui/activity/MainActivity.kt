@@ -947,6 +947,12 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         super.onResume()
         AppLog.i(TEEN_REST_DIAG_TAG, "onResume after super, before refresh")
         refreshTeenRestOverlay()
+        // 冷启动慢的机顶盒上，首绘回调可能晚于系统 top-resumed 状态保存超时，此时
+        // onSaveInstanceState 已把 FragmentManager 置为 state-saved，showFragment 的
+        // commit 会抛 IllegalStateException。onResume 后再 commit 是安全的，补挂一次。
+        if (supportFragmentManager.isStateSaved()) {
+            attachInitialMainTabAfterShellDraw()
+        }
     }
 
     override fun onPause() {

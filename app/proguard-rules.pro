@@ -3,6 +3,10 @@
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
 
+# IjkPlayer — JNI 依赖稳定的类/方法/字段名，混淆会导致 libijkplayer.so 绑定失败启动即崩
+-keep class tv.danmaku.ijk.** { *; }
+-keep class com.debugly.ijkplayer.** { *; }
+
 # Gson / Retrofit 依赖泛型与匿名内部类签名做运行时反射
 -keepattributes Signature
 -keepattributes InnerClasses,EnclosingMethod

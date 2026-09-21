@@ -148,7 +148,7 @@ class MyPlayerView @JvmOverloads constructor(
     private var resumeHintView: LinearLayout? = null
     private var resumeHintPositionText: TextView? = null
 
-    private var player: ExoPlayer? = null
+    private var player: Player? = null
     private var showBuffering: Int = SHOW_BUFFERING_WHEN_PLAYING
     private var controllerShowTimeoutMs: Int = MyPlayerControlView.DEFAULT_SHOW_TIMEOUT_MS
     private var controllerHideOnTouch: Boolean = true
@@ -410,6 +410,9 @@ class MyPlayerView @JvmOverloads constructor(
     private var renderEventListener: RenderEventListener? = null
     var seekPreviewUpdateListener: SeekPreviewUpdateListener? = null
     var onUserSeekListener: ((Long) -> Unit)? = null
+
+    /** 弹幕开关变化（含设置面板切换）：直播用它启停弹幕 WebSocket，关闭时不空跑解析。 */
+    var onDanmakuEnabledChangedListener: ((Boolean) -> Unit)? = null
 
     private val componentListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
@@ -717,6 +720,7 @@ class MyPlayerView @JvmOverloads constructor(
                 activeDanmakuController()?.setEnabled(enabled)
                 dmMaskController.setDanmakuVisible(enabled)
                 updateVideoFrameRateStrategy(enabled)
+                onDanmakuEnabledChangedListener?.invoke(enabled)
             }
 
             override fun onPlaybackSpeedChange(speed: Float) {
@@ -812,7 +816,7 @@ class MyPlayerView @JvmOverloads constructor(
         seekOverlayView?.setUiCoordinator(coordinator)
     }
 
-    fun setPlayer(player: ExoPlayer?) {
+    fun setPlayer(player: Player?) {
         val previousPlayer = this.player
         previousPlayer?.removeListener(componentListener)
         when (val surfaceView = videoSurfaceView) {
@@ -2911,6 +2915,10 @@ class MyPlayerView @JvmOverloads constructor(
         updateVideoFrameRateStrategy(enabled)
     }
 
+    /** 持久化的弹幕开关（设置面板 state 自 DataStore 加载）。直播 setup 用它而非硬编码 true，
+     *  否则用户关弹幕后刷新直播间会被强制重新打开。 */
+    fun isDanmakuEnabledByPref(): Boolean = settingView?.getDmEnable() ?: true
+
     fun pauseDanmaku() {
         activeDanmakuController()?.pause()
     }
@@ -3083,7 +3091,8 @@ class MyPlayerView @JvmOverloads constructor(
     private fun updateVideoFrameRateStrategy(danmakuEnabled: Boolean) {
         // 弹幕是独立 UI 覆盖层。29.97fps 视频若让 Surface 切到约 30Hz，两套引擎都会
         // 出现运动拖影；关闭弹幕后恢复 Media3 默认策略，保留 24/25/50fps 视频匹配。
-        player?.setVideoChangeFrameRateStrategy(
+        // setVideoChangeFrameRateStrategy 为 ExoPlayer 专属；ijk 门面走 ijk 自身渲染策略。
+        (player as? ExoPlayer)?.setVideoChangeFrameRateStrategy(
             if (danmakuEnabled) {
                 C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
             } else {

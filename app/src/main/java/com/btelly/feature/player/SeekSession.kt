@@ -3,11 +3,11 @@ package com.btelly.feature.player
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.common.Player
 
 class SeekSession(
     private val coordinator: PlaybackUiCoordinator,
-    private val playerProvider: () -> ExoPlayer?,
+    private val playerProvider: () -> Player?,
     private val seekPreviewRenderer: (targetPositionMs: Long, durationMs: Long) -> Unit,
     private val danmakuSync: (Long) -> Unit,
     private val holdSeekOverlayRenderer: ((targetPositionMs: Long, durationMs: Long, deltaMs: Long) -> Unit)? = null

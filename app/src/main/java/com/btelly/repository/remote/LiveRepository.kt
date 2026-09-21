@@ -411,10 +411,15 @@ class LiveRepository(
         } else if (formatName.equals("fmp4", ignoreCase = true)) {
             score += 10
         }
-        if (codecName.equals("avc", ignoreCase = true)) {
+        // 编码优先级：HEVC 必须压过 flv/ts/fmp4 的格式分。原因写在硬件规格上——
+        // /vendor/etc/media_codecs.xml 声明 AVC 解码器 performance-point-1920x1080=50
+        // （1080p 只能 sustain 50fps，实测 fpsDec 平均 ~50 完全吻合），而 HEVC 解码器的
+        // blocks-per-second 是 AVC 的 1.87 倍（2,275,200 vs 1,218,560）、码率上限 100Mbps、
+        // 且没有 1080p 帧率上限声明。原画 60fps 走 AVC 是超硬件规格，走 HEVC 才有余量。
+        if (codecName.equals("hevc", ignoreCase = true)) {
+            score += 80
+        } else if (codecName.equals("avc", ignoreCase = true)) {
             score += 8
-        } else if (codecName.equals("hevc", ignoreCase = true)) {
-            score += 4
         }
         cachedIpInfo?.let { (userProvince, userIsp) ->
             val extraParams = parseExtraParams(urlExtra)

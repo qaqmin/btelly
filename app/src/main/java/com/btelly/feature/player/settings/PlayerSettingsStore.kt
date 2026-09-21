@@ -73,7 +73,7 @@ object PlayerSettingsStore {
     private const val KEY_AUDIO_NORMALIZE = "audio_normalize"
     private const val KEY_SEAMLESS_QUALITY_SWITCH = "seamless_quality_switch"
 
-    fun load(context: Context): PlayerSettings {
+    fun load(context: Context?): PlayerSettings {
         fun readSetting(key: String): String? = appSettings.getCachedString(key)
         val snapshot = buildString {
             append(readSetting(KEY_DEFAULT_VIDEO_QUALITY).orEmpty())

@@ -75,18 +75,28 @@ class SettingAdapter(
                 if (position == RecyclerView.NO_POSITION) {
                     return@setOnFocusChangeListener
                 }
+                // 焦点回调可能发生在 RecyclerView 布局/滚动中（fling 回收 View 时 clearFocus
+                // 触发），同步 notifyItemChanged 会抛 IllegalStateException，必须 post 到下一帧。
+                fun notifyFocusChanged(pos: Int) {
+                    if (pos == RecyclerView.NO_POSITION) return
+                    itemView.post {
+                        if (pos != RecyclerView.NO_POSITION && pos < itemCount) {
+                            notifyItemChanged(pos, PAYLOAD_FOCUS)
+                        }
+                    }
+                }
                 if (hasFocus) {
                     val oldFocused = focusedPosition
                     focusedPosition = position
                     if (oldFocused != RecyclerView.NO_POSITION && oldFocused != position) {
-                        notifyItemChanged(oldFocused, PAYLOAD_FOCUS)
+                        notifyFocusChanged(oldFocused)
                     }
-                    notifyItemChanged(position, PAYLOAD_FOCUS)
+                    notifyFocusChanged(position)
                     return@setOnFocusChangeListener
                 }
                 if (focusedPosition == position) {
                     focusedPosition = RecyclerView.NO_POSITION
-                    notifyItemChanged(position, PAYLOAD_FOCUS)
+                    notifyFocusChanged(position)
                 }
             }
         }

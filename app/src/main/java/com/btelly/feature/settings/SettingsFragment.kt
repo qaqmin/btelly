@@ -250,7 +250,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.resume_playback), "开"),
             SettingModel("空降助手", "关"),
             SettingModel("音量均衡", "关"),
-            SettingModel("无缝切换清晰度", "关")
+            SettingModel("无缝切换清晰度", "关"),
+            SettingModel("播放器内核", "ExoPlayer")
         )
 
         dmSettings = mutableListOf(
@@ -572,6 +573,11 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             12 -> toggleSponsorBlock()
             13 -> toggleSetting(playerSettings, 13, KEY_AUDIO_NORMALIZE)
             14 -> toggleSetting(playerSettings, 14, KEY_SEAMLESS_QUALITY_SWITCH)
+            15 -> showPlayerChoiceDialog(
+                position,
+                com.btelly.feature.player.engine.PlayerEngineKind.KEY_PLAYER_ENGINE,
+                arrayOf("ExoPlayer", "IjkPlayer")
+            )
         }
     }
 
@@ -1115,6 +1121,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         applySavedValue(playerSettings, 12, KEY_SPONSOR_BLOCK_ENABLED)
         applySavedValue(playerSettings, 13, KEY_AUDIO_NORMALIZE)
         applySavedValue(playerSettings, 14, KEY_SEAMLESS_QUALITY_SWITCH)
+        applySavedValue(playerSettings, 15, com.btelly.feature.player.engine.PlayerEngineKind.KEY_PLAYER_ENGINE)
 
         applySavedValue(dmSettings, 0, KEY_DM_SWITCH)
         applySavedValue(dmSettings, 1, KEY_DM_ALPHA)
