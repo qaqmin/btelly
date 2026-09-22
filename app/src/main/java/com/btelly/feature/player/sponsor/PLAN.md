@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在 BTelly 播放器中集成空降助手功能，自动识别并跳过视频中的恰饭、开场、片尾片段。
+**Goal:** 在 My上游实现 播放器中集成空降助手功能，自动识别并跳过视频中的恰饭、开场、片尾片段。
 
 **Architecture:** 新建 `sponsor` 包，包含数据模型、Repository、UseCase 三层。UseCase 在 ViewModel 的 `updatePlaybackPosition` 中被调用检查当前位置。UI 使用 Android View（与现有播放器一致），跳过按钮叠加在 `MyPlayerView` 上，进度条标记叠加在 `DefaultTimeBar` 上。
 
@@ -143,7 +143,7 @@ object SponsorBlockRepository {
 
             val request = Request.Builder()
                 .url(url)
-                .header("User-Agent", "BTelly/1.0")
+                .header("User-Agent", "My上游实现/1.0")
                 .get()
                 .build()
 
@@ -1013,7 +1013,7 @@ viewModel.sponsorUserSeek(positionMs)
 
 - [ ] **Step 1: 编译项目**
 
-Run: `cd G:/MyTool/BTelly && ./gradlew assembleDebug 2>&1 | tail -80`
+Run: `cd G:/MyTool/My上游实现 && ./gradlew assembleDebug 2>&1 | tail -80`
 Expected: BUILD SUCCESSFUL
 
 - [ ] **Step 2: 如果编译失败，修复问题**
@@ -1039,7 +1039,7 @@ Expected: BUILD SUCCESSFUL
 - [ ] **Step 4: 验收通过后提交**
 
 ```bash
-cd G:/MyTool/BTelly
+cd G:/MyTool/My上游实现
 git add app/src/main/java/com/btelly/feature/player/sponsor/
 git add app/src/main/java/com/btelly/feature/player/settings/PlayerSettingsStore.kt
 git add app/src/main/java/com/btelly/feature/player/VideoPlayerViewModel.kt

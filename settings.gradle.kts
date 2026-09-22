@@ -26,5 +26,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "B视机"
+rootProject.name = "BTelly"
 include(":app")

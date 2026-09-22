@@ -1,6 +1,6 @@
-# BTelly
+# BTelly（B视机）
 
-📺 一个专为 Android TV 设计的第三方 Bilibili 客户端，像素级对齐上游实现。
+📺 一个专为 Android TV 与车机设计的 Bilibili 客户端，青碧深色自有设计语言，支持电视/车机双显示模式。
 
 ## ✨ 主要功能
 

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 应用图标背景：深色表面微渐变 + 顶部 accent 微光，与 mipmap-nodpi 兼容底一致 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M0,0 L108,0 L108,108 L0,108 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endColor="#0C0F16"
+                android:endX="0"
+                android:endY="108"
+                android:startColor="#0E1626"
+                android:startX="0"
+                android:startY="0"
+                android:type="linear" />
+        </aapt:attr>
+    </path>
+    <path android:pathData="M0,0 L108,0 L108,58 L0,58 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="54"
+                android:centerY="-12"
+                android:endColor="#0000C2A8"
+                android:gradientRadius="92"
+                android:startColor="#1F00C2A8"
+                android:type="radial" />
+        </aapt:attr>
+    </path>
+</vector>

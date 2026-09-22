@@ -32,6 +32,7 @@ import com.btelly.ui.adapter.SettingSelectionDialogAdapter
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.core.ui.base.ScaledTextView
 import com.btelly.core.ui.base.UiCardSize
+import com.btelly.core.ui.base.UiDisplayMode
 import com.btelly.core.ui.base.UiTextScale
 import com.btelly.core.ui.decoration.LinearSpacingItemDecoration
 import com.btelly.core.common.log.AppLog
@@ -128,6 +129,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val COMMON_POSITION_RISK_CONTROL = 6
         private const val COMMON_POSITION_UI_TEXT_SIZE = 11
         private const val COMMON_POSITION_CARD_SIZE = 12
+        private const val COMMON_POSITION_DISPLAY_MODE = 13
         private val DM_SMART_FILTER_OPTIONS = arrayOf("关", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10")
 
         /**
@@ -138,6 +140,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private val TEEN_TIME_DISPLAY = TEEN_TIME_OPTIONS.copyOf().also { it[0] = "不限制" }
 
         private val HOME_START_PAGE_OPTIONS = arrayOf("推荐", "热门", "番剧", "影视", "动态")
+        private val DISPLAY_MODE_OPTIONS = arrayOf("电视", "车机")
     }
 
     private lateinit var commonSettings: MutableList<SettingModel>
@@ -217,7 +220,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.ipv4_only), "开"),
             SettingModel(getString(R.string.douyin_mode), "关"),
             SettingModel(getString(R.string.ui_text_size), "标准"),
-            SettingModel(getString(R.string.ui_card_size), "标准")
+            SettingModel(getString(R.string.ui_card_size), "标准"),
+            SettingModel(getString(R.string.display_mode), "电视")
         )
 
         // 青少年模式分类：青少年保护开关 + 单次观看时长 + 休息时长 + 公益广告开关 + 公益广告间隔
@@ -541,6 +545,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             10 -> toggleSetting(commonSettings, 10, KEY_DOUYIN_MODE)
             COMMON_POSITION_UI_TEXT_SIZE -> showUiTextScaleDialog()
             COMMON_POSITION_CARD_SIZE -> showCardSizeChoiceDialog()
+            COMMON_POSITION_DISPLAY_MODE -> showDisplayModeDialog()
             commonSettings.lastIndex - 1 -> {
                 val newValue = if (AppLog.isEnabled) "关" else "开"
                 AppLog.setEnabled(newValue == "开")
@@ -1097,6 +1102,9 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         commonSettings[COMMON_POSITION_CARD_SIZE].info = UiCardSize.nameOf(
             appSettings.getCachedString(UiCardSize.KEY_UI_CARD_SIZE)?.toIntOrNull() ?: 0
         )
+        commonSettings[COMMON_POSITION_DISPLAY_MODE].info = displayModeName(
+            appSettings.getCachedInt(UiDisplayMode.KEY_DISPLAY_MODE, UiDisplayMode.MODE_TV)
+        )
 
         // 青少年模式分类：保护开关（从通用设置迁移）+ 观看时长 + 休息时长
         applySavedValue(teenSettings, 0, KEY_MINOR_PROTECTION)
@@ -1287,6 +1295,29 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             activity?.recreate()
         }
     }
+
+    /** 显示模式：电视 / 车机。车机放大自绘卡片文字，选完 recreate 生效。 */
+    private fun showDisplayModeDialog() {
+        val saved = appSettings.getCachedInt(UiDisplayMode.KEY_DISPLAY_MODE, UiDisplayMode.MODE_TV)
+        showChoiceDialog(
+            commonSettings[COMMON_POSITION_DISPLAY_MODE].title,
+            displayModeName(saved),
+            DISPLAY_MODE_OPTIONS
+        ) { value ->
+            val mode = if (value == DISPLAY_MODE_OPTIONS[UiDisplayMode.MODE_CAR]) {
+                UiDisplayMode.MODE_CAR
+            } else {
+                UiDisplayMode.MODE_TV
+            }
+            updateSetting(commonSettings, COMMON_POSITION_DISPLAY_MODE, value)
+            appSettings.putIntAsync(UiDisplayMode.KEY_DISPLAY_MODE, mode)
+            activity?.recreate()
+        }
+    }
+
+    private fun displayModeName(mode: Int): String =
+        if (mode == UiDisplayMode.MODE_CAR) DISPLAY_MODE_OPTIONS[UiDisplayMode.MODE_CAR]
+        else DISPLAY_MODE_OPTIONS[UiDisplayMode.MODE_TV]
 
     private fun getCurrentCacheSize(): Long {
         // 统计口径与"缓存限制"一致：只算受该设置管辖的两个目录

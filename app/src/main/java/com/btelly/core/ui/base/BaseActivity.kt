@@ -26,6 +26,7 @@ abstract class BaseActivity<VB : ViewBinding> : AppCompatActivity() {
         // 必须在 super.onCreate 之前安装：AppCompat 检测到已有 Factory 会跳过自装
         UiTextScale.refresh(appSettings)
         UiCardSize.refresh(appSettings)
+        UiDisplayMode.refresh(appSettings)
         UiTextScaleFactory.install(layoutInflater)
         applyTheme()
         super.onCreate(savedInstanceState)

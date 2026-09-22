@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:background="?attr/backgroundColor"
+    android:background="@drawable/bg_shell"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
     <!--
@@ -16,12 +16,12 @@
         android:layout_height="match_parent"/>
     <com.btelly.core.ui.navigation.TabBarView
         android:id="@+id/myTabView"
-        android:layout_width="@dimen/px100"
+        android:layout_width="@dimen/rail_width"
         android:layout_height="match_parent"
         app:layout_constraintStart_toStartOf="parent"/>
     <View
         android:id="@+id/divide"
-        android:background="?attr/dividerColor"
+        android:background="?attr/tvDivider"
         android:layout_width="@dimen/px1"
         android:layout_height="match_parent"
         android:layout_marginTop="@dimen/px120"

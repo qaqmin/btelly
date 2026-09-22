@@ -2,6 +2,19 @@
 <resources>
     <!-- App theme attrs used by layouts, drawables, and theme variants. -->
     <attr name="backgroundColor" format="color|reference" />
+
+    <!-- ===== UI 2.0 设计令牌主题通道（见 docs/ui-redesign-plan.md） ===== -->
+    <attr name="tvSurface" format="color|reference" />
+    <attr name="tvSurfaceRaised" format="color|reference" />
+    <attr name="tvSurfaceOverlay" format="color|reference" />
+    <attr name="tvDivider" format="color|reference" />
+    <attr name="tvAccent" format="color|reference" />
+    <attr name="tvAccentDim" format="color|reference" />
+    <attr name="tvAccentOn" format="color|reference" />
+    <attr name="tvTextPrimary" format="color|reference" />
+    <attr name="tvTextSecondary" format="color|reference" />
+    <attr name="tvTextTertiary" format="color|reference" />
+    <attr name="tvScrim" format="color|reference" />
     <attr name="alignItems">
         <enum name="flex_start" value="0" />
         <enum name="flex_end" value="1" />

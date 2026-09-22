@@ -25,7 +25,7 @@ class DmMaskRepository {
     companion object {
         private const val TAG = "DmMaskRepository"
         private const val MAX_CACHE_SIZE = 3
-        private const val UA = "Mozilla/5.0 (Android) BTelly/1.0"
+        private const val UA = "Mozilla/5.0 (Android) My上游实现/1.0"
         private const val REFERER = "https://www.bilibili.com"
         private val sharedCache = LruCache<Long, DmMaskData>(MAX_CACHE_SIZE)
         private val sharedTimelineCache = LruCache<Long, DmMaskTimeline>(MAX_CACHE_SIZE)

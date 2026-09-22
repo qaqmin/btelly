@@ -111,3 +111,10 @@ AGENTS.md
 app/debug/output-metadata.json
 .codebuddy/
 /.zcode
+
+# ========== 调试产物 ==========
+/box_logcat*.txt
+/box_*.log
+/scr.png
+/ui.xml
+/shots/

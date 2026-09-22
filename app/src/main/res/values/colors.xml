@@ -159,4 +159,71 @@
     <color name="tooltip_background_light">#e6ffffff</color>
     <color name="transparent">#00000000</color>
     <color name="white">#ffffff</color>
+
+    <!-- ===== UI 2.0 设计令牌（青碧深色族，见 docs/ui-redesign-plan.md） ===== -->
+    <color name="tv_surface">#0C0F16</color>
+    <color name="tv_surface_raised">#141A29</color>
+    <color name="tv_surface_overlay">#1C2438</color>
+    <color name="tv_divider">#26304A</color>
+    <color name="tv_accent">#00C2A8</color>
+    <color name="tv_accent_dim">#123B34</color>
+    <color name="tv_accent_on">#00312A</color>
+    <color name="tv_text_primary">#F2F5FA</color>
+    <color name="tv_text_secondary">#9AA5B8</color>
+    <color name="tv_text_tertiary">#67718A</color>
+    <color name="tv_scrim">#99000000</color>
+    <!-- 皮肤：湖蓝 -->
+    <color name="tv_surface_blue">#0A0F1D</color>
+    <color name="tv_surface_raised_blue">#121A30</color>
+    <color name="tv_surface_overlay_blue">#1A2440</color>
+    <color name="tv_divider_blue">#26325A</color>
+    <color name="tv_accent_blue">#4E9BFF</color>
+    <color name="tv_accent_dim_blue">#16304F</color>
+    <color name="tv_accent_on_blue">#06182E</color>
+    <!-- 皮肤：紫罗兰 -->
+    <color name="tv_surface_purple">#100D1C</color>
+    <color name="tv_surface_raised_purple">#1A1430</color>
+    <color name="tv_surface_overlay_purple">#241D3D</color>
+    <color name="tv_divider_purple">#322A52</color>
+    <color name="tv_accent_purple">#A77BF0</color>
+    <color name="tv_accent_dim_purple">#2E2150</color>
+    <color name="tv_accent_on_purple">#150A2B</color>
+    <!-- 皮肤：绯红 -->
+    <color name="tv_surface_red">#160D10</color>
+    <color name="tv_surface_raised_red">#241419</color>
+    <color name="tv_surface_overlay_red">#331C22</color>
+    <color name="tv_divider_red">#4A2730</color>
+    <color name="tv_accent_red">#F2555A</color>
+    <color name="tv_accent_dim_red">#4A1B21</color>
+    <color name="tv_accent_on_red">#2E0A0E</color>
+    <!-- 皮肤：经典（B站粉，怀旧） -->
+    <color name="tv_surface_classic">#0E0C10</color>
+    <color name="tv_surface_raised_classic">#1A1620</color>
+    <color name="tv_surface_overlay_classic">#251F2C</color>
+    <color name="tv_divider_classic">#3A2F3F</color>
+    <color name="tv_accent_classic">#FB7299</color>
+    <color name="tv_accent_dim_classic">#45243A</color>
+    <color name="tv_accent_on_classic">#2E0F1D</color>
+    <!-- 皮肤：白色（浅色族） -->
+    <color name="tv_surface_light">#F3F5F9</color>
+    <color name="tv_surface_raised_light">#FFFFFF</color>
+    <color name="tv_surface_overlay_light">#FFFFFF</color>
+    <color name="tv_divider_light">#DDE2EA</color>
+    <color name="tv_accent_light">#00937F</color>
+    <color name="tv_accent_dim_light">#D5EFE9</color>
+    <color name="tv_accent_on_light">#FFFFFF</color>
+    <color name="tv_text_primary_light">#14181F</color>
+    <color name="tv_text_secondary_light">#5A6472</color>
+    <color name="tv_text_tertiary_light">#8A93A3</color>
+    <!-- 皮肤：樱粉（浅色族） -->
+    <color name="tv_surface_pink">#FBF0F4</color>
+    <color name="tv_surface_raised_pink">#FFFFFF</color>
+    <color name="tv_surface_overlay_pink">#FFFFFF</color>
+    <color name="tv_divider_pink">#EFD3DE</color>
+    <color name="tv_accent_pink">#D6336C</color>
+    <color name="tv_accent_dim_pink">#F8D7E3</color>
+    <color name="tv_accent_on_pink">#FFFFFF</color>
+    <color name="tv_text_primary_pink">#24141B</color>
+    <color name="tv_text_secondary_pink">#6B4A57</color>
+    <color name="tv_text_tertiary_pink">#9C7B88</color>
 </resources>

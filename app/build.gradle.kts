@@ -50,7 +50,8 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        // 默认包名；可通过 -PapplicationId=xxx 覆盖，用于 fork 版与原版共存安装
+        // 包名/命名空间/安装标识统一为 com.btelly；可用 -PapplicationId=xxx 覆盖共存安装
+        // （注意：从 com.mytvb 旧版升级需先卸载，本地设置不随安装标识保留）
         applicationId = (project.findProperty("applicationId") as? String) ?: "com.btelly"
         minSdk = 23
         targetSdk = 35
@@ -199,7 +200,7 @@ androidComponents {
         val renameTask = tasks.register("rename${capitalizedVariantName}Apk", RenameApkTask::class) {
             apkDirectory.set(variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.APK))
             renamedApkDirectory.set(layout.buildDirectory.dir("outputs/renamed_apk/${variant.name}"))
-            appName.set("B视机")
+            appName.set("BTelly")
             buildType.set(variant.buildType)
             versionName.set(variant.outputs.single().versionName)
         }

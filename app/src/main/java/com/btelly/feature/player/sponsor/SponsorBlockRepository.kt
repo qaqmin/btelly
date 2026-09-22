@@ -38,7 +38,7 @@ object SponsorBlockRepository {
         try {
             val request = Request.Builder()
                 .url("$BASE_URL/status")
-                .header("User-Agent", "BTelly/1.0")
+                .header("User-Agent", "My上游实现/1.0")
                 .header("origin", "com.btelly")
                 .header("x-ext-version", "0.13.0")
                 .get()
@@ -61,7 +61,7 @@ object SponsorBlockRepository {
             val url = "$BASE_URL/skipSegments/a1b2?category=sponsor"
             val request = Request.Builder()
                 .url(url)
-                .header("User-Agent", "BTelly/1.0")
+                .header("User-Agent", "My上游实现/1.0")
                 .header("origin", "com.btelly")
                 .header("x-ext-version", "0.13.0")
                 .get()
@@ -121,7 +121,7 @@ object SponsorBlockRepository {
 
             val request = Request.Builder()
                 .url(url)
-                .header("User-Agent", "BTelly/1.0")
+                .header("User-Agent", "My上游实现/1.0")
                 .header("origin", "com.btelly")
                 .header("x-ext-version", "0.13.0")
                 .get()

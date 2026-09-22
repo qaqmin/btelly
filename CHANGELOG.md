@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- 应用更名为 B视机（BTelly）：界面、图标、代码包名与仓库命名统一为新品牌；安装标识切换为 com.btelly，从旧版升级需先卸载
 - 新增「播放器内核」设置：可在 ExoPlayer / IjkPlayer 之间切换，切换后下次播放生效
 - IjkPlayer 内核支持视频与直播播放：DASH 双轨经本地 MPD 合流，直播走直连 FLV/HLS；内核 .so 随包分发（全 ABI），无需额外下载
 - IjkPlayer 为 Media3 Player 门面实现，弹幕/进度/控制等既有链路无需适配；无缝切清晰度与 CDN 线路 fallback 为 ExoPlayer 专属能力，ijk 路径自动改用重建式切档

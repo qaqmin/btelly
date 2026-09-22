@@ -24,6 +24,7 @@ import android.widget.ImageView
 import androidx.core.content.ContextCompat
 import com.btelly.R
 import com.btelly.core.common.log.VideoCardPerfLogger
+import com.btelly.core.ui.base.UiDisplayMode
 import com.btelly.core.ui.base.UiTextScale
 import pl.droidsonroids.gif.GifDrawable
 import kotlin.math.ceil
@@ -140,7 +141,7 @@ class VideoCoverMetaOverlayView @JvmOverloads constructor(
     private val gradientClipPath = Path()
     private val gradientClipRect = RectF()
     private val metaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = ContextCompat.getColor(context, R.color.textColor)
+        color = themeColor(context, R.attr.tvTextPrimary, R.color.tv_text_primary)
         textSize = metrics.metaTextSize
     }
     private val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -148,6 +149,8 @@ class VideoCoverMetaOverlayView @JvmOverloads constructor(
         color = 0xFFFFFFFF.toInt()
         textSize = metrics.badgeTextSize
     }
+    private val interactionBadgeColor = themeColor(context, R.attr.tvAccent, R.color.tv_accent)
+    private val progressColor = themeColor(context, R.attr.tvAccent, R.color.tv_accent)
     private val badgeRect = RectF()
 
     private var playCountText: CharSequence = ""
@@ -273,10 +276,10 @@ class VideoCoverMetaOverlayView @JvmOverloads constructor(
         var right = width - metrics.badgeEnd.toFloat()
         val top = metrics.badgeTop.toFloat()
         if (showChargeBadge) {
-            right = drawBadge(canvas, "充电专属", right, top, 0xFFF6A11B.toInt()) - metrics.badgeGap
+            right = drawBadge(canvas, "充电专属", right, top, CHARGE_BADGE_COLOR) - metrics.badgeGap
         }
         if (showInteractionBadge) {
-            drawBadge(canvas, "互动", right, top, 0xFFFB7299.toInt())
+            drawBadge(canvas, "互动", right, top, interactionBadgeColor)
         }
     }
 
@@ -310,7 +313,7 @@ class VideoCoverMetaOverlayView @JvmOverloads constructor(
         val progressWidth = width * (progressValue / progressMax.toFloat())
         val saveCount = canvas.save()
         canvas.clipPath(gradientClipPath)
-        badgePaint.color = PLAYER_PROGRESS_COLOR
+        badgePaint.color = progressColor
         canvas.drawRect(
             0f,
             height - metrics.progressHeight.toFloat(),
@@ -322,7 +325,7 @@ class VideoCoverMetaOverlayView @JvmOverloads constructor(
     }
 
     private companion object {
-        private const val PLAYER_PROGRESS_COLOR = 0xFF0088BB.toInt()
+        private const val CHARGE_BADGE_COLOR = 0xFFF6A11B.toInt()
     }
 
     private class OverlayAssets(
@@ -368,8 +371,8 @@ class VideoCardTextLayerView @JvmOverloads constructor(
 ) : View(context, attrs) {
 
     private val metrics = LightCardMetrics.get(context)
-    private val defaultTitleColor = ContextCompat.getColor(context, R.color.textColor)
-    private val ownerTextColor = ContextCompat.getColor(context, R.color.subTextColor)
+    private val defaultTitleColor = themeColor(context, R.attr.tvTextPrimary, R.color.tv_text_primary)
+    private val ownerTextColor = themeColor(context, R.attr.tvTextSecondary, R.color.tv_text_secondary)
     private val assets = TextLayerAssets.get(context, metrics, ownerTextColor)
     private val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = defaultTitleColor
@@ -919,45 +922,52 @@ private class FlatVideoLightCardLayout @JvmOverloads constructor(
     private fun exact(size: Int): Int = MeasureSpec.makeMeasureSpec(size.coerceAtLeast(0), MeasureSpec.EXACTLY)
 }
 
+/**
+ * 卡片度量快照。几何与字号取自 design.xml 令牌（dp 单一来源，见 docs/ui-redesign-plan.md
+ * 第六节）；文字大小额外乘 UiTextScale（全局文字设置）与 UiDisplayMode.boost（车机模式）。
+ */
 private class LightCardMetrics private constructor(context: Context) {
-    val cardRadius = dimen(context, R.dimen.px15)
-    val paddingTop = dimen(context, R.dimen.px20)
-    val paddingBottom = dimen(context, R.dimen.px15)
-    val horizontalMargin = dimen(context, R.dimen.px15)
-    val titleTopMargin = dimen(context, R.dimen.px10)
-    val ownerTopMargin = dimen(context, R.dimen.px5)
-    val avatarStart = dimen(context, R.dimen.px2)
-    val ownerTextMarginEnd = dimen(context, R.dimen.px8)
-    val coverGradientHeight = dimen(context, R.dimen.px70)
-    val progressHeight = dimen(context, R.dimen.px3)
-    val metaIconSize = dimen(context, R.dimen.px30)
-    val coverMetaStart = dimen(context, R.dimen.px10)
-    val coverMetaBottom = dimen(context, R.dimen.px10)
-    val metaTextStart = dimen(context, R.dimen.px5)
-    val metaGroupGap = dimen(context, R.dimen.px10)
-    val durationEnd = dimen(context, R.dimen.px20)
-    val durationBottom = dimen(context, R.dimen.px10)
-    val badgeTop = dimen(context, R.dimen.px10)
-    val badgeEnd = dimen(context, R.dimen.px10)
-    val badgeGap = dimen(context, R.dimen.px10)
-    val badgeRadius = dimen(context, R.dimen.px5)
-    val px3 = dimen(context, R.dimen.px3)
-    val px4 = dimen(context, R.dimen.px4)
-    val px8 = dimen(context, R.dimen.px8)
-    val px10 = dimen(context, R.dimen.px10)
-    val avatarWidth = dimen(context, R.dimen.px40)
-    val avatarHeight = dimen(context, R.dimen.px25)
-    val badgeOwnerGap = dimen(context, R.dimen.px6)
-    val historyDeviceSize = dimen(context, R.dimen.px30)
-    val historyDeviceMarginEnd = dimen(context, R.dimen.px5)
+    val cardRadius = dimen(context, R.dimen.card_radius)
+    val paddingTop = dimen(context, R.dimen.card_padding_top)
+    val paddingBottom = dimen(context, R.dimen.card_padding_bottom)
+    val horizontalMargin = dimen(context, R.dimen.card_padding_h)
+    val titleTopMargin = dimen(context, R.dimen.card_title_top_margin)
+    val ownerTopMargin = dimen(context, R.dimen.card_owner_top_margin)
+    val coverGradientHeight = dimen(context, R.dimen.card_gradient_height)
+    val progressHeight = dimen(context, R.dimen.card_progress_height)
+    val metaIconSize = dimen(context, R.dimen.card_meta_icon_size)
+    val coverMetaStart = dimen(context, R.dimen.card_meta_margin)
+    val coverMetaBottom = dimen(context, R.dimen.card_meta_margin)
+    val metaTextStart = dimen(context, R.dimen.space_2)
+    val metaGroupGap = dimen(context, R.dimen.card_meta_gap)
+    val durationEnd = dimen(context, R.dimen.card_duration_margin)
+    val durationBottom = dimen(context, R.dimen.card_duration_margin)
+    val badgeTop = dimen(context, R.dimen.card_badge_margin)
+    val badgeEnd = dimen(context, R.dimen.card_badge_margin)
+    val badgeGap = dimen(context, R.dimen.card_badge_gap)
+    val badgeRadius = dimen(context, R.dimen.radius_s)
+    val px3 = dimen(context, R.dimen.card_badge_padding_v)
+    val px4 = dimen(context, R.dimen.space_4)
+    val px8 = dimen(context, R.dimen.card_badge_padding_h)
+    val px10 = dimen(context, R.dimen.space_6)
+    val avatarStart = dimen(context, R.dimen.space_2)
+    val ownerTextMarginEnd = dimen(context, R.dimen.card_badge_padding_h)
+    val avatarWidth = dimen(context, R.dimen.card_avatar_size)
+    val avatarHeight = dimen(context, R.dimen.card_avatar_size)
+    val badgeOwnerGap = dimen(context, R.dimen.space_4)
+    val historyDeviceSize = dimen(context, R.dimen.card_meta_icon_size)
+    val historyDeviceMarginEnd = dimen(context, R.dimen.space_2)
     val playingIconMarginEnd = dp(context, 4)
-    val titleIconFallbackSize = dimen(context, R.dimen.px31)
-    // 卡片是自绘文字，跟随全局 UI 文字缩放（onMeasure 由字号推导高度，自动跟随）
-    val scaleSnapshot = UiTextScale.scale()
-    val titleTextSize = dimenF(context, R.dimen.px31) * scaleSnapshot
-    val ownerTextSize = dimenF(context, R.dimen.px22) * UiTextScale.scale()
-    val metaTextSize = dimenF(context, R.dimen.px22) * UiTextScale.scale()
-    val badgeTextSize = dimenF(context, R.dimen.px20) * UiTextScale.scale()
+    val titleIconFallbackSize = dimen(context, R.dimen.card_title_size)
+
+    /** 快照键：文字档位 × 显示模式，任一变化缓存失效重建。 */
+    val snapshotKey: String = "${UiTextScale.scale()}:${UiDisplayMode.isCarMode}"
+
+    private val boost = UiDisplayMode.boost
+    val titleTextSize = dimenF(context, R.dimen.card_title_size) * UiTextScale.scale() * boost
+    val ownerTextSize = dimenF(context, R.dimen.card_owner_size) * UiTextScale.scale() * boost
+    val metaTextSize = dimenF(context, R.dimen.card_meta_size) * UiTextScale.scale() * boost
+    val badgeTextSize = dimenF(context, R.dimen.card_badge_size) * UiTextScale.scale() * boost
 
     private fun dimen(context: Context, resId: Int): Int = context.resources.getDimensionPixelSize(resId)
 
@@ -975,12 +985,22 @@ private class LightCardMetrics private constructor(context: Context) {
 
         fun get(context: Context): LightCardMetrics {
             val resources = context.resources
-            val scale = UiTextScale.scale()
+            val snapshot = "${UiTextScale.scale()}:${UiDisplayMode.isCarMode}"
             synchronized(cache) {
-                // Resources 实例在 Activity recreate 后可能复用，档位变化时按快照失效重建
-                cache[resources]?.takeIf { it.scaleSnapshot == scale } ?: cache.remove(resources)
+                // Resources 实例在 Activity recreate 后可能复用，档位/模式变化时按快照失效重建
+                cache[resources]?.takeIf { it.snapshotKey == snapshot } ?: cache.remove(resources)
                 return cache.getOrPut(resources) { LightCardMetrics(context.applicationContext ?: context) }
             }
         }
+    }
+}
+
+/** 主题属性取色（主题 attr 在代码侧解析，失败回退到令牌色值）。 */
+private fun themeColor(context: Context, attr: Int, fallbackRes: Int): Int {
+    val typedValue = TypedValue()
+    return if (context.theme.resolveAttribute(attr, typedValue, true) && typedValue.data != 0) {
+        typedValue.data
+    } else {
+        ContextCompat.getColor(context, fallbackRes)
     }
 }

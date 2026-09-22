@@ -19,7 +19,7 @@ import java.util.Locale
  * 按 Bilibili 参考链路重构。参考 Chronos shader 是
  * `CRONDefaultShading() * mask_sample`：只让弹幕显示在当前 mask 覆盖区。
  *
- * BTelly 用 Android 2D 的等价近似：
+ * My上游实现 用 Android 2D 的等价近似：
  *  - 只负责渲染裁剪，不做业务逻辑
  *  - 多个 Path UNION 合并为单个 mergedPath
  *  - clipPath 到当前 mask path 覆盖区，再绘制弹幕子 View

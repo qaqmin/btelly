@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- B视机 品牌标：圆角屏幕 + 播放三角 + 底座，青碧渐变 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+    <path
+        android:pathData="M20,8 L76,8 A12,12 0 0 1 88,20 L88,52 A12,12 0 0 1 76,64 L20,64 A12,12 0 0 1 8,52 L8,20 A12,12 0 0 1 20,8 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endColor="#0E8C8C"
+                android:startColor="#00C2A8"
+                android:type="linear"
+                android:startX="8"
+                android:startY="8"
+                android:endX="88"
+                android:endY="64" />
+        </aapt:attr>
+    </path>
+    <path
+        android:fillColor="#0C0F16"
+        android:pathData="M42,26 L64,36 L42,46 Z" />
+    <path
+        android:fillColor="#00C2A8"
+        android:pathData="M44,68 L52,68 L52,74 L44,74 Z" />
+    <path
+        android:fillColor="#00C2A8"
+        android:pathData="M34,76 L62,76 A4,4 0 0 1 62,84 L34,84 A4,4 0 0 1 34,76 Z" />
+</vector>

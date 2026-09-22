@@ -5,11 +5,13 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.util.TypedValue
 import android.view.Choreographer
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
+import androidx.core.content.ContextCompat
 import com.btelly.R
 import com.btelly.core.common.log.AppLog
 
@@ -36,18 +38,25 @@ class SplashActivity : Activity() {
     }
 
     private fun createSplashView(): FrameLayout {
+        val surfaceColor = TypedValue().let { typed ->
+            if (theme.resolveAttribute(R.attr.tvSurface, typed, true)) {
+                typed.data
+            } else {
+                ContextCompat.getColor(this, R.color.tv_surface)
+            }
+        }
         return FrameLayout(this).apply {
-            setBackgroundResource(R.color.systemBackgroundColor)
+            setBackgroundColor(surfaceColor)
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
             addView(ImageView(this@SplashActivity).apply {
-                setImageResource(R.mipmap.ic_launcher_loading)
+                setImageResource(R.drawable.ic_brand_splash)
                 scaleType = ImageView.ScaleType.CENTER
                 layoutParams = FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    resources.getDimensionPixelSize(R.dimen.splash_brand_size),
+                    resources.getDimensionPixelSize(R.dimen.splash_brand_size),
                     Gravity.CENTER
                 )
             })

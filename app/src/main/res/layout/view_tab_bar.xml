@@ -1,144 +1,266 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:background="@color/transparent"
-    android:layout_width="@dimen/px100"
-    android:layout_height="match_parent">
-    <androidx.appcompat.widget.AppCompatImageView
-        android:id="@+id/button_search"
-        android:background="@drawable/tab_round_background"
-        android:padding="@dimen/px18"
-        android:focusable="true"
+<!--
+  UI 2.0 导航轨：品牌头 + 图标标签横排导航项 + 底部头像/设置。
+  几何用 px 缩放维度（随面板收缩，见 docs/ui-redesign-plan.md）；
+  颜色走主题令牌（tvSurface/tvAccent/tvTextTertiary），换皮肤自动跟随。
+  TabBarView.kt 依赖本布局的 id 契约：button_* / label_* / indicator_* / nav_* / image_avatar。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="@dimen/rail_width"
+    android:layout_height="match_parent"
+    android:background="?attr/tvSurface"
+    android:orientation="vertical"
+    android:paddingTop="@dimen/rail_brand_margin_top"
+    android:paddingBottom="@dimen/rail_bottom_margin">
+
+    <!-- 品牌头 -->
+    <LinearLayout
+        android:id="@+id/brand_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:layout_marginStart="@dimen/rail_item_margin_h"
+        android:layout_marginEnd="@dimen/rail_item_margin_h"
+        android:layout_marginBottom="@dimen/rail_brand_margin_bottom"
+        android:orientation="horizontal">
+
+        <androidx.appcompat.widget.AppCompatImageView
+            android:id="@+id/brand_logo"
+            android:layout_width="@dimen/rail_brand_size"
+            android:layout_height="@dimen/rail_brand_size"
+            android:contentDescription="@string/app_name"
+            android:src="@drawable/ic_brand_btelly" />
+
+        <TextView
+            android:id="@+id/brand_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/rail_label_margin_start"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="@string/app_name"
+            android:textColor="?attr/tvTextPrimary"
+            android:textSize="@dimen/rail_brand_text_size"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- 搜索（tab 索引 6） -->
+    <FrameLayout
+        android:id="@+id/nav_search"
+        style="@style/RailNavItem"
+        android:layout_marginTop="0dp">
+
+        <View
+            android:id="@+id/indicator_search"
+            style="@style/RailIndicator" />
+
+        <LinearLayout style="@style/RailNavItemContent">
+
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/button_search"
+                style="@style/RailNavIcon"
+                android:contentDescription="@string/search"
+                app:srcCompat="@drawable/ic_search" />
+
+            <TextView
+                android:id="@+id/label_search"
+                style="@style/RailNavLabel"
+                android:text="@string/search" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- 首页（tab 索引 0） -->
+    <FrameLayout
+        android:id="@+id/nav_home"
+        style="@style/RailNavItem">
+
+        <View
+            android:id="@+id/indicator_home"
+            style="@style/RailIndicator" />
+
+        <LinearLayout style="@style/RailNavItemContent">
+
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/button_home"
+                style="@style/RailNavIcon"
+                android:contentDescription="@string/home"
+                app:srcCompat="@drawable/ic_home" />
+
+            <TextView
+                android:id="@+id/label_home"
+                style="@style/RailNavLabel"
+                android:text="@string/home" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- 分区（tab 索引 1） -->
+    <FrameLayout
+        android:id="@+id/nav_category"
+        style="@style/RailNavItem">
+
+        <View
+            android:id="@+id/indicator_category"
+            style="@style/RailIndicator" />
+
+        <LinearLayout style="@style/RailNavItemContent">
+
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/button_category"
+                style="@style/RailNavIcon"
+                android:contentDescription="@string/zone"
+                app:srcCompat="@drawable/tab_recommend" />
+
+            <TextView
+                android:id="@+id/label_category"
+                style="@style/RailNavLabel"
+                android:text="@string/zone" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- 动态（tab 索引 2） -->
+    <FrameLayout
+        android:id="@+id/nav_dynamic"
+        style="@style/RailNavItem">
+
+        <View
+            android:id="@+id/indicator_dynamic"
+            style="@style/RailIndicator" />
+
+        <LinearLayout style="@style/RailNavItemContent">
+
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/button_dynamic"
+                style="@style/RailNavIcon"
+                android:contentDescription="@string/dynamic"
+                app:srcCompat="@drawable/tab_dynamic" />
+
+            <TextView
+                android:id="@+id/label_dynamic"
+                style="@style/RailNavLabel"
+                android:text="@string/dynamic" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- 直播（tab 索引 3） -->
+    <FrameLayout
+        android:id="@+id/nav_live"
+        style="@style/RailNavItem">
+
+        <View
+            android:id="@+id/indicator_live"
+            style="@style/RailIndicator" />
+
+        <LinearLayout style="@style/RailNavItemContent">
+
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/button_live"
+                style="@style/RailNavIcon"
+                android:contentDescription="@string/live"
+                app:srcCompat="@drawable/tab_live" />
+
+            <TextView
+                android:id="@+id/label_live"
+                style="@style/RailNavLabel"
+                android:text="@string/live" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- CCTV（tab 索引 4，默认隐藏） -->
+    <FrameLayout
+        android:id="@+id/nav_cctv_live"
+        style="@style/RailNavItem"
+        android:visibility="gone">
+
+        <View
+            android:id="@+id/indicator_cctv_live"
+            style="@style/RailIndicator" />
+
+        <LinearLayout style="@style/RailNavItemContent">
+
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/button_cctv_live"
+                style="@style/RailNavIcon"
+                android:contentDescription="@string/cctv_live"
+                app:srcCompat="@drawable/ic_tv" />
+
+            <TextView
+                android:id="@+id/label_cctv_live"
+                style="@style/RailNavLabel"
+                android:text="@string/cctv_live" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- 我的（tab 索引 5） -->
+    <FrameLayout
+        android:id="@+id/nav_me"
+        style="@style/RailNavItem">
+
+        <View
+            android:id="@+id/indicator_me"
+            style="@style/RailIndicator" />
+
+        <LinearLayout style="@style/RailNavItemContent">
+
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/button_me"
+                style="@style/RailNavIcon"
+                android:contentDescription="@string/me"
+                app:srcCompat="@drawable/tab_me" />
+
+            <TextView
+                android:id="@+id/label_me"
+                style="@style/RailNavLabel"
+                android:text="@string/me" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <Space
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- 头像（用户入口） -->
+    <FrameLayout
+        android:id="@+id/nav_avatar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/rail_item_margin_h"
+        android:layout_marginEnd="@dimen/rail_item_margin_h"
+        android:layout_marginBottom="@dimen/rail_gap"
+        android:background="@drawable/bg_rail_item"
         android:clickable="true"
-        android:layout_width="@dimen/px70"
-        android:layout_height="@dimen/px70"
-        android:layout_marginTop="@dimen/px32"
-        android:contentDescription="@string/search"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
-        app:srcCompat="@drawable/ic_search"
-        app:tint="?attr/tabBarNormal"/>
-    <androidx.appcompat.widget.AppCompatImageView
-        android:id="@+id/button_home"
-        android:background="@drawable/tab_round_background"
-        android:padding="@dimen/px10"
         android:focusable="true"
-        android:clickable="true"
-        android:layout_width="@dimen/px70"
-        android:layout_height="@dimen/px70"
-        android:layout_marginTop="@dimen/px20"
-        android:contentDescription="@string/home"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/button_search"
-        app:srcCompat="@drawable/ic_home"
-        app:tint="?attr/tabBarNormal"/>
-    <androidx.appcompat.widget.AppCompatImageView
-        android:id="@+id/button_category"
-        android:background="@drawable/tab_round_background"
-        android:padding="@dimen/px10"
-        android:focusable="true"
-        android:clickable="true"
-        android:layout_width="@dimen/px70"
-        android:layout_height="@dimen/px70"
-        android:layout_marginTop="@dimen/px20"
-        android:contentDescription="@string/zone"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/button_home"
-        app:srcCompat="@drawable/tab_recommend"
-        app:tint="?attr/tabBarNormal"/>
-    <androidx.appcompat.widget.AppCompatImageView
-        android:id="@+id/button_dynamic"
-        android:background="@drawable/tab_round_background"
-        android:padding="@dimen/px12"
-        android:focusable="true"
-        android:clickable="true"
-        android:layout_width="@dimen/px70"
-        android:layout_height="@dimen/px70"
-        android:layout_marginTop="@dimen/px20"
-        android:contentDescription="@string/dynamic"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/button_category"
-        app:srcCompat="@drawable/tab_dynamic"
-        app:tint="?attr/tabBarNormal"/>
-    <androidx.appcompat.widget.AppCompatImageView
-        android:id="@+id/button_live"
-        android:background="@drawable/tab_round_background"
-        android:padding="@dimen/px12"
-        android:focusable="true"
-        android:clickable="true"
-        android:layout_width="@dimen/px70"
-        android:layout_height="@dimen/px70"
-        android:layout_marginTop="@dimen/px20"
-        android:contentDescription="@string/live"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/button_dynamic"
-        app:srcCompat="@drawable/tab_live"
-        app:tint="?attr/tabBarNormal"/>
-    <androidx.appcompat.widget.AppCompatImageView
-        android:id="@+id/button_cctv_live"
-        android:background="@drawable/tab_round_background"
-        android:padding="@dimen/px12"
-        android:focusable="true"
-        android:clickable="true"
-        android:visibility="gone"
-        android:layout_width="@dimen/px70"
-        android:layout_height="@dimen/px70"
-        android:layout_marginTop="@dimen/px20"
-        android:contentDescription="@string/cctv_live"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/button_live"
-        app:srcCompat="@drawable/ic_tv"
-        app:tint="?attr/tabBarNormal"/>
-    <androidx.appcompat.widget.AppCompatImageView
-        android:id="@+id/button_me"
-        android:background="@drawable/tab_round_background"
-        android:padding="@dimen/px12"
-        android:focusable="true"
-        android:nextFocusDown="@+id/image_avatar"
-        android:clickable="true"
-        android:layout_width="@dimen/px70"
-        android:layout_height="@dimen/px70"
-        android:layout_marginTop="@dimen/px20"
-        android:contentDescription="@string/me"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/button_cctv_live"
-        app:srcCompat="@drawable/tab_me"
-        app:tint="?attr/tabBarNormal"/>
-    <com.btelly.core.ui.image.AvatarBadgeView
-        android:id="@+id/image_avatar"
-        android:background="@drawable/tab_round_background"
-        android:padding="@dimen/px10"
-        android:focusable="true"
-        android:nextFocusUp="@+id/button_me"
-        android:clickable="true"
-        android:layout_width="@dimen/px70"
-        android:layout_height="@dimen/px70"
-        android:layout_marginBottom="@dimen/px20"
-        android:scaleType="centerCrop"
-        android:contentDescription="@string/user"
-        app:layout_constraintBottom_toTopOf="@+id/button_setting"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:srcCompat="@drawable/default_avatar"/>
-    <androidx.appcompat.widget.AppCompatImageView
-        android:id="@+id/button_setting"
-        android:background="@drawable/tab_round_background"
-        android:padding="@dimen/px14"
-        android:focusable="true"
-        android:clickable="true"
-        android:layout_width="@dimen/px70"
-        android:layout_height="@dimen/px70"
-        android:layout_marginBottom="@dimen/px32"
-        android:contentDescription="@string/setting"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:srcCompat="@drawable/ic_setting"
-        app:tint="?android:attr/textColorPrimary"/>
-</androidx.constraintlayout.widget.ConstraintLayout>
+        android:padding="@dimen/rail_gap">
+
+        <com.btelly.core.ui.image.AvatarBadgeView
+            android:id="@+id/image_avatar"
+            android:layout_width="@dimen/rail_avatar_size"
+            android:layout_height="@dimen/rail_avatar_size"
+            android:layout_gravity="center_horizontal"
+            android:contentDescription="@string/user"
+            android:scaleType="centerCrop"
+            app:srcCompat="@drawable/default_avatar" />
+    </FrameLayout>
+
+    <!-- 设置 -->
+    <FrameLayout
+        android:id="@+id/nav_setting"
+        style="@style/RailNavItem">
+
+        <LinearLayout style="@style/RailNavItemContent">
+
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/button_setting"
+                style="@style/RailNavIcon"
+                android:contentDescription="@string/setting"
+                app:srcCompat="@drawable/ic_setting" />
+
+            <TextView
+                android:id="@+id/label_setting"
+                style="@style/RailNavLabel"
+                android:text="@string/setting" />
+        </LinearLayout>
+    </FrameLayout>
+</LinearLayout>

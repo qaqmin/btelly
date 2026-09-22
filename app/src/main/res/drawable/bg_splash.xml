@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 启动页：表面色 + 品牌标居中 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@color/systemBackgroundColor" />
+    <item android:drawable="?attr/tvSurface" />
     <item
-        android:drawable="@mipmap/ic_launcher_loading"
-        android:gravity="center" />
+        android:drawable="@drawable/ic_brand_btelly"
+        android:gravity="center"
+        android:width="96dp"
+        android:height="96dp" />
 </layer-list>

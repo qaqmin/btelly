@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 导航轨单项背景：焦点=强调容器底，激活=抬升表面，默认透明 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android" android:exitFadeDuration="@android:integer/config_shortAnimTime">
+    <item android:state_focused="true">
+        <shape>
+            <solid android:color="?attr/tvAccentDim" />
+            <corners android:radius="@dimen/radius_m" />
+        </shape>
+    </item>
+    <item android:state_pressed="true">
+        <shape>
+            <solid android:color="?attr/tvAccentDim" />
+            <corners android:radius="@dimen/radius_m" />
+        </shape>
+    </item>
+    <item android:state_selected="true">
+        <shape>
+            <solid android:color="?attr/tvSurfaceRaised" />
+            <corners android:radius="@dimen/radius_m" />
+        </shape>
+    </item>
+    <item>
+        <shape>
+            <solid android:color="@android:color/transparent" />
+            <corners android:radius="@dimen/radius_m" />
+        </shape>
+    </item>
+</selector>

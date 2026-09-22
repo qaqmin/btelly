@@ -39,6 +39,7 @@ fun TabLayout.enableTouchNavigation(
                     if (event.action == KeyEvent.ACTION_DOWN) {
                         when (keyCode) {
                             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                                AppLog.i("TabNav", "CENTER tab[$index] cur=${viewPager.currentItem}")
                                 if (viewPager.currentItem != index) {
                                     viewPager.setCurrentItemFromTab(
                                         item = index,
@@ -172,6 +173,9 @@ fun TabLayout.focusSelectedTab(): Boolean {
 }
 
 fun TabLayout.focusNearestTabTo(anchorView: View?): Boolean {
+    // 从内容区/导航轨进入 tab 条时，先落在当前选中 tab（与当前页对应），
+    // 没有选中项再按几何距离找最近。
+    if (focusSelectedTab()) return true
     val tabStrip = getChildAt(0) as? ViewGroup ?: return false
     val candidates = (0 until tabStrip.childCount)
         .mapNotNull(tabStrip::getChildAt)

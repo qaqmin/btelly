@@ -76,4 +76,21 @@
     <dimen name="px1000">1000px</dimen>
     <dimen name="px1200">1200px</dimen>
     <dimen name="px1400">1400px</dimen>
+
+    <!-- UI 2.0 导航轨（px 缩放体系，随面板收缩） -->
+    <dimen name="rail_width">150px</dimen>
+    <dimen name="rail_item_height">64px</dimen>
+    <dimen name="rail_item_margin_h">10px</dimen>
+    <dimen name="rail_icon_size">40px</dimen>
+    <dimen name="rail_label_size">20px</dimen>
+    <dimen name="rail_label_margin_start">12px</dimen>
+    <dimen name="rail_gap">8px</dimen>
+    <dimen name="rail_brand_size">36px</dimen>
+    <dimen name="rail_brand_text_size">22px</dimen>
+    <dimen name="rail_brand_margin_top">32px</dimen>
+    <dimen name="rail_brand_margin_bottom">20px</dimen>
+    <dimen name="rail_indicator_width">6px</dimen>
+    <dimen name="rail_indicator_height">44px</dimen>
+    <dimen name="rail_avatar_size">56px</dimen>
+    <dimen name="rail_bottom_margin">32px</dimen>
 </resources>
