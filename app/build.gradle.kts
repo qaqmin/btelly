@@ -51,7 +51,7 @@ android {
 
     defaultConfig {
         // 包名/命名空间/安装标识统一为 com.btelly；可用 -PapplicationId=xxx 覆盖共存安装
-        // （注意：从 com.mytvb 旧版升级需先卸载，本地设置不随安装标识保留）
+        // （注意：从旧版升级需先卸载，本地设置不随安装标识保留）
         applicationId = (project.findProperty("applicationId") as? String) ?: "com.btelly"
         minSdk = 23
         targetSdk = 35
