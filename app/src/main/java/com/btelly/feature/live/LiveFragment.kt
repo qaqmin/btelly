@@ -18,6 +18,7 @@ import com.btelly.model.live.LiveAreaCategoryParent
 import com.btelly.core.ui.base.BaseFragment
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.ui.fragment.main.MainTabFocusTarget
+import com.btelly.core.ui.tab.applyChipTabStyle
 import com.btelly.core.ui.tab.enableTouchNavigation
 import com.btelly.core.ui.tab.focusNearestTabTo
 import com.btelly.core.ui.tab.disableAdjacentPagePrefetch
@@ -71,6 +72,7 @@ class LiveFragment : BaseFragment<FragmentLiveBinding>(), MainTabFocusTarget {
         TabLayoutMediator(tabLayout, viewPager) { tab, position ->
             tab.text = adapter.getPageTitle(position)
         }.attach()
+        tabLayout.applyChipTabStyle()
         tabLayout.enableTouchNavigation(
             viewPager = viewPager,
             onNavigateDown = ::focusCurrentPagePrimaryContent,

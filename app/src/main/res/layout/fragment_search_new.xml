@@ -136,20 +136,17 @@
         <com.google.android.material.tabs.TabLayout
             android:id="@+id/tab_search_result"
             android:layout_width="wrap_content"
-            android:layout_height="@dimen/px80"
+            android:layout_height="@dimen/home_tab_height"
             android:layout_marginLeft="@dimen/px30"
             android:layout_marginStart="@dimen/px30"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/button_result_back"
-            app:tabBackground="@android:color/transparent"
-            app:tabIndicator="@drawable/underline"
-            app:tabIndicatorColor="?attr/colorAccent"
-            app:tabIndicatorFullWidth="false"
-            app:tabIndicatorHeight="@dimen/px10"
+            app:tabGravity="center"
+            app:tabIndicator="@null"
+            app:tabMaxWidth="@dimen/home_tab_min_width"
+            app:tabMinWidth="@dimen/home_tab_min_width"
             app:tabMode="scrollable"
-            app:tabRippleColor="?attr/colorControlHighlight"
-            app:tabSelectedTextColor="?android:attr/textColorPrimary"
-            app:tabTextAppearance="@style/SearchPageTabText"/>
+            app:tabTextAppearance="@style/HomeTabChipText"/>
         <androidx.appcompat.widget.LinearLayoutCompat
             android:gravity="center_vertical"
             android:orientation="horizontal"

@@ -37,6 +37,7 @@ import com.btelly.feature.series.SeriesDetailFragment
 import com.btelly.feature.search.view.KeyboardView
 import com.btelly.core.ui.focus.SpatialFocusNavigator
 import com.btelly.core.ui.system.ViewUtils
+import com.btelly.core.ui.tab.applyChipTabStyle
 import com.btelly.core.ui.tab.enableTouchNavigation
 import com.btelly.core.navigation.VideoRouteNavigator
 import com.btelly.core.common.log.AppLog
@@ -299,6 +300,7 @@ class SearchNewFragment :
             tab.text = adapter.getPageTitle(position)
         }
         tabMediator?.attach()
+        binding.tabSearchResult.applyChipTabStyle()
         binding.tabSearchResult.enableTouchNavigation(
             binding.viewPagerResult,
             tabFocusable = true,
@@ -652,6 +654,7 @@ class SearchNewFragment :
             tab.text = adapter.getPageTitle(position)
         }
         tabMediator?.attach()
+        binding.tabSearchResult.applyChipTabStyle()
         binding.tabSearchResult.enableTouchNavigation(
             binding.viewPagerResult,
             tabFocusable = true,

@@ -21,6 +21,7 @@ import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.ui.fragment.main.MainTabFocusTarget
 import com.btelly.feature.settings.SignInFragment
 import com.btelly.core.common.settings.AppSettingsDataStore
+import com.btelly.core.ui.tab.applyChipTabStyle
 import com.btelly.core.ui.tab.enableTouchNavigation
 import com.btelly.core.ui.tab.focusNearestTabTo
 import com.btelly.core.ui.tab.disableAdjacentPagePrefetch
@@ -74,6 +75,7 @@ class MeFragment : BaseFragment<FragmentMeBinding>(), MainTabFocusTarget {
         TabLayoutMediator(tabLayout, viewPager) { tab, position ->
             tab.text = adapter.getPageTitle(position)?.let(::getString).orEmpty()
         }.attach()
+        tabLayout.applyChipTabStyle()
         tabLayout.enableTouchNavigation(
             viewPager = viewPager,
             onNavigateDown = ::focusCurrentPagePrimaryContent,
