@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- B视机 统一空态组件（P2-2）：插画 + 主文案 + 可选操作按钮，全部走主题令牌。
+     用法：<include layout="@layout/view_empty_state" />（不带 id，子 view ID 直接并入父 binding）。
+     约定：empty_state_image 可点（登录引导等场景代码里挂监听）；empty_state_action 默认隐藏，
+     需要重试/操作时代码 setVisibility(VISIBLE)。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/empty_state_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:orientation="vertical">
+
+    <androidx.appcompat.widget.AppCompatImageView
+        android:id="@+id/empty_state_image"
+        android:layout_width="180dp"
+        android:layout_height="112dp"
+        android:contentDescription="@string/empty"
+        app:srcCompat="@drawable/empty" />
+
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/empty_state_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_16"
+        android:gravity="center"
+        android:text="@string/empty"
+        android:textColor="?attr/tvTextSecondary"
+        android:textSize="@dimen/text_body" />
+
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/empty_state_action"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_24"
+        android:background="@drawable/bg_button_accent"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:gravity="center"
+        android:paddingStart="@dimen/space_24"
+        android:paddingTop="@dimen/space_8"
+        android:paddingEnd="@dimen/space_24"
+        android:paddingBottom="@dimen/space_8"
+        android:text="@string/retry"
+        android:textColor="?attr/tvAccentOn"
+        android:textSize="@dimen/text_body"
+        android:visibility="gone" />
+
+</LinearLayout>

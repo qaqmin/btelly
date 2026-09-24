@@ -23,6 +23,7 @@ import com.btelly.core.ui.video.VideoLightCardFactory
 import com.btelly.core.ui.video.VideoCardViews
 import com.btelly.ui.dialog.VideoCardMenuDialog
 import java.util.concurrent.atomic.AtomicInteger
+import com.btelly.core.ui.theme.resolveThemeColor
 
 class VideoAdapter(
     private val displayStyle: DisplayStyle = DisplayStyle.DEFAULT,
@@ -193,7 +194,7 @@ class VideoAdapter(
         private var currentVideo: VideoModel? = null
         private var titleInPlayingMode = false
         private var titleColor = 0
-        private val defaultTitleColor: Int = ContextCompat.getColor(views.root.context, R.color.textColor)
+        private val defaultTitleColor: Int = views.root.context.resolveThemeColor(R.attr.tvTextPrimary)
 
         companion object {
             // 封面的圆角半径来自 dimen，但每个 holder resources 一致，半径也一致；

@@ -7,6 +7,7 @@ import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
 import com.btelly.databinding.CellSettingChoiceBinding
+import com.btelly.core.ui.theme.resolveThemeColor
 
 class SettingSelectionDialogAdapter(
     private val options: List<String>,
@@ -100,7 +101,7 @@ class SettingSelectionDialogAdapter(
             val titleColor = if (isSelected) {
                 ContextCompat.getColor(binding.root.context, R.color.colorAccent)
             } else {
-                ContextCompat.getColor(binding.root.context, R.color.textColor)
+                binding.root.context.resolveThemeColor(R.attr.tvTextPrimary)
             }
             binding.tvTitle.setTextColor(titleColor)
         }

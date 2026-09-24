@@ -169,11 +169,11 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         }
         binding.emptyContainer.visibility = View.GONE
         binding.progressBar.visibility = View.GONE
-        binding.btnRetry.setOnClickListener {
+        binding.emptyStateAction.setOnClickListener {
             currentPage = 1
             loadData()
         }
-        binding.btnRetry.setOnKeyListener { _, keyCode, event ->
+        binding.emptyStateAction.setOnKeyListener { _, keyCode, event ->
             if (event.action == KeyEvent.ACTION_DOWN &&
                 keyCode == KeyEvent.KEYCODE_DPAD_UP
             ) {
@@ -708,10 +708,10 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     private fun showState(message: String, showRetry: Boolean) {
         binding.recyclerView.visibility = View.GONE
         binding.emptyContainer.visibility = View.VISIBLE
-        binding.tvEmpty.text = message
-        binding.btnRetry.visibility = if (showRetry) View.VISIBLE else View.GONE
+        binding.emptyStateTitle.text = message
+        binding.emptyStateAction.visibility = if (showRetry) View.VISIBLE else View.GONE
         if (showRetry) {
-            binding.btnRetry.post { binding.btnRetry.requestFocus() }
+            binding.emptyStateAction.post { binding.emptyStateAction.requestFocus() }
         }
     }
 
@@ -809,8 +809,8 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         if (!isAdded || view == null) {
             return false
         }
-        if (binding.emptyContainer.isVisible && binding.btnRetry.isShown) {
-            val handled = TabContentFocusHelper.requestVisibleFocus(binding.btnRetry)
+        if (binding.emptyContainer.isVisible && binding.emptyStateAction.isShown) {
+            val handled = TabContentFocusHelper.requestVisibleFocus(binding.emptyStateAction)
             return handled
         }
         val itemCount = binding.recyclerView.adapter?.itemCount ?: 0

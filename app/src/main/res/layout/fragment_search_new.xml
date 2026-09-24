@@ -184,23 +184,16 @@
             android:layout_height="0dp"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/tab_search_result"/>
-        <TextView
-            android:id="@+id/text_search_empty"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:background="@drawable/transparent_black_bg"
-            android:gravity="center"
-            android:paddingStart="@dimen/px30"
-            android:paddingTop="@dimen/px20"
-            android:paddingEnd="@dimen/px30"
-            android:paddingBottom="@dimen/px20"
-            android:text="@string/search_empty"
-            android:textColor="?android:attr/textColorPrimary"
-            android:textSize="@dimen/px28"
+        <!-- 统一空态组件（P2-2）：fill 在 viewPager 区域上，代码控制显隐 -->
+        <include
+            android:id="@+id/search_empty_state"
+            layout="@layout/view_empty_state"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
             android:visibility="gone"
             app:layout_constraintBottom_toBottomOf="@+id/view_pager_result"
             app:layout_constraintEnd_toEndOf="@+id/view_pager_result"
             app:layout_constraintStart_toStartOf="@+id/view_pager_result"
-            app:layout_constraintTop_toTopOf="@+id/view_pager_result"/>
+            app:layout_constraintTop_toTopOf="@+id/view_pager_result" />
     </androidx.constraintlayout.widget.ConstraintLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>

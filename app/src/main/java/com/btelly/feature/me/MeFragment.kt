@@ -60,7 +60,7 @@ class MeFragment : BaseFragment<FragmentMeBinding>(), MainTabFocusTarget {
     override fun initView() {
         tabLayout = binding.tabLayout
         viewPager = binding.viewPager
-        binding.rightStateImage.setOnClickListener {
+        binding.emptyStateImage.setOnClickListener {
             if (!viewModel.isLoggedIn.value) {
                 openInHostContainer(SignInFragment.newInstance())
             }
@@ -275,7 +275,7 @@ class MeFragment : BaseFragment<FragmentMeBinding>(), MainTabFocusTarget {
         binding.rightStateContainer.visibility = if (isLoggedIn) View.GONE else View.VISIBLE
         binding.tabLayout.visibility = if (isLoggedIn) View.VISIBLE else View.GONE
         binding.viewPager.visibility = if (isLoggedIn) View.VISIBLE else View.GONE
-        binding.rightStateText.text = getString(R.string.need_sign_in)
+        binding.emptyStateTitle.text = getString(R.string.need_sign_in)
 
         if (isLoggedIn && pendingRefreshAfterLogin) {
             pendingRefreshAfterLogin = false

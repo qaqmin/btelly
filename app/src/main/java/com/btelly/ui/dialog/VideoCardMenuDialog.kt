@@ -31,6 +31,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import com.btelly.core.ui.theme.resolveThemeColor
 
 class VideoCardMenuDialog(
     context: Context,
@@ -528,12 +529,12 @@ class VideoCardMenuDialog(
         if (isFavorited) {
             binding.textFavoriteTitle.text = context.getString(R.string.menu_already_favorited)
             binding.textFavoriteTitle.setTextColor(
-                ContextCompat.getColor(context, R.color.pink)
+                context.resolveThemeColor(R.attr.tvAccent)
             )
         } else {
             binding.textFavoriteTitle.text = context.getString(R.string.menu_favorite)
             binding.textFavoriteTitle.setTextColor(
-                ContextCompat.getColor(context, R.color.textColor)
+                context.resolveThemeColor(R.attr.tvTextPrimary)
             )
         }
     }
@@ -542,13 +543,13 @@ class VideoCardMenuDialog(
         if (isInWatchLater) {
             binding.textWatchLaterTitle.text = context.getString(R.string.menu_already_in_watch_later)
             binding.textWatchLaterTitle.setTextColor(
-                ContextCompat.getColor(context, R.color.pink)
+                context.resolveThemeColor(R.attr.tvAccent)
             )
             binding.textWatchLaterSummary.text = context.getString(R.string.menu_watch_later_added_summary)
         } else {
             binding.textWatchLaterTitle.text = context.getString(R.string.menu_add_watch_later)
             binding.textWatchLaterTitle.setTextColor(
-                ContextCompat.getColor(context, R.color.textColor)
+                context.resolveThemeColor(R.attr.tvTextPrimary)
             )
             binding.textWatchLaterSummary.text = context.getString(R.string.menu_watch_later_summary)
         }

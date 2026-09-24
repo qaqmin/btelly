@@ -22,26 +22,8 @@
         android:orientation="vertical"
         android:visibility="gone">
 
-        <androidx.appcompat.widget.AppCompatTextView
-            android:id="@+id/tv_empty"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:text="@string/empty"
-            android:textColor="?android:attr/textColorSecondary"
-            android:textSize="@dimen/px30" />
-
-        <androidx.appcompat.widget.AppCompatButton
-            android:id="@+id/btn_retry"
-            android:layout_width="wrap_content"
-            android:layout_height="@dimen/px90"
-            android:layout_marginTop="@dimen/px30"
-            android:background="@drawable/button_common"
-            android:paddingStart="@dimen/px50"
-            android:paddingEnd="@dimen/px50"
-            android:text="@string/retry"
-            android:textSize="@dimen/px30"
-            android:visibility="gone" />
+        <!-- 统一空态组件（P2-2）：ID 并入父 binding（emptyStateTitle/emptyStateAction） -->
+        <include layout="@layout/view_empty_state" />
     </LinearLayout>
 
     <ProgressBar

@@ -30,7 +30,7 @@
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/rightStateContainer"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="match_parent"
         android:background="?attr/backgroundColor"
         android:clickable="false"
         android:focusable="false"
@@ -39,27 +39,8 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintBottom_toBottomOf="parent">
-        <androidx.appcompat.widget.AppCompatImageView
-            android:id="@+id/rightStateImage"
-            android:layout_width="@dimen/px400"
-            android:layout_height="@dimen/px250"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintVertical_bias="0.48"
-            app:srcCompat="@drawable/empty" />
 
-        <androidx.appcompat.widget.AppCompatTextView
-            android:id="@+id/rightStateText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/px30"
-            android:text="@string/need_sign_in"
-            android:textColor="?android:attr/textColorPrimary"
-            android:textSize="@dimen/px30"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/rightStateImage" />
+        <!-- 统一空态组件（P2-2）：ID 并入父 binding（emptyStateImage/emptyStateTitle） -->
+        <include layout="@layout/view_empty_state" />
     </androidx.constraintlayout.widget.ConstraintLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>

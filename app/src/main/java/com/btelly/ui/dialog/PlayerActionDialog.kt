@@ -29,6 +29,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import com.btelly.core.ui.theme.resolveThemeColor
 
 class PlayerActionDialog(
     context: Context,
@@ -283,9 +284,8 @@ class PlayerActionDialog(
         binding.buttonTriple.isVisible = true
         val allDone = isLiked && isCoined && isFavorited
         binding.buttonTriple.setTextColor(
-            ContextCompat.getColor(
-                context,
-                if (allDone) R.color.pink else R.color.white
+            context.resolveThemeColor(
+                if (allDone) R.attr.tvAccent else R.attr.tvTextPrimary
             )
         )
     }
@@ -295,9 +295,8 @@ class PlayerActionDialog(
         iconView: androidx.appcompat.widget.AppCompatImageView,
         textView: androidx.appcompat.widget.AppCompatTextView
     ) {
-        val color = ContextCompat.getColor(
-            context,
-            if (enabled) R.color.pink else R.color.textColor
+        val color = context.resolveThemeColor(
+            if (enabled) R.attr.tvAccent else R.attr.tvTextPrimary
         )
         iconView.imageTintList = android.content.res.ColorStateList.valueOf(color)
         textView.setTextColor(color)

@@ -31,6 +31,7 @@ import android.widget.Toast
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.btelly.core.ui.theme.resolveThemeColor
 
 class VideoDetailContentAdapter(
     private val onPlayClick: () -> Unit,
@@ -431,10 +432,10 @@ class VideoDetailContentAdapter(
 
         fun updateActionButtons(isLiked: Boolean, isCoined: Boolean, isFavorited: Boolean) {
             val pink = android.content.res.ColorStateList.valueOf(
-                ContextCompat.getColor(context, R.color.pink)
+                context.resolveThemeColor(R.attr.tvAccent)
             )
             val default = android.content.res.ColorStateList.valueOf(
-                ContextCompat.getColor(context, R.color.textColor)
+                context.resolveThemeColor(R.attr.tvTextPrimary)
             )
             binding.buttonLike.imageTintList = if (isLiked) pink else default
             binding.buttonCoin.imageTintList = if (isCoined) pink else default
