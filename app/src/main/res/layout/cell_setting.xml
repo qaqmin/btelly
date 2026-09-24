@@ -30,7 +30,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="@string/clear_cache"
-            android:textColor="?android:attr/textColorPrimary"
+            android:textColor="?attr/tvTextPrimary"
             android:textSize="@dimen/px36"
             android:textStyle="bold" />
 
@@ -41,7 +41,7 @@
             android:paddingStart="@dimen/px10"
             android:paddingEnd="@dimen/px10"
             android:text="0.0kb"
-            android:textColor="?android:attr/textColorSecondary"
+            android:textColor="?attr/tvTextSecondary"
             android:textSize="@dimen/px30" />
 
         <androidx.appcompat.widget.AppCompatImageView
@@ -49,6 +49,6 @@
             android:layout_width="@dimen/px30"
             android:layout_height="@dimen/px30"
             app:srcCompat="@drawable/ic_arrow_right"
-            app:tint="?android:attr/textColorPrimary" />
+            app:tint="?attr/tvTextTertiary" />
     </androidx.appcompat.widget.LinearLayoutCompat>
 </androidx.appcompat.widget.LinearLayoutCompat>

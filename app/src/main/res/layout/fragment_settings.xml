@@ -17,7 +17,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:srcCompat="@drawable/ic_back"
-        app:tint="?android:attr/textColorPrimary" />
+        app:tint="?attr/tvTextPrimary" />
 
     <androidx.appcompat.widget.AppCompatTextView
         android:id="@+id/tv_title"
@@ -25,7 +25,7 @@
         android:layout_height="wrap_content"
         android:layout_marginStart="@dimen/px24"
         android:layout_marginEnd="@dimen/px40"
-        android:textColor="?android:attr/textColorPrimary"
+        android:textColor="?attr/tvTextPrimary"
         android:textSize="@dimen/px40"
         android:textStyle="bold"
         app:layout_constraintBottom_toBottomOf="@id/button_back"
@@ -64,7 +64,7 @@
                 android:layout_width="@dimen/px50"
                 android:layout_height="@dimen/px50"
                 app:srcCompat="@drawable/ic_setting"
-                app:tint="?android:attr/textColorPrimary"/>
+                app:tint="?attr/tvTextPrimary"/>
             <androidx.appcompat.widget.AppCompatTextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -72,7 +72,7 @@
                 android:layout_marginStart="@dimen/px20"
                 android:layout_weight="1"
                 android:text="@string/common_setting"
-                android:textColor="?android:attr/textColorPrimary"
+                android:textColor="?attr/tvTextPrimary"
                 android:textSize="@dimen/px30"
                 android:textStyle="bold"/>
         </androidx.appcompat.widget.LinearLayoutCompat>
@@ -103,12 +103,12 @@
             android:paddingBottom="@dimen/px20"
             app:layout_constraintEnd_toEndOf="@+id/button_setting_common"
             app:layout_constraintStart_toStartOf="@+id/button_setting_common"
-            app:layout_constraintTop_toBottomOf="@+id/button_setting_common">
+            app:layout_constraintTop_toBottomOf="@+id/button_setting_ui">
             <androidx.appcompat.widget.AppCompatImageView
                 android:layout_width="@dimen/px50"
                 android:layout_height="@dimen/px50"
                 app:srcCompat="@drawable/ic_video_play_count"
-                app:tint="?android:attr/textColorPrimary"/>
+                app:tint="?attr/tvTextPrimary"/>
             <androidx.appcompat.widget.AppCompatTextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -116,7 +116,7 @@
                 android:layout_marginStart="@dimen/px20"
                 android:layout_weight="1"
                 android:text="@string/play_setting"
-                android:textColor="?android:attr/textColorPrimary"
+                android:textColor="?attr/tvTextPrimary"
                 android:textSize="@dimen/px30"
                 android:textStyle="bold"/>
         </androidx.appcompat.widget.LinearLayoutCompat>
@@ -142,7 +142,7 @@
                 android:layout_width="@dimen/px50"
                 android:layout_height="@dimen/px50"
                 app:srcCompat="@drawable/ic_video_danmaku"
-                app:tint="?android:attr/textColorPrimary"/>
+                app:tint="?attr/tvTextPrimary"/>
             <androidx.appcompat.widget.AppCompatTextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -150,7 +150,7 @@
                 android:layout_marginStart="@dimen/px20"
                 android:layout_weight="1"
                 android:text="@string/dm_setting"
-                android:textColor="?android:attr/textColorPrimary"
+                android:textColor="?attr/tvTextPrimary"
                 android:textSize="@dimen/px30"
                 android:textStyle="bold"/>
         </androidx.appcompat.widget.LinearLayoutCompat>
@@ -169,16 +169,15 @@
             android:paddingTop="@dimen/px20"
             android:paddingEnd="@dimen/px30"
             android:paddingBottom="@dimen/px20"
-            android:nextFocusDown="@id/button_setting_device"
-            app:layout_constraintEnd_toEndOf="@+id/button_setting_tv"
-            app:layout_constraintStart_toStartOf="@+id/button_setting_tv"
-            app:layout_constraintTop_toBottomOf="@+id/button_setting_tv">
+            app:layout_constraintEnd_toEndOf="@+id/button_setting_teen"
+            app:layout_constraintStart_toStartOf="@+id/button_setting_teen"
+            app:layout_constraintTop_toBottomOf="@+id/button_setting_teen">
             <androidx.appcompat.widget.AppCompatImageView
                 android:layout_width="@dimen/px50"
                 android:layout_height="@dimen/px50"
                 android:padding="@dimen/px2"
                 app:srcCompat="@drawable/ic_tv"
-                app:tint="?android:attr/textColorPrimary"/>
+                app:tint="?attr/tvTextPrimary"/>
             <androidx.appcompat.widget.AppCompatTextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -186,7 +185,7 @@
                 android:layout_marginStart="@dimen/px20"
                 android:layout_weight="1"
                 android:text="@string/device_info"
-                android:textColor="?android:attr/textColorPrimary"
+                android:textColor="?attr/tvTextPrimary"
                 android:textSize="@dimen/px30"
                 android:textStyle="bold"/>
         </androidx.appcompat.widget.LinearLayoutCompat>
@@ -213,7 +212,7 @@
                 android:layout_width="@dimen/px50"
                 android:layout_height="@dimen/px50"
                 app:srcCompat="@drawable/ic_teen_protection"
-                app:tint="?android:attr/textColorPrimary"/>
+                app:tint="?attr/tvTextPrimary"/>
             <androidx.appcompat.widget.AppCompatTextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -221,14 +220,14 @@
                 android:layout_marginStart="@dimen/px20"
                 android:layout_weight="1"
                 android:text="@string/teen_mode"
-                android:textColor="?android:attr/textColorPrimary"
+                android:textColor="?attr/tvTextPrimary"
                 android:textSize="@dimen/px30"
                 android:textStyle="bold"/>
         </androidx.appcompat.widget.LinearLayoutCompat>
 
-        <!-- 电视直播分类（位于青少年模式与设备信息之间） -->
+        <!-- 界面分类（位于常规与播放之间，P1-4 新增：主题/文字/卡片/显示模式） -->
         <androidx.appcompat.widget.LinearLayoutCompat
-            android:id="@+id/button_setting_tv"
+            android:id="@+id/button_setting_ui"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/px20"
@@ -241,23 +240,22 @@
             android:paddingTop="@dimen/px20"
             android:paddingEnd="@dimen/px30"
             android:paddingBottom="@dimen/px20"
-            app:layout_constraintEnd_toEndOf="@+id/button_setting_teen"
-            app:layout_constraintStart_toStartOf="@+id/button_setting_teen"
-            app:layout_constraintTop_toBottomOf="@+id/button_setting_teen">
+            app:layout_constraintEnd_toEndOf="@+id/button_setting_common"
+            app:layout_constraintStart_toStartOf="@+id/button_setting_common"
+            app:layout_constraintTop_toBottomOf="@+id/button_setting_common">
             <androidx.appcompat.widget.AppCompatImageView
                 android:layout_width="@dimen/px50"
                 android:layout_height="@dimen/px50"
-                android:padding="@dimen/px2"
-                app:srcCompat="@drawable/ic_cctv"
-                app:tint="?android:attr/textColorPrimary"/>
+                app:srcCompat="@drawable/ic_ui_adjust"
+                app:tint="?attr/tvTextPrimary"/>
             <androidx.appcompat.widget.AppCompatTextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginLeft="@dimen/px20"
                 android:layout_marginStart="@dimen/px20"
                 android:layout_weight="1"
-                android:text="电视直播"
-                android:textColor="?android:attr/textColorPrimary"
+                android:text="@string/ui_setting"
+                android:textColor="?attr/tvTextPrimary"
                 android:textSize="@dimen/px30"
                 android:textStyle="bold"/>
         </androidx.appcompat.widget.LinearLayoutCompat>

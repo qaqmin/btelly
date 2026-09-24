@@ -71,7 +71,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         const val CATEGORY_PLAY = 1
         const val CATEGORY_DM = 2
         const val CATEGORY_DEVICE = 3
-        const val CATEGORY_TV = 4
+        const val CATEGORY_UI = 4
         const val CATEGORY_TEEN = 5
 
         private const val DEVICE_POSITION_VERSION = 0
@@ -82,6 +82,16 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val DEVICE_POSITION_CPU_ABI = 5
         private const val DEVICE_POSITION_SCREEN = 6
         private const val DEVICE_POSITION_CODEC = 7
+
+        // 界面分类（P1-4 从通用设置拆出）：主题 / UI文字 / 卡片大小 / 显示模式
+        private const val UI_POSITION_THEME = 0
+        private const val UI_POSITION_TEXT_SCALE = 1
+        private const val UI_POSITION_CARD_SIZE = 2
+        private const val UI_POSITION_DISPLAY_MODE = 3
+
+        // 播放分类尾部（P1-4 电视直播合入）：CCTV 开关 + X5 内核替换
+        private const val PLAYER_POSITION_CCTV = 16
+        private const val PLAYER_POSITION_X5 = 17
 
         private const val KEY_CACHE_LIMIT = "cache_limit"
         private const val KEY_DEFAULT_START_PAGE = "default_start_page"
@@ -128,10 +138,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val KEY_SPONSOR_BLOCK_ENABLED = "sponsor_block_enabled"
         private const val KEY_AUDIO_NORMALIZE = "audio_normalize"
         private const val KEY_SEAMLESS_QUALITY_SWITCH = "seamless_quality_switch"
-        private const val COMMON_POSITION_RISK_CONTROL = 6
-        private const val COMMON_POSITION_UI_TEXT_SIZE = 11
-        private const val COMMON_POSITION_CARD_SIZE = 12
-        private const val COMMON_POSITION_DISPLAY_MODE = 13
+        private const val COMMON_POSITION_RISK_CONTROL = 5
         private val DM_SMART_FILTER_OPTIONS = arrayOf("关", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10")
 
         /**
@@ -149,7 +156,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
     private lateinit var playerSettings: MutableList<SettingModel>
     private lateinit var dmSettings: MutableList<SettingModel>
     private lateinit var teenSettings: MutableList<SettingModel>
-    private lateinit var tvSettings: MutableList<SettingModel>
+    private lateinit var uiSettings: MutableList<SettingModel>
     private val deviceSettings = mutableListOf<SettingModel>()
     private val appSettings: AppSettingsDataStore by inject()
     private val cookieManager: CookieManager by inject()
@@ -214,13 +221,17 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.cache_limit), "200 MB"),
             SettingModel(getString(R.string.default_start_page), "热门"),
             SettingModel(getString(R.string.image_quality), "中尺寸"),
-            SettingModel(getString(R.string.theme), "黑色"),
             SettingModel(getString(R.string.live_entry), "关"),
             SettingModel(getString(R.string.risk_control_verify), "无"),
             SettingModel(getString(R.string.show_video_detail_page), "关"),
             SettingModel(getString(R.string.give_coin_number), "2"),
             SettingModel(getString(R.string.ipv4_only), "开"),
-            SettingModel(getString(R.string.douyin_mode), "关"),
+            SettingModel(getString(R.string.douyin_mode), "关")
+        )
+
+        // 界面分类（P1-4 从通用设置拆出）：主题 / UI文字大小 / 视频卡片大小 / 显示模式
+        uiSettings = mutableListOf(
+            SettingModel(getString(R.string.theme), "黑色"),
             SettingModel(getString(R.string.ui_text_size), "标准"),
             SettingModel(getString(R.string.ui_card_size), "标准"),
             SettingModel(getString(R.string.display_mode), "电视")
@@ -233,12 +244,6 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.rest_time_limit), "不限制"),
             SettingModel(getString(R.string.psas_enabled), "关"),
             SettingModel(getString(R.string.psas_interval), "20分钟")
-        )
-
-        // 电视直播分类：CCTV 直播开关（从通用设置迁移）+ X5 内核替换
-        tvSettings = mutableListOf(
-            SettingModel(getString(R.string.cctv_live), "关"),
-            SettingModel("X5内核替换", "未安装")
         )
 
         playerSettings = mutableListOf(
@@ -257,7 +262,10 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel("空降助手", "关"),
             SettingModel("音量均衡", "关"),
             SettingModel("无缝切换清晰度", "关"),
-            SettingModel("播放器内核", "ExoPlayer")
+            SettingModel("播放器内核", "ExoPlayer"),
+            // 电视直播合入播放分类（P1-4）：CCTV 开关 + X5 内核替换
+            SettingModel(getString(R.string.cctv_live), "关"),
+            SettingModel("X5内核替换", "未安装")
         )
 
         dmSettings = mutableListOf(
@@ -320,7 +328,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         binding.buttonSettingDm.setOnClickListener { showCategory(CATEGORY_DM) }
         binding.buttonSettingTeen.setOnClickListener { showCategory(CATEGORY_TEEN) }
         binding.buttonSettingDevice.setOnClickListener { showCategory(CATEGORY_DEVICE) }
-        binding.buttonSettingTv.setOnClickListener { showCategory(CATEGORY_TV) }
+        binding.buttonSettingUi.setOnClickListener { showCategory(CATEGORY_UI) }
     }
 
     private fun showCategory(category: Int) {
@@ -348,8 +356,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             CATEGORY_DEVICE -> {
                 showListCategory(deviceSettings, animate)
             }
-            CATEGORY_TV -> {
-                showListCategory(tvSettings, animate)
+            CATEGORY_UI -> {
+                showListCategory(uiSettings, animate)
             }
         }
     }
@@ -360,14 +368,14 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         binding.buttonSettingDm.isSelected = category == CATEGORY_DM
         binding.buttonSettingTeen.isSelected = category == CATEGORY_TEEN
         binding.buttonSettingDevice.isSelected = category == CATEGORY_DEVICE
-        binding.buttonSettingTv.isSelected = category == CATEGORY_TV
+        binding.buttonSettingUi.isSelected = category == CATEGORY_UI
         val buttons = listOf(
             binding.buttonSettingCommon,
             binding.buttonSettingPlay,
             binding.buttonSettingDm,
             binding.buttonSettingTeen,
             binding.buttonSettingDevice,
-            binding.buttonSettingTv
+            binding.buttonSettingUi
         )
         buttons.forEach { button ->
             val selected = button.isSelected
@@ -387,21 +395,24 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             CATEGORY_DM -> handleDmSettingClick(position, item)
             CATEGORY_TEEN -> handleTeenSettingClick(position, item)
             CATEGORY_DEVICE -> handleDeviceSettingClick(position)
-            CATEGORY_TV -> handleTvSettingClick(position)
+            CATEGORY_UI -> handleUiSettingClick(position)
         }
     }
 
-    /** 电视直播分类点击处理：CCTV 开关 + X5 内核替换。 */
-    private fun handleTvSettingClick(position: Int) {
+    /**
+     * 界面分类点击处理（P1-4 从通用设置拆出）：主题 / UI文字大小 / 视频卡片大小 / 显示模式。
+     */
+    private fun handleUiSettingClick(position: Int) {
         when (position) {
-            // 0: CCTV 直播开关
-            0 -> toggleSetting(tvSettings, 0, KEY_CCTV_LIVE_ENTRY) { value ->
-                appSettings.putStringAsync(KEY_CCTV_LIVE_ENTRY, value)
-                val activity = activity as? MainActivity
-                activity?.applyCctvLiveEntryVisibility()
-            }
-            // 1: X5 内核替换（华为云下载安装）
-            1 -> startXdDownload()
+            UI_POSITION_THEME -> showCommonChoiceDialog(
+                uiSettings,
+                position,
+                KEY_THEME,
+                resources.getStringArray(R.array.themes).drop(1).toTypedArray()
+            )
+            UI_POSITION_TEXT_SCALE -> showUiTextScaleDialog()
+            UI_POSITION_CARD_SIZE -> showCardSizeChoiceDialog()
+            UI_POSITION_DISPLAY_MODE -> showDisplayModeDialog()
         }
     }
 
@@ -516,10 +527,10 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
 
     /** 更新 X5 设置项的子标题（显示状态/进度）。 */
     private fun updateX5StatusItem(status: String) {
-        tvSettings.getOrNull(1)?.let { item ->
+        playerSettings.getOrNull(PLAYER_POSITION_X5)?.let { item ->
             item.info = status
-            if (view != null && currentCategory == CATEGORY_TV) {
-                binding.recyclerViewSetting.adapter?.notifyItemChanged(1)
+            if (view != null && currentCategory == CATEGORY_PLAY) {
+                binding.recyclerViewSetting.adapter?.notifyItemChanged(PLAYER_POSITION_X5)
             }
         }
     }
@@ -541,22 +552,18 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         when (position) {
             0 -> clearCache()
             1 -> showCacheLimitDialog()
-            2 -> showCommonChoiceDialog(position, KEY_DEFAULT_START_PAGE, HOME_START_PAGE_OPTIONS)
-            3 -> showCommonChoiceDialog(position, KEY_IMAGE_QUALITY, arrayOf("低尺寸", "中尺寸", "高尺寸"))
-            4 -> showCommonChoiceDialog(position, KEY_THEME, resources.getStringArray(R.array.themes).drop(1).toTypedArray())
-            5 -> toggleSetting(commonSettings, 5, KEY_LIVE_ENTRY) { value ->
+            2 -> showCommonChoiceDialog(commonSettings, position, KEY_DEFAULT_START_PAGE, HOME_START_PAGE_OPTIONS)
+            3 -> showCommonChoiceDialog(commonSettings, position, KEY_IMAGE_QUALITY, arrayOf("低尺寸", "中尺寸", "高尺寸"))
+            4 -> toggleSetting(commonSettings, 4, KEY_LIVE_ENTRY) { value ->
                 appSettings.putStringAsync(KEY_LIVE_ENTRY, value)
                 val activity = activity as? MainActivity
                 activity?.applyLiveEntryVisibility()
             }
-            6 -> showRiskControlDialog()
-            7 -> toggleSetting(commonSettings, 7, KEY_SHOW_VIDEO_DETAIL)
-            8 -> showCommonChoiceDialog(position, KEY_GIVE_COIN_NUMBER, arrayOf("1", "2"))
-            9 -> toggleSetting(commonSettings, 9, KEY_IPV4_ONLY)
-            10 -> toggleSetting(commonSettings, 10, KEY_DOUYIN_MODE)
-            COMMON_POSITION_UI_TEXT_SIZE -> showUiTextScaleDialog()
-            COMMON_POSITION_CARD_SIZE -> showCardSizeChoiceDialog()
-            COMMON_POSITION_DISPLAY_MODE -> showDisplayModeDialog()
+            5 -> showRiskControlDialog()
+            6 -> toggleSetting(commonSettings, 6, KEY_SHOW_VIDEO_DETAIL)
+            7 -> showCommonChoiceDialog(commonSettings, position, KEY_GIVE_COIN_NUMBER, arrayOf("1", "2"))
+            8 -> toggleSetting(commonSettings, 8, KEY_IPV4_ONLY)
+            9 -> toggleSetting(commonSettings, 9, KEY_DOUYIN_MODE)
             commonSettings.lastIndex - 1 -> {
                 val newValue = if (AppLog.isEnabled) "关" else "开"
                 AppLog.setEnabled(newValue == "开")
@@ -594,6 +601,13 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
                 com.btelly.feature.player.engine.PlayerEngineKind.KEY_PLAYER_ENGINE,
                 arrayOf("ExoPlayer", "IjkPlayer")
             )
+            // 电视直播合入播放分类（P1-4）
+            PLAYER_POSITION_CCTV -> toggleSetting(playerSettings, PLAYER_POSITION_CCTV, KEY_CCTV_LIVE_ENTRY) { value ->
+                appSettings.putStringAsync(KEY_CCTV_LIVE_ENTRY, value)
+                val activity = activity as? MainActivity
+                activity?.applyCctvLiveEntryVisibility()
+            }
+            PLAYER_POSITION_X5 -> startXdDownload()
         }
     }
 
@@ -1099,31 +1113,34 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             commonSettings[2].info = HOME_START_PAGE_OPTIONS.first()
         }
         applySavedValue(commonSettings, 3, KEY_IMAGE_QUALITY)
-        val theme = appSettings.getCachedInt("theme", 1)
-        commonSettings[4].info = theme.toThemeName()
-        applySavedValue(commonSettings, 5, KEY_LIVE_ENTRY)
+        // 常规分类：直播入口(4) / 风控(5, updateRiskControlStatus) / 详情页(6) / 投币(7) / IPv4(8) / 抖音(9)
+        applySavedValue(commonSettings, 4, KEY_LIVE_ENTRY)
         updateRiskControlStatus()
-        applySavedValue(commonSettings, 7, KEY_SHOW_VIDEO_DETAIL)
-        applySavedValue(commonSettings, 8, KEY_GIVE_COIN_NUMBER)
-        applySavedValue(commonSettings, 9, KEY_IPV4_ONLY)
-        applySavedValue(commonSettings, 10, KEY_DOUYIN_MODE)
-        commonSettings[COMMON_POSITION_UI_TEXT_SIZE].info = UiTextScale.nameOf(
+        applySavedValue(commonSettings, 6, KEY_SHOW_VIDEO_DETAIL)
+        applySavedValue(commonSettings, 7, KEY_GIVE_COIN_NUMBER)
+        applySavedValue(commonSettings, 8, KEY_IPV4_ONLY)
+        applySavedValue(commonSettings, 9, KEY_DOUYIN_MODE)
+
+        // 界面分类（P1-4）：主题 / 文字 / 卡片 / 显示模式
+        uiSettings[UI_POSITION_THEME].info =
+            appSettings.getCachedInt("theme", 1).toThemeName()
+        uiSettings[UI_POSITION_TEXT_SCALE].info = UiTextScale.nameOf(
             appSettings.getCachedString(UiTextScale.KEY_UI_TEXT_SCALE)?.toIntOrNull()
                 ?: UiTextScale.DEFAULT_PERCENT
         )
-        commonSettings[COMMON_POSITION_CARD_SIZE].info = UiCardSize.nameOf(
+        uiSettings[UI_POSITION_CARD_SIZE].info = UiCardSize.nameOf(
             appSettings.getCachedString(UiCardSize.KEY_UI_CARD_SIZE)?.toIntOrNull() ?: 0
         )
-        commonSettings[COMMON_POSITION_DISPLAY_MODE].info = displayModeName(
+        uiSettings[UI_POSITION_DISPLAY_MODE].info = displayModeName(
             appSettings.getCachedInt(UiDisplayMode.KEY_DISPLAY_MODE, UiDisplayMode.MODE_TV)
         )
 
-        // 青少年模式分类：保护开关（从通用设置迁移）+ 观看时长 + 休息时长
+        // 青少年模式分类：保护开关 + 观看时长 + 休息时长
         applySavedValue(teenSettings, 0, KEY_MINOR_PROTECTION)
         restoreTeenTimeLimits()
 
-        // 电视直播分类：CCTV 开关（从通用设置迁移过来）
-        applySavedValue(tvSettings, 0, KEY_CCTV_LIVE_ENTRY)
+        // 播放分类尾部：CCTV 开关（电视直播合入）+ X5 状态
+        applySavedValue(playerSettings, PLAYER_POSITION_CCTV, KEY_CCTV_LIVE_ENTRY)
         updateX5Status()
 
         applySavedValue(playerSettings, 0, KEY_DEFAULT_VIDEO_QUALITY)
@@ -1179,9 +1196,14 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         }
     }
 
-    private fun showCommonChoiceDialog(position: Int, key: String, options: Array<String>) {
-        showChoiceDialog(commonSettings[position].title, commonSettings[position].info, options) { value ->
-            updateSetting(commonSettings, position, value)
+    private fun showCommonChoiceDialog(
+        target: MutableList<SettingModel>,
+        position: Int,
+        key: String,
+        options: Array<String>
+    ) {
+        showChoiceDialog(target[position].title, target[position].info, options) { value ->
+            updateSetting(target, position, value)
             appSettings.putStringAsync(key, value)
             when (key) {
                 KEY_DEFAULT_START_PAGE -> {
@@ -1238,7 +1260,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
 
         val titleView = dialog.findViewById<TextView>(R.id.top_title)
         val recyclerView = dialog.findViewById<RecyclerView>(R.id.recyclerView)
-        titleView?.text = commonSettings[COMMON_POSITION_UI_TEXT_SIZE].title
+        titleView?.text = uiSettings[UI_POSITION_TEXT_SCALE].title
 
         // 预览文字按选中档位精确渲染：豁免 UI 缩放，由这里全权控制字号
         val preview = dialog.findViewById<TextView>(R.id.preview_text)
@@ -1263,7 +1285,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             onFocused = applyPreview
         ) { index ->
             val percent = percents[index]
-            updateSetting(commonSettings, COMMON_POSITION_UI_TEXT_SIZE, options[index])
+            updateSetting(uiSettings, UI_POSITION_TEXT_SCALE, options[index])
             appSettings.putStringAsync(UiTextScale.KEY_UI_TEXT_SCALE, percent.toString())
             activity?.recreate()
             dialog.dismiss()
@@ -1297,12 +1319,12 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         val savedOffset = appSettings.getCachedString(UiCardSize.KEY_UI_CARD_SIZE)
             ?.toIntOrNull() ?: 0
         showChoiceDialog(
-            commonSettings[COMMON_POSITION_CARD_SIZE].title,
+            uiSettings[UI_POSITION_CARD_SIZE].title,
             UiCardSize.nameOf(savedOffset),
             UiCardSize.NAMES
         ) { value ->
             val offset = UiCardSize.offsetAt(UiCardSize.NAMES.indexOf(value))
-            updateSetting(commonSettings, COMMON_POSITION_CARD_SIZE, value)
+            updateSetting(uiSettings, UI_POSITION_CARD_SIZE, value)
             appSettings.putStringAsync(UiCardSize.KEY_UI_CARD_SIZE, offset.toString())
             activity?.recreate()
         }
@@ -1312,7 +1334,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
     private fun showDisplayModeDialog() {
         val saved = appSettings.getCachedInt(UiDisplayMode.KEY_DISPLAY_MODE, UiDisplayMode.MODE_TV)
         showChoiceDialog(
-            commonSettings[COMMON_POSITION_DISPLAY_MODE].title,
+            uiSettings[UI_POSITION_DISPLAY_MODE].title,
             displayModeName(saved),
             DISPLAY_MODE_OPTIONS
         ) { value ->
@@ -1321,7 +1343,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             } else {
                 UiDisplayMode.MODE_TV
             }
-            updateSetting(commonSettings, COMMON_POSITION_DISPLAY_MODE, value)
+            updateSetting(uiSettings, UI_POSITION_DISPLAY_MODE, value)
             appSettings.putIntAsync(UiDisplayMode.KEY_DISPLAY_MODE, mode)
             activity?.recreate()
         }
@@ -1463,7 +1485,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             CATEGORY_PLAY -> target === playerSettings
             CATEGORY_DM -> target === dmSettings
             CATEGORY_TEEN -> target === teenSettings
-            CATEGORY_TV -> target === tvSettings
+            CATEGORY_UI -> target === uiSettings
             else -> false
         }
     }

@@ -58,7 +58,7 @@
     <string name="collection">收藏</string>
     <string name="collection_">已收藏</string>
     <string name="common_open_on_phone">Open on phone</string>
-    <string name="common_setting">通用设置</string>
+    <string name="common_setting">常规</string>
     <string name="confirm">确认</string>
     <string name="continue_watch">继续观看</string>
     <string name="dance">舞蹈</string>
@@ -67,7 +67,7 @@
     <string name="default_play_speed">默认播放速度</string>
     <string name="default_start_page">默认启动页面</string>
     <string name="default_video_quality">默认画质</string>
-    <string name="device_info">设备信息</string>
+    <string name="device_info">关于本机</string>
     <string name="dm_allow_bottom">允许底部悬停弹幕</string>
     <string name="dm_allow_top">允许顶部悬停弹幕</string>
     <string name="dm_alpha">弹幕透明度</string>
@@ -75,7 +75,7 @@
     <string name="dm_merge_duplicate">重复弹幕合并</string>
     <string name="dm_smart_shield">智能防挡（低性能设备不建议开启）</string>
     <string name="dm_screen_area">弹幕占屏比</string>
-    <string name="dm_setting">弹幕设置</string>
+    <string name="dm_setting">弹幕</string>
     <string name="dm_speed">弹幕速度</string>
     <string name="dm_switch">弹幕开关</string>
     <string name="dm_track_spacing">弹幕间距</string>
@@ -193,6 +193,7 @@
     <string name="cctv_quality">画质</string>
     <string name="minor_protection">青少年保护</string>
     <string name="teen_mode">青少年模式</string>
+    <string name="ui_setting">界面</string>
     <string name="watch_time_limit">单次观看时长</string>
     <string name="rest_time_limit">休息时长</string>
     <string name="psas_enabled">开启公益广告</string>
@@ -340,7 +341,7 @@
     <string name="play_finish_exit_player">都播完后退出播放器</string>
     <string name="play_order">播放顺序</string>
     <string name="play_pause">播放/暂停</string>
-    <string name="play_setting">播放设置</string>
+    <string name="play_setting">播放</string>
     <string name="positive_sequence">正序</string>
     <string name="previous_ep">上一集</string>
     <string name="pub_to_">更新到%s</string>
