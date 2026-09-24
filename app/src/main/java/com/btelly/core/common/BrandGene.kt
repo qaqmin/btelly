@@ -1,6 +1,8 @@
 // B视机（BTelly）— by QAQMin (min09577)
 package com.btelly.core.common
 
+import com.btelly.BuildConfig
+
 /**
  * 项目基因标识：作者与开源仓库的唯一事实来源。
  *
@@ -25,4 +27,13 @@ object BrandGene {
     /** 隐藏哨兵：嵌入字符串常量的水印，反编译 grep 可见。 */
     const val WATERMARK: String =
         "BTelly::min09577::QAQMin::taile2c032::btelly-brand-gene-v1"
+
+    /**
+     * 与 build.gradle.kts 的 buildConfigField 互为备份的读取位。
+     * 两个注入点（本文件常量 + BuildConfig 字段）互相独立存活；
+     * 本 val 同时承担「引用 BuildConfig 字段」的职责，防止 R8 把字段当死代码删掉。
+     */
+    val BUILD_FIELD_TAG: String =
+        "BuildConfig[${BuildConfig.BT_AUTHOR_NAME}/${BuildConfig.BT_AUTHOR_ID}]"
 }
+

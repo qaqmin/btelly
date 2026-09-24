@@ -69,8 +69,12 @@ object AppLog {
         isEnabled = prefs.getBoolean(KEY_ENABLED, false)
         crashLogFile = File(context.filesDir, CRASH_LOG_FILE)
         installCrashHandler()
-        // 基因哨兵：运行期日志横幅（logcat 可见，反编译可查），不随改名/重构消失
-        Log.i("BrandGene", BrandGene.SIGNATURE + " | " + BrandGene.WATERMARK)
+        // 基因哨兵：运行期日志横幅（logcat 可见，反编译可查），不随改名/重构消失。
+        // 注意：release 的 proguard 规则剥掉了 Log.v/d/i，这里必须用未声明的 Log.w 才能活过 R8。
+        Log.w(
+            "BrandGene",
+            "${BrandGene.SIGNATURE} | ${BrandGene.WATERMARK} | ${BrandGene.BUILD_FIELD_TAG}"
+        )
     }
 
     fun setEnabled(enabled: Boolean) {
