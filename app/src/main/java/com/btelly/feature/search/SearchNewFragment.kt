@@ -111,8 +111,7 @@ class SearchNewFragment :
         searchOpenStartMs = PagePerfLogger.now()
         PagePerfLogger.markNow("Search", "initView_start")
         // 统一空态组件（P2-2）：include 带 id 时子 view 不进 binding，文案用搜索专用句
-        binding.searchEmptyState.findViewById<android.widget.TextView>(R.id.empty_state_title)
-            ?.setText(R.string.search_empty)
+        binding.searchEmptyState.emptyStateTitle.setText(R.string.search_empty)
         historyStore = SearchHistoryStore(requireContext())
         focusCoordinator = SearchFocusCoordinator(
             searchPanelRoots = {
@@ -413,7 +412,7 @@ class SearchNewFragment :
             adapter.setPages(emptyList())
             binding.tabSearchResult.isVisible = false
             binding.viewPagerResult.isVisible = false
-            binding.searchEmptyState.isVisible = true
+            binding.searchEmptyState.root.isVisible = true
             return
         }
 
@@ -478,7 +477,7 @@ class SearchNewFragment :
         binding.viewKeyboard.isVisible = false
         binding.recyclerViewCenter.isVisible = false
         binding.recyclerViewEnd.isVisible = false
-        binding.searchEmptyState.isVisible = false
+        binding.searchEmptyState.root.isVisible = false
     }
 
     private fun showSearchPanel() {
@@ -487,7 +486,7 @@ class SearchNewFragment :
         binding.layoutSearchInput.isVisible = true
         binding.viewKeyboard.isVisible = true
         binding.recyclerViewEnd.isVisible = true
-        binding.searchEmptyState.isVisible = false
+        binding.searchEmptyState.root.isVisible = false
         handleInputChanged(binding.editText.text?.toString().orEmpty(), requestSuggest = true)
         syncCenterColumn()
         binding.viewKeyboard.postDelayed({
@@ -671,7 +670,7 @@ class SearchNewFragment :
         binding.tabSearchResult.isVisible = hasCategories
         binding.viewPagerResult.isVisible = hasCategories
         val searchCompleted = viewModel.searchOverview.value != null
-        binding.searchEmptyState.isVisible = !hasCategories && searchCompleted
+        binding.searchEmptyState.root.isVisible = !hasCategories && searchCompleted
         PagePerfLogger.mark(
             "Search",
             "categories_applied",

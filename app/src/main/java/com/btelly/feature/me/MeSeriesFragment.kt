@@ -91,8 +91,8 @@ class MeSeriesFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage {
         binding.recyclerView.setHasFixedSize(true)
         binding.emptyContainer.visibility = View.GONE
         binding.progressBar.visibility = View.GONE
-        binding.btnRetry.setOnClickListener { refresh() }
-        binding.btnRetry.setOnKeyListener { _, keyCode, event ->
+        binding.emptyStateAction.setOnClickListener { refresh() }
+        binding.emptyStateAction.setOnKeyListener { _, keyCode, event ->
             if (event.action == KeyEvent.ACTION_DOWN &&
                 keyCode == KeyEvent.KEYCODE_DPAD_UP
             ) {
@@ -220,10 +220,10 @@ class MeSeriesFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage {
         binding.progressBar.visibility = View.GONE
         binding.recyclerView.visibility = View.GONE
         binding.emptyContainer.visibility = View.VISIBLE
-        binding.tvEmpty.text = message
-        binding.btnRetry.visibility = if (retryVisible) View.VISIBLE else View.GONE
+        binding.emptyStateTitle.text = message
+        binding.emptyStateAction.visibility = if (retryVisible) View.VISIBLE else View.GONE
         if (retryVisible) {
-            binding.btnRetry.post { binding.btnRetry.requestFocus() }
+            binding.emptyStateAction.post { binding.emptyStateAction.requestFocus() }
         }
     }
 
@@ -277,8 +277,8 @@ class MeSeriesFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage {
         if (!isAdded || view == null) {
             return false
         }
-        if (binding.emptyContainer.visibility == View.VISIBLE && binding.btnRetry.isShown) {
-            val handled = TabContentFocusHelper.requestVisibleFocus(binding.btnRetry)
+        if (binding.emptyContainer.visibility == View.VISIBLE && binding.emptyStateAction.isShown) {
+            val handled = TabContentFocusHelper.requestVisibleFocus(binding.emptyStateAction)
             return handled
         }
         if (adapter.itemCount == 0) {

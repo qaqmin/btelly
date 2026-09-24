@@ -1,8 +1,8 @@
-import com.btelly.core.ui.theme.resolveThemeColor
 // B视机（BTelly）— by QAQMin (min09577)
 package com.btelly.feature.settings
 
 import com.btelly.core.common.format.NumberUtils
+import com.btelly.core.ui.theme.resolveThemeColor
 import android.app.Activity
 import android.content.Intent
 import android.os.Build
