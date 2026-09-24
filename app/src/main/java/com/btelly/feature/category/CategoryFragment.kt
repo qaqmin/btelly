@@ -57,6 +57,7 @@ class CategoryFragment : BaseFragment<FragmentCategoryBinding>(), MainTabFocusTa
         TabLayoutMediator(tabLayout, viewPager) { tab, position ->
             tab.text = adapter.getPageTitle(position)
         }.attach()
+        applyChipTabs()
         tabLayout.enableTouchNavigation(
             viewPager = viewPager,
             onNavigateDown = ::focusCurrentPagePrimaryContent,
@@ -80,6 +81,35 @@ class CategoryFragment : BaseFragment<FragmentCategoryBinding>(), MainTabFocusTa
         }.also { viewPager.registerOnPageChangeCallback(it) }
 
         initCategories()
+    }
+
+    /**
+     * tab chip 化（P1-5，与首页同语言）：
+     * - 文字色走主题令牌（color selector 不支持 ?attr，需代码 setTabTextColors）；
+     * - chip 背景必须设在 tab view 自己身上：app:tabBackground 会被 Material 收进
+     *   baseBackgroundDrawable 由 TabLayout.onDraw 手绘，该管线在真机上失焦/切换选中后
+     *   不刷新（当贝 H5/Android 12 实测 chip 残留高亮）；普通 view 背景走平台标准 state
+     *   管线才可靠。TabLayout 无 tabMargin 属性，逐个 tab view 补 marginStart。
+     */
+    private fun applyChipTabs() {
+        tabLayout.setTabTextColors(
+            resolveThemeColor(R.attr.tvTextSecondary),
+            resolveThemeColor(R.attr.tvAccent)
+        )
+        val tabMargin = resources.getDimensionPixelSize(R.dimen.home_tab_margin)
+        for (i in 0 until tabLayout.tabCount) {
+            val tabView = tabLayout.getTabAt(i)?.view ?: continue
+            tabView.setBackgroundResource(R.drawable.bg_chip)
+            (tabView.layoutParams as? ViewGroup.MarginLayoutParams)?.let { lp ->
+                lp.marginStart = if (i == 0) 0 else tabMargin
+                tabView.layoutParams = lp
+            }
+        }
+    }
+
+    private fun resolveThemeColor(attr: Int): Int {
+        val typed = android.util.TypedValue()
+        return if (requireContext().theme.resolveAttribute(attr, typed, true)) typed.data else 0
     }
 
     private fun initCategories() {
