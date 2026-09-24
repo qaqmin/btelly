@@ -4,12 +4,27 @@
     android:layout_height="match_parent">
     <com.btelly.core.ui.focus.VerticalFocusLockRecyclerView
         android:id="@+id/recyclerViewLeft"
-        android:background="?attr/subBackgroundColor"
+        android:clipToPadding="false"
+        android:paddingStart="@dimen/px8"
+        android:paddingTop="@dimen/px12"
+        android:paddingEnd="@dimen/px2"
+        android:paddingBottom="@dimen/px12"
         android:layout_width="0dp"
         android:layout_height="match_parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toStartOf="@+id/recyclerViewRight"
+        app:layout_constraintEnd_toStartOf="@+id/divider_dynamic"
         app:layout_constraintWidth_percent="0.18"/>
+
+    <!-- 左右栏发丝线分隔（P1-5）：替代旧左栏整块底色，跟随主题 -->
+    <View
+        android:id="@+id/divider_dynamic"
+        android:layout_width="1dp"
+        android:layout_height="match_parent"
+        android:layout_marginTop="@dimen/px30"
+        android:layout_marginBottom="@dimen/px30"
+        android:background="?attr/tvDivider"
+        app:layout_constraintStart_toEndOf="@+id/recyclerViewLeft"
+        app:layout_constraintTop_toTopOf="parent"/>
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerViewRight"
         android:paddingLeft="@dimen/px20"
@@ -22,7 +37,7 @@
         android:layout_height="match_parent"
         android:paddingStart="@dimen/px20"
         android:paddingEnd="@dimen/px20"
-        app:layout_constraintStart_toEndOf="@+id/recyclerViewLeft"
+        app:layout_constraintStart_toEndOf="@+id/divider_dynamic"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintWidth_percent="0.82"/>
+        app:layout_constraintWidth_percent="0.81"/>
 </androidx.constraintlayout.widget.ConstraintLayout>

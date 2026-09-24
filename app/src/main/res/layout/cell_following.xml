@@ -1,29 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 动态页关注 UP 行（P1-5 令牌化）：圆角卡片焦点语言（bg_following_item），
+     指示条/文字走主题令牌；选中态由代码 setSelected 驱动指示条显隐（见 DynamicUpAdapter）。 -->
 <androidx.appcompat.widget.LinearLayoutCompat xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/click_view"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/list_background"
+    android:layout_marginStart="@dimen/px10"
+    android:layout_marginEnd="@dimen/px6"
+    android:background="@drawable/bg_following_item"
     android:clickable="true"
     android:focusable="true"
     android:gravity="center_vertical"
-    android:orientation="horizontal">
+    android:orientation="horizontal"
+    android:paddingStart="@dimen/px12"
+    android:paddingTop="@dimen/px10"
+    android:paddingEnd="@dimen/px12"
+    android:paddingBottom="@dimen/px10">
 
     <View
         android:id="@+id/indicator"
-        android:layout_width="@dimen/px7"
-        android:layout_height="@dimen/px80"
-        android:background="?attr/colorAccent" />
+        android:layout_width="@dimen/px6"
+        android:layout_height="@dimen/px44"
+        android:layout_marginEnd="@dimen/px10"
+        android:background="?attr/tvAccent" />
 
     <com.btelly.core.ui.image.AvatarBadgeView
         android:id="@+id/image_avatar"
         android:layout_width="@dimen/px50"
         android:layout_height="@dimen/px50"
-        android:layout_marginStart="@dimen/px13"
-        android:layout_marginTop="@dimen/px15"
-        android:layout_marginBottom="@dimen/px15"
+        android:layout_marginStart="@dimen/px4"
         app:srcCompat="@drawable/default_avatar" />
 
     <androidx.appcompat.widget.AppCompatTextView
@@ -31,11 +38,11 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="@dimen/px15"
-        android:layout_marginEnd="@dimen/px20"
+        android:layout_marginEnd="@dimen/px8"
         android:layout_weight="1"
         android:ellipsize="marquee"
         android:singleLine="true"
-        android:textColor="?android:attr/textColorPrimary"
+        android:textColor="?attr/tvTextPrimary"
         android:textSize="@dimen/px29"
         android:textStyle="bold"
         tools:text="用户昵称" />
