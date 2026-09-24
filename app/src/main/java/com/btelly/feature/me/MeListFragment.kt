@@ -169,11 +169,11 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         }
         binding.emptyContainer.visibility = View.GONE
         binding.progressBar.visibility = View.GONE
-        binding.emptyStateAction.setOnClickListener {
+        binding.listEmptyState.emptyStateAction.setOnClickListener {
             currentPage = 1
             loadData()
         }
-        binding.emptyStateAction.setOnKeyListener { _, keyCode, event ->
+        binding.listEmptyState.emptyStateAction.setOnKeyListener { _, keyCode, event ->
             if (event.action == KeyEvent.ACTION_DOWN &&
                 keyCode == KeyEvent.KEYCODE_DPAD_UP
             ) {
@@ -708,10 +708,10 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     private fun showState(message: String, showRetry: Boolean) {
         binding.recyclerView.visibility = View.GONE
         binding.emptyContainer.visibility = View.VISIBLE
-        binding.emptyStateTitle.text = message
-        binding.emptyStateAction.visibility = if (showRetry) View.VISIBLE else View.GONE
+        binding.listEmptyState.emptyStateTitle.text = message
+        binding.listEmptyState.emptyStateAction.visibility = if (showRetry) View.VISIBLE else View.GONE
         if (showRetry) {
-            binding.emptyStateAction.post { binding.emptyStateAction.requestFocus() }
+            binding.listEmptyState.emptyStateAction.post { binding.listEmptyState.emptyStateAction.requestFocus() }
         }
     }
 
@@ -809,8 +809,8 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         if (!isAdded || view == null) {
             return false
         }
-        if (binding.emptyContainer.isVisible && binding.emptyStateAction.isShown) {
-            val handled = TabContentFocusHelper.requestVisibleFocus(binding.emptyStateAction)
+        if (binding.emptyContainer.isVisible && binding.listEmptyState.emptyStateAction.isShown) {
+            val handled = TabContentFocusHelper.requestVisibleFocus(binding.listEmptyState.emptyStateAction)
             return handled
         }
         val itemCount = binding.recyclerView.adapter?.itemCount ?: 0

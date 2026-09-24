@@ -40,7 +40,11 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintBottom_toBottomOf="parent">
 
-        <!-- 统一空态组件（P2-2）：ID 并入父 binding（emptyStateImage/emptyStateTitle） -->
-        <include layout="@layout/view_empty_state" />
+        <!-- 统一空态组件（P2-2）：binding.meEmptyState（binding 对象模式，见 cell_user_space_header 先例） -->
+        <include
+            android:id="@+id/me_empty_state"
+            layout="@layout/view_empty_state"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
     </androidx.constraintlayout.widget.ConstraintLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- B视机 统一空态组件（P2-2）：插画 + 主文案 + 可选操作按钮，全部走主题令牌。
-     用法：<include layout="@layout/view_empty_state" />（不带 id，子 view ID 直接并入父 binding）。
+     用法：<include android:id="@+id/xxx" layout="@layout/view_empty_state" />，
+     代码经 binding.xxx.emptyStateTitle/emptyStateImage/emptyStateAction 访问（binding 对象模式）。
      约定：empty_state_image 可点（登录引导等场景代码里挂监听）；empty_state_action 默认隐藏，
      需要重试/操作时代码 setVisibility(VISIBLE)。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
