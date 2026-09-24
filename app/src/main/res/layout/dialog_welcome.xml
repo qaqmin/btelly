@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.appcompat.widget.LinearLayoutCompat xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/dialog_background"
+    android:gravity="center_horizontal"
+    android:orientation="vertical"
+    android:paddingStart="@dimen/space_32"
+    android:paddingTop="@dimen/space_32"
+    android:paddingEnd="@dimen/space_32"
+    android:paddingBottom="@dimen/space_32">
+
+    <androidx.appcompat.widget.AppCompatImageView
+        android:id="@+id/image_brand"
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:contentDescription="@string/welcome_title"
+        android:src="@drawable/ic_brand_btelly" />
+
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/text_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_16"
+        android:text="@string/welcome_title"
+        android:textColor="?attr/tvTextPrimary"
+        android:textSize="@dimen/text_display"
+        android:textStyle="bold" />
+
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/text_slogan"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_4"
+        android:text="@string/welcome_slogan"
+        android:textColor="?attr/tvAccent"
+        android:textSize="@dimen/text_label" />
+
+    <View
+        android:id="@+id/divider"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="@dimen/space_20"
+        android:background="?attr/tvDivider" />
+
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/text_disclaimer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_20"
+        android:lineSpacingMultiplier="1.4"
+        android:text="@string/welcome_disclaimer"
+        android:textColor="?attr/tvTextSecondary"
+        android:textSize="@dimen/text_body" />
+
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/text_repo"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_16"
+        android:lineSpacingMultiplier="1.3"
+        android:text="@string/welcome_repo"
+        android:textColor="?attr/tvAccent"
+        android:textSize="@dimen/text_body" />
+
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/text_credit"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_8"
+        android:text="@string/welcome_credit"
+        android:textColor="?attr/tvTextTertiary"
+        android:textSize="@dimen/text_caption" />
+
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/button_confirm"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_24"
+        android:background="@drawable/bg_button_accent"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:gravity="center"
+        android:paddingStart="@dimen/space_40"
+        android:paddingTop="@dimen/space_12"
+        android:paddingEnd="@dimen/space_40"
+        android:paddingBottom="@dimen/space_12"
+        android:text="@string/welcome_start"
+        android:textColor="?attr/tvAccentOn"
+        android:textSize="@dimen/text_title"
+        android:textStyle="bold" />
+
+</androidx.appcompat.widget.LinearLayoutCompat>

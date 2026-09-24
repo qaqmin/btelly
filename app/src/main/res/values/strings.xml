@@ -18,8 +18,12 @@
     <string name="follower_count_">%d\n粉丝</string>
     <string name="following_count_">%d\n关注</string>
     <string name="app_exit">再按一次返回退出应用</string>
-    <string name="usage_tip_title">使用提示</string>
-    <string name="usage_tip_content">1. 本应用仅供学习研究使用，请勿用于商业用途，避免侵犯哔哩哔哩相关权益。&lt;br&gt;&lt;br&gt;2. 应用支持直播入口和青少年模式，均可在设置中开启或关闭。&lt;br&gt;&lt;br&gt;3. 青少年模式关闭方法：&lt;b&gt;&lt;font color=\"#e74c3c\"&gt;遥控器依次按「上上下下左右左右」；触摸屏连续快速点击验证码区域 7 次即可通过验证。&lt;/font&gt;&lt;/b&gt;&lt;br&gt;&lt;br&gt;4. 长按视频卡片可进行「稍后再看」等更多操作。</string>
+    <string name="welcome_title">欢迎使用 B视机</string>
+    <string name="welcome_slogan">把 B 站搬上电视</string>
+    <string name="welcome_disclaimer">本应用仅供学习交流与技术研究使用。项目不存储、不上传任何视频内容，所有画面与信息版权归 Bilibili 及原创作者所有；登录凭据仅保存在本机。</string>
+    <string name="welcome_repo">项目开源，欢迎来访：\n%1$s</string>
+    <string name="welcome_credit">by %1$s（%2$s）</string>
+    <string name="welcome_start">开始使用</string>
     <string name="app_name">B视机</string>
     <string name="appbar_scrolling_view_behavior">com.google.android.material.appbar.AppBarLayout$ScrollingViewBehavior</string>
     <string name="audioTrack">音轨</string>
@@ -56,7 +60,6 @@
     <string name="common_open_on_phone">Open on phone</string>
     <string name="common_setting">通用设置</string>
     <string name="confirm">确认</string>
-    <string name="confirm_countdown">确认(%d)</string>
     <string name="continue_watch">继续观看</string>
     <string name="dance">舞蹈</string>
     <string name="delete">删除</string>

@@ -1,3 +1,4 @@
+// B视机（BTelly）— by QAQMin (min09577)
 package com.btelly.ui.activity
 
 import android.os.Bundle
@@ -39,7 +40,7 @@ import com.btelly.ui.fragment.main.MainTabFocusTarget
 import com.btelly.feature.search.SearchNewFragment
 import com.btelly.feature.settings.SettingsFragment
 import com.btelly.feature.settings.SignInFragment
-import com.btelly.ui.dialog.UsageTipDialog
+import com.btelly.ui.dialog.WelcomeDialog
 import com.btelly.ui.dialog.UserInfoDialog
 import com.btelly.feature.player.PlayerInstancePool
 import com.btelly.feature.player.VideoPlayerFragment
@@ -290,7 +291,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
             attachInitialMainTabAfterShellDraw()
         }
         scheduleDeferredStartupTasks()
-        showUsageTipIfNeeded()
+        showWelcomeIfNeeded()
         AppLog.i(
             STARTUP_TAG,
             "STARTUP initialContentPipeline end reason=after_shell_first_frame elapsed=${SystemClock.elapsedRealtime() - startMs}ms"
@@ -804,12 +805,12 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         UserInfoDialog(this).show()
     }
 
-    private fun showUsageTipIfNeeded() {
+    private fun showWelcomeIfNeeded() {
         if (restoredFromSavedState) return
-        if (appSettings.getCachedBoolean("usage_tip_shown")) return
+        if (appSettings.getCachedBoolean("welcome_shown")) return
         if (isFinishing || isDestroyed) return
-        appSettings.putBooleanAsync("usage_tip_shown", true)
-        UsageTipDialog(this).show()
+        appSettings.putBooleanAsync("welcome_shown", true)
+        WelcomeDialog(this).show()
     }
 
     private fun dispatchVideoBlockedEventToCurrentFragment(event: AppEventHub.Event.VideoBlockedByMinorProtection) {

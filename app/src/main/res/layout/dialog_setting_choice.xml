@@ -17,7 +17,7 @@
         android:layout_marginTop="@dimen/px35"
         android:layout_marginEnd="@dimen/px40"
         android:paddingBottom="@dimen/px20"
-        android:textColor="@color/textColor"
+        android:textColor="?attr/tvTextPrimary"
         android:textSize="@dimen/px35"
         android:textStyle="bold"
         app:layout_constraintEnd_toEndOf="parent"
@@ -30,7 +30,7 @@
         android:layout_height="@dimen/px2"
         android:layout_marginStart="@dimen/px18"
         android:layout_marginEnd="@dimen/px18"
-        android:background="?attr/dividerColor"
+        android:background="?attr/tvDivider"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/top_title" />

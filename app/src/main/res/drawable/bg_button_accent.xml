@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 主按钮：强调底，焦点态加主文字色描边（不依赖旧 drawable） -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape>
+            <solid android:color="?attr/tvAccent" />
+            <corners android:radius="@dimen/radius_m" />
+            <stroke
+                android:width="2dp"
+                android:color="?attr/tvTextPrimary" />
+        </shape>
+    </item>
+    <item android:state_pressed="true">
+        <shape>
+            <solid android:color="?attr/tvAccent" />
+            <corners android:radius="@dimen/radius_m" />
+        </shape>
+    </item>
+    <item>
+        <shape>
+            <solid android:color="?attr/tvAccentDim" />
+            <corners android:radius="@dimen/radius_m" />
+        </shape>
+    </item>
+</selector>

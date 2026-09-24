@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 import com.btelly.BuildConfig
+import com.btelly.core.common.BrandGene
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -68,6 +69,8 @@ object AppLog {
         isEnabled = prefs.getBoolean(KEY_ENABLED, false)
         crashLogFile = File(context.filesDir, CRASH_LOG_FILE)
         installCrashHandler()
+        // 基因哨兵：运行期日志横幅（logcat 可见，反编译可查），不随改名/重构消失
+        Log.i("BrandGene", BrandGene.SIGNATURE + " | " + BrandGene.WATERMARK)
     }
 
     fun setEnabled(enabled: Boolean) {

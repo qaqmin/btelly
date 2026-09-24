@@ -118,3 +118,6 @@ app/debug/output-metadata.json
 /scr.png
 /ui.xml
 /shots/
+
+# ========== CI 构建产物（Mac 构建机回传，勿入库） ==========
+artifacts/

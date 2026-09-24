@@ -1,3 +1,4 @@
+// B视机（BTelly）— by QAQMin (min09577)
 package com.btelly
 
 import android.app.Application

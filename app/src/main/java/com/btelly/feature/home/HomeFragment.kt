@@ -1,3 +1,4 @@
+// B视机（BTelly）— by QAQMin (min09577)
 package com.btelly.feature.home
 
 import android.graphics.Rect

@@ -33,6 +33,11 @@
         android:theme="@style/Theme.BTelly"
         tools:targetApi="35">
 
+        <!-- 基因哨兵：作者标识写入 manifest meta-data（aapt 反编译可见，不随代码重构消失） -->
+        <meta-data
+            android:name="com.btelly.AUTHOR"
+            android:value="QAQMin (min09577) · codeberg.org/min09577/btelly" />
+
         <activity
             android:name=".ui.activity.SplashActivity"
             android:exported="true"

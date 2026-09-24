@@ -1,3 +1,4 @@
+// B视机（BTelly）— by QAQMin (min09577)
 package com.btelly.feature.settings
 
 import com.btelly.core.common.format.NumberUtils
@@ -36,6 +37,7 @@ import com.btelly.core.ui.base.UiDisplayMode
 import com.btelly.core.ui.base.UiTextScale
 import com.btelly.core.ui.decoration.LinearSpacingItemDecoration
 import com.btelly.core.common.log.AppLog
+import com.btelly.core.common.BrandGene
 import com.btelly.core.common.cache.FileCacheManager
 import com.btelly.core.common.settings.AppSettingsDataStore
 import com.btelly.core.ui.image.ImageLoader
@@ -282,6 +284,15 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         deviceSettings.add(DEVICE_POSITION_CPU_ABI, SettingModel("CPU架构", Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown"))
         deviceSettings.add(DEVICE_POSITION_SCREEN, SettingModel("屏幕分辨率", ScreenUtils.getRealScreenInfo(requireContext()).toString()))
         deviceSettings.add(DEVICE_POSITION_CODEC, SettingModel("硬解支持", ""))
+
+        // 作者与开源仓库：显眼位署名（B视机 by QAQMin / min09577），值取自 BrandGene 单一事实来源
+        deviceSettings.add(
+            SettingModel(
+                "作者",
+                "${BrandGene.AUTHOR_NAME} (${BrandGene.AUTHOR_ID})"
+            )
+        )
+        deviceSettings.add(SettingModel("开源仓库", BrandGene.REPO_URL.removePrefix("https://")))
 
         commonSettings.add(SettingModel("日志记录", if (AppLog.isEnabled) "开" else "关"))
         commonSettings.add(SettingModel("调试日志", ""))
@@ -623,30 +634,31 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
     }
 
     /**
-     * 青少年模式分类点击处理。三个选项任意修改都需先通过魂斗罗秘籍验证，
-     * 防止孩子关闭保护或调大时长绕过限制。
+     * 青少年模式分类点击处理。
+     *
+     * 2026-09-24 起改为直接操作、不再有验证门：本应用用户群体以会折腾的年轻人为主，
+     * 青少年模式本质是合规摆设，原验证彩蛋（魂斗罗秘籍）既无识别度又形同虚设，已移除。
+     * 开关/时长/间隔全部即点即生效（toggleSetting 直改，无二次确认）。
      */
     private fun handleTeenSettingClick(position: Int, @Suppress("UNUSED_PARAMETER") item: SettingModel) {
-        showMinorProtectionVerifyDialog {
-            when (position) {
-                // 0: 青少年保护开关（从通用设置迁移）
-                0 -> toggleSetting(teenSettings, 0, KEY_MINOR_PROTECTION) { value ->
-                    appSettings.putStringAsync(KEY_MINOR_PROTECTION, value)
-                    val activity = activity as? MainActivity
-                    activity?.applyCategoryEntryVisibility()
-                }
-                // 1: 单次观看时长（0=不限制，步进10分钟）
-                1 -> showTeenTimeChoiceDialog(position, KEY_WATCH_TIME_LIMIT)
-                // 2: 休息时长（0=不限制，步进10分钟；为0则整个时间限制关闭）
-                2 -> showTeenTimeChoiceDialog(position, KEY_REST_TIME_LIMIT)
-                // 3: 公益广告开关
-                3 -> toggleSetting(teenSettings, 3, KEY_PSAS_ENABLED) { value ->
-                    appSettings.putStringAsync(KEY_PSAS_ENABLED, value)
-                    com.btelly.core.common.content.TeenModeTimer.resetForLimitChange()
-                }
-                // 4: 公益广告间隔（步进10分钟，必须 < 观看上限）
-                4 -> showPsasIntervalChoiceDialog(position)
+        when (position) {
+            // 0: 青少年保护开关（从通用设置迁移）
+            0 -> toggleSetting(teenSettings, 0, KEY_MINOR_PROTECTION) { value ->
+                appSettings.putStringAsync(KEY_MINOR_PROTECTION, value)
+                val activity = activity as? MainActivity
+                activity?.applyCategoryEntryVisibility()
             }
+            // 1: 单次观看时长（0=不限制，步进10分钟）
+            1 -> showTeenTimeChoiceDialog(position, KEY_WATCH_TIME_LIMIT)
+            // 2: 休息时长（0=不限制，步进10分钟；为0则整个时间限制关闭）
+            2 -> showTeenTimeChoiceDialog(position, KEY_REST_TIME_LIMIT)
+            // 3: 公益广告开关
+            3 -> toggleSetting(teenSettings, 3, KEY_PSAS_ENABLED) { value ->
+                appSettings.putStringAsync(KEY_PSAS_ENABLED, value)
+                com.btelly.core.common.content.TeenModeTimer.resetForLimitChange()
+            }
+            // 4: 公益广告间隔（步进10分钟，必须 < 观看上限）
+            4 -> showPsasIntervalChoiceDialog(position)
         }
     }
 
@@ -1797,134 +1809,6 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         dialog.show()
     }
 
-    private fun showMinorProtectionVerifyDialog(onVerified: () -> Unit) {
-        val konamiCode = listOf(
-            KeyEvent.KEYCODE_DPAD_UP,
-            KeyEvent.KEYCODE_DPAD_UP,
-            KeyEvent.KEYCODE_DPAD_DOWN,
-            KeyEvent.KEYCODE_DPAD_DOWN,
-            KeyEvent.KEYCODE_DPAD_LEFT,
-            KeyEvent.KEYCODE_DPAD_RIGHT,
-            KeyEvent.KEYCODE_DPAD_LEFT,
-            KeyEvent.KEYCODE_DPAD_RIGHT
-        )
-        val inputSequence = mutableListOf<Int>()
-
-        val px40 = resources.getDimensionPixelSize(R.dimen.px40)
-        val px35 = resources.getDimensionPixelSize(R.dimen.px35)
-        val px20 = resources.getDimensionPixelSize(R.dimen.px20)
-        val px18 = resources.getDimensionPixelSize(R.dimen.px18)
-        val px16 = resources.getDimensionPixelSize(R.dimen.px16)
-        val px14 = resources.getDimensionPixelSize(R.dimen.px14)
-        val textColor = resources.getColor(R.color.textColor, null)
-
-        val dialog = AppCompatDialog(requireContext(), R.style.DialogTheme)
-        dialog.setCanceledOnTouchOutside(true)
-
-        val codeDisplayView = ScaledTextView(requireContext()).apply {
-            text = "? ? ? ? ? ? ? ?"
-            setTextColor(textColor)
-            textSize = 16f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            gravity = Gravity.CENTER
-            setPadding(px16, px14, px16, px14)
-        }
-
-        var tapCount = 0
-        var lastTapTime = 0L
-
-        val root = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundResource(R.drawable.dialog_background)
-            isClickable = true
-            isFocusable = true
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                defaultFocusHighlightEnabled = false
-            }
-            setOnClickListener {
-                val now = System.currentTimeMillis()
-                if (now - lastTapTime > 3000L) {
-                    tapCount = 1
-                } else {
-                    tapCount++
-                }
-                lastTapTime = now
-                if (tapCount >= 7) {
-                    tapCount = 0
-                    dialog.dismiss()
-                    onVerified()
-                }
-            }
-            setOnKeyListener { _, keyCode, event ->
-                if (event.action == KeyEvent.ACTION_DOWN) {
-                    when (keyCode) {
-                        KeyEvent.KEYCODE_DPAD_UP,
-                        KeyEvent.KEYCODE_DPAD_DOWN,
-                        KeyEvent.KEYCODE_DPAD_LEFT,
-                        KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                            inputSequence.add(keyCode)
-                            val count = minOf(inputSequence.size, 8)
-                            val display = buildString {
-                                repeat(count) { append("* ") }
-                                repeat(8 - count) { append("? ") }
-                            }.trimEnd()
-                            codeDisplayView.text = display
-                            if (inputSequence.size >= 8) {
-                                val last8 = inputSequence.takeLast(8)
-                                if (last8 == konamiCode) {
-                                    dialog.dismiss()
-                                    onVerified()
-                                } else {
-                                    inputSequence.clear()
-                                    codeDisplayView.text = "? ? ? ? ? ? ? ?"
-                                    Toast.makeText(requireContext(), "魂斗罗秘籍错误", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                            true
-                        }
-                        else -> false
-                    }
-                } else {
-                    false
-                }
-            }
-        }
-
-        root.addView(ScaledTextView(requireContext()).apply {
-            text = getString(R.string.minor_protection)
-            setTextColor(textColor)
-            textSize = 14f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            lp.setMargins(px40, px35, px40, px20)
-            layoutParams = lp
-        })
-
-        root.addView(View(requireContext()).apply {
-            setBackgroundColor(0x1FFFFFFF)
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, resources.getDimensionPixelSize(R.dimen.px2))
-            lp.setMargins(px18, 0, px18, 0)
-            layoutParams = lp
-        })
-
-        root.addView(ScaledTextView(requireContext()).apply {
-            text = "使用遥控器方向键输入魂斗罗秘籍才能关闭！"
-            setTextColor(textColor)
-            textSize = 12f
-            setLineSpacing(resources.getDimension(R.dimen.px6), 1f)
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            lp.setMargins(px40, px20, px40, 0)
-            layoutParams = lp
-        })
-
-        root.addView(codeDisplayView, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { setMargins(px40, px20, px40, 0) })
-
-        dialog.setContentView(root)
-        dialog.setOnShowListener { root.post { root.requestFocus() } }
-        dialog.show()
-    }
 
     private fun buildCodecSupportText(): String {
         return VideoCodecSupport.buildSupportSummary(

@@ -58,6 +58,10 @@ android {
         versionCode = 88
         versionName = "2.0.4"
 
+        // 基因哨兵：作者标识编入 BuildConfig（随 APK 分发，反编译可见）
+        buildConfigField("String", "BT_AUTHOR_ID", "\"min09577\"")
+        buildConfigField("String", "BT_AUTHOR_NAME", "\"QAQMin\"")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
