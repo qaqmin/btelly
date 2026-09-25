@@ -33,6 +33,7 @@ import com.btelly.databinding.FragmentLivePlayerBinding
 import com.btelly.core.ui.navigation.navigateBackFromUi
 import com.btelly.core.ui.system.ViewUtils
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import org.koin.android.ext.android.inject
