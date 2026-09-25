@@ -2,11 +2,15 @@
 
 📺 一个专为 Android TV 与车机设计的 Bilibili 客户端，青碧深色自有设计语言，支持电视/车机双显示模式。
 
+- 🏠 开源仓库：[codeberg.org/min09577/btelly](https://codeberg.org/min09577/btelly)
+- 📦 下载安装包：[Releases 页面](https://codeberg.org/min09577/btelly/releases)（应用内「设置 → 关于本机 → 检查更新」可直接获取新版本）
+
 ## ✨ 主要功能
 
 - 🎬 **视频播放** - 番剧、电影、电视剧、UGC 视频
+- 🔀 **双播放内核** - ExoPlayer / IjkPlayer 自由切换，下次播放生效
 - 📡 **直播 & CCTV** - 直播弹幕；央视 1-17 套遥控器上下切台
-- 💬 **弹幕引擎** - 轻量化引擎，支持人物区域智能防挡。
+- 💬 **弹幕引擎** - 轻量化引擎，支持人物区域智能防挡
 - ✈️ **空降助手** - 自动跳过恰饭/开场/片尾片段，进度条显示片段标记
 - 🎮 **互动视频 / 抖音模式** - 互动分支选择；上下滑动切换推荐
 - 👶 **青少年模式** - 家长控制的内容过滤
@@ -18,7 +22,7 @@
 - **Kotlin 2.1.0** · MVVM + Koin 依赖注入
 - **Coroutines + Flow + LiveData** 异步
 - **Retrofit + OkHttp + Gson** 网络层
-- **Media3 (ExoPlayer)** 视频播放（CCTV 走 WebView）
+- **Media3 (ExoPlayer) / IjkPlayer** 双播放内核（CCTV 走 WebView）
 - **弹幕引擎**（Protobuf 协议解析）
 - **DataStore Preferences** 数据存储
 - **AndroidX** UI 组件
@@ -27,13 +31,16 @@
 ## 📷 APP 截图
 
 主界面
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/b746a1dd-8243-4378-a1ea-c023460323b7" />
+<img width="960" height="540" alt="home" src="screenshots/home.png" />
+
+视频详情
+<img width="960" height="540" alt="detail" src="screenshots/detail.png" />
 
 播放 & 弹幕
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/4a0199e0-64a0-4762-9d45-8ec2ff58524a" />
+<img width="960" height="540" alt="player" src="screenshots/player.png" />
 
-屏蔽功能
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/cae6be14-85cb-41e0-bfee-098214ffbb43" />
+关于本机 & 检查更新
+<img width="960" height="540" alt="about" src="screenshots/about.png" />
 
 ## 🙏 感谢
 
@@ -53,4 +60,4 @@
 - 🚫 **禁止牟利**：不得利用本项目牟利；本项目无任何盈利，第三方盈利与本项目无关
 - 📮 **侵权联系**：若本项目侵犯了您的合法权益，请联系作者，确认后将在第一时间处理或下架
 
-> 💡 代码由 Codex 和 [智谱 AI](https://bigmodel.cn/) 编写，如有问题请联系 [OpenAI](https://openai.com/) 或 [智谱](https://bigmodel.cn/) 😤
+> 💡 代码由 Codex 和 [智谱 AI](https://bigmodel.cn/) 编写，如有问题请联系 [OpenAI](https://openai.com/) 或 [智谱 AI](https://bigmodel.cn/) 😤
