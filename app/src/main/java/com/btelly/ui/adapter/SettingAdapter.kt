@@ -5,6 +5,7 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.btelly.core.ui.base.UiCarSpacing
 import com.btelly.databinding.CellSettingBinding
 import com.btelly.model.SettingModel
 
@@ -39,6 +40,8 @@ class SettingAdapter(
             parent,
             false
         )
+        // 车机模式间距铺开：设置行触控高度与内外间距乘 boost（电视模式零改动）
+        UiCarSpacing.apply(binding.root)
         return SettingViewHolder(binding)
     }
 

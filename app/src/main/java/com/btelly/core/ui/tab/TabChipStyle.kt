@@ -5,6 +5,7 @@ import android.content.Context
 import android.util.TypedValue
 import android.view.ViewGroup
 import com.btelly.R
+import com.btelly.core.ui.base.UiCarSpacing
 import com.google.android.material.tabs.TabLayout
 
 /**
@@ -33,6 +34,8 @@ fun TabLayout.applyChipTabStyle() {
             lp.marginStart = if (i == 0) 0 else tabMargin
             tabView.layoutParams = lp
         }
+        // 车机模式间距铺开：chip 内边距/触控高度/项间距乘 boost（电视模式零改动）
+        UiCarSpacing.apply(tabView)
     }
 }
 

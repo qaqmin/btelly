@@ -13,6 +13,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import com.btelly.R
 import com.btelly.core.ui.base.ScaledTextView
+import com.btelly.core.ui.base.UiCarSpacing
 import com.btelly.core.ui.base.UiDisplayMode
 import com.btelly.core.ui.base.UiTextScale
 import com.btelly.core.ui.image.AvatarBadgeView
@@ -63,6 +64,8 @@ class TabBarView @JvmOverloads constructor(
 
     init {
         val view = LayoutInflater.from(context).inflate(R.layout.view_tab_bar, this, true)
+        // 车机模式间距铺开：轨内边距、导航项触控高度与项间距乘 boost（电视模式零改动）
+        UiCarSpacing.apply(view)
         navSearch = navItem(view, R.id.nav_search, R.id.button_search, R.id.label_search, R.id.indicator_search)
         navHome = navItem(view, R.id.nav_home, R.id.button_home, R.id.label_home, R.id.indicator_home)
         navCategory = navItem(view, R.id.nav_category, R.id.button_category, R.id.label_category, R.id.indicator_category)

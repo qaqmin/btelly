@@ -19,6 +19,7 @@ import com.btelly.databinding.FragmentHomeBinding
 import com.btelly.ui.activity.MainActivity
 import com.btelly.ui.fragment.main.MainNavigationViewModel
 import com.btelly.ui.fragment.main.MainTabFocusTarget
+import com.btelly.core.ui.tab.applyChipTabStyle
 import com.btelly.core.ui.tab.enableTouchNavigation
 import com.btelly.core.ui.tab.focusNearestTabTo
 import com.btelly.core.ui.tab.disableAdjacentPagePrefetch
@@ -47,11 +48,6 @@ class HomeFragment : Fragment(), MainTabFocusTarget {
     private var lastTabSelectedPosition = -1
     private var lastTabSelectedTime = 0L
 
-    private fun resolveThemeColor(attr: Int): Int {
-        val typed = android.util.TypedValue()
-        return if (requireContext().theme.resolveAttribute(attr, typed, true)) typed.data else 0
-    }
-
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -72,25 +68,8 @@ class HomeFragment : Fragment(), MainTabFocusTarget {
         tabMediator = TabLayoutMediator(binding.tabLayout, binding.viewPager) { tab, position ->
             tab.text = adapter.getPageTitle(position)
         }.also { it.attach() }
-        // chip 化 tab 文字色走主题令牌（color selector 不支持 ?attr，见 docs/ui-redesign-plan.md 第五节）
-        binding.tabLayout.setTabTextColors(
-            resolveThemeColor(R.attr.tvTextSecondary),
-            resolveThemeColor(R.attr.tvAccent)
-        )
-        // chip 间距：TabLayout 无 tabMarginStart 属性，逐个 tab  view 设置（首项不带）
-        val tabMargin = resources.getDimensionPixelSize(R.dimen.home_tab_margin)
-        for (i in 0 until binding.tabLayout.tabCount) {
-            val tabView = binding.tabLayout.getTabAt(i)?.view ?: continue
-            // chip 背景必须设在 tab view 自己身上：app:tabBackground 会被 Material 收进
-            // baseBackgroundDrawable 由 TabLayout.onDraw 手绘，该管线在真机上失焦/切换
-            // 选中后不刷新（H618 Android 12 实测 chip 残留高亮）；普通 view 背景走平台
-            // 标准 state 管线，state_selected/state_focused/state_pressed 才可靠。
-            tabView.setBackgroundResource(R.drawable.bg_chip)
-            (tabView.layoutParams as? ViewGroup.MarginLayoutParams)?.let { lp ->
-                lp.marginStart = if (i == 0) 0 else tabMargin
-                tabView.layoutParams = lp
-            }
-        }
+        // chip 化走共享样式（文字令牌色/chip 背景/项间距/车机 boost，见 TabChipStyle 注释里的坑）
+        binding.tabLayout.applyChipTabStyle()
         binding.tabLayout.enableTouchNavigation(
             viewPager = binding.viewPager,
             onNavigateDown = ::focusCurrentPagePrimaryContent,

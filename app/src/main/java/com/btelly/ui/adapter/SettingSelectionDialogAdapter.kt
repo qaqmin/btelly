@@ -6,6 +6,7 @@ import android.view.ViewGroup
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
+import com.btelly.core.ui.base.UiCarSpacing
 import com.btelly.databinding.CellSettingChoiceBinding
 import com.btelly.core.ui.theme.resolveThemeColor
 
@@ -26,6 +27,8 @@ class SettingSelectionDialogAdapter(
             parent,
             false
         )
+        // 车机模式间距铺开：选项行触控高度与内外间距乘 boost（电视模式零改动）
+        UiCarSpacing.apply(binding.root)
         return SettingChoiceViewHolder(binding)
     }
 
