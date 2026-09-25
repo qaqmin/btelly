@@ -138,9 +138,16 @@ class LivePlayerFragment : Fragment() {
         }
     }
 
-    /** 丢帧诊断：区分"解码器供帧不足"（dropped≈0）与"渲染器追同步丢帧"（dropped≈80%）。 */
+    /**
+     * 丢帧 + 音画同步诊断（HEVC/ExoPlayer 直播路，只读遥测，零行为变更）：
+     * - dropped3s：渲染器主动丢帧（≈0=解码器供帧不足；占比高=画面落后于声音在追同步）
+     * - vproc：最近一次帧处理耗时（解码→送显开销，持续增长=供帧链路劣化）
+     * - buf：缓冲余量 bufferedPosition-currentPosition（趋零=供帧饥饿，声音会拖画面越远）
+     * 3 秒一行 live_av_sync；音频 underrun 立即一行。诊断期临时遥测，可在确认后整体移除。
+     */
     private val videoStatsListener = object : androidx.media3.exoplayer.analytics.AnalyticsListener {
         private var dropped = 0
+        private var lastVprocUs = 0L
         private var lastLogMs = 0L
         override fun onDroppedVideoFrames(
             eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
@@ -148,12 +155,36 @@ class LivePlayerFragment : Fragment() {
             elapsedMs: Long,
         ) {
             dropped += droppedFrames
+            maybeLog(elapsedMs)
+        }
+
+        override fun onVideoFrameProcessingOffset(
+            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+            videoFrameProcessingOffsetUs: Long,
+        ) {
+            lastVprocUs = videoFrameProcessingOffsetUs
+            maybeLog(0)
+        }
+
+        override fun onAudioUnderrun(
+            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+            exception: java.io.IOException,
+        ) {
+            AppLog.w(TAG, "live_av_sync audio_underrun ${exception.javaClass.simpleName}")
+        }
+
+        private fun maybeLog(elapsedMs: Long) {
             val now = android.os.SystemClock.elapsedRealtime()
-            if (now - lastLogMs >= 3_000L) {
-                lastLogMs = now
-                AppLog.w(TAG, "live_video_stats dropped3s=$dropped elapsed=${elapsedMs}ms")
-                dropped = 0
-            }
+            if (now - lastLogMs < 3_000L) return
+            lastLogMs = now
+            val p = player as? androidx.media3.exoplayer.ExoPlayer
+            val bufMs = if (p != null) p.bufferedPosition - p.currentPosition else 0L
+            AppLog.w(
+                TAG,
+                "live_av_sync dropped3s=$dropped elapsed=${elapsedMs}ms " +
+                    "vproc=${lastVprocUs / 1000}ms buf=${bufMs}ms pos=${p?.currentPosition ?: 0}ms"
+            )
+            dropped = 0
         }
     }
 
