@@ -27,7 +27,7 @@ fun TabLayout.applyChipTabStyle() {
     clipChildren = false
     clipToPadding = false
     for (i in 0 until childCount) {
-        getChildAt(i).clipChildren = false
+        (getChildAt(i) as? ViewGroup)?.clipChildren = false
     }
     setTabTextColors(
         context.resolveThemeAttrColor(R.attr.tvTextSecondary),
