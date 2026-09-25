@@ -55,8 +55,8 @@ android {
         applicationId = (project.findProperty("applicationId") as? String) ?: "com.btelly"
         minSdk = 23
         targetSdk = 35
-        versionCode = 91
-        versionName = "3.0.1"
+        versionCode = 92
+        versionName = "3.0.2"
 
         // 基因哨兵：作者标识编入 BuildConfig（随 APK 分发，反编译可见）
         buildConfigField("String", "BT_AUTHOR_ID", "\"min09577\"")
