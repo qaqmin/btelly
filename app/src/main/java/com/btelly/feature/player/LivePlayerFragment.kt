@@ -142,20 +142,24 @@ class LivePlayerFragment : Fragment() {
      * 丢帧 + 音画同步诊断（HEVC/ExoPlayer 直播路，只读遥测，零行为变更）：
      * - dropped3s：渲染器主动丢帧（≈0=解码器供帧不足；占比高=画面落后于声音在追同步）
      * - vproc：最近一次帧处理耗时（解码→送显开销，持续增长=供帧链路劣化）
-     * - buf：缓冲余量 bufferedPosition-currentPosition（趋零=供帧饥饿，声音会拖画面越远）
-     * 3 秒一行 live_av_sync；音频 underrun 立即一行。诊断期临时遥测，可在确认后整体移除。
+     * - buf：缓冲余量 totalBufferedDurationMs（趋零=供帧饥饿，声音会拖画面越远）
+     * - pos：当前播放位置（音频主时钟，供各采样点对齐）
+     * 3 秒一行 live_av_sync（回调触发 + 心跳兜底，无丢帧期间也连续采样）；音频 underrun 立即一行。
+     * 诊断期临时遥测，确认后整体移除。
      */
     private val videoStatsListener = object : androidx.media3.exoplayer.analytics.AnalyticsListener {
-        private var dropped = 0
-        private var lastVprocUs = 0L
-        private var lastLogMs = 0L
+        var droppedFrames = 0
+            private set
+        var lastVprocUs = 0L
+            private set
+
         override fun onDroppedVideoFrames(
             eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
             droppedFrames: Int,
             elapsedMs: Long,
         ) {
-            dropped += droppedFrames
-            maybeLog(elapsedMs)
+            this.droppedFrames += droppedFrames
+            logSyncSample(eventTime, elapsedMs)
         }
 
         override fun onVideoFrameProcessingOffset(
@@ -164,7 +168,7 @@ class LivePlayerFragment : Fragment() {
             bufferTimestampMs: Int,
         ) {
             lastVprocUs = videoFrameProcessingOffsetUs
-            maybeLog(0)
+            logSyncSample(eventTime, 0)
         }
 
         override fun onAudioUnderrun(
@@ -173,22 +177,32 @@ class LivePlayerFragment : Fragment() {
             bufferWrittenUs: Long,
             targetBufferWrittenUs: Long,
         ) {
-            AppLog.w(TAG, "live_av_sync audio_underrun written=$bufferWrittenUs target=$targetBufferWrittenUs")
+            AppLog.w(TAG, "live_av_sync audio_underrun bufUs=$bufferWrittenUs targetUs=$targetBufferWrittenUs")
         }
+    }
 
-        private fun maybeLog(elapsedMs: Long) {
-            val now = android.os.SystemClock.elapsedRealtime()
-            if (now - lastLogMs < 3_000L) return
-            lastLogMs = now
-            val p = player as? androidx.media3.exoplayer.ExoPlayer
-            val bufMs = if (p != null) p.bufferedPosition - p.currentPosition else 0L
-            AppLog.w(
-                TAG,
-                "live_av_sync dropped3s=$dropped elapsed=${elapsedMs}ms " +
-                    "vproc=${lastVprocUs / 1000}ms buf=${bufMs}ms pos=${p?.currentPosition ?: 0}ms"
-            )
-            dropped = 0
-        }
+    private var lastSyncLogMs = 0L
+
+    /** 3 秒节流采样。eventTime 为空时退化为读 player 字段（心跳路径）。 */
+    private fun logSyncSample(
+        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime?,
+        elapsedMs: Long,
+    ) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastSyncLogMs < 3_000L) return
+        lastSyncLogMs = now
+        val dropped = videoStatsListener.droppedFrames
+        videoStatsListener.droppedFrames = 0
+        val p = player as? androidx.media3.exoplayer.ExoPlayer
+        val bufMs = eventTime?.totalBufferedDurationMs
+            ?: p?.let { it.bufferedPosition - it.currentPosition }
+            ?: 0L
+        val posMs = eventTime?.currentPlaybackPositionMs ?: p?.currentPosition ?: 0L
+        AppLog.w(
+            TAG,
+            "live_av_sync dropped3s=$dropped elapsed=${elapsedMs}ms " +
+                "vproc=${videoStatsListener.lastVprocUs / 1000}ms buf=${bufMs}ms pos=${posMs}ms"
+        )
     }
 
     override fun onCreateView(
@@ -202,6 +216,16 @@ class LivePlayerFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        // 音画遥测心跳（诊断期临时，零行为变更）：无丢帧/偏移回调期间也保持 3 秒连续采样；
+        // 仅 ExoPlayer（HEVC）路采样，ijk 路的漂移由 IjkPlayerEngine 自带遥测覆盖。
+        viewLifecycleOwner.lifecycleScope.launch {
+            while (isActive) {
+                kotlinx.coroutines.delay(3_000L)
+                if (player is androidx.media3.exoplayer.ExoPlayer) {
+                    logSyncSample(null, 0)
+                }
+            }
+        }
         arguments?.let { args ->
             roomId = args.getLong(ARG_ROOM_ID, -1L)
         }
