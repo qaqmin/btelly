@@ -154,6 +154,13 @@ class LivePlayerFragment : Fragment() {
         var lastVprocUs = 0L
             private set
 
+        /** 取出并清零累计丢帧数，供 [logSyncSample] 按 3 秒窗口采样。 */
+        fun consumeDroppedFrames(): Int {
+            val v = droppedFrames
+            droppedFrames = 0
+            return v
+        }
+
         override fun onDroppedVideoFrames(
             eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
             droppedFrames: Int,
@@ -192,8 +199,7 @@ class LivePlayerFragment : Fragment() {
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastSyncLogMs < 3_000L) return
         lastSyncLogMs = now
-        val dropped = videoStatsListener.droppedFrames
-        videoStatsListener.droppedFrames = 0
+        val dropped = videoStatsListener.consumeDroppedFrames()
         val p = player as? androidx.media3.exoplayer.ExoPlayer
         val bufMs = eventTime?.totalBufferedDurationMs
             ?: p?.let { it.bufferedPosition - it.currentPosition }
