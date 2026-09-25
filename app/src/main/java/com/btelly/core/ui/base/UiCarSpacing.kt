@@ -67,7 +67,7 @@ object UiCarSpacing {
             lp.height = (lp.height * boost).roundToInt()
             view.layoutParams = lp
         }
-        val minH = view.minHeight
+        val minH = view.minimumHeight
         if (minH > 0) {
             view.minimumHeight = (minH * boost).roundToInt()
         }
