@@ -93,6 +93,13 @@ class FollowUserListFragment : BaseFragment<FragmentFollowUserListBinding>() {
             }
         }
 
+        // 统一空态组件（P2-2）：标题补焦点能力，操作按钮（错误态出现）挂重试
+        binding.followEmptyState.emptyStateTitle.apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        binding.followEmptyState.emptyStateAction.setOnClickListener { loadUsers() }
+
         adapter = FollowUserAdapter(
             onItemClick = ::onUserClick,
             onItemFocused = { position -> lastFocusedPosition = position }
@@ -234,14 +241,17 @@ class FollowUserListFragment : BaseFragment<FragmentFollowUserListBinding>() {
     }
 
     private fun showListContent() {
-        binding.tvEmpty.visibility = View.GONE
+        binding.followEmptyState.root.visibility = View.GONE
         binding.recyclerView.visibility = View.VISIBLE
     }
 
-    private fun showEmpty(message: String) {
+    /** 统一空态（P2-2 组件）：显示文案；加载类错误附重试按钮。 */
+    private fun showEmpty(message: String, withRetry: Boolean = false) {
         if (currentPage == 1 && adapter.itemCount == 0) {
-            binding.tvEmpty.visibility = View.VISIBLE
-            binding.tvEmpty.text = message
+            binding.followEmptyState.root.visibility = View.VISIBLE
+            binding.followEmptyState.emptyStateTitle.text = message
+            binding.followEmptyState.emptyStateAction.visibility =
+                if (withRetry) View.VISIBLE else View.GONE
             binding.recyclerView.visibility = View.GONE
             requestBackFocus()
         }
@@ -249,7 +259,7 @@ class FollowUserListFragment : BaseFragment<FragmentFollowUserListBinding>() {
 
     private fun handleLoadError(message: String) {
         if (currentPage == 1 && adapter.itemCount == 0) {
-            showEmpty(message)
+            showEmpty(message, withRetry = true)
             return
         }
         showListContent()

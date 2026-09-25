@@ -4,7 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="?attr/backgroundColor">
+    android:background="?attr/tvSurface">
 
     <androidx.appcompat.widget.AppCompatImageView
         android:id="@+id/button_back"
@@ -19,7 +19,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:srcCompat="@drawable/ic_back"
-        app:tint="?android:attr/textColorPrimary" />
+        app:tint="?attr/tvTextPrimary" />
 
     <androidx.appcompat.widget.AppCompatTextView
         android:id="@+id/tv_title"
@@ -27,8 +27,8 @@
         android:layout_height="wrap_content"
         android:layout_marginStart="@dimen/px24"
         android:layout_marginEnd="@dimen/px40"
-        android:textColor="?android:attr/textColorPrimary"
-        android:textSize="@dimen/px40"
+        android:textColor="?attr/tvTextPrimary"
+        android:textSize="@dimen/text_title"
         android:textStyle="bold"
         app:layout_constraintBottom_toBottomOf="@id/button_back"
         app:layout_constraintEnd_toEndOf="parent"
@@ -43,20 +43,20 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:clipToPadding="false"
+        android:paddingStart="@dimen/space_12"
+        android:paddingEnd="@dimen/space_12"
         android:paddingBottom="@dimen/px50"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/button_back" />
 
-    <androidx.appcompat.widget.AppCompatTextView
-        android:id="@+id/tv_empty"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:gravity="center"
-        android:text="@string/empty"
-        android:textColor="?android:attr/textColorSecondary"
-        android:textSize="@dimen/px30"
+    <!-- 统一空态组件（P2-2）：binding.followEmptyState（binding 对象模式） -->
+    <include
+        android:id="@+id/follow_empty_state"
+        layout="@layout/view_empty_state"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="@id/recycler_view"
         app:layout_constraintEnd_toEndOf="@id/recycler_view"

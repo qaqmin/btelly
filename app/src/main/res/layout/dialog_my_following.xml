@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="?attr/backgroundColor"
+    android:background="?attr/tvSurface"
     android:descendantFocusability="afterDescendants">
 
     <androidx.appcompat.widget.LinearLayoutCompat
@@ -27,15 +27,15 @@
             android:focusable="true"
             android:padding="@dimen/px35"
             app:srcCompat="@drawable/ic_back"
-            app:tint="?android:attr/textColorPrimary" />
+            app:tint="?attr/tvTextPrimary" />
 
         <androidx.appcompat.widget.AppCompatTextView
             android:id="@+id/text_title"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:textColor="?android:attr/textColorPrimary"
-            android:textSize="@dimen/px40"
+            android:textColor="?attr/tvTextPrimary"
+            android:textSize="@dimen/text_title"
             android:textStyle="bold" />
     </androidx.appcompat.widget.LinearLayoutCompat>
 
@@ -90,8 +90,8 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/px30"
             android:text="@string/net_error"
-            android:textColor="?android:attr/textColorPrimary"
-            android:textSize="@dimen/px30"
+            android:textColor="?attr/tvTextSecondary"
+            android:textSize="@dimen/text_body"
             android:visibility="gone"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
