@@ -31,10 +31,10 @@ import kotlin.time.Duration.Companion.milliseconds
 
 object ApkUpdater {
 
-    private const val GITHUB_OWNER = "qianxuntudou-ops"
-    private const val GITHUB_REPO = "BTelly"
+    private const val REPO_OWNER = "min09577"
+    private const val REPO_NAME = "btelly"
     private const val RELEASE_API_URL =
-        "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/releases/latest"
+        "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/latest"
 
     private const val COOLDOWN_MS = 5_000L
     private const val TAG = "ApkUpdater"
@@ -133,7 +133,7 @@ object ApkUpdater {
     private fun fetchLatestReleaseOnce(): ReleaseInfo {
         val req = Request.Builder()
             .url(RELEASE_API_URL)
-            .header("Accept", "application/vnd.github+json")
+            .header("Accept", "application/json")
             .get()
             .build()
         val call = okHttp.newCall(req)

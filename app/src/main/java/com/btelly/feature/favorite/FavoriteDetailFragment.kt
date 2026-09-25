@@ -154,6 +154,13 @@ class FavoriteDetailFragment : BaseFragment<FragmentFavoriteDetailBinding>() {
                 lastFocusedPosition = RecyclerView.NO_POSITION
             }
         }
+
+        // 统一空态组件（P2-2）：标题补焦点能力，操作按钮（错误态出现）挂重试
+        binding.favoriteEmptyState.emptyStateTitle.apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        binding.favoriteEmptyState.emptyStateAction.setOnClickListener { refreshFavoriteVideos() }
     }
 
     override fun initData() {
@@ -312,19 +319,22 @@ class FavoriteDetailFragment : BaseFragment<FragmentFavoriteDetailBinding>() {
     }
 
     private fun showListContent() {
-        binding.tvEmpty.visibility = View.GONE
+        binding.favoriteEmptyState.root.visibility = View.GONE
         binding.recyclerViewVideos.visibility = View.VISIBLE
     }
 
-    private fun showEmpty(message: String) {
-        binding.tvEmpty.visibility = View.VISIBLE
-        binding.tvEmpty.text = message
+    /** 统一空态（P2-2 组件）：显示文案；加载类错误附重试按钮。 */
+    private fun showEmpty(message: String, withRetry: Boolean = false) {
+        binding.favoriteEmptyState.root.visibility = View.VISIBLE
+        binding.favoriteEmptyState.emptyStateTitle.text = message
+        binding.favoriteEmptyState.emptyStateAction.visibility =
+            if (withRetry) View.VISIBLE else View.GONE
         binding.recyclerViewVideos.visibility = View.GONE
     }
 
     private fun handleLoadError(message: String) {
         if (currentPage == 1 && favoriteAdapter.itemCount == 0) {
-            showEmpty(message)
+            showEmpty(message, withRetry = true)
             return
         }
         showListContent()

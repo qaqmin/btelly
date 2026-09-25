@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 收藏夹数量角标：TV 令牌化，跟随主题 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#CC1F1F1F" />
-    <corners android:radius="@dimen/px4" />
+    <solid android:color="?attr/tvSurfaceOverlay" />
+    <corners android:radius="@dimen/radius_s" />
 </shape>

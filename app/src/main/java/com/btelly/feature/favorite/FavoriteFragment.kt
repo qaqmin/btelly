@@ -117,13 +117,19 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
         binding.buttonBack.setOnClickListener {
             parentFragmentManager.popBackStack()
         }
-        binding.tvEmpty.setOnKeyListener { _, keyCode, event ->
+        // 统一空态组件（P2-2）：标题补焦点能力（对齐旧 tvEmpty 行为），操作按钮挂重试
+        binding.favoriteEmptyState.emptyStateTitle.apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        binding.favoriteEmptyState.emptyStateTitle.setOnKeyListener { _, keyCode, event ->
             if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_UP) {
                 focusTopTab()
             } else {
                 false
             }
         }
+        binding.favoriteEmptyState.emptyStateAction.setOnClickListener { refresh() }
 
         if (embedded) {
             binding.buttonBack.visibility = View.GONE
@@ -209,9 +215,7 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
         )
         if (!sessionGateway.isLoggedIn()) {
             binding.progressBar.visibility = View.GONE
-            binding.tvEmpty.visibility = View.VISIBLE
-            binding.tvEmpty.text = getString(R.string.need_sign_in)
-            binding.recyclerViewFavorite.visibility = View.GONE
+            showEmptyState(getString(R.string.need_sign_in))
             requestFallbackFocus()
             isLoadingFolders = false
             return
@@ -234,9 +238,7 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
                 finishFolderRequest(requestId)
                 if (!isAdded || view == null) return@launch
                 binding.progressBar.visibility = View.GONE
-                binding.tvEmpty.visibility = View.VISIBLE
-                binding.tvEmpty.text = getString(R.string.need_sign_in)
-                binding.recyclerViewFavorite.visibility = View.GONE
+                showEmptyState(getString(R.string.need_sign_in))
                 requestFallbackFocus()
                 return@launch
             }
@@ -267,12 +269,10 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
                 if (response.isSuccess) {
                     val folders = response.data?.list.orEmpty().map(::applySavedCover).toList()
                     if (folders.isEmpty()) {
-                        binding.tvEmpty.visibility = View.VISIBLE
-                        binding.tvEmpty.text = getString(R.string.favorite_folder_empty)
-                        binding.recyclerViewFavorite.visibility = View.GONE
+                        showEmptyState(getString(R.string.favorite_folder_empty))
                         requestFallbackFocus()
                     } else {
-                        binding.tvEmpty.visibility = View.GONE
+                        hideEmptyState()
                         binding.recyclerViewFavorite.visibility = View.VISIBLE
                         adapter.setData(folders)
                         PagePerfLogger.mark(
@@ -291,16 +291,12 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
                         }
                     }
                 } else {
-                    binding.tvEmpty.visibility = View.VISIBLE
-                    binding.tvEmpty.text = response.errorMessage
-                    binding.recyclerViewFavorite.visibility = View.GONE
+                    showEmptyState(response.errorMessage, withRetry = true)
                     requestFallbackFocus()
                     Toast.makeText(requireContext(), response.errorMessage, Toast.LENGTH_SHORT).show()
                 }
             }.onFailure { e ->
-                binding.tvEmpty.visibility = View.VISIBLE
-                binding.tvEmpty.text = e.message ?: getString(R.string.net_error)
-                binding.recyclerViewFavorite.visibility = View.GONE
+                showEmptyState(e.message ?: getString(R.string.net_error), withRetry = true)
                 requestFallbackFocus()
                 Toast.makeText(requireContext(), "加载失败: ${e.message}", Toast.LENGTH_SHORT).show()
             }
@@ -397,7 +393,7 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
             )
             return result.resolved
         }
-        if (binding.tvEmpty.visibility == View.VISIBLE) {
+        if (binding.favoriteEmptyState.root.visibility == View.VISIBLE) {
             return requestEmptyStateFocus()
         }
         return false
@@ -416,10 +412,10 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
                     return true
                 }
             }
-            if (binding.tvEmpty.visibility == View.VISIBLE) {
+            if (binding.favoriteEmptyState.root.visibility == View.VISIBLE) {
                 val handled = SpatialFocusNavigator.requestBestCandidate(
                     anchorView = anchorView,
-                    candidates = listOf(binding.tvEmpty),
+                    candidates = listOf(binding.favoriteEmptyState.emptyStateTitle),
                     direction = View.FOCUS_RIGHT,
                     fallback = null
                 )
@@ -440,7 +436,7 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
                 if (!embedded) {
                     requestBackFocus()
                 }
-                if (binding.tvEmpty.visibility == View.VISIBLE) {
+                if (binding.favoriteEmptyState.root.visibility == View.VISIBLE) {
                     requestEmptyStateFocus()
                 }
                 return@post
@@ -485,7 +481,7 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
     }
 
     private fun requestFallbackFocus() {
-        if (embedded && binding.tvEmpty.visibility == View.VISIBLE) {
+        if (embedded && binding.favoriteEmptyState.root.visibility == View.VISIBLE) {
             requestEmptyStateFocus()
             return
         }
@@ -497,7 +493,20 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
     }
 
     private fun requestEmptyStateFocus(): Boolean {
-        return binding.tvEmpty.requestFocus()
+        return binding.favoriteEmptyState.emptyStateTitle.requestFocus()
+    }
+
+    /** 统一空态（P2-2 组件）：显示文案 + 可选重试按钮，隐藏列表。 */
+    private fun showEmptyState(message: String, withRetry: Boolean = false) {
+        binding.favoriteEmptyState.root.visibility = View.VISIBLE
+        binding.favoriteEmptyState.emptyStateTitle.text = message
+        binding.favoriteEmptyState.emptyStateAction.visibility =
+            if (withRetry) View.VISIBLE else View.GONE
+        binding.recyclerViewFavorite.visibility = View.GONE
+    }
+
+    private fun hideEmptyState() {
+        binding.favoriteEmptyState.root.visibility = View.GONE
     }
 
     private fun applySavedCover(folder: com.btelly.model.favorite.FavoriteFolderModel): com.btelly.model.favorite.FavoriteFolderModel {

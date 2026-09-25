@@ -3,31 +3,31 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="?attr/backgroundColor">
+    android:background="?attr/tvSurface">
 
     <androidx.appcompat.widget.AppCompatImageView
         android:id="@+id/button_back"
-        android:layout_width="@dimen/px100"
-        android:layout_height="@dimen/px100"
-        android:layout_marginStart="@dimen/px20"
-        android:layout_marginTop="@dimen/px25"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_marginStart="@dimen/space_16"
+        android:layout_marginTop="@dimen/space_16"
         android:background="@drawable/cell_background"
         android:clickable="true"
         android:focusable="true"
-        android:padding="@dimen/px30"
+        android:padding="@dimen/space_12"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:srcCompat="@drawable/ic_back"
-        app:tint="?android:attr/textColorPrimary" />
+        app:tint="?attr/tvTextPrimary" />
 
     <androidx.appcompat.widget.AppCompatTextView
         android:id="@+id/tv_title"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="@dimen/px24"
-        android:layout_marginEnd="@dimen/px40"
-        android:textColor="?android:attr/textColorPrimary"
-        android:textSize="@dimen/px40"
+        android:layout_marginStart="@dimen/space_12"
+        android:layout_marginEnd="@dimen/space_24"
+        android:textColor="?attr/tvTextPrimary"
+        android:textSize="@dimen/text_title"
         android:textStyle="bold"
         app:layout_constraintBottom_toBottomOf="@+id/button_back"
         app:layout_constraintEnd_toEndOf="parent"
@@ -41,23 +41,21 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:clipToPadding="false"
-        android:paddingStart="@dimen/px20"
-        android:paddingTop="@dimen/px20"
-        android:paddingEnd="@dimen/px20"
-        android:paddingBottom="@dimen/px50"
+        android:paddingStart="@dimen/space_12"
+        android:paddingTop="@dimen/space_12"
+        android:paddingEnd="@dimen/space_12"
+        android:paddingBottom="@dimen/space_24"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/button_back" />
 
-    <androidx.appcompat.widget.AppCompatTextView
-        android:id="@+id/tv_empty"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:gravity="center"
-        android:text="@string/empty"
-        android:textColor="?android:attr/textColorSecondary"
-        android:textSize="@dimen/px30"
+    <!-- 统一空态组件（P2-2）：binding.favoriteEmptyState（binding 对象模式） -->
+    <include
+        android:id="@+id/favorite_empty_state"
+        layout="@layout/view_empty_state"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="@+id/recyclerViewVideos"
         app:layout_constraintEnd_toEndOf="@+id/recyclerViewVideos"
@@ -66,8 +64,8 @@
 
     <ProgressBar
         android:id="@+id/progressBar"
-        android:layout_width="@dimen/px120"
-        android:layout_height="@dimen/px120"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="@+id/recyclerViewVideos"
         app:layout_constraintEnd_toEndOf="@+id/recyclerViewVideos"
