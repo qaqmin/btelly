@@ -13,6 +13,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import com.btelly.R
 import com.btelly.core.ui.base.ScaledTextView
+import com.btelly.core.ui.base.UiDisplayMode
 import com.btelly.core.ui.base.UiTextScale
 import com.btelly.core.ui.image.AvatarBadgeView
 import com.btelly.core.ui.image.ImageLoader
@@ -96,10 +97,10 @@ class TabBarView @JvmOverloads constructor(
         val label = root.findViewById<TextView>(labelId)
         if (label !is ScaledTextView) {
             // 自定义 View 内部 inflate 可能不经过 UiTextScaleFactory（如 AsyncLayoutInflater 预 inflate 路径），
-            // 标签此时不会跟随全局文字缩放，按轨基准字号手动补齐一次
+            // 标签此时不会跟随全局文字缩放，按轨基准字号手动补齐一次（含车机 boost，与 ScaledTextView 一致）
             label.setTextSize(
                 TypedValue.COMPLEX_UNIT_PX,
-                resources.getDimension(R.dimen.rail_label_size) * UiTextScale.scale()
+                resources.getDimension(R.dimen.rail_label_size) * UiTextScale.scale() * UiDisplayMode.boost
             )
         }
         val indicator = if (indicatorId != 0) root.findViewById<View>(indicatorId) else container

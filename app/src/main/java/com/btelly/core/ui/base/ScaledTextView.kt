@@ -57,7 +57,12 @@ class ScaledTextView @JvmOverloads constructor(
 
     private fun applyScaled() {
         // 以 px 写入绕开二次单位换算；系数为 1.0 时与原生行为一致
-        super.setTextSize(TypedValue.COMPLEX_UNIT_PX, rawTextSizePx * UiTextScale.scale())
+        // 车机模式（display_mode）与全局文字缩放叠乘：这里是全仓 XML 文字的唯一缩放入口，
+        // 自绘文字（视频卡/弹幕）不经过此路径，各自在 VideoLightCardFactory 等处乘 boost
+        super.setTextSize(
+            TypedValue.COMPLEX_UNIT_PX,
+            rawTextSizePx * UiTextScale.scale() * UiDisplayMode.boost
+        )
     }
 
     private fun spToPx(sp: Float): Float =
