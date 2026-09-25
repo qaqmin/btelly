@@ -68,6 +68,9 @@ class SettingAdapter(
     ) : RecyclerView.ViewHolder(binding.root) {
 
         init {
+            // 焦点弹簧溢出需要父级不裁剪（否则 1.04 倍放大被 cell 根裁回原尺寸，实测无效）
+            binding.root.clipChildren = false
+            binding.root.clipToPadding = false
             binding.clickView.setOnClickListener {
                 val position = bindingAdapterPosition
                 if (position != RecyclerView.NO_POSITION) {

@@ -67,6 +67,9 @@ class TabBarView @JvmOverloads constructor(
         val view = LayoutInflater.from(context).inflate(R.layout.view_tab_bar, this, true)
         // 车机模式间距铺开：轨内边距、导航项触控高度与项间距乘 boost（电视模式零改动）
         UiCarSpacing.apply(view)
+        // 焦点弹簧溢出需要父级不裁剪（导航项放大才可见）
+        clipChildren = false
+        clipToPadding = false
         navSearch = navItem(view, R.id.nav_search, R.id.button_search, R.id.label_search, R.id.indicator_search)
         navHome = navItem(view, R.id.nav_home, R.id.button_home, R.id.label_home, R.id.indicator_home)
         navCategory = navItem(view, R.id.nav_category, R.id.button_category, R.id.label_category, R.id.indicator_category)

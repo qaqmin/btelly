@@ -23,6 +23,12 @@ import com.google.android.material.tabs.TabLayout
  * 调用时机：TabLayoutMediator.attach() 之后（tabCount 才就位）。
  */
 fun TabLayout.applyChipTabStyle() {
+    // 焦点弹簧溢出需要 TabLayout 及其内部滑动条都不裁剪（chip 放大才可见）
+    clipChildren = false
+    clipToPadding = false
+    for (i in 0 until childCount) {
+        getChildAt(i).clipChildren = false
+    }
     setTabTextColors(
         context.resolveThemeAttrColor(R.attr.tvTextSecondary),
         context.resolveThemeAttrColor(R.attr.tvAccent)
