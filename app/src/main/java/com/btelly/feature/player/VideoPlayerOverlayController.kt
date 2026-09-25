@@ -1,5 +1,6 @@
 package com.btelly.feature.player
 
+import com.btelly.core.ui.base.applyCarSpacing
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -75,6 +76,7 @@ class VideoPlayerOverlayController(
 
         val dialog = AppCompatDialog(activity, R.style.DialogTheme)
         dialog.setContentView(R.layout.dialog_choose_episode)
+        dialog.applyCarSpacing() // 车机模式间距铺开（电视模式零改动）
         dialog.setCanceledOnTouchOutside(true)
 
         val recyclerView = dialog.findViewById<RecyclerView>(R.id.recyclerView)
@@ -187,6 +189,7 @@ class VideoPlayerOverlayController(
         // floating dialog 上 MATCH_PARENT 窗口高会退化为 wrap 内容，不能用
         dialog.window?.setGravity(Gravity.END or Gravity.CENTER_VERTICAL)
         dialog.setContentView(R.layout.dialog_choose_episode_season)
+        dialog.applyCarSpacing() // 车机模式间距铺开（电视模式零改动）
 
         val titleView = dialog.findViewById<TextView>(R.id.top_title)
         val recyclerView = dialog.findViewById<RecyclerView>(R.id.recyclerView)

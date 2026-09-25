@@ -1,5 +1,6 @@
 package com.btelly.ui.adapter
 
+import com.btelly.core.ui.base.UiCarSpacing
 import android.annotation.SuppressLint
 import android.content.Context
 import android.view.LayoutInflater
@@ -84,7 +85,10 @@ class VideoDetailContentAdapter(
         val inflater = LayoutInflater.from(parent.context)
         return when (viewType) {
             VIEW_TYPE_HEADER -> VideoDetailHeadViewHolder(
-                CellVideoDetailHeadBinding.inflate(inflater, parent, false),
+                CellVideoDetailHeadBinding.inflate(inflater, parent, false).also {
+                    // 车机模式间距铺开：详情页头部触控间距乘 boost（电视模式零改动）
+                    UiCarSpacing.apply(it.root)
+                },
                 onPlayClick,
                 onUploaderClick,
                 onLikeClick,

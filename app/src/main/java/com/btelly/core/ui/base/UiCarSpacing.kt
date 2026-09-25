@@ -1,6 +1,7 @@
 // B视机（BTelly）— by QAQMin (min09577)
 package com.btelly.core.ui.base
 
+import android.app.Dialog
 import android.view.View
 import android.view.ViewGroup
 import kotlin.math.roundToInt
@@ -72,4 +73,13 @@ object UiCarSpacing {
             view.minimumHeight = (minH * boost).roundToInt()
         }
     }
+}
+
+/**
+ * Dialog 便捷版：对内容根视图（android.R.id.content）执行车机间距铺开。
+ * 必须在 setContentView 之后调用；电视模式零改动。
+ */
+fun Dialog.applyCarSpacing() {
+    if (!UiDisplayMode.isCarMode) return
+    findViewById<View>(android.R.id.content)?.let { UiCarSpacing.apply(it) }
 }

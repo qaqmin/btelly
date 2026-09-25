@@ -2,6 +2,8 @@
 
 package com.btelly.ui.dialog
 
+import com.btelly.core.ui.base.UiCarSpacing
+import com.btelly.core.ui.base.applyCarSpacing
 import android.content.Context
 import android.view.KeyEvent
 import android.view.LayoutInflater
@@ -78,6 +80,7 @@ class VideoCardMenuDialog(
     init {
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE)
         setContentView(binding.root)
+        UiCarSpacing.apply(binding.root) // 车机模式间距铺开（电视模式零改动）
         val screenWidth = context.resources.displayMetrics.widthPixels
         window?.setLayout((screenWidth * 0.45).toInt(), android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
         setCanceledOnTouchOutside(true)
@@ -453,6 +456,7 @@ class VideoCardMenuDialog(
     private fun displayFavoriteFolderChooser(folders: List<FavoriteFolderModel>) {
         val dialog = AppCompatDialog(context, R.style.DialogTheme)
         dialog.setContentView(R.layout.dialog_favorite_folder)
+        dialog.applyCarSpacing() // 车机模式间距铺开（电视模式零改动）
         dialog.setCanceledOnTouchOutside(true)
         dialog.findViewById<View>(R.id.dialog_root)?.setOnClickListener { dialog.dismiss() }
 

@@ -1,6 +1,7 @@
 // B视机（BTelly）— by QAQMin (min09577)
 package com.btelly.ui.dialog
 
+import com.btelly.core.ui.base.UiCarSpacing
 import android.content.Context
 import android.view.LayoutInflater
 import android.view.Window
@@ -23,6 +24,7 @@ class WelcomeDialog(context: Context) : AppCompatDialog(context, R.style.DialogT
     init {
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE)
         setContentView(binding.root)
+        UiCarSpacing.apply(binding.root) // 车机模式间距铺开（电视模式零改动）
         setCancelable(true)
         setCanceledOnTouchOutside(false)
         window?.setLayout(

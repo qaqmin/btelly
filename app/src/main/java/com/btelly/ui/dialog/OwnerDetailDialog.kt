@@ -1,5 +1,6 @@
 package com.btelly.ui.dialog
 
+import com.btelly.core.ui.base.UiCarSpacing
 import android.content.Context
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
@@ -77,6 +78,7 @@ class OwnerDetailDialog(
     init {
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE)
         setContentView(binding.root)
+        UiCarSpacing.apply(binding.root) // 车机模式间距铺开（电视模式零改动）
         setCanceledOnTouchOutside(true)
         binding.root.setOnClickListener { dismiss() }
         initView()
