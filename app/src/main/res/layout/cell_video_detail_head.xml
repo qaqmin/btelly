@@ -81,7 +81,7 @@
         app:layout_constraintHorizontal_chainStyle="packed"
         app:layout_constraintStart_toStartOf="@+id/card_cover"
         app:srcCompat="@drawable/ic_like"
-        app:tint="?android:attr/textColorPrimary" />
+        app:tint="?attr/tvTextPrimary" />
 
     <androidx.appcompat.widget.AppCompatImageView
         android:id="@+id/button_coin"
@@ -98,7 +98,7 @@
         app:layout_constraintEnd_toStartOf="@+id/button_favorite"
         app:layout_constraintStart_toEndOf="@+id/button_like"
         app:srcCompat="@drawable/ic_coin"
-        app:tint="?android:attr/textColorPrimary" />
+        app:tint="?attr/tvTextPrimary" />
 
     <androidx.appcompat.widget.AppCompatImageView
         android:id="@+id/button_favorite"
@@ -115,7 +115,7 @@
         app:layout_constraintEnd_toEndOf="@+id/card_cover"
         app:layout_constraintStart_toEndOf="@+id/button_coin"
         app:srcCompat="@drawable/ic_favorite"
-        app:tint="?android:attr/textColorPrimary" />
+        app:tint="?attr/tvTextPrimary" />
 
     <com.btelly.ui.widget.TripleActionProgressView
         android:id="@+id/view_triple_progress"
@@ -163,8 +163,8 @@
                 android:ellipsize="end"
                 android:singleLine="true"
                 android:text="Title"
-                android:textColor="?android:attr/textColorPrimary"
-                android:textSize="@dimen/px30"
+                android:textColor="?attr/tvTextPrimary"
+                android:textSize="@dimen/text_title"
                 android:textStyle="bold" />
 
             <androidx.appcompat.widget.AppCompatTextView
@@ -173,8 +173,8 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/px5"
                 android:text="0粉丝"
-                android:textColor="?android:attr/textColorSecondary"
-                android:textSize="@dimen/px24" />
+                android:textColor="?attr/tvTextSecondary"
+                android:textSize="@dimen/text_label" />
         </androidx.appcompat.widget.LinearLayoutCompat>
     </androidx.appcompat.widget.LinearLayoutCompat>
 
@@ -202,7 +202,7 @@
             android:layout_width="@dimen/px30"
             android:layout_height="@dimen/px30"
             app:srcCompat="@drawable/ic_plus"
-            app:tint="@android:color/white" />
+            app:tint="?attr/tvAccentOn" />
 
         <androidx.appcompat.widget.AppCompatTextView
             android:id="@+id/text_follow"
@@ -210,8 +210,8 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="@dimen/px8"
             android:text="@string/follow"
-            android:textColor="@android:color/white"
-            android:textSize="@dimen/px26" />
+            android:textColor="?attr/tvAccentOn"
+            android:textSize="@dimen/text_body" />
     </androidx.appcompat.widget.LinearLayoutCompat>
 
     <androidx.appcompat.widget.AppCompatTextView
@@ -223,8 +223,8 @@
         android:layout_marginEnd="@dimen/px100"
         android:lineSpacingMultiplier="1.1"
         android:text="标题标题标题标题标题标题标题标题标题"
-        android:textColor="?android:attr/textColorPrimary"
-        android:textSize="@dimen/px40"
+        android:textColor="?attr/tvTextPrimary"
+        android:textSize="@dimen/text_display"
         android:textStyle="bold"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toEndOf="@+id/card_cover"
@@ -238,7 +238,7 @@
         android:lineSpacingMultiplier="1.1"
         android:text="标题标题标题标题标题标题标题标题标题"
         android:textColor="?attr/tvTextSecondary"
-        android:textSize="@dimen/px30"
+        android:textSize="@dimen/text_body"
         app:layout_constraintEnd_toEndOf="@+id/text_title"
         app:layout_constraintStart_toStartOf="@+id/text_title"
         app:layout_constraintTop_toBottomOf="@+id/text_title"
@@ -263,8 +263,8 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:text="标题标题标题标题标题标题标题标题标题"
-            android:textColor="?android:attr/textColorSecondary"
-            android:textSize="@dimen/px28" />
+            android:textColor="?attr/tvTextSecondary"
+            android:textSize="@dimen/text_body" />
 
         <androidx.appcompat.widget.AppCompatTextView
             android:id="@+id/button_detail"
@@ -279,8 +279,8 @@
             android:paddingEnd="@dimen/px20"
             android:paddingBottom="@dimen/px10"
             android:text="@string/detail"
-            android:textColor="@android:color/white"
-            android:textSize="@dimen/px26"
+            android:textColor="?attr/tvAccentOn"
+            android:textSize="@dimen/text_body"
             android:visibility="gone" />
     </androidx.appcompat.widget.LinearLayoutCompat>
 
