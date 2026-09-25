@@ -237,7 +237,7 @@
         android:layout_marginTop="@dimen/px15"
         android:lineSpacingMultiplier="1.1"
         android:text="标题标题标题标题标题标题标题标题标题"
-        android:textColor="?attr/tabBarNormal"
+        android:textColor="?attr/tvTextSecondary"
         android:textSize="@dimen/px30"
         app:layout_constraintEnd_toEndOf="@+id/text_title"
         app:layout_constraintStart_toStartOf="@+id/text_title"

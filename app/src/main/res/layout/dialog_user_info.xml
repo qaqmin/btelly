@@ -77,7 +77,7 @@
             android:paddingStart="@dimen/px15"
             android:paddingEnd="@dimen/px15"
             android:text="@string/level_"
-            android:textColor="@color/textColor"
+            android:textColor="?attr/tvTextPrimary"
             android:textSize="@dimen/px25"
             android:textStyle="bold" />
     </androidx.appcompat.widget.LinearLayoutCompat>
@@ -87,7 +87,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="@dimen/px12"
         android:text="@string/coin_number_"
-        android:textColor="@color/subTextColor"
+        android:textColor="?attr/tvTextSecondary"
         android:textSize="@dimen/px24"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -123,7 +123,7 @@
                 android:layout_height="wrap_content"
                 android:duplicateParentState="true"
                 android:text="0"
-                android:textColor="@color/text_color_stat_value"
+                android:textColor="?attr/tvTextPrimary"
                 android:textSize="@dimen/px36"
                 android:textStyle="bold" />
             <androidx.appcompat.widget.AppCompatTextView
@@ -132,7 +132,7 @@
                 android:layout_marginTop="@dimen/px6"
                 android:duplicateParentState="true"
                 android:text="@string/user_following"
-                android:textColor="@color/text_color_stat_label"
+                android:textColor="?attr/tvTextSecondary"
                 android:textSize="@dimen/px24" />
         </LinearLayout>
         <LinearLayout
@@ -155,7 +155,7 @@
                 android:layout_height="wrap_content"
                 android:duplicateParentState="true"
                 android:text="0"
-                android:textColor="@color/text_color_stat_value"
+                android:textColor="?attr/tvTextPrimary"
                 android:textSize="@dimen/px36"
                 android:textStyle="bold" />
             <androidx.appcompat.widget.AppCompatTextView
@@ -164,7 +164,7 @@
                 android:layout_marginTop="@dimen/px6"
                 android:duplicateParentState="true"
                 android:text="@string/user_follower"
-                android:textColor="@color/text_color_stat_label"
+                android:textColor="?attr/tvTextSecondary"
                 android:textSize="@dimen/px24" />
         </LinearLayout>
         <LinearLayout
@@ -187,7 +187,7 @@
                 android:layout_height="wrap_content"
                 android:duplicateParentState="true"
                 android:text="0"
-                android:textColor="@color/text_color_stat_value"
+                android:textColor="?attr/tvTextPrimary"
                 android:textSize="@dimen/px36"
                 android:textStyle="bold" />
             <androidx.appcompat.widget.AppCompatTextView
@@ -196,7 +196,7 @@
                 android:layout_marginTop="@dimen/px6"
                 android:duplicateParentState="true"
                 android:text="@string/user_dynamic"
-                android:textColor="@color/text_color_stat_label"
+                android:textColor="?attr/tvTextSecondary"
                 android:textSize="@dimen/px24" />
         </LinearLayout>
     </androidx.appcompat.widget.LinearLayoutCompat>
@@ -225,14 +225,14 @@
             android:layout_height="@dimen/px34"
             android:duplicateParentState="true"
             app:srcCompat="@drawable/ic_user"
-            app:tint="@color/text_color_user_btn" />
+            app:tint="?attr/tvAccentOn" />
         <androidx.appcompat.widget.AppCompatTextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="@dimen/px18"
             android:duplicateParentState="true"
             android:text="@string/my_space"
-            android:textColor="@color/text_color_user_btn"
+            android:textColor="?attr/tvAccentOn"
             android:textSize="@dimen/px27" />
     </LinearLayout>
     <LinearLayout
@@ -258,14 +258,14 @@
             android:layout_height="@dimen/px34"
             android:duplicateParentState="true"
             app:srcCompat="@drawable/ic_logout"
-            app:tint="@color/text_color_sign_out" />
+            app:tint="?attr/tvTextSecondary" />
         <androidx.appcompat.widget.AppCompatTextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="@dimen/px18"
             android:duplicateParentState="true"
             android:text="@string/sign_out"
-            android:textColor="@color/text_color_sign_out"
+            android:textColor="?attr/tvTextSecondary"
             android:textSize="@dimen/px27" />
     </LinearLayout>
     <Space

@@ -43,7 +43,7 @@
                 <androidx.appcompat.widget.AppCompatTextView
                     android:id="@+id/text_play_count"
                     android:textSize="@dimen/px22"
-                    android:textColor="@color/textColor"
+                    android:textColor="?attr/tvTextPrimary"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="@dimen/px5"/>
@@ -62,7 +62,7 @@
                 <androidx.appcompat.widget.AppCompatTextView
                     android:id="@+id/text_danmaku"
                     android:textSize="@dimen/px22"
-                    android:textColor="@color/textColor"
+                    android:textColor="?attr/tvTextPrimary"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="@dimen/px5"/>
@@ -74,7 +74,7 @@
             <androidx.appcompat.widget.AppCompatTextView
                 android:id="@+id/text_duration"
                 android:textSize="@dimen/px22"
-                android:textColor="@color/textColor"
+                android:textColor="?attr/tvTextPrimary"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="@dimen/px15"/>
@@ -95,7 +95,7 @@
             <androidx.appcompat.widget.AppCompatTextView
                 android:textSize="@dimen/px26"
                 android:textStyle="bold"
-                android:textColor="@color/textColor"
+                android:textColor="?attr/tvTextPrimary"
                 android:id="@+id/text_index"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"/>
@@ -107,7 +107,7 @@
                 android:visibility="gone"/>
             <androidx.appcompat.widget.AppCompatTextView
                 android:textSize="@dimen/px26"
-                android:textColor="@color/textColor"
+                android:textColor="?attr/tvTextPrimary"
                 android:ellipsize="marquee"
                 android:id="@+id/text_title"
                 android:layout_width="0dp"
@@ -119,7 +119,7 @@
         </androidx.appcompat.widget.LinearLayoutCompat>
         <androidx.appcompat.widget.AppCompatTextView
             android:textSize="@dimen/px22"
-            android:textColor="@color/subTextColor"
+            android:textColor="?attr/tvTextSecondary"
             android:id="@+id/text_pub_date"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

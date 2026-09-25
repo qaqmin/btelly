@@ -60,7 +60,7 @@
                 app:layout_constraintTop_toTopOf="parent"/>
             <TextView
                 android:textSize="@dimen/px28"
-                android:textColor="@color/textColor"
+                android:textColor="@color/white"
                 android:ellipsize="marquee"
                 android:id="@+id/text_sub_title"
                 android:layout_width="match_parent"

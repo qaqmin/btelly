@@ -20,7 +20,7 @@
     <androidx.appcompat.widget.AppCompatTextView
         android:textSize="@dimen/px30"
         android:textStyle="bold"
-        android:textColor="@color/textColor"
+        android:textColor="?attr/tvTextPrimary"
         android:id="@+id/text_name"
         android:focusable="false"
         android:clickable="false"
@@ -57,10 +57,10 @@
             android:layout_width="@dimen/px35"
             android:layout_height="@dimen/px35"
             app:srcCompat="@drawable/ic_plus"
-            app:tint="@color/colorAccent"/>
+            app:tint="?attr/tvAccent"/>
         <androidx.appcompat.widget.AppCompatTextView
             android:textSize="@dimen/px30"
-            android:textColor="@color/colorAccent"
+            android:textColor="?attr/tvAccent"
             android:id="@+id/text_follow"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
