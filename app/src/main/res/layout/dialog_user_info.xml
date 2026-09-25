@@ -40,7 +40,7 @@
         android:layout_marginTop="@dimen/px20"
         android:gravity="center"
         android:text="Nickname"
-        android:textColor="@color/biliPink"
+        android:textColor="?attr/tvTextPrimary"
         android:textSize="@dimen/px38"
         android:textStyle="bold"
         app:layout_constraintEnd_toEndOf="parent"
@@ -73,11 +73,11 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="@dimen/px10"
-            android:background="@color/red"
+            android:background="?attr/tvAccent"
             android:paddingStart="@dimen/px15"
             android:paddingEnd="@dimen/px15"
             android:text="@string/level_"
-            android:textColor="?attr/tvTextPrimary"
+            android:textColor="?attr/tvAccentOn"
             android:textSize="@dimen/px25"
             android:textStyle="bold" />
     </androidx.appcompat.widget.LinearLayoutCompat>

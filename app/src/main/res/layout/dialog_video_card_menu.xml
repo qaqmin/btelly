@@ -42,7 +42,7 @@
             android:layout_width="match_parent"
             android:layout_height="@dimen/px2"
             android:layout_marginTop="@dimen/px8"
-            android:background="@color/fourthBackgroundColor" />
+            android:background="?attr/tvDivider" />
     </androidx.appcompat.widget.LinearLayoutCompat>
 
     <androidx.appcompat.widget.LinearLayoutCompat
