@@ -17,7 +17,7 @@
         android:layout_marginStart="@dimen/px15"
         android:visibility="gone"/>
     <androidx.appcompat.widget.AppCompatTextView
-        android:textSize="@dimen/px30"
+        android:textSize="@dimen/text_body"
         android:textColor="?attr/tvTextPrimary"
         android:ellipsize="marquee"
         android:id="@+id/text_title"

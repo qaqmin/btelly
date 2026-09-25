@@ -7,7 +7,7 @@
     android:layout_width="@dimen/px600"
     android:layout_height="@dimen/px935">
     <androidx.appcompat.widget.AppCompatTextView
-        android:textSize="@dimen/px28"
+        android:textSize="@dimen/text_title"
         android:textStyle="bold"
         android:textColor="?attr/tvTextPrimary"
         android:ellipsize="end"
@@ -48,7 +48,7 @@
         android:layout_height="@dimen/px4"
         android:layout_marginStart="@dimen/px25"
         android:layout_marginEnd="@dimen/px25"
-        android:background="#66666666"
+        android:background="?attr/tvDivider"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/tab_scroll"/>

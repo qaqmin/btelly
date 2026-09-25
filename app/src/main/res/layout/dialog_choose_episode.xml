@@ -7,7 +7,7 @@
     android:layout_width="@dimen/px1000"
     android:layout_height="@dimen/px615">
     <androidx.appcompat.widget.AppCompatTextView
-        android:textSize="@dimen/px30"
+        android:textSize="@dimen/text_title"
         android:textStyle="bold"
         android:textColor="?attr/tvTextPrimary"
         android:id="@+id/top_title"
@@ -24,7 +24,7 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent"/>
     <androidx.appcompat.widget.AppCompatTextView
-        android:textSize="@dimen/px28"
+        android:textSize="@dimen/text_body"
         android:textColor="?attr/tvAccent"
         android:id="@+id/button_more_info"
         android:background="?attr/selectableItemBackground"
@@ -48,7 +48,7 @@
         android:layout_height="@dimen/px4"
         android:layout_marginStart="@dimen/px35"
         android:layout_marginEnd="@dimen/px35"
-        android:background="#66666666"
+        android:background="?attr/tvDivider"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/top_title"/>
