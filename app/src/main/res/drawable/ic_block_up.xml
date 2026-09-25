@@ -1,23 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="100dp"
-    android:height="100dp"
-    android:viewportWidth="1024"
-    android:viewportHeight="1024">
-    
-    <!-- 底板：人形图标（白色填充） -->
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
     <path
-        android:fillColor="#ffffff"
-        android:pathData="M500,128.8c-95.2,5.6 -173.6,83.2 -180,178.4 -7.2,112 80.8,205.6 191.2,205.6 106.4,0 192,-86.4 192,-192 0.8,-110.4 -92,-198.4 -203.2,-192zM512,575.2c-128,0 -383.2,64 -383.2,192v96c0,17.6 14.4,32 32,32h702.4c17.6,0 32,-14.4 32,-32V766.4c0,-127.2 -255.2,-191.2 -383.2,-191.2z" />
-    
-    <!-- 禁止标志：红色圆环 + 斜线（16x16 版放大 64 倍，长度保持原比例） -->
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M9,9.2 m-3.6,0 a3.6,3.6 0,1,0 7.2,0 a3.6,3.6 0,1,0 -7.2,0 Z M4.8,16.8 C4.8,14.2 6.7,12.8 9,12.8 C11.3,12.8 13.2,14.2 13.2,16.8 Z M4.1,18.9 L5.1,19.9 L19.9,5.1 L18.9,4.1 Z" />
     <path
-        android:strokeColor="#FF3B30"
-        android:strokeWidth="76.8"
-        android:strokeLineCap="round"
         android:fillColor="#00000000"
-        android:pathData="
-            M736,608 A160,160 0,1,0 736,928 A160,160 0,1,0 736,608 Z
-            M640,672 L832,864" />
-            
+        android:strokeColor="#FF3B30"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M4.6,19.4 L19.4,4.6" />
 </vector>

@@ -1,23 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:height="20dp"
-    android:width="20dp"
-    android:viewportWidth="1024"
-    android:viewportHeight="1024">
-    <!-- 屏幕外框 -->
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
     <path
-        android:fillColor="#ffffff"
-        android:pathData="M741.8,205H281c-71.7,0 -128,56.3 -128,128v358.4c0,71.7 56.3,128 128,128h460.8c71.7,0 128,-56.3 128,-128V333C869.8,261.3 813.5,205 741.8,205zM818.6,691.4c0,43.5 -33.3,76.8 -76.8,76.8H281c-43.5,0 -76.8,-33.3 -76.8,-76.8V333c0,-43.5 33.3,-76.8 76.8,-76.8h460.8c43.5,0 76.8,33.3 76.8,76.8V691.4z"/>
-    <!-- 中间竖线 -->
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M3.2,5.4 H20.8 V18.6 H3.2 Z M12,5.4 V18.6" />
     <path
-        android:fillColor="#ffffff"
-        android:pathData="M511.4,350v326.8h50V350z"/>
-    <!-- 左侧箭头朝内（指向右） -->
-    <path
-        android:fillColor="#ffffff"
-        android:pathData="M440,557.4L340,557.4L380,607.4L340,607.4L290,535.4L340,463.4L380,463.4L340,513.4L440,513.4Z"/>
-    <!-- 右侧箭头朝内（指向左） -->
-    <path
-        android:fillColor="#ffffff"
-        android:pathData="M582.8,557.4L682.8,557.4L642.8,607.4L682.8,607.4L732.8,535.4L682.8,463.4L642.8,463.4L682.8,513.4L582.8,513.4Z"/>
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6.2,9.9 L8.4,12 L6.2,14.1 Z M9.2,10.9 H11.2 V13.1 H9.2 Z M17.8,9.9 L15.6,12 L17.8,14.1 Z M12.8,10.9 H14.8 V13.1 H12.8 Z" />
 </vector>
