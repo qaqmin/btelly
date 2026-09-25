@@ -1,3 +1,10 @@
+# 历史留档：GitHub 时代的发布流水线，已停用，勿改回 .yml 扩展名
+# - 2026-09-24 事故：Codeberg（Forgejo）Actions 会读取 .github/workflows，对本工作流
+#   执行了一次排队并留下永远「Waiting to run」的 pending 状态（无 runner、无签名
+#   secret、GitHub 账号已封）。仓库 Actions 已通过 API 关闭，文件以 .disabled 扩展名
+#   就地置灰——Actions 平台只加载 .yml/.yaml，非活动即不被任何平台拾取。
+# - 现行 CI = Mac 构建机：push 到 mac 远程即触发自动构建 + 签名。见 AGENTS.md。
+
 name: Android APK Build
 on:
   push:
