@@ -161,6 +161,7 @@ class LivePlayerFragment : Fragment() {
         override fun onVideoFrameProcessingOffset(
             eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
             videoFrameProcessingOffsetUs: Long,
+            bufferTimestampMs: Int,
         ) {
             lastVprocUs = videoFrameProcessingOffsetUs
             maybeLog(0)
@@ -168,9 +169,11 @@ class LivePlayerFragment : Fragment() {
 
         override fun onAudioUnderrun(
             eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
-            exception: java.io.IOException,
+            actualWrittenBytes: Int,
+            bufferWrittenUs: Long,
+            targetBufferWrittenUs: Long,
         ) {
-            AppLog.w(TAG, "live_av_sync audio_underrun ${exception.javaClass.simpleName}")
+            AppLog.w(TAG, "live_av_sync audio_underrun written=$bufferWrittenUs target=$targetBufferWrittenUs")
         }
 
         private fun maybeLog(elapsedMs: Long) {
