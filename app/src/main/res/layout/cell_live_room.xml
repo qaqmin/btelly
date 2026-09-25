@@ -101,7 +101,7 @@
         android:minLines="1"
         android:singleLine="true"
         android:text="@string/app_name"
-        android:textColor="?android:attr/textColorPrimary"
+        android:textColor="?attr/tvTextPrimary"
         android:textSize="@dimen/px31"
         android:textStyle="bold"
         app:layout_constraintEnd_toEndOf="@+id/imageView"
@@ -120,7 +120,7 @@
         app:layout_constraintStart_toStartOf="@+id/textView"
         app:layout_constraintTop_toTopOf="@+id/textView_owner"
         app:srcCompat="@drawable/ic_video_up"
-        app:tint="?android:attr/textColorSecondary" />
+        app:tint="?attr/tvTextSecondary" />
 
     <androidx.appcompat.widget.AppCompatTextView
         android:id="@+id/textView_owner"
@@ -128,7 +128,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="@dimen/px5"
         android:text="@string/app_name"
-        android:textColor="?android:attr/textColorSecondary"
+        android:textColor="?attr/tvTextSecondary"
         android:textSize="@dimen/px22"
         app:layout_constraintEnd_toEndOf="@+id/imageView"
         app:layout_constraintStart_toEndOf="@+id/image_avatar"
