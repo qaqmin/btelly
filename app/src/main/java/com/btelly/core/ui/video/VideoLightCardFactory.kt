@@ -1,5 +1,6 @@
 package com.btelly.core.ui.video
 
+import com.btelly.core.ui.focus.animateFocusSpring
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -831,6 +832,12 @@ private class FlatVideoLightCardLayout @JvmOverloads constructor(
     private var titleRowHeight = 0
     private var lastContentWidth = -1
     private var lastDesiredHeight = -1
+
+    override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: Rect?) {
+        super.onFocusChanged(gainFocus, direction, previouslyFocusedRect)
+        // 焦点弹簧（动效 Phase 1）：缩放动画内嵌于卡片自身，业务方后设 focus 监听不会覆盖
+        animateFocusSpring(gainFocus)
+    }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         // focusableInTouchMode 的卡片首次 tap 会被框架先抢焦点（不 pressed、不 performClick），

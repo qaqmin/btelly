@@ -1,6 +1,7 @@
 // B视机（BTelly）— by QAQMin (min09577)
 package com.btelly.core.ui.tab
 
+import com.btelly.core.ui.focus.attachFocusSpring
 import android.content.Context
 import android.util.TypedValue
 import android.view.ViewGroup
@@ -36,6 +37,8 @@ fun TabLayout.applyChipTabStyle() {
         }
         // 车机模式间距铺开：chip 内边距/触控高度/项间距乘 boost（电视模式零改动）
         UiCarSpacing.apply(tabView)
+        // 焦点弹簧（动效 Phase 1）：chip 聚焦轻微放大回弹
+        tabView.attachFocusSpring()
     }
 }
 

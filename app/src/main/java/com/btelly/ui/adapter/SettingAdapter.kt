@@ -1,5 +1,6 @@
 package com.btelly.ui.adapter
 
+import com.btelly.core.ui.focus.animateFocusSpring
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
@@ -73,7 +74,8 @@ class SettingAdapter(
                     onItemClick?.invoke(position, currentList[position])
                 }
             }
-            binding.clickView.setOnFocusChangeListener { _, hasFocus ->
+            binding.clickView.setOnFocusChangeListener { view, hasFocus ->
+                view.animateFocusSpring(hasFocus)
                 val position = bindingAdapterPosition
                 if (position == RecyclerView.NO_POSITION) {
                     return@setOnFocusChangeListener

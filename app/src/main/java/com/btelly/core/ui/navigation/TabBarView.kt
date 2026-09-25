@@ -1,6 +1,7 @@
 // B视机（BTelly）— by QAQMin (min09577)
 package com.btelly.core.ui.navigation
 
+import com.btelly.core.ui.focus.attachFocusSpring
 import android.content.Context
 import android.graphics.PorterDuff
 import android.util.AttributeSet
@@ -84,6 +85,10 @@ class TabBarView @JvmOverloads constructor(
 
         tabButtons.forEach { applyTabColor(it, false) }
         applyTabColor(navSetting, false)
+
+        // 焦点弹簧（动效 Phase 1）：导航项聚焦放大回弹（轨无业务 focus 监听，attach 安全）
+        tabButtons.forEach { it.container.attachFocusSpring() }
+        navSetting.container.attachFocusSpring()
 
         setupClickListeners()
     }

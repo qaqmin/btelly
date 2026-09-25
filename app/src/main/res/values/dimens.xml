@@ -85,6 +85,8 @@
     <dimen name="rail_label_size">20px</dimen>
     <dimen name="rail_label_margin_start">12px</dimen>
     <dimen name="rail_gap">8px</dimen>
+    <!-- 焦点弹簧：聚焦时 translationZ 抬升（px 体系随面板缩放） -->
+    <dimen name="focus_lift_z">6px</dimen>
     <dimen name="rail_brand_size">36px</dimen>
     <dimen name="rail_brand_text_size">22px</dimen>
     <dimen name="rail_brand_margin_top">32px</dimen>
