@@ -1,5 +1,6 @@
 package com.btelly.ui.adapter
 
+import com.btelly.core.ui.focus.animateFocusScale
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -95,11 +96,7 @@ class SettingSelectionDialogAdapter(
             binding.iconCheck.visibility = if (isSelected) View.VISIBLE else View.GONE
 
             binding.root.isSelected = isSelected
-            binding.root.animate()
-                .scaleX(if (isFocused) 1.02f else 1f)
-                .scaleY(if (isFocused) 1.02f else 1f)
-                .setDuration(120L)
-                .start()
+            binding.root.animateFocusScale(isFocused)
 
             val titleColor = if (isSelected) {
                 ContextCompat.getColor(binding.root.context, R.color.colorAccent)

@@ -58,3 +58,34 @@ fun View.attachFocusSpring(scale: Float = UiMotion.FOCUS_SCALE) {
     setTag(R.id.tag_focus_spring, true)
     setOnFocusChangeListener { v, hasFocus -> v.animateFocusSpring(hasFocus, scale) }
 }
+
+/**
+ * 已知焦点态的缩放应用（供 ViewHolder 的 bindFocusState 等"焦点态已知"场景调用；
+ * 与 [animateFocusSpring] 的区别：不做 isFocusable 预检，也不自带监听）。
+ * Min化 关闭时直接归位无动画。
+ */
+fun View.animateFocusScale(hasFocus: Boolean, scale: Float = UiMotion.FOCUS_SCALE) {
+    if (!UiMinStyle.isEnabled) {
+        animate().cancel()
+        scaleX = 1f
+        scaleY = 1f
+        return
+    }
+    if (hasFocus) {
+        animate().cancel()
+        animate()
+            .scaleX(scale)
+            .scaleY(scale)
+            .setDuration(UiMotion.FOCUS_DURATION_MS)
+            .setInterpolator(UiMotion.FOCUS_IN_INTERPOLATOR)
+            .start()
+    } else {
+        animate().cancel()
+        animate()
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(UiMotion.FOCUS_OUT_DURATION_MS)
+            .setInterpolator(UiMotion.FOCUS_OUT_INTERPOLATOR)
+            .start()
+    }
+}
