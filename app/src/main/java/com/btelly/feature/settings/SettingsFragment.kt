@@ -238,7 +238,11 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.ui_text_size), "标准"),
             SettingModel(getString(R.string.ui_card_size), "标准"),
             SettingModel(getString(R.string.display_mode), "电视"),
-            SettingModel(getString(R.string.min_style), UiMinStyle.VALUE_ON)
+            SettingModel(
+                getString(R.string.min_style),
+                appSettings.getCachedString(UiMinStyle.KEY_MIN_STYLE, UiMinStyle.VALUE_ON)
+                    ?: UiMinStyle.VALUE_ON
+            )
         )
 
         // 青少年模式分类：青少年保护开关 + 单次观看时长 + 休息时长 + 公益广告开关 + 公益广告间隔
