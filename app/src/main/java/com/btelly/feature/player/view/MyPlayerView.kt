@@ -831,9 +831,14 @@ class MyPlayerView @JvmOverloads constructor(
         player?.addListener(componentListener)
         // 首帧回调是状态变化事件，不会为"已出画"的帧补发：attach 时播放器已在播
         // （实例复用、详情页→播放器移交），抑制标志会滞留导致控制栏永久锁死。
+        // 已在出画即视为首帧已渲染；快门是 closeShutter 刚升起的，内容已在出画，
+        // 必须同步撤下，否则首帧回调永不来时快门会常驻黑屏。
         if (player?.isPlaying == true) {
             hasRenderedFirstFrame = true
             suppressControllerShowUntilFirstFrame = false
+            shutterView?.animate()?.cancel()
+            shutterView?.alpha = 0f
+            shutterView?.visibility = INVISIBLE
         }
         // player 切换会带来新的播放参数，立即同步当前速度，避免 mask 在拿到首个
         // PARAMETERS_CHANGED 事件前用旧速度推算。
