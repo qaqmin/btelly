@@ -1,6 +1,7 @@
 // B视机（BTelly）— by QAQMin (min09577)
 package com.btelly.core.ui.focus
 
+import com.btelly.core.ui.motion.UiMinStyle
 import android.view.View
 import com.btelly.R
 import com.btelly.core.ui.motion.UiMotion
@@ -24,6 +25,7 @@ fun View.animateFocusSpring(
     raiseElevation: Boolean = true
 ) {
     if (!isFocusable) return
+    if (!UiMinStyle.isEnabled) return // Min化 总开关：关闭时零动画直出
     if (hasFocus) {
         animate().cancel()
         animate()

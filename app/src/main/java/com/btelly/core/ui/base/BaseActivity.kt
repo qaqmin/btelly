@@ -1,5 +1,6 @@
 package com.btelly.core.ui.base
 
+import com.btelly.core.ui.motion.UiMinStyle
 import android.os.Build
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
@@ -27,6 +28,7 @@ abstract class BaseActivity<VB : ViewBinding> : AppCompatActivity() {
         UiTextScale.refresh(appSettings)
         UiCardSize.refresh(appSettings)
         UiDisplayMode.refresh(appSettings)
+        UiMinStyle.refresh(appSettings)
         UiTextScaleFactory.install(layoutInflater)
         applyTheme()
         super.onCreate(savedInstanceState)

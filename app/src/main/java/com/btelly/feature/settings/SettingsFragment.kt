@@ -1,6 +1,7 @@
 // B视机（BTelly）— by QAQMin (min09577)
 package com.btelly.feature.settings
 
+import com.btelly.core.ui.motion.UiMinStyle
 import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.ui.theme.resolveThemeColor
 import android.app.Activity
@@ -84,11 +85,12 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val DEVICE_POSITION_SCREEN = 6
         private const val DEVICE_POSITION_CODEC = 7
 
-        // 界面分类（P1-4 从通用设置拆出）：主题 / UI文字 / 卡片大小 / 显示模式
+        // 界面分类（P1-4 从通用设置拆出）：主题 / UI文字 / 卡片大小 / 显示模式 / Min化
         private const val UI_POSITION_THEME = 0
         private const val UI_POSITION_TEXT_SCALE = 1
         private const val UI_POSITION_CARD_SIZE = 2
         private const val UI_POSITION_DISPLAY_MODE = 3
+        private const val UI_POSITION_MIN_STYLE = 4
 
         // 播放分类尾部（P1-4 电视直播合入）：CCTV 开关 + X5 内核替换
         private const val PLAYER_POSITION_CCTV = 16
@@ -230,12 +232,13 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingModel(getString(R.string.douyin_mode), "关")
         )
 
-        // 界面分类（P1-4 从通用设置拆出）：主题 / UI文字大小 / 视频卡片大小 / 显示模式
+        // 界面分类（P1-4 从通用设置拆出）：主题 / UI文字大小 / 视频卡片大小 / 显示模式 / Min化
         uiSettings = mutableListOf(
             SettingModel(getString(R.string.theme), "黑色"),
             SettingModel(getString(R.string.ui_text_size), "标准"),
             SettingModel(getString(R.string.ui_card_size), "标准"),
-            SettingModel(getString(R.string.display_mode), "电视")
+            SettingModel(getString(R.string.display_mode), "电视"),
+            SettingModel(getString(R.string.min_style), UiMinStyle.VALUE_ON)
         )
 
         // 青少年模式分类：青少年保护开关 + 单次观看时长 + 休息时长 + 公益广告开关 + 公益广告间隔
@@ -401,7 +404,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
     }
 
     /**
-     * 界面分类点击处理（P1-4 从通用设置拆出）：主题 / UI文字大小 / 视频卡片大小 / 显示模式。
+     * 界面分类点击处理（P1-4 从通用设置拆出）：主题 / UI文字大小 / 视频卡片大小 / 显示模式 / Min化。
      */
     private fun handleUiSettingClick(position: Int) {
         when (position) {
@@ -414,6 +417,22 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             UI_POSITION_TEXT_SCALE -> showUiTextScaleDialog()
             UI_POSITION_CARD_SIZE -> showCardSizeChoiceDialog()
             UI_POSITION_DISPLAY_MODE -> showDisplayModeDialog()
+            UI_POSITION_MIN_STYLE -> showMinStyleDialog()
+        }
+    }
+
+    /** Min化 动画总开关：默认开；关闭后全站动效零动画直出。 */
+    private fun showMinStyleDialog() {
+        val saved = appSettings.getCachedString(UiMinStyle.KEY_MIN_STYLE, UiMinStyle.VALUE_ON)
+            ?: UiMinStyle.VALUE_ON
+        showChoiceDialog(
+            uiSettings[UI_POSITION_MIN_STYLE].title,
+            saved,
+            arrayOf(UiMinStyle.VALUE_ON, UiMinStyle.VALUE_OFF)
+        ) { value ->
+            updateSetting(uiSettings, UI_POSITION_MIN_STYLE, value)
+            appSettings.putStringAsync(UiMinStyle.KEY_MIN_STYLE, value)
+            activity?.recreate()
         }
     }
 
