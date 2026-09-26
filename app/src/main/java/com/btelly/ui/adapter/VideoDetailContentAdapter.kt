@@ -21,6 +21,7 @@ import com.btelly.core.ui.focus.tv.TvDataChangeReason
 import com.btelly.core.ui.focus.tv.TvListFocusController
 import com.btelly.core.ui.image.ImageLoader
 import com.btelly.core.ui.motion.UiHeroMotion
+import com.btelly.core.ui.motion.UiMinFeedback
 import com.btelly.core.ui.system.ScreenUtils
 import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.common.time.TimeUtils
@@ -148,6 +149,11 @@ class VideoDetailContentAdapter(
         private var currentTags: List<Tag> = emptyList()
         private var currentDescription: CharSequence = ""
         private var relationAttribute = 0
+
+        /** 点赞/收藏/投币状态基线：null=未初始化（bind/复用重置）；非 null 才比较变化弹弹簧 */
+        private var lastLiked: Boolean? = null
+        private var lastCoined: Boolean? = null
+        private var lastFavorited: Boolean? = null
 
         private var tripleActionTriggered = false
         private val tripleStartRunnable = Runnable {
@@ -354,6 +360,10 @@ class VideoDetailContentAdapter(
             updateDescription(currentDescription)
 
             updateTagLayout(tags)
+            // Min化：重新 bind 视为新视频，清掉上一视频的状态基线，避免复用误弹
+            lastLiked = null
+            lastCoined = null
+            lastFavorited = null
             updateActionButtons(isLiked, isCoined, isFavorited)
             updateUploaderNextFocusDown()
 
@@ -448,6 +458,21 @@ class VideoDetailContentAdapter(
             binding.buttonLike.imageTintList = if (isLiked) pink else default
             binding.buttonCoin.imageTintList = if (isCoined) pink else default
             binding.buttonFavorite.imageTintList = if (isFavorited) pink else default
+
+            // Min化：状态发生变化的图标弹一下（基线为 null 是首次刷新/复用重置，不弹；
+            // 三连三个同时变，错峰 50ms 依次弹，读出节奏感）
+            if (lastLiked != null && lastLiked != isLiked) {
+                UiMinFeedback.pop(binding.buttonLike)
+            }
+            if (lastCoined != null && lastCoined != isCoined) {
+                UiMinFeedback.pop(binding.buttonCoin, 50L)
+            }
+            if (lastFavorited != null && lastFavorited != isFavorited) {
+                UiMinFeedback.pop(binding.buttonFavorite, 100L)
+            }
+            lastLiked = isLiked
+            lastCoined = isCoined
+            lastFavorited = isFavorited
         }
 
         fun updateFollowState(attribute: Int) {
