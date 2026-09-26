@@ -829,6 +829,12 @@ class MyPlayerView @JvmOverloads constructor(
         this.player = player
         updateVideoFrameRateStrategy(buildDanmakuSettingsSnapshot().enabled)
         player?.addListener(componentListener)
+        // 首帧回调是状态变化事件，不会为"已出画"的帧补发：attach 时播放器已在播
+        // （实例复用、详情页→播放器移交），抑制标志会滞留导致控制栏永久锁死。
+        if (player?.isPlaying == true) {
+            hasRenderedFirstFrame = true
+            suppressControllerShowUntilFirstFrame = false
+        }
         // player 切换会带来新的播放参数，立即同步当前速度，避免 mask 在拿到首个
         // PARAMETERS_CHANGED 事件前用旧速度推算。
         player?.let {
@@ -879,6 +885,10 @@ class MyPlayerView @JvmOverloads constructor(
     fun forceOpenShutter() {
         handler.removeCallbacks(shutterTimeoutRunnable)
         if (!hasRenderedFirstFrame) {
+            // 快门超时兜底已决定显示内容：必须同步解除控制栏抑制。onRenderedFirstFrame
+            // 在 async MediaCodec flush 后有丢失先例（见 SeekDiag），抑制标志一旦滞留，
+            // 控制栏将永久无法唤出（tap/确认键全部失灵）。
+            suppressControllerShowUntilFirstFrame = false
             shutterView?.animate()?.cancel()
             shutterView?.animate()
                 ?.alpha(0f)
