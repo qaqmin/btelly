@@ -4,7 +4,11 @@ import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewPropertyAnimator
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import com.btelly.R
+import com.btelly.core.ui.motion.UiMinStyle
 
 class MyPlayerControlViewLayoutManager(
     private val playerControlView: MyPlayerControlView,
@@ -15,6 +19,13 @@ class MyPlayerControlViewLayoutManager(
         private const val ANIMATION_DURATION_MS = 250L
         private const val OVERFLOW_ANIMATION_DURATION_MS = 220L
         private const val PROGRESS_ONLY_DURATION_MS = 1000L
+
+        /** Min化（S-3）：控制栏进出场编排。入场 overshoot 回弹、退场减速—— */
+        /** 「来有回弹、去要稳」的非对称节奏，张力与焦点弹簧同源（0.7f）。 */
+        private const val MIN_SHOW_MS = 300L
+        private const val MIN_HIDE_MS = 220L
+        private val MIN_SHOW_INTERPOLATOR = OvershootInterpolator(0.7f)
+        private val MIN_HIDE_INTERPOLATOR = DecelerateInterpolator(1.2f)
         private const val UX_STATE_ALL_VISIBLE = 0
         private const val UX_STATE_ONLY_PROGRESS_VISIBLE = 1
         private const val UX_STATE_NONE_VISIBLE = 2
@@ -290,6 +301,24 @@ class MyPlayerControlViewLayoutManager(
         }
     }
 
+    /** Min化（S-3）：控制栏滑动时长。入场 300ms（回弹要时间展开）、退场 220ms；关闭时维持旧值。 */
+    private val controlShowMs: Long
+        get() = if (UiMinStyle.isEnabled) MIN_SHOW_MS else ANIMATION_DURATION_MS
+
+    private val controlHideMs: Long
+        get() = if (UiMinStyle.isEnabled) MIN_HIDE_MS else ANIMATION_DURATION_MS
+
+    /**
+     * Min化（S-3）：给控制栏滑动套编排。入场 overshoot 回弹、退场减速；
+     * Min化 关闭时保持调用处原样（默认插值 + 原时长），零差异。
+     */
+    private fun ViewPropertyAnimator.minControlSlide(show: Boolean): ViewPropertyAnimator {
+        if (!UiMinStyle.isEnabled) return this
+        setDuration(if (show) controlShowMs else controlHideMs)
+        setInterpolator(if (show) MIN_SHOW_INTERPOLATOR else MIN_HIDE_INTERPOLATOR)
+        return this
+    }
+
     private fun hideMainBar() {
         if (uxState == UX_STATE_ANIMATING_HIDE || uxState == UX_STATE_ONLY_PROGRESS_VISIBLE || uxState == UX_STATE_NONE_VISIBLE) {
             return
@@ -297,7 +326,7 @@ class MyPlayerControlViewLayoutManager(
         cancelAllAnimations()
         needToShowBars = false
         setUxState(UX_STATE_ANIMATING_HIDE)
-        timeBar.hideScrubber(ANIMATION_DURATION_MS)
+        timeBar.hideScrubber(controlHideMs)
         if (bottomBarController.hasFocus() || titleView.hasFocus() || playerControlView.isAnyPrimaryControlFocused()) {
             timeBar.requestFocus()
         }
@@ -305,7 +334,7 @@ class MyPlayerControlViewLayoutManager(
         animateMainInfo(visible = false) {}
         bottomBar.animate()
             .translationY(hiddenTranslationY)
-            .setDuration(ANIMATION_DURATION_MS)
+            .minControlSlide(show = false)
             .setListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     hideController()
@@ -329,7 +358,7 @@ class MyPlayerControlViewLayoutManager(
         controlsBackground.visibility = View.INVISIBLE
         bottomBar.animate()
             .translationY(hiddenTranslationY)
-            .setDuration(ANIMATION_DURATION_MS)
+            .minControlSlide(show = false)
             .setListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     hideController()
@@ -376,10 +405,10 @@ class MyPlayerControlViewLayoutManager(
         if (timeViewVisible) timeView.visibility = View.VISIBLE
         bottomBar.animate()
             .translationY(0f)
-            .setDuration(ANIMATION_DURATION_MS)
+            .minControlSlide(show = true)
             .setListener(null)
             .start()
-        timeBar.showScrubber(ANIMATION_DURATION_MS)
+        timeBar.showScrubber(controlShowMs)
         playerControlView.startProgressUpdates()
         animateMainInfo(visible = true) {
             setUxState(UX_STATE_ALL_VISIBLE)
@@ -393,11 +422,11 @@ class MyPlayerControlViewLayoutManager(
         restoreMainBarImmediately(initialAlpha = 0f)
         bottomBar.translationY = hiddenTranslationY
         setUxState(UX_STATE_ANIMATING_SHOW)
-        timeBar.showScrubber(ANIMATION_DURATION_MS)
+        timeBar.showScrubber(controlShowMs)
         playerControlView.startProgressUpdates()
         bottomBar.animate()
             .translationY(0f)
-            .setDuration(ANIMATION_DURATION_MS)
+            .minControlSlide(show = true)
             .setListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     animateMainInfo(visible = true) {
@@ -411,6 +440,12 @@ class MyPlayerControlViewLayoutManager(
 
     private fun animateMainInfo(visible: Boolean, endAction: () -> Unit) {
         val targetAlpha = if (visible) 1f else 0f
+        // Min化（S-3）：info 渐显/渐隐比滑动收得快——滑动是主角，渐隐是陪衬
+        val infoMs = when {
+            !UiMinStyle.isEnabled -> ANIMATION_DURATION_MS
+            visible -> 200L
+            else -> 180L
+        }
         if (visible) {
             controlsBackground.visibility = View.VISIBLE
             centerControls.visibility = View.VISIBLE
@@ -434,7 +469,7 @@ class MyPlayerControlViewLayoutManager(
         }
         controlsBackground.animate()
             .alpha(targetAlpha)
-            .setDuration(ANIMATION_DURATION_MS)
+            .setDuration(infoMs)
             .setListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     onPartEnd()
@@ -443,7 +478,7 @@ class MyPlayerControlViewLayoutManager(
             .start()
         centerControls.animate()
             .alpha(targetAlpha)
-            .setDuration(ANIMATION_DURATION_MS)
+            .setDuration(infoMs)
             .setListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     onPartEnd()
@@ -452,7 +487,7 @@ class MyPlayerControlViewLayoutManager(
             .start()
         titleView.animate()
             .alpha(targetAlpha)
-            .setDuration(ANIMATION_DURATION_MS)
+            .setDuration(infoMs)
             .setListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     onPartEnd()
@@ -461,7 +496,7 @@ class MyPlayerControlViewLayoutManager(
             .start()
         bottomBarController.animate()
             .alpha(targetAlpha)
-            .setDuration(ANIMATION_DURATION_MS)
+            .setDuration(infoMs)
             .setListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     onPartEnd()
