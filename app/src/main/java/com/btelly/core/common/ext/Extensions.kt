@@ -4,6 +4,7 @@ import android.content.Context
 import android.widget.Toast
 import androidx.annotation.StringRes
 import com.btelly.core.common.settings.AppSettingsDataStore
+import com.btelly.core.ui.motion.UiToastMin
 import org.koin.mp.KoinPlatform
 
 private const val VALUE_ON = "开"
@@ -14,11 +15,13 @@ private val appSettings: AppSettingsDataStore
     get() = KoinPlatform.getKoin().get()
 
 fun Context.toast(message: String, duration: Int = Toast.LENGTH_SHORT) {
-    Toast.makeText(applicationContext, message, duration).show()
+    UiToastMin.show(this, message, duration)
 }
 
 fun Context.toast(@StringRes resId: Int, duration: Int = Toast.LENGTH_SHORT) {
-    Toast.makeText(applicationContext, resId, duration).show()
+    val text = runCatching { getString(resId) }.getOrNull()
+    if (text.isNullOrBlank()) return
+    UiToastMin.show(this, text, duration)
 }
 
 fun isOpenDetailFirstEnabled(): Boolean {
