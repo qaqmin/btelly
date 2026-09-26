@@ -1,5 +1,6 @@
 package com.btelly.core.ui.base
 
+import com.btelly.core.ui.motion.installMinStagger
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -81,6 +82,8 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
         recyclerView = binding.recyclerView
         adapter = createAdapter()
         val t1 = SystemClock.elapsedRealtime()
+        // Min化：列表 stagger 进场（电视模式零动画；setAdapter 前挂载，首批布局时播放）
+        recyclerView?.installMinStagger()
         recyclerView?.adapter = adapter
         val rvForTuning = recyclerView
         val adapterForTuning = adapter
