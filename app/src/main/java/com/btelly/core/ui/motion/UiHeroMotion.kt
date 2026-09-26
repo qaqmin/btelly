@@ -147,6 +147,9 @@ object UiHeroMotion {
         active.stage = Stage.FORWARD_FLY
         active.animator = flightAnimator(overlay, start, end, radiusStart, radiusEnd) {
             overlay.detachSelf(animated = false)
+            // 覆盖层已撤，必须置空：留着这个脱管引用会让 beginReverse 复用它，
+            // 而它已不在视图层级上，回程永远挂不到屏幕上
+            active.overlay = null
             active.stage = Stage.SETTLED
         }.also { it.start() }
         AppLog.d(TAG, "notifyHeadCover: start=$start end=$end")
@@ -199,12 +202,14 @@ object UiHeroMotion {
             cancelRun(active)
             return false
         }
+        // animator.cancel() 会触发飞行结束回调把 live 摘掉，复用前必须确认它还在屏上
         active.animator?.cancel()
-        val overlay = live ?: HeroOverlay(activity, FADE_OUT_MS).also { fresh ->
-            fresh.alpha = 0f
-            content.addView(fresh, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
-            fresh.animate().alpha(1f).setDuration(FADE_IN_MS).start()
-        }
+        val overlay = live?.takeIf { it.isAttachedToWindow }
+            ?: HeroOverlay(activity, FADE_OUT_MS).also { fresh ->
+                fresh.alpha = 0f
+                content.addView(fresh, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+                fresh.animate().alpha(1f).setDuration(FADE_IN_MS).start()
+            }
         overlay.bindCover(drawable)
         overlay.setFrameScreen(start)
         overlay.cornerRadius = radius
