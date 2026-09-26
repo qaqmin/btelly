@@ -354,7 +354,7 @@ class VideoDetailContentAdapter(
             updateDescription(currentDescription)
 
             updateTagLayout(tags)
-            updateActionButtons(isLiked, isCoins, isFavorited)
+            updateActionButtons(isLiked, isCoined, isFavorited)
             updateUploaderNextFocusDown()
 
             // Hero 转场落点：头图布局完成即通知起飞（无挂起 hero 时是空操作）
