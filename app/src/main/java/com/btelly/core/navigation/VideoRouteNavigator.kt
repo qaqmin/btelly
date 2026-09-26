@@ -13,6 +13,7 @@ import com.btelly.feature.player.settings.PlayerSettingsStore
 import com.btelly.core.common.ext.isOpenDetailFirstEnabled
 import com.btelly.core.common.ext.toast
 import com.btelly.core.common.log.AppLog
+import com.btelly.core.ui.motion.UiHeroMotion
 
 object VideoRouteNavigator {
 
@@ -49,6 +50,8 @@ object VideoRouteNavigator {
             val hostActivity = findMainActivityHost(context)
             AppLog.d(TAG, "openVideo: detailFirst=true, host=$hostActivity")
             if (hostActivity != null) {
+                // Hero 转场：先取焦点里的卡片封面（事务会清焦点，必须在前面）
+                UiHeroMotion.beginForward(hostActivity, UiHeroMotion.resolveCoverFromFocus(hostActivity))
                 hostActivity.openInHostContainer(VideoDetailFragment.newInstance(video, playQueue))
                 return
             }
@@ -79,6 +82,7 @@ object VideoRouteNavigator {
     ): Boolean {
         val hostActivity = findMainActivityHost(context)
         if (hostActivity != null) {
+            UiHeroMotion.beginForward(hostActivity, UiHeroMotion.resolveCoverFromFocus(hostActivity))
             hostActivity.openInHostContainer(VideoDetailFragment.newInstance(video, playQueue))
             return true
         }

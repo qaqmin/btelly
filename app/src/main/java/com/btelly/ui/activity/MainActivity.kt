@@ -28,6 +28,7 @@ import com.btelly.network.session.NetworkSessionGateway
 import com.btelly.repository.UserRepository
 import com.btelly.core.ui.base.BaseActivity
 import com.btelly.core.ui.base.OnBackPressedHandler
+import com.btelly.core.ui.motion.UiHeroMotion
 import com.btelly.model.user.UserDetailInfoModel
 import com.btelly.feature.category.CategoryFragment
 import com.btelly.feature.cctv.CctvLiveFragment
@@ -156,6 +157,8 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         supportFragmentManager.addOnBackStackChangedListener {
             val currentCount = supportFragmentManager.backStackEntryCount
             if (currentCount < lastBackStackEntryCount) {
+                // Hero 回程：pop 完成后列表页回到前台，触发封面飞回卡片
+                UiHeroMotion.onReturnDestinationReady()
                 restoreFocusAfterOverlayPop()
             }
             lastBackStackEntryCount = currentCount
@@ -673,8 +676,12 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         }
 
         if (supportFragmentManager.backStackEntryCount > 0) {
-            pendingFocusRestoreDelayMs =
-                if (isSettingsOverlayVisible()) SETTINGS_OVERLAY_EXIT_ANIM_MS else 0L
+            pendingFocusRestoreDelayMs = when {
+                // Hero 回程进行中：等封面落回卡片再恢复焦点，避免焦点环抢飞行
+                UiHeroMotion.beginReverse(this) -> UiHeroMotion.DURATION_MS
+                isSettingsOverlayVisible() -> SETTINGS_OVERLAY_EXIT_ANIM_MS
+                else -> 0L
+            }
             supportFragmentManager.popBackStack()
             return
         }
@@ -707,8 +714,11 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
 
     fun closeTopOverlayFromUi() {
         if (supportFragmentManager.backStackEntryCount > 0) {
-            pendingFocusRestoreDelayMs =
-                if (isSettingsOverlayVisible()) SETTINGS_OVERLAY_EXIT_ANIM_MS else 0L
+            pendingFocusRestoreDelayMs = when {
+                UiHeroMotion.beginReverse(this) -> UiHeroMotion.DURATION_MS
+                isSettingsOverlayVisible() -> SETTINGS_OVERLAY_EXIT_ANIM_MS
+                else -> 0L
+            }
             supportFragmentManager.popBackStack()
             return
         }
@@ -958,6 +968,8 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
 
     override fun onPause() {
         super.onPause()
+        // 被全屏页面（播放器等）盖住时撤掉 Hero 覆盖层，避免回来时盖着屏幕
+        UiHeroMotion.onActivityPaused(this)
         teenRestHandler.removeCallbacks(teenRestTicker)
         AppLog.i(TEEN_REST_DIAG_TAG, "onPause")
     }

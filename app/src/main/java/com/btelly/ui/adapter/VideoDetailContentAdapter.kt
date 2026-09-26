@@ -20,6 +20,7 @@ import com.btelly.core.ui.focus.tv.LinearTvFocusStrategy
 import com.btelly.core.ui.focus.tv.TvDataChangeReason
 import com.btelly.core.ui.focus.tv.TvListFocusController
 import com.btelly.core.ui.image.ImageLoader
+import com.btelly.core.ui.motion.UiHeroMotion
 import com.btelly.core.ui.system.ScreenUtils
 import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.common.time.TimeUtils
@@ -353,8 +354,11 @@ class VideoDetailContentAdapter(
             updateDescription(currentDescription)
 
             updateTagLayout(tags)
-            updateActionButtons(isLiked, isCoined, isFavorited)
+            updateActionButtons(isLiked, isCoins, isFavorited)
             updateUploaderNextFocusDown()
+
+            // Hero 转场落点：头图布局完成即通知起飞（无挂起 hero 时是空操作）
+            UiHeroMotion.notifyHeadCover(binding.imageCover)
         }
 
         private fun updateUploaderNextFocusDown() {
