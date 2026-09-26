@@ -1,5 +1,6 @@
 package com.btelly.ui.dialog
 
+import com.btelly.core.ui.motion.applyMinWindowAnim
 import com.btelly.core.ui.base.UiCarSpacing
 import android.content.Context
 import android.os.SystemClock
@@ -47,6 +48,11 @@ class OwnerDetailDialog(
     private val currentAid: Long = 0L,
     private val currentVideoId: String = ""
 ) : AppCompatDialog(context, R.style.DialogTheme), KoinComponent {
+
+    init {
+        // Min化：对话框弹簧呈现（电视模式零动画）
+        applyMinWindowAnim()
+    }
 
     private val binding = DialogOwnerDetailBinding.inflate(LayoutInflater.from(context))
     private val userRepository: UserRepository by inject()

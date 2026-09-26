@@ -2,6 +2,7 @@
 
 package com.btelly.ui.dialog
 
+import com.btelly.core.ui.motion.applyMinWindowAnim
 import com.btelly.core.ui.base.UiCarSpacing
 import com.btelly.core.ui.base.applyCarSpacing
 import android.content.Context
@@ -43,6 +44,11 @@ class VideoCardMenuDialog(
     private val onFavoriteRemoved: (() -> Unit)? = null,
     private val onHistoryRecordDeleted: (() -> Unit)? = null
 ) : AppCompatDialog(context, R.style.DialogTheme), KoinComponent {
+
+    init {
+        // Min化：对话框弹簧呈现（电视模式零动画）
+        applyMinWindowAnim()
+    }
 
     companion object {
         private const val TAG = "VideoCardMenuDialog"
@@ -455,6 +461,7 @@ class VideoCardMenuDialog(
 
     private fun displayFavoriteFolderChooser(folders: List<FavoriteFolderModel>) {
         val dialog = AppCompatDialog(context, R.style.DialogTheme)
+        dialog.applyMinWindowAnim() // Min化：对话框弹簧呈现（电视模式零动画）
         dialog.setContentView(R.layout.dialog_favorite_folder)
         dialog.applyCarSpacing() // 车机模式间距铺开（电视模式零改动）
         dialog.setCanceledOnTouchOutside(true)

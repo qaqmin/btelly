@@ -1,6 +1,7 @@
 // B视机（BTelly）— by QAQMin (min09577)
 package com.btelly.feature.home
 
+import com.btelly.core.ui.motion.UiPageFade
 import android.graphics.Rect
 import android.os.Bundle
 import android.os.SystemClock
@@ -64,6 +65,7 @@ class HomeFragment : Fragment(), MainTabFocusTarget {
         super.onViewCreated(view, savedInstanceState)
         adapter = HomeFragmentStateAdapter(childFragmentManager, viewLifecycleOwner.lifecycle)
         binding.viewPager.adapter = adapter
+        binding.viewPager.let { UiPageFade.install(it) } // Min化：切页淡入（电视模式零动画）
         binding.viewPager.disableAdjacentPagePrefetch()
         tabMediator = TabLayoutMediator(binding.tabLayout, binding.viewPager) { tab, position ->
             tab.text = adapter.getPageTitle(position)

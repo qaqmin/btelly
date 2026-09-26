@@ -1,6 +1,7 @@
 // B视机（BTelly）— by QAQMin (min09577)
 package com.btelly.ui.dialog
 
+import com.btelly.core.ui.motion.applyMinWindowAnim
 import com.btelly.core.ui.base.UiCarSpacing
 import android.content.Context
 import android.view.LayoutInflater
@@ -18,6 +19,11 @@ import com.btelly.databinding.DialogWelcomeBinding
  * 已移除旧「使用提示」的红字警告、秒倒计时与公开秘籍文档。
  */
 class WelcomeDialog(context: Context) : AppCompatDialog(context, R.style.DialogTheme) {
+
+    init {
+        // Min化：对话框弹簧呈现（电视模式零动画）
+        applyMinWindowAnim()
+    }
 
     private val binding = DialogWelcomeBinding.inflate(LayoutInflater.from(context))
 

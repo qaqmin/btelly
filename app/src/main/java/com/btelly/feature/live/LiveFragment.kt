@@ -1,5 +1,6 @@
 package com.btelly.feature.live
 
+import com.btelly.core.ui.motion.UiPageFade
 import android.graphics.Rect
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -61,6 +62,7 @@ class LiveFragment : BaseFragment<FragmentLiveBinding>(), MainTabFocusTarget {
             lifecycle
         )
         viewPager.adapter = adapter
+        viewPager.let { UiPageFade.install(it) } // Min化：切页淡入（电视模式零动画）
         viewPager.disableAdjacentPagePrefetch()
 
         // 立即展示"推荐"tab，不等分区列表返回

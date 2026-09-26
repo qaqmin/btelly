@@ -1,5 +1,6 @@
 package com.btelly.ui.dialog
 
+import com.btelly.core.ui.motion.applyMinWindowAnim
 import com.btelly.core.ui.base.UiCarSpacing
 import android.content.Context
 import android.view.LayoutInflater
@@ -15,6 +16,11 @@ class VideoInfoDialog(
     private val title: String,
     private val description: String
 ) : AppCompatDialog(context, R.style.DialogTheme) {
+
+    init {
+        // Min化：对话框弹簧呈现（电视模式零动画）
+        applyMinWindowAnim()
+    }
 
     private val binding = DialogVideoInfoBinding.inflate(LayoutInflater.from(context))
 

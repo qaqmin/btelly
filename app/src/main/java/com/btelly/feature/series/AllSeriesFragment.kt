@@ -1,5 +1,6 @@
 package com.btelly.feature.series
 
+import com.btelly.core.ui.motion.applyMinWindowAnim
 import android.annotation.SuppressLint
 import android.animation.ValueAnimator
 import android.os.Parcelable
@@ -303,6 +304,7 @@ class AllSeriesFragment : BaseFragment<FragmentAllSeriesBinding>(), OnBackPresse
     private fun showFilterOptions(position: Int) {
         val filter = filters.getOrNull(position) ?: return
         val dialog = AppCompatDialog(requireContext(), R.style.DialogTheme)
+        dialog.applyMinWindowAnim() // Min化：对话框弹簧呈现（电视模式零动画）
         dialog.setContentView(R.layout.dialog_setting_choice)
         dialog.setCanceledOnTouchOutside(true)
         dialog.findViewById<View>(R.id.dialog_root)?.setOnClickListener { dialog.dismiss() }

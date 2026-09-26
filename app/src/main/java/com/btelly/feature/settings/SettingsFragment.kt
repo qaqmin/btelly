@@ -1,6 +1,7 @@
 // B视机（BTelly）— by QAQMin (min09577)
 package com.btelly.feature.settings
 
+import com.btelly.core.ui.motion.applyMinWindowAnim
 import com.btelly.core.ui.motion.UiMinStyle
 import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.ui.theme.resolveThemeColor
@@ -466,6 +467,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         val textColor = requireContext().resolveThemeColor(R.attr.tvTextPrimary)
 
         val dialog = androidx.appcompat.app.AppCompatDialog(requireContext(), R.style.DialogTheme)
+        dialog.applyMinWindowAnim() // Min化：对话框弹簧呈现（电视模式零动画）
         dialog.setCancelable(false)
         dialog.setCanceledOnTouchOutside(false)
         val root = android.widget.LinearLayout(requireContext()).apply {
@@ -817,6 +819,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         val textColor = requireContext().resolveThemeColor(R.attr.tvTextPrimary)
 
         val dialog = AppCompatDialog(requireContext(), R.style.DialogTheme)
+        dialog.applyMinWindowAnim() // Min化：对话框弹簧呈现（电视模式零动画）
         dialog.setCanceledOnTouchOutside(true)
 
         val root = LinearLayout(requireContext()).apply {
@@ -908,6 +911,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         val textColor = requireContext().resolveThemeColor(R.attr.tvTextPrimary)
 
         val dialog = AppCompatDialog(requireContext(), R.style.DialogTheme)
+        dialog.applyMinWindowAnim() // Min化：对话框弹簧呈现（电视模式零动画）
         dialog.setCancelable(false)
         dialog.setCanceledOnTouchOutside(false)
 
@@ -1278,6 +1282,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
     /** UI 文字大小：档位选择 + 底部实时预览，确认后 recreate 让全界面生效。 */
     private fun showUiTextScaleDialog() {
         val dialog = AppCompatDialog(requireContext(), R.style.DialogTheme)
+        dialog.applyMinWindowAnim() // Min化：对话框弹簧呈现（电视模式零动画）
         dialog.setContentView(R.layout.dialog_ui_text_scale)
         dialog.setCanceledOnTouchOutside(true)
         dialog.findViewById<View>(R.id.dialog_root)?.setOnClickListener { dialog.dismiss() }
@@ -1399,6 +1404,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         onSelected: (String) -> Unit
     ) {
         val dialog = AppCompatDialog(requireContext(), R.style.DialogTheme)
+        dialog.applyMinWindowAnim() // Min化：对话框弹簧呈现（电视模式零动画）
         dialog.setContentView(R.layout.dialog_setting_choice)
         dialog.setCanceledOnTouchOutside(true)
         dialog.findViewById<View>(R.id.dialog_root)?.setOnClickListener { dialog.dismiss() }
@@ -1652,6 +1658,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         val textColor = requireContext().resolveThemeColor(R.attr.tvTextPrimary)
 
         val dialog = AppCompatDialog(requireContext(), R.style.DialogTheme)
+        dialog.applyMinWindowAnim() // Min化：对话框弹簧呈现（电视模式零动画）
         dialog.setCanceledOnTouchOutside(true)
 
         val root = LinearLayout(requireContext()).apply {
@@ -1749,6 +1756,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         val textColor = requireContext().resolveThemeColor(R.attr.tvTextPrimary)
 
         val dialog = AppCompatDialog(requireContext(), R.style.DialogTheme)
+        dialog.applyMinWindowAnim() // Min化：对话框弹簧呈现（电视模式零动画）
         dialog.setCanceledOnTouchOutside(true)
 
         val root = LinearLayout(requireContext()).apply {

@@ -2,6 +2,7 @@
 
 package com.btelly.feature.detail
 
+import com.btelly.core.ui.motion.applyMinWindowAnim
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -710,6 +711,7 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
             .inflate(LayoutInflater.from(requireContext()))
         dialogBinding.textDescription.text = description
         val dialog = androidx.appcompat.app.AppCompatDialog(requireContext(), R.style.DialogTheme)
+        dialog.applyMinWindowAnim() // Min化：对话框弹簧呈现（电视模式零动画）
         dialog.setContentView(dialogBinding.root)
         dialog.setCanceledOnTouchOutside(true)
         dialog.setOnCancelListener { /* back key or touch outside */ }

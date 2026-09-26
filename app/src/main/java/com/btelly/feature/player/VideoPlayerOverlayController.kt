@@ -1,5 +1,6 @@
 package com.btelly.feature.player
 
+import com.btelly.core.ui.motion.applyMinWindowAnim
 import com.btelly.core.ui.base.applyCarSpacing
 import android.view.Gravity
 import android.view.KeyEvent
@@ -75,6 +76,7 @@ class VideoPlayerOverlayController(
         uiCoordinator.transition(UiEvent.PanelOpened(PanelType.EPISODE))
 
         val dialog = AppCompatDialog(activity, R.style.DialogTheme)
+        dialog.applyMinWindowAnim() // Min化：对话框弹簧呈现（电视模式零动画）
         dialog.setContentView(R.layout.dialog_choose_episode)
         dialog.applyCarSpacing() // 车机模式间距铺开（电视模式零改动）
         dialog.setCanceledOnTouchOutside(true)
@@ -679,6 +681,8 @@ private class SeasonEpisodeDialog(
 ) : AppCompatDialog(context, R.style.DialogTheme) {
 
     init {
+        // Min化：对话框弹簧呈现（电视模式零动画）
+        applyMinWindowAnim()
         onBackPressedDispatcher.addCallback(
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {

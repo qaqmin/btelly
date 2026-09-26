@@ -1,5 +1,6 @@
 package com.btelly.ui.dialog
 
+import com.btelly.core.ui.motion.applyMinWindowAnim
 import com.btelly.core.ui.base.UiCarSpacing
 import android.content.Context
 import android.view.KeyEvent
@@ -38,6 +39,11 @@ class PlayerActionDialog(
     private val bvid: String,
     private val ownerMid: Long = 0L
 ) : AppCompatDialog(context, R.style.DialogTheme), KoinComponent {
+
+    init {
+        // Min化：对话框弹簧呈现（电视模式零动画）
+        applyMinWindowAnim()
+    }
 
     private val binding = DialogActionBinding.inflate(LayoutInflater.from(context))
     private val appSettings: AppSettingsDataStore by inject()
@@ -350,6 +356,7 @@ class PlayerActionDialog(
 
     private fun displayFavoriteFolderChooser(folders: List<FavoriteFolderModel>) {
         val dialog = AppCompatDialog(context, R.style.DialogTheme)
+        dialog.applyMinWindowAnim() // Min化：对话框弹簧呈现（电视模式零动画）
         dialog.setContentView(R.layout.dialog_favorite_folder)
         dialog.setCanceledOnTouchOutside(true)
         dialog.findViewById<View>(R.id.dialog_root)?.setOnClickListener { dialog.dismiss() }

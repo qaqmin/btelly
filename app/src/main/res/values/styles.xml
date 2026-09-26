@@ -307,3 +307,9 @@
         <item name="android:textColor">@android:color/white</item>
     </style>
 </resources>
+
+    <!-- Min化：对话框弹簧呈现（运行时 Dialog.applyMinWindowAnim 挂载，Min化 关闭时不挂） -->
+    <style name="WindowAnim_MinSpring">
+        <item name="android:windowEnterAnimation">@anim/min_dialog_enter</item>
+        <item name="android:windowExitAnimation">@anim/min_dialog_exit</item>
+    </style>
