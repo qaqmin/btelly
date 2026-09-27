@@ -131,6 +131,17 @@ object AppLog {
         if (BuildConfig.DEBUG) runCatching { Log.d(tag, message) }
     }
 
+    /**
+     * 诊断专用：除缓冲区外，release 下也强制进 logcat。
+     * proguard-rules.pro 的 -assumenosideeffects 剥掉了 Log.v/d/i，只有 Log.w/e 能活过 R8，
+     * 因此这里必须走 Log.w（同 BrandGene 哨兵的做法），否则 release 包 adb logcat 什么都看不到。
+     */
+    fun dLogcat(tag: String, message: String) {
+        if (!isEnabled) return
+        logToBuffer(LogEntry.LEVEL_DEBUG, tag, message)
+        runCatching { Log.w(tag, message) }
+    }
+
     fun i(tag: String, message: String) {
         if (!isEnabled) return
         logToBuffer(LogEntry.LEVEL_INFO, tag, message)

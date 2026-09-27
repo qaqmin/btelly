@@ -103,15 +103,15 @@ class MyPlayerControlViewLayoutManager(
     private val originalBottomBarPaddingBottom = bottomBar.paddingBottom
     private val compactBottomBarPaddingBottom = originalBottomBarPaddingBottom / 2
     private val hideMainBarRunnable = Runnable {
-        AppLog.d("CtrlBar", "hideMainBarRunnable fired (dwell=${dwellLabel()})")
+        AppLog.dLogcat("CtrlBar", "hideMainBarRunnable fired (dwell=${dwellLabel()})")
         hideMainBar()
     }
     private val hideProgressBarRunnable = Runnable {
-        AppLog.d("CtrlBar", "hideProgressBarRunnable fired (dwell=${dwellLabel()})")
+        AppLog.dLogcat("CtrlBar", "hideProgressBarRunnable fired (dwell=${dwellLabel()})")
         hideProgressBar()
     }
     private val hideControllerRunnable = Runnable {
-        AppLog.d("CtrlBar", "hideControllerRunnable fired (dwell=${dwellLabel()})")
+        AppLog.dLogcat("CtrlBar", "hideControllerRunnable fired (dwell=${dwellLabel()})")
         hideController()
     }
     private val onLayoutChangeListener = View.OnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
@@ -148,7 +148,7 @@ class MyPlayerControlViewLayoutManager(
     fun show(focusPlayPause: Boolean = false) {
         val fromSeekProgress = uxState == UX_STATE_ONLY_PROGRESS_VISIBLE
         showIssuedAtMs = SystemClock.elapsedRealtime()
-        AppLog.d(
+        AppLog.dLogcat(
             "CtrlBar",
             "show() focusPlayPause=$focusPlayPause uxState=${stateName(uxState)} " +
                 "fromSeekProgress=$fromSeekProgress timeoutMs=${playerControlView.getShowTimeoutMs()} " +
@@ -171,7 +171,7 @@ class MyPlayerControlViewLayoutManager(
     }
 
     fun hide() {
-        AppLog.d("CtrlBar", "hide() req uxState=${stateName(uxState)} dwell=${dwellLabel()}")
+        AppLog.dLogcat("CtrlBar", "hide() req uxState=${stateName(uxState)} dwell=${dwellLabel()}")
         if (uxState == UX_STATE_ANIMATING_HIDE || uxState == UX_STATE_NONE_VISIBLE) {
             return
         }
@@ -186,7 +186,7 @@ class MyPlayerControlViewLayoutManager(
     }
 
     fun hideImmediately() {
-        AppLog.d("CtrlBar", "hideImmediately() req uxState=${stateName(uxState)} dwell=${dwellLabel()}")
+        AppLog.dLogcat("CtrlBar", "hideImmediately() req uxState=${stateName(uxState)} dwell=${dwellLabel()}")
         if (uxState == UX_STATE_ANIMATING_HIDE || (uxState == UX_STATE_NONE_VISIBLE && !playerControlView.isVisible())) {
             return
         }
@@ -236,13 +236,13 @@ class MyPlayerControlViewLayoutManager(
     fun resetHideCallbacks() {
         val timeoutMs = playerControlView.getShowTimeoutMs()
         if (uxState == UX_STATE_ANIMATING_HIDE) {
-            AppLog.d("CtrlBar", "resetHideCallbacks -> skip (ANIMATING_HIDE) uxState=${stateName(uxState)}")
+            AppLog.dLogcat("CtrlBar", "resetHideCallbacks -> skip (ANIMATING_HIDE) uxState=${stateName(uxState)}")
             return
         }
         removeHideCallbacks()
         if (timeoutMs <= 0 || !playerControlView.isVisible()) {
-            AppLog.d(
-                "CtrlBar",
+            AppLog.dLogcat(
+            "CtrlBar",
                 "resetHideCallbacks -> no schedule (timeoutMs=$timeoutMs visible=${playerControlView.isVisible()}) " +
                     "uxState=${stateName(uxState)}"
             )
@@ -250,19 +250,19 @@ class MyPlayerControlViewLayoutManager(
         }
         when {
             !isAnimationEnabled -> {
-                AppLog.d("CtrlBar", "resetHideCallbacks -> hideControllerRunnable in ${timeoutMs}ms (anim off)")
+                AppLog.dLogcat("CtrlBar", "resetHideCallbacks -> hideControllerRunnable in ${timeoutMs}ms (anim off)")
                 playerControlView.postDelayed(hideControllerRunnable, timeoutMs.toLong())
             }
             uxState == UX_STATE_ONLY_PROGRESS_VISIBLE && progressOnlyUiEnabled -> {
-                AppLog.d(
-                    "CtrlBar",
+                AppLog.dLogcat(
+            "CtrlBar",
                     "resetHideCallbacks -> hideProgressBarRunnable in ${PROGRESS_ONLY_DURATION_MS}ms " +
                         "(ONLY_PROGRESS branch, timer=${PROGRESS_ONLY_DURATION_MS}ms)"
                 )
                 playerControlView.postDelayed(hideProgressBarRunnable, PROGRESS_ONLY_DURATION_MS)
             }
             else -> {
-                AppLog.d("CtrlBar", "resetHideCallbacks -> hideMainBarRunnable in ${timeoutMs}ms uxState=${stateName(uxState)}")
+                AppLog.dLogcat("CtrlBar", "resetHideCallbacks -> hideMainBarRunnable in ${timeoutMs}ms uxState=${stateName(uxState)}")
                 playerControlView.postDelayed(hideMainBarRunnable, timeoutMs.toLong())
             }
         }
@@ -322,7 +322,7 @@ class MyPlayerControlViewLayoutManager(
      * 无论当前处于什么状态都可以调用。
      */
     fun enterSeekProgressOnly() {
-        AppLog.d("CtrlBar", "enterSeekProgressOnly uxState=${stateName(uxState)} dwell=${dwellLabel()}")
+        AppLog.dLogcat("CtrlBar", "enterSeekProgressOnly uxState=${stateName(uxState)} dwell=${dwellLabel()}")
         cancelAllAnimations()
         removeHideCallbacks()
         playerControlView.visibility = View.VISIBLE
@@ -343,7 +343,7 @@ class MyPlayerControlViewLayoutManager(
      * 退出 seek 模式：立刻隐藏进度条和整个控制器，不闪现其他 UI。
      */
     fun exitSeekProgressOnly() {
-        AppLog.d("CtrlBar", "exitSeekProgressOnly uxState=${stateName(uxState)} dwell=${dwellLabel()}")
+        AppLog.dLogcat("CtrlBar", "exitSeekProgressOnly uxState=${stateName(uxState)} dwell=${dwellLabel()}")
         if (uxState == UX_STATE_ONLY_PROGRESS_VISIBLE) {
             cancelAllAnimations()
             playerControlView.stopProgressUpdates()
@@ -456,7 +456,7 @@ class MyPlayerControlViewLayoutManager(
     }
 
     private fun showAllBars() {
-        AppLog.d(
+        AppLog.dLogcat(
             "CtrlBar",
             "showAllBars uxState=${stateName(uxState)} anim=$isAnimationEnabled " +
                 "visibility=${playerControlView.visibility} dwell=${dwellLabel()}"
@@ -900,8 +900,8 @@ class MyPlayerControlViewLayoutManager(
         val oldState = uxState
         uxState = newState
         if (oldState != newState) {
-            AppLog.d(
-                "CtrlBar",
+            AppLog.dLogcat(
+            "CtrlBar",
                 "uxState ${stateName(oldState)} -> ${stateName(newState)} dwell=${dwellLabel()}"
             )
         }
