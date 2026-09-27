@@ -391,7 +391,16 @@ class MyPlayerControlViewLayoutManager(
             UX_STATE_ONLY_PROGRESS_VISIBLE -> animateShowMainBar()
             UX_STATE_NONE_VISIBLE -> animateShowAllBars()
             UX_STATE_ANIMATING_HIDE -> needToShowBars = true
-            UX_STATE_ANIMATING_SHOW -> return
+            UX_STATE_ANIMATING_SHOW -> {
+                // 自愈：入场收口回调丢失时（见 animateMainInfo 兜底注释）uxState 会
+                // 残留 ANIMATING_SHOW，此后每次 show 都直接 return，控制栏永久唤不出。
+                // 视觉已稳定（滑到位、info 全显）时直接推进到 ALL_VISIBLE。
+                if (bottomBar.translationY == 0f && controlsBackground.alpha >= 1f) {
+                    setUxState(UX_STATE_ALL_VISIBLE)
+                } else {
+                    return
+                }
+            }
         }
         resetHideCallbacks()
     }
@@ -455,9 +464,10 @@ class MyPlayerControlViewLayoutManager(
             applyOverflowState()
         }
         var completedCount = 0
-        val onPartEnd = {
-            completedCount += 1
-            if (completedCount >= 4) {
+        var finished = false
+        val finish = {
+            if (!finished) {
+                finished = true
                 if (!visible) {
                     controlsBackground.visibility = View.INVISIBLE
                     centerControls.visibility = View.INVISIBLE
@@ -467,6 +477,18 @@ class MyPlayerControlViewLayoutManager(
                 endAction()
             }
         }
+        val onPartEnd = {
+            completedCount += 1
+            if (completedCount >= 4) {
+                finish()
+            }
+        }
+        // 兜底收口：同一 view 的 ViewPropertyAnimator 是复用的，FF 状态切换
+        // （hideInfoOnlyLeftTimeBar/showInfoAfterEndFF）cancel+setListener(null)
+        // 会静默摘掉这里刚挂的监听器，计数永远凑不满——uxState 卡在 ANIMATING_SHOW，
+        // 之后 showAllBars() 直接 return、resetHideCallbacks() 也不再注册，
+        // 控制栏永久唤不出。渐显视觉上 infoMs 必然完成，到时强制收口一次。
+        playerControlView.postDelayed({ finish() }, infoMs + 120L)
         controlsBackground.animate()
             .alpha(targetAlpha)
             .setDuration(infoMs)
