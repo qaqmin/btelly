@@ -538,6 +538,11 @@ class MyPlayerControlViewLayoutManager(
             visible -> 200L
             else -> 180L
         }
+        // 启动时刻的状态。下面的兜底 finish() 可能迟到（延迟 320ms），动画进行中若有
+        // seek/隐藏路径改写了 uxState，迟到的那次就不能再推状态——实测「刚 show 就立刻
+        // 双击横滑」时 enterSeekProgressOnly 把状态推到 ONLY_PROGRESS，随后迟到的 finish
+        // 又把它推回 ALL_VISIBLE，导致 exitSeekProgressOnly 的守卫失配、seek 收尾空转。
+        val startedAtState = uxState
         if (visible) {
             controlsBackground.visibility = View.VISIBLE
             centerControls.visibility = View.VISIBLE
@@ -557,7 +562,15 @@ class MyPlayerControlViewLayoutManager(
                     titleView.visibility = View.INVISIBLE
                     bottomBarController.visibility = View.INVISIBLE
                 }
-                endAction()
+                if (uxState == startedAtState) {
+                    endAction()
+                } else {
+                    AppLog.dLogcat(
+                        "CtrlBar",
+                        "animateMainInfo finish suppressed: state moved " +
+                            "${stateName(startedAtState)} -> ${stateName(uxState)}"
+                    )
+                }
             }
         }
         val onPartEnd = {

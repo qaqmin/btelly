@@ -1171,7 +1171,6 @@ class MyPlayerView @JvmOverloads constructor(
      * 务必理解现有依赖。各步骤职责见对应 handleXxx 方法。
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        logDpadCenterDiagnostics(event)
         // 吞掉"控制器隐藏时 DOWN 已切换播放/暂停"对应的 ACTION_UP（厂商 ROM 兼容）
         if (consumeVendorOkKeyUp(event)) {
             return true
@@ -1192,13 +1191,6 @@ class MyPlayerView @JvmOverloads constructor(
         handleDoubleTapModeKeys(event)?.let { return it }
         handleControllerDpadKeys(event)?.let { return it }
         return dispatchMediaAndSuperFallbackKeys(event)
-    }
-
-    /** [DEBUG] 诊断小米电视确定键播放/暂停失效问题，定位后删除。 */
-    private fun logDpadCenterDiagnostics(event: KeyEvent) {
-        if (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER) {
-            AppLog.d("DpadCenter", "dispatchKeyEvent code=${event.keyCode} action=${event.action} repeat=${event.repeatCount} ctrlVisible=${controller?.isFullyVisible()} player=${player != null}")
-        }
     }
 
     /** player/controller 就绪检查：未就绪时返回 false，事件交给 super。 */
@@ -1392,21 +1384,16 @@ class MyPlayerView @JvmOverloads constructor(
         if (handleDouyinNavigationKey(event)) {
             return
         }
-        // [DEBUG] 诊断小米电视确定键播放/暂停失效问题，定位后删除
-        val dtDouble = gestureListener.isDoubleTapping
-        AppLog.d("DpadCenter", "!ctrlVisible branch code=${event.keyCode} dtDouble=$dtDouble")
         if (!gestureListener.handleKeyDown(event) && !gestureListener.isDoubleTapping) {
             maybeShowController(true)
             if (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
                 event.keyCode == KeyEvent.KEYCODE_ENTER
             ) {
-                AppLog.d("DpadCenter", "calling togglePlayPauseFromKey code=${event.keyCode}")
                 controller?.togglePlayPauseFromKey()
                 // DOWN 已切换，标记吞掉对应 UP，防止 UP 触发 buttonPlay.performClick 二次切换
                 consumedOkKeyUp = true
                 AppLog.dLogcat("CtrlBar", "OK-key DOWN: show requested + play/pause toggled, consumedOkKeyUp=true")
             } else {
-                AppLog.d("DpadCenter", "calling focusButtonByKeyDown code=${event.keyCode}")
                 controller?.focusButtonByKeyDown(event)
             }
         }
@@ -1446,7 +1433,6 @@ class MyPlayerView @JvmOverloads constructor(
             event.action == KeyEvent.ACTION_UP &&
             (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)
         ) {
-            AppLog.d("DpadCenter", "consume ACTION_UP code=${event.keyCode} (DOWN already toggled)")
             consumedOkKeyUp = false
             return true
         }
@@ -2084,8 +2070,6 @@ class MyPlayerView @JvmOverloads constructor(
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        // [DEBUG] 诊断小米电视确定键播放/暂停失效问题，定位后删除
-        AppLog.d("DpadCenter", "onTouchEvent action=${event.action} src=${event.source}")
         if (isDouyinDragging && handleDouyinSwipeTouch(event)) {
             return true
         }
@@ -2109,8 +2093,6 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     override fun performClick(): Boolean {
-        // [DEBUG] 诊断小米电视确定键播放/暂停失效问题，定位后删除
-        AppLog.d("DpadCenter", "performClick -> toggleControllerVisibility")
         toggleControllerVisibility()
         return super.performClick()
     }
