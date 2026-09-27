@@ -118,6 +118,10 @@ app/debug/output-metadata.json
 /scr.png
 /ui.xml
 /shots/
+# 截图暂存目录按设备分批（tv=电视盒验收，emu*=PC 模拟器，已作废）
+/shots-*/
+# 误敲出的文件名（Git Bash 下 $ 未被转义时会产生）
+/shots$*
 
 # ========== CI 构建产物（Mac 构建机回传，勿入库） ==========
 artifacts/

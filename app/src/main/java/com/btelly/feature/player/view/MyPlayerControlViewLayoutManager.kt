@@ -341,15 +341,27 @@ class MyPlayerControlViewLayoutManager(
 
     /**
      * 退出 seek 模式：立刻隐藏进度条和整个控制器，不闪现其他 UI。
+     *
+     * 契约：只在 uxState == ONLY_PROGRESS_VISIBLE 时真正收尾；其它状态下静默返回。
+     * 6 个调用点（MyPlayerView 的 seekSession/BACK/commit/滑动手势等路径）都不保证
+     * 那一刻状态还在 ONLY_PROGRESS——例如控制栏刚 show 又立刻双击横滑，enterSeekProgressOnly
+     * 把状态推到 ONLY_PROGRESS 后，入场动画的迟到回调曾把它抢回 ALL_VISIBLE，本函数就空转了。
+     * 该抢状态问题已由 animateMainInfo 的 startedAtState 守卫修掉；这里保留日志，
+     * 一旦再出现"守卫未命中"就是新的抢状态案例，按 CtrlBar 日志定位。
      */
     fun exitSeekProgressOnly() {
         AppLog.dLogcat("CtrlBar", "exitSeekProgressOnly uxState=${stateName(uxState)} dwell=${dwellLabel()}")
-        if (uxState == UX_STATE_ONLY_PROGRESS_VISIBLE) {
-            cancelAllAnimations()
-            playerControlView.stopProgressUpdates()
-            playerControlView.visibility = View.GONE
-            setUxState(UX_STATE_NONE_VISIBLE)
+        if (uxState != UX_STATE_ONLY_PROGRESS_VISIBLE) {
+            AppLog.dLogcat(
+                "CtrlBar",
+                "exitSeekProgressOnly guard miss: expected ONLY_PROGRESS, got ${stateName(uxState)} — no cleanup"
+            )
+            return
         }
+        cancelAllAnimations()
+        playerControlView.stopProgressUpdates()
+        playerControlView.visibility = View.GONE
+        setUxState(UX_STATE_NONE_VISIBLE)
     }
 
     fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {

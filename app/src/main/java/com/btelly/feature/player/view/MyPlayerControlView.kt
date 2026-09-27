@@ -36,7 +36,11 @@ class MyPlayerControlView @JvmOverloads constructor(
 ) : FrameLayout(context, attrs, defStyleAttr) {
 
     companion object {
-        const val DEFAULT_SHOW_TIMEOUT_MS = 3000
+        /**
+         * 控制栏自动隐藏时长。对齐 ExoPlayer 上游默认值（PlayerControlView.DEFAULT_SHOW_TIMEOUT_MS）；
+         * 之前在 e642a08 收紧到 3000ms，电视遥控器上点选偏促，实测可见窗口约 3.5s（含入场动画）。
+         */
+        const val DEFAULT_SHOW_TIMEOUT_MS = 5000
         const val DEFAULT_FAST_FORWARD_MS = 10000L
         const val DEFAULT_REWIND_MS = 10000L
         const val DEFAULT_TIME_BAR_MIN_UPDATE_INTERVAL_MS = 200
