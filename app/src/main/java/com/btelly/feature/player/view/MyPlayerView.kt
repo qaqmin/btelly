@@ -1059,6 +1059,11 @@ class MyPlayerView @JvmOverloads constructor(
         val currentController = controller
 
         if (currentController?.isFullyVisible() == true) {
+            AppLog.d(
+                "CtrlBar",
+                "maybeShowController already visible, isForced=$isForced " +
+                    "indefinitely=$shouldShowIndefinitely timeoutMs=${currentController.getShowTimeoutMs()}"
+            )
             if (shouldShowIndefinitely) {
                 currentController.setShowTimeoutMs(0)
             } else {
@@ -1068,8 +1073,19 @@ class MyPlayerView @JvmOverloads constructor(
             return
         }
 
-        if (!isForced && !shouldShowIndefinitely) return
+        if (!isForced && !shouldShowIndefinitely) {
+            AppLog.d(
+                "CtrlBar",
+                "maybeShowController skip: not forced, not indefinite " +
+                    "(isForced=$isForced indefinitely=$shouldShowIndefinitely)"
+            )
+            return
+        }
 
+        AppLog.d(
+            "CtrlBar",
+            "maybeShowController -> showController(indefinitely=$shouldShowIndefinitely, forced=$isForced)"
+        )
         showController(shouldShowIndefinitely)
     }
 
@@ -1101,11 +1117,17 @@ class MyPlayerView @JvmOverloads constructor(
         }
 
         val controller = controller ?: ensureController("show") ?: return
+        AppLog.d(
+            "CtrlBar",
+            "showController indefinitely=$indefinitely timeoutMs=${if (indefinitely) 0 else controllerShowTimeoutMs} " +
+                "suppressFirstFrame=$suppressControllerShowUntilFirstFrame hasRenderedFirstFrame=$hasRenderedFirstFrame"
+        )
         controller.setShowTimeoutMs(if (indefinitely) 0 else controllerShowTimeoutMs)
         controller.show(focusPlayPause = true)
     }
 
     fun hideController() {
+        AppLog.d("CtrlBar", "hideController() called (uxState via manager)")
         controller?.hide()
     }
 
@@ -1130,7 +1152,13 @@ class MyPlayerView @JvmOverloads constructor(
     private fun toggleControllerVisibility() {
         if (!useController() || player == null) return
 
-        if (controller?.isFullyVisible() == true && controllerHideOnTouch) {
+        val fullyVisible = controller?.isFullyVisible() == true
+        AppLog.d(
+            "CtrlBar",
+            "toggleControllerVisibility fullyVisible=$fullyVisible hideOnTouch=$controllerHideOnTouch " +
+                "-> ${if (fullyVisible && controllerHideOnTouch) "HIDE" else "SHOW"}"
+        )
+        if (fullyVisible && controllerHideOnTouch) {
             controller?.hide()
         } else {
             maybeShowController(true)
@@ -1376,6 +1404,7 @@ class MyPlayerView @JvmOverloads constructor(
                 controller?.togglePlayPauseFromKey()
                 // DOWN 已切换，标记吞掉对应 UP，防止 UP 触发 buttonPlay.performClick 二次切换
                 consumedOkKeyUp = true
+                AppLog.d("CtrlBar", "OK-key DOWN: show requested + play/pause toggled, consumedOkKeyUp=true")
             } else {
                 AppLog.d("DpadCenter", "calling focusButtonByKeyDown code=${event.keyCode}")
                 controller?.focusButtonByKeyDown(event)
