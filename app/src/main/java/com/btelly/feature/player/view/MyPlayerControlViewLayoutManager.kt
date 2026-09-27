@@ -332,20 +332,32 @@ class MyPlayerControlViewLayoutManager(
         }
         controlsBackground.visibility = View.INVISIBLE
         animateMainInfo(visible = false) {}
+        var completed = false
+        val completeHide = {
+            if (!completed) {
+                completed = true
+                hideController()
+                restoreMainBarImmediately()
+                if (needToShowBars) {
+                    needToShowBars = false
+                    playerControlView.post { showAllBars() }
+                }
+            }
+        }
         bottomBar.animate()
             .translationY(hiddenTranslationY)
             .minControlSlide(show = false)
             .setListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
-                    hideController()
-                    restoreMainBarImmediately()
-                    if (needToShowBars) {
-                        needToShowBars = false
-                        playerControlView.post { showAllBars() }
-                    }
+                    completeHide()
                 }
             })
             .start()
+        // 兜底：bottomBar 动画的监听器同样可能被复用同一 ViewPropertyAnimator 的
+        // 路径静默摘掉（setListener(null)），丢失时 uxState 残留 ANIMATING_HIDE，
+        // needToShowBars 永真、之后每次 show 都被吞，控制栏同样永久唤不出。
+        // 退场视觉上 controlHideMs 必然完成，到时强制收口一次。
+        playerControlView.postDelayed({ completeHide() }, controlHideMs + 120L)
     }
 
     private fun hideProgressBar() {
@@ -356,20 +368,28 @@ class MyPlayerControlViewLayoutManager(
         needToShowBars = false
         setUxState(UX_STATE_ANIMATING_HIDE)
         controlsBackground.visibility = View.INVISIBLE
+        var completed = false
+        val completeHide = {
+            if (!completed) {
+                completed = true
+                hideController()
+                restoreMainBarImmediately()
+                if (needToShowBars) {
+                    needToShowBars = false
+                    playerControlView.post { showAllBars() }
+                }
+            }
+        }
         bottomBar.animate()
             .translationY(hiddenTranslationY)
             .minControlSlide(show = false)
             .setListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
-                    hideController()
-                    restoreMainBarImmediately()
-                    if (needToShowBars) {
-                        needToShowBars = false
-                        playerControlView.post { showAllBars() }
-                    }
+                    completeHide()
                 }
             })
             .start()
+        playerControlView.postDelayed({ completeHide() }, controlHideMs + 120L)
     }
 
     private fun hideController() {
