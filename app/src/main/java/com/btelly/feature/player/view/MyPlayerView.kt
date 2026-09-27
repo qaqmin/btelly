@@ -1092,6 +1092,16 @@ class MyPlayerView @JvmOverloads constructor(
     private fun shouldShowControllerIndefinitely(): Boolean {
         val currentPlayer = player ?: return true
 
+        // 暂停态常驻：用户暂停往往就是为了停下来看清画面/操作控制栏，此时控制栏若 5 秒后
+        // 自动消失，用户还得再按一次 OK 唤回。这条与 controllerAutoShow 无关——
+        // VideoPlayerFragment 关掉了 autoShow，原来的暂停常驻分支因此永远走不到。
+        if (
+            currentPlayer.playbackState == Player.STATE_READY &&
+            !currentPlayer.playWhenReady
+        ) {
+            return true
+        }
+
         if (controllerAutoShow) {
             if (currentPlayer.currentTimeline.isEmpty) {
                 return false
@@ -1100,9 +1110,6 @@ class MyPlayerView @JvmOverloads constructor(
                 currentPlayer.playbackState == Player.STATE_IDLE ||
                 currentPlayer.playbackState == Player.STATE_ENDED
             ) {
-                return true
-            }
-            if (!currentPlayer.playWhenReady) {
                 return true
             }
         }

@@ -403,14 +403,26 @@ class MyPlayerControlViewLayoutManager(
         controlsBackground.visibility = View.INVISIBLE
         animateMainInfo(visible = false) {}
         var completed = false
+        // 收口的起点状态。下面 postDelayed 的兜底可能迟到，期间若有新 show 把
+        // uxState 推到 ANIMATING_SHOW/ALL_VISIBLE/ONLY_PROGRESS，迟到的 completeHide
+        // 就不能再 hideController()——那会把新状态硬打成 NONE_VISIBLE，控制栏凭空消失。
+        // （needToShowBars 救不了这种：它只在从 ANIMATING_HIDE 进 show 时才被置真。）
+        val hideStartedAtState = uxState
         val completeHide = {
             if (!completed) {
                 completed = true
-                hideController()
-                restoreMainBarImmediately()
-                if (needToShowBars) {
-                    needToShowBars = false
-                    playerControlView.post { showAllBars() }
+                if (uxState == hideStartedAtState) {
+                    hideController()
+                    restoreMainBarImmediately()
+                    if (needToShowBars) {
+                        needToShowBars = false
+                        playerControlView.post { showAllBars() }
+                    }
+                } else {
+                    AppLog.dLogcat(
+                        "CtrlBar",
+                        "completeHide suppressed: state moved ${stateName(hideStartedAtState)} -> ${stateName(uxState)}"
+                    )
                 }
             }
         }
@@ -439,14 +451,23 @@ class MyPlayerControlViewLayoutManager(
         setUxState(UX_STATE_ANIMATING_HIDE)
         controlsBackground.visibility = View.INVISIBLE
         var completed = false
+        // 同 hideMainBar：迟到的兜底不得 hideController() 掉一个已经前进的新状态。
+        val hideStartedAtState = uxState
         val completeHide = {
             if (!completed) {
                 completed = true
-                hideController()
-                restoreMainBarImmediately()
-                if (needToShowBars) {
-                    needToShowBars = false
-                    playerControlView.post { showAllBars() }
+                if (uxState == hideStartedAtState) {
+                    hideController()
+                    restoreMainBarImmediately()
+                    if (needToShowBars) {
+                        needToShowBars = false
+                        playerControlView.post { showAllBars() }
+                    }
+                } else {
+                    AppLog.dLogcat(
+                        "CtrlBar",
+                        "completeHide suppressed: state moved ${stateName(hideStartedAtState)} -> ${stateName(uxState)}"
+                    )
                 }
             }
         }

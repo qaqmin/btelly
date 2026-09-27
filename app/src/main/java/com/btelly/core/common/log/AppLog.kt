@@ -132,16 +132,22 @@ object AppLog {
     }
 
     /**
-     * 诊断专用：除缓冲区外，release 下也强制进 logcat。
+     * 诊断专用：release 下也强制进 logcat（给 adb logcat 取证用）。
      * proguard-rules.pro 的 -assumenosideeffects 剥掉了 Log.v/d/i，只有 Log.w/e 能活过 R8，
      * 因此这里必须走 Log.w（同 BrandGene 哨兵的做法），否则 release 包 adb logcat 什么都看不到。
      *
-     * 注意：不受 isEnabled 门控。该开关只能从「设置→通用→日志记录」翻，远程取证时翻不到它，
-     * 而这条通道的全部意义就是让 adb logcat 能拿到时间戳证据——依赖一个够不着的开关会让它失效。
+     * 双通道、双门控：
+     * - logcat 输出**不受 isEnabled 门控**——该开关只能从「设置→通用→日志记录」翻，
+     *   远程取证时根本够不着它，而这条路的全部意义就是让 adb logcat 拿到时间戳证据。
+     * - 缓冲区（调试日志界面）则照常受 isEnabled 门控——否则用户在设置里关掉「日志记录」，
+     *   调试日志界面仍被 CtrlBar 条目刷满，与开关语义相反，还会挤掉用户自己的条目
+     *   （LogBuffer 上限 2000 条）。
      * 调用方仅限控制栏显隐这类低频关键路径，量很小。
      */
     fun dLogcat(tag: String, message: String) {
-        logToBuffer(LogEntry.LEVEL_DEBUG, tag, message)
+        if (isEnabled) {
+            logToBuffer(LogEntry.LEVEL_DEBUG, tag, message)
+        }
         runCatching { Log.w(tag, message) }
     }
 
