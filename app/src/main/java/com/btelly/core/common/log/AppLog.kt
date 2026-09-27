@@ -135,9 +135,12 @@ object AppLog {
      * 诊断专用：除缓冲区外，release 下也强制进 logcat。
      * proguard-rules.pro 的 -assumenosideeffects 剥掉了 Log.v/d/i，只有 Log.w/e 能活过 R8，
      * 因此这里必须走 Log.w（同 BrandGene 哨兵的做法），否则 release 包 adb logcat 什么都看不到。
+     *
+     * 注意：不受 isEnabled 门控。该开关只能从「设置→通用→日志记录」翻，远程取证时翻不到它，
+     * 而这条通道的全部意义就是让 adb logcat 能拿到时间戳证据——依赖一个够不着的开关会让它失效。
+     * 调用方仅限控制栏显隐这类低频关键路径，量很小。
      */
     fun dLogcat(tag: String, message: String) {
-        if (!isEnabled) return
         logToBuffer(LogEntry.LEVEL_DEBUG, tag, message)
         runCatching { Log.w(tag, message) }
     }
