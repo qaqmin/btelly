@@ -326,7 +326,9 @@ class PlayerActionDialog(
             .setPositiveButton(R.string.confirm) { dialog, _ ->
                 selectedCoinMultiply = (selectedIndex + 1).coerceAtLeast(1)
                 persistCoinMultiply(selectedCoinMultiply)
-                dialog.dismissWithMinAnim()
+                // 这里的 dialog 是 DialogInterface（AlertDialog.Builder 的 lambda 参数），
+                // 不是 Dialog，用不了 dismissWithMinAnim 扩展；且 AlertDialog 自带窗口动画。
+                dialog.dismiss()
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
