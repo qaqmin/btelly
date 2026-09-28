@@ -852,10 +852,19 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         val anchor = focusRestoreAnchors.removeLastOrNull()
         val delayMs = pendingFocusRestoreDelayMs
         pendingFocusRestoreDelayMs = 0L
+        // 诊断：焦点恢复全程走 dLogcat（不受「日志记录」开关门控），
+        // 否则线上复现时 AppLog.d 被开关挡住，什么都抓不到——我因此拿不到证据好几轮。
+        AppLog.dLogcat(
+            "FocusRestore",
+            "pop enter: anchor=${anchor?.viewRef?.get()?.javaClass?.simpleName} " +
+                "delayMs=$delayMs tabIndex=$currentFragmentIndex " +
+                "focusBefore=${currentFocus?.javaClass?.simpleName}#${currentFocus?.id}"
+        )
         binding.root.postDelayed({
             val target = anchor?.viewRef?.get()
             if (target?.isAttachedToWindow == true && target.isShown && target.isFocusable) {
                 val result = target.requestFocus()
+                AppLog.dLogcat("FocusRestore", "anchor requestFocus -> $result")
                 if (result) {
                     return@postDelayed
                 }
@@ -864,10 +873,12 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
                 anchorView = target,
                 preferSpatialEntry = target != null
             )
+            AppLog.dLogcat("FocusRestore", "focusCurrentMainContent -> $handledByContent (tabIndex=$currentFragmentIndex)")
             if (handledByContent) {
                 return@postDelayed
             }
             val handledByTabBar = binding.myTabView.focusCurrentTab()
+            AppLog.dLogcat("FocusRestore", "focusCurrentTab -> $handledByTabBar")
             if (handledByTabBar) {
                 return@postDelayed
             }
