@@ -109,6 +109,9 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     private var exitTime: Long = 0
     private val exitInterval = 2000L
     private val focusRestoreAnchors = ArrayDeque<FocusRestoreAnchor>()
+
+    /** onUserLeaveHint 置位：本 Activity 被自己的子 Activity 盖住，onResume 时需补焦点恢复。 */
+    private var wasStoppedByChildActivity = false
     private var lastBackStackEntryCount = 0
     private var pendingFocusRestoreDelayMs = 0L
     private var startupTasksScheduled = false
@@ -975,6 +978,62 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         if (supportFragmentManager.isStateSaved()) {
             attachInitialMainTabAfterShellDraw()
         }
+        // 从独立 Activity（播放器 PlayerActivity 等）返回时的焦点恢复。
+        //
+        // 背景坑：播放器是独立 Activity（VideoRouteNavigator → PlayerActivity.start），
+        // 不是 overlay Fragment，所以退出时不 pop back stack，OnBackStackChangedListener
+        // 不触发，restoreFocusAfterOverlayPop() 永远不跑。而 MainActivity 只是
+        // onStop→onResume，没人管焦点——表现为「返回主界面后光标消失、遥控器失灵，
+        // 必须再按一次返回键（走 handleBackPressed→schedulePostBackFocusRestore）
+        // 焦点才回来」。
+        //
+        // 这里补上：窗口重新获得焦点时，如果没有 view 持焦，就按
+        // 内容区 → 侧栏 的顺序恢复。只在「本Activity曾失去焦点」时才做，
+        // 避免每次 onResume 都抢焦点（比如从设置 overlay 返回时焦点已被正确恢复）。
+        if (wasStoppedByChildActivity) {
+            wasStoppedByChildActivity = false
+            restoreFocusOnReturnFromChild()
+        }
+    }
+
+    /**
+     * 从子 Activity 返回后恢复焦点。顺序与 [restoreFocusAfterOverlayPop] 一致：
+     * 内容区优先，其次侧栏当前 tab，最后找可见 fragment 的已有焦点。
+     */
+    private fun restoreFocusOnReturnFromChild() {
+        binding.root.post {
+            if (isFinishing || isDestroyed) return@post
+            val focus = currentFocus
+            // 已有可用焦点就别抢——用户可能回来前焦点就已被正确恢复
+            if (focus != null && focus.isAttachedToWindow && focus.isShown && focus.isFocusable) {
+                AppLog.dLogcat("FocusRestore", "onResume: focus already ok (${focus.javaClass.simpleName})")
+                return@post
+            }
+            AppLog.dLogcat("FocusRestore", "onResume: no usable focus, restoring (tabIndex=$currentFragmentIndex)")
+            val handledByContent = focusCurrentMainContent(
+                anchorView = null,
+                preferSpatialEntry = false
+            )
+            AppLog.dLogcat("FocusRestore", "onResume: focusCurrentMainContent -> $handledByContent")
+            if (handledByContent) return@post
+            val handledByTabBar = binding.myTabView.focusCurrentTab()
+            AppLog.dLogcat("FocusRestore", "onResume: focusCurrentTab -> $handledByTabBar")
+            if (handledByTabBar) return@post
+            supportFragmentManager.fragments
+                .asReversed()
+                .firstOrNull { it.isVisible }
+                ?.view
+                ?.findFocus()
+                ?.requestFocus()
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // 用户主动离开本 Activity（通常是打开了播放器等子 Activity）时打标记，
+        // onResume 据此判断是否需要补一次焦点恢复。
+        // onPause 不能用于此判断——系统在息屏/锁屏时也会调 onPause，那时不该抢焦点。
+        wasStoppedByChildActivity = true
     }
 
     override fun onPause() {
