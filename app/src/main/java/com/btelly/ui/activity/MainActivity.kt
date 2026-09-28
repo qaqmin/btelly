@@ -159,6 +159,11 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         })
         supportFragmentManager.addOnBackStackChangedListener {
             val currentCount = supportFragmentManager.backStackEntryCount
+            android.util.Log.w(
+                "FocusRestore",
+                "backStackChanged: $lastBackStackEntryCount -> $currentCount focus=" +
+                    "${currentFocus?.javaClass?.simpleName}#${currentFocus?.id}"
+            )
             if (currentCount < lastBackStackEntryCount) {
                 // Hero 回程：pop 完成后列表页回到前台，触发封面飞回卡片
                 UiHeroMotion.onReturnDestinationReady()
@@ -968,7 +973,12 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     }
 
     override fun onResume() {
-        AppLog.dLogcat("FocusRestore", "onResume enter: wasChild=$wasStoppedByChildActivity top=$(supportFragmentManager.backStackEntryCount) focus=${currentFocus?.javaClass?.simpleName}#${currentFocus?.id}")
+        AppLog.dLogcat(
+            "FocusRestore",
+            "onResume enter: wasChild=$wasStoppedByChildActivity backStack=" +
+                "${supportFragmentManager.backStackEntryCount} " +
+                "focus=${currentFocus?.javaClass?.simpleName}#${currentFocus?.id}"
+        )
         AppLog.i(TEEN_REST_DIAG_TAG, "onResume start")
         super.onResume()
         AppLog.i(TEEN_REST_DIAG_TAG, "onResume after super, before refresh")
