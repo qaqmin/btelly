@@ -12,6 +12,30 @@ import com.btelly.R
 import com.btelly.core.common.log.AppLog
 import com.btelly.core.ui.motion.UiMinStyle
 
+/**
+ * 控制栏（MyPlayerControlView）的显隐状态机。
+ *
+ * ## 延迟回调与代际守卫（重要）
+ *
+ * 这个类里有三处「兜底」性质的延迟回调，都是为了兜住同一个底层问题：
+ * 同一个 View 的 ViewPropertyAnimator 是复用的，cancel + setListener(null) 会静默摘掉
+ * 刚挂上的监听器，动画结束回调就丢了，uxState 于是永远停在中间态（ANIMATING_SHOW /
+ * ANIMATING_HIDE），此后每次 show/hide 都被守卫挡住——控制栏「永久唤不出」。
+ * 三处兜底分别是：
+ *   1. hideMainBar 的 completeHide（postDelayed controlHideMs + 120ms）
+ *   2. hideProgressBar 的 completeHide（同上）
+ *   3. animateMainInfo 的 finish（postDelayed infoMs + 120ms）
+ *
+ * 但兜底本身是**延后触发**的，这期间状态很可能已经被别的路径改写（例如「刚唤出控制栏
+ * 又立刻双击横滑」，enterSeekProgressOnly 会把状态推到 ONLY_PROGRESS）。迟到的兜底若
+ * 无条件执行，就会把已经前进的新状态硬打死，控制栏凭空消失、seek 收尾空转。
+ *
+ * 所以每处兜底都先捕获当时的 [uxGeneration]，触发时比对：代际已变就放弃执行并打日志。
+ *
+ * **新增延迟回调时必须照此办理**：捕获 uxGeneration → 触发时比对 → 不等则放弃。
+ * 不要用「uxState == 捕获时的状态」来判断——状态可能 A→B→A 绕回来，那时比较会误判为
+ * 没变，从而执行一个早已作废的收口。代际单调递增，绕回来也能抓到。
+ */
 class MyPlayerControlViewLayoutManager(
     private val playerControlView: MyPlayerControlView,
     private val uiCoordinator: com.btelly.feature.player.PlaybackUiCoordinator? = null
@@ -129,6 +153,9 @@ class MyPlayerControlViewLayoutManager(
     private var progressOnlyUiEnabled: Boolean = true
     private var timeViewVisible: Boolean = true
     private var adaptiveLayoutScheduled: Boolean = false
+
+    /** 单调递增代际号，随每次 setUxState +1。延迟回调用它判断自己是否已过期。 */
+    private var uxGeneration: Long = 0L
 
     /** 最近一次 show() 的发起时刻，用于日志里算「控制栏实际停留了多久」。 */
     private var showIssuedAtMs: Long = 0L
@@ -346,7 +373,7 @@ class MyPlayerControlViewLayoutManager(
      * 6 个调用点（MyPlayerView 的 seekSession/BACK/commit/滑动手势等路径）都不保证
      * 那一刻状态还在 ONLY_PROGRESS——例如控制栏刚 show 又立刻双击横滑，enterSeekProgressOnly
      * 把状态推到 ONLY_PROGRESS 后，入场动画的迟到回调曾把它抢回 ALL_VISIBLE，本函数就空转了。
-     * 该抢状态问题已由 animateMainInfo 的 startedAtState 守卫修掉；这里保留日志，
+     * 该抢状态问题已由 animateMainInfo 的代际守卫修掉；这里保留日志，
      * 一旦再出现"守卫未命中"就是新的抢状态案例，按 CtrlBar 日志定位。
      */
     fun exitSeekProgressOnly() {
@@ -403,15 +430,15 @@ class MyPlayerControlViewLayoutManager(
         controlsBackground.visibility = View.INVISIBLE
         animateMainInfo(visible = false) {}
         var completed = false
-        // 收口的起点状态。下面 postDelayed 的兜底可能迟到，期间若有新 show 把
+        // 收口的起始代际。下面 postDelayed 的兜底可能迟到，期间若有新 show 把
         // uxState 推到 ANIMATING_SHOW/ALL_VISIBLE/ONLY_PROGRESS，迟到的 completeHide
         // 就不能再 hideController()——那会把新状态硬打成 NONE_VISIBLE，控制栏凭空消失。
         // （needToShowBars 救不了这种：它只在从 ANIMATING_HIDE 进 show 时才被置真。）
-        val hideStartedAtState = uxState
+        val hideStartedAtGeneration = uxGeneration
         val completeHide = {
             if (!completed) {
                 completed = true
-                if (uxState == hideStartedAtState) {
+                if (uxGeneration == hideStartedAtGeneration) {
                     hideController()
                     restoreMainBarImmediately()
                     if (needToShowBars) {
@@ -421,7 +448,8 @@ class MyPlayerControlViewLayoutManager(
                 } else {
                     AppLog.dLogcat(
                         "CtrlBar",
-                        "completeHide suppressed: state moved ${stateName(hideStartedAtState)} -> ${stateName(uxState)}"
+                        "completeHide suppressed: generation $hideStartedAtGeneration -> $uxGeneration " +
+                            "(state ${stateName(uxState)})"
                     )
                 }
             }
@@ -452,11 +480,11 @@ class MyPlayerControlViewLayoutManager(
         controlsBackground.visibility = View.INVISIBLE
         var completed = false
         // 同 hideMainBar：迟到的兜底不得 hideController() 掉一个已经前进的新状态。
-        val hideStartedAtState = uxState
+        val hideStartedAtGeneration = uxGeneration
         val completeHide = {
             if (!completed) {
                 completed = true
-                if (uxState == hideStartedAtState) {
+                if (uxGeneration == hideStartedAtGeneration) {
                     hideController()
                     restoreMainBarImmediately()
                     if (needToShowBars) {
@@ -466,7 +494,8 @@ class MyPlayerControlViewLayoutManager(
                 } else {
                     AppLog.dLogcat(
                         "CtrlBar",
-                        "completeHide suppressed: state moved ${stateName(hideStartedAtState)} -> ${stateName(uxState)}"
+                        "completeHide suppressed: generation $hideStartedAtGeneration -> $uxGeneration " +
+                            "(state ${stateName(uxState)})"
                     )
                 }
             }
@@ -571,11 +600,11 @@ class MyPlayerControlViewLayoutManager(
             visible -> 200L
             else -> 180L
         }
-        // 启动时刻的状态。下面的兜底 finish() 可能迟到（延迟 320ms），动画进行中若有
+        // 启动时刻的代际。下面的兜底 finish() 可能迟到（延迟 320ms），动画进行中若有
         // seek/隐藏路径改写了 uxState，迟到的那次就不能再推状态——实测「刚 show 就立刻
         // 双击横滑」时 enterSeekProgressOnly 把状态推到 ONLY_PROGRESS，随后迟到的 finish
         // 又把它推回 ALL_VISIBLE，导致 exitSeekProgressOnly 的守卫失配、seek 收尾空转。
-        val startedAtState = uxState
+        val startedAtGeneration = uxGeneration
         if (visible) {
             controlsBackground.visibility = View.VISIBLE
             centerControls.visibility = View.VISIBLE
@@ -595,13 +624,13 @@ class MyPlayerControlViewLayoutManager(
                     titleView.visibility = View.INVISIBLE
                     bottomBarController.visibility = View.INVISIBLE
                 }
-                if (uxState == startedAtState) {
+                if (uxGeneration == startedAtGeneration) {
                     endAction()
                 } else {
                     AppLog.dLogcat(
                         "CtrlBar",
-                        "animateMainInfo finish suppressed: state moved " +
-                            "${stateName(startedAtState)} -> ${stateName(uxState)}"
+                        "animateMainInfo finish suppressed: generation $startedAtGeneration -> $uxGeneration " +
+                            "(state ${stateName(uxState)})"
                     )
                 }
             }
@@ -945,6 +974,10 @@ class MyPlayerControlViewLayoutManager(
     private fun setUxState(newState: Int) {
         val oldState = uxState
         uxState = newState
+        // 代际号：每次状态迁移就 +1。延迟回调（入场渐显、退场收口的兜底）靠它判断自己
+        // 是否已过期——比拿 uxState 直接比较更可靠，因为状态可能 A→B→A 绕回来，
+        // 那时比较会误判为"没变"而执行一个早已作废的收口。
+        uxGeneration += 1
         if (oldState != newState) {
             AppLog.dLogcat(
             "CtrlBar",
