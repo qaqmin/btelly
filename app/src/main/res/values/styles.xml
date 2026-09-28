@@ -308,9 +308,7 @@
     </style>
 
 
-    <!-- Min化：对话框弹簧呈现（运行时 Dialog.applyMinWindowAnim 挂载，Min化 关闭时不挂） -->
-    <style name="WindowAnim_MinSpring">
-        <item name="android:windowEnterAnimation">@anim/min_dialog_enter</item>
-        <item name="android:windowExitAnimation">@anim/min_dialog_exit</item>
-    </style>
+    <!-- 注意：不要再引入窗口级对话框动画。窗口动画由 SurfaceFlinger 缩放整个窗口图层，
+         在 Allwinner 弱板电视上叠加视频解码会明显掉帧。弹窗动效一律用内容视图动画，
+         见 core/ui/motion/DialogMinMotion.kt 的 playMinContentEnter / dismissWithMinAnim。 -->
 </resources>

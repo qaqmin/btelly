@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 设置项单元格（按控件类型分叉渲染）。
+     视觉语言：
+       - 左侧 dot 指示控件类型（开关/选择/操作/只读各有颜色）
+       - TOGGLE  → 右侧真实开关，OK 就地切换，不弹窗
+       - CHOICE  → 当前值 chip + 右箭头（会展开选项）
+       - NAV     → 右箭头（会跳页）
+       - ACTION  → 右侧强调色文字按钮（点即执行）
+       - INFO    → 弱化，无箭头无 chip
+       - SLIDER  → 当前值 + 左右键调节
+     旧实现所有行共用一套「标题 + 值 + 箭头」，四类控件长得一样，扫读不出交互方式。 -->
 <androidx.appcompat.widget.LinearLayoutCompat xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
@@ -24,6 +35,24 @@
         android:paddingEnd="@dimen/px50"
         android:paddingBottom="@dimen/px14">
 
+        <!-- 控件类型指示点：让用户扫一眼就知道这行是什么控件 -->
+        <View
+            android:id="@+id/typeDot"
+            android:layout_width="@dimen/px10"
+            android:layout_height="@dimen/px10"
+            android:layout_marginEnd="@dimen/px18"
+            android:background="@drawable/setting_type_dot" />
+
+        <!-- 类型图标（按 SettingModel.iconRes 切换；0 则隐藏） -->
+        <androidx.appcompat.widget.AppCompatImageView
+            android:id="@+id/iconType"
+            android:layout_width="@dimen/px34"
+            android:layout_height="@dimen/px34"
+            android:layout_marginEnd="@dimen/px16"
+            android:visibility="gone"
+            app:tint="?attr/tvTextSecondary"
+            tools:visibility="visible" />
+
         <androidx.appcompat.widget.AppCompatTextView
             android:id="@+id/tvTitle"
             android:layout_width="0dp"
@@ -34,6 +63,7 @@
             android:textSize="@dimen/px36"
             android:textStyle="bold" />
 
+        <!-- CHOICE 的当前值 chip -->
         <androidx.appcompat.widget.AppCompatTextView
             android:id="@+id/tvInfo"
             android:layout_width="wrap_content"
@@ -44,10 +74,45 @@
             android:textColor="?attr/tvTextSecondary"
             android:textSize="@dimen/px30" />
 
+        <!-- ACTION 的执行按钮（强调色，点即执行） -->
+        <androidx.appcompat.widget.AppCompatTextView
+            android:id="@+id/tvAction"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/setting_action_bg"
+            android:paddingStart="@dimen/px20"
+            android:paddingTop="@dimen/px8"
+            android:paddingEnd="@dimen/px20"
+            android:paddingBottom="@dimen/px8"
+            android:text="执行"
+            android:textColor="?attr/tvAccent"
+            android:textSize="@dimen/px28"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <!-- TOGGLE 的真实开关。clickable/focusable 都关掉：
+             交互由整行的 clickView 承担，避免开关自己抢焦点导致行焦点丢失 -->
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/switchToggle"
+            android:layout_width="@dimen/px90"
+            android:layout_height="@dimen/px44"
+            android:background="@null"
+            android:clickable="false"
+            android:focusable="false"
+            android:splitTrack="false"
+            android:textOff=""
+            android:textOn=""
+            android:thumb="@drawable/setting_switch_thumb"
+            android:track="@drawable/setting_switch_track"
+            android:visibility="gone" />
+
+        <!-- 箭头：只对会跳转/展开的行显示（CHOICE / NAV）。
+             旧实现每行都带，对开关行是误导 -->
         <androidx.appcompat.widget.AppCompatImageView
             android:id="@+id/iconArrow"
             android:layout_width="@dimen/px30"
             android:layout_height="@dimen/px30"
+            android:layout_marginStart="@dimen/px16"
             app:srcCompat="@drawable/ic_arrow_right"
             app:tint="?attr/tvTextTertiary" />
     </androidx.appcompat.widget.LinearLayoutCompat>

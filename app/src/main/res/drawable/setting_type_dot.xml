@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 设置项控件类型指示点。
+     用 attrs 以便不同皮肤可以各自定义色值；未提供时退化为 tvTextTertiary。
+     形状统一为圆点，靠颜色区分类型——比给每类配不同图形更安静，也更容易扫读。 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 选中/焦点态由 SettingAdapter 在代码里染色，这里只出基础三态 -->
+    <item android:state_focused="true">
+        <shape android:shape="oval">
+            <solid android:color="?attr/tvAccentOn" />
+            <size android:width="@dimen/px10" android:height="@dimen/px10" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="?attr/tvTextTertiary" />
+            <size android:width="@dimen/px10" android:height="@dimen/px10" />
+        </shape>
+    </item>
+</selector>

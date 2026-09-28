@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 设置项开关：轨道。选中态走强调色，未选中走弱化表面色。 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_checked="true">
+        <shape android:shape="rectangle">
+            <solid android:color="?attr/tvAccent" />
+            <corners android:radius="@dimen/px30" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="?attr/tvSurfaceRaised" />
+            <corners android:radius="@dimen/px30" />
+            <stroke android:width="@dimen/px2" android:color="?attr/tvDivider" />
+        </shape>
+    </item>
+</selector>

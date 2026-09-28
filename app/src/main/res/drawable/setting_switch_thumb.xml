@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 设置项开关：滑块。焦点/选中时略微放大，由 SettingAdapter 用 ViewPropertyAnimator 驱动，
+     不放 scale 标签——避免和焦点弹簧动画抢同一个 transform 通道。 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_checked="true">
+        <shape android:shape="oval">
+            <solid android:color="?attr/tvAccentOn" />
+            <size android:width="@dimen/px44" android:height="@dimen/px44" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="?attr/tvTextSecondary" />
+            <size android:width="@dimen/px44" android:height="@dimen/px44" />
+        </shape>
+    </item>
+</selector>

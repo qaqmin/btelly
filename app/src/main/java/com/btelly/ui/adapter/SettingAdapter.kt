@@ -8,7 +8,9 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.core.ui.base.UiCarSpacing
 import com.btelly.databinding.CellSettingBinding
+import android.widget.CompoundButton
 import com.btelly.model.SettingModel
+import com.btelly.model.SettingType
 
 class SettingAdapter(
     private val onItemClick: ((position: Int, item: SettingModel) -> Unit)? = null
@@ -116,6 +118,74 @@ class SettingAdapter(
         fun bindContent(item: SettingModel) {
             binding.tvTitle.text = item.title
             binding.tvInfo.text = item.info
+            applyType(item)
+        }
+
+        /**
+         * 按控件类型分叉渲染。核心目的：让用户扫一眼就知道这行是什么控件、点下去会发生什么。
+         * 旧实现所有行都是「标题 + 值 + 箭头」，四类控件长得一样。
+         */
+        private fun applyType(item: SettingModel) {
+            when (item.type) {
+                SettingType.TOGGLE -> {
+                    // 开关：真实控件，不显示箭头（不跳转）。
+                    // 状态从 info 派生而非 item.checked：SettingsFragment.toggleSetting()
+                    // 一直以来只改 info 再 notifyItemChanged，沿用同一数据源就不必改任何
+                    // 既有交互逻辑。info 不是"开/关"时才退回 checked 字段。
+                    binding.switchToggle.visibility = android.view.View.VISIBLE
+                    binding.tvInfo.visibility = android.view.View.GONE
+                    binding.tvAction.visibility = android.view.View.GONE
+                    binding.iconArrow.visibility = android.view.View.GONE
+                    binding.iconType.visibility = android.view.View.GONE
+                    // 先摘监听再赋值：ViewHolder 复用时，isChecked 的赋值回调会把上一行状态带过来
+                    binding.switchToggle.setOnCheckedChangeListener(null)
+                    val isOn = if (item.info == "开" || item.info == "关") item.info == "开" else item.checked
+                    binding.switchToggle.isChecked = isOn
+                    // 标题同步反映状态，开关与文字互为冗余（遥控器远距离看清开关有困难）
+                    binding.tvTitle.contentDescription = "${item.title}，${if (isOn) "已开启" else "已关闭"}"
+                }
+                SettingType.ACTION -> {
+                    // 操作：强调色动作按钮，点即执行
+                    binding.tvAction.visibility = android.view.View.VISIBLE
+                    binding.switchToggle.visibility = android.view.View.GONE
+                    binding.tvInfo.visibility = android.view.View.GONE
+                    binding.iconArrow.visibility = android.view.View.GONE
+                    binding.iconType.visibility =
+                        if (item.iconRes != 0) android.view.View.VISIBLE else android.view.View.GONE
+                    if (item.iconRes != 0) binding.iconType.setImageResource(item.iconRes)
+                    binding.tvAction.text = item.info.ifEmpty { "执行" }
+                }
+                SettingType.INFO -> {
+                    // 只读：弱化，无箭头无 chip
+                    binding.tvInfo.visibility = android.view.View.VISIBLE
+                    binding.switchToggle.visibility = android.view.View.GONE
+                    binding.tvAction.visibility = android.view.View.GONE
+                    binding.iconArrow.visibility = android.view.View.GONE
+                    binding.iconType.visibility =
+                        if (item.iconRes != 0) android.view.View.VISIBLE else android.view.View.GONE
+                    if (item.iconRes != 0) binding.iconType.setImageResource(item.iconRes)
+                }
+                SettingType.CHOICE, SettingType.NAV -> {
+                    // 选择/跳转：当前值 chip + 箭头
+                    binding.tvInfo.visibility = android.view.View.VISIBLE
+                    binding.iconArrow.visibility = android.view.View.VISIBLE
+                    binding.switchToggle.visibility = android.view.View.GONE
+                    binding.tvAction.visibility = android.view.View.GONE
+                    binding.iconType.visibility =
+                        if (item.iconRes != 0) android.view.View.VISIBLE else android.view.View.GONE
+                    if (item.iconRes != 0) binding.iconType.setImageResource(item.iconRes)
+                }
+                SettingType.SLIDER -> {
+                    // 滑杆：当前值 + 箭头提示可调
+                    binding.tvInfo.visibility = android.view.View.VISIBLE
+                    binding.iconArrow.visibility = android.view.View.VISIBLE
+                    binding.switchToggle.visibility = android.view.View.GONE
+                    binding.tvAction.visibility = android.view.View.GONE
+                    binding.iconType.visibility =
+                        if (item.iconRes != 0) android.view.View.VISIBLE else android.view.View.GONE
+                    if (item.iconRes != 0) binding.iconType.setImageResource(item.iconRes)
+                }
+            }
         }
 
         private fun bindStripe(position: Int) {
@@ -129,6 +199,7 @@ class SettingAdapter(
         fun bindFocusState(isFocused: Boolean, position: Int) {
             binding.iconArrow.alpha = if (isFocused) 1f else 0.6f
             binding.tvInfo.alpha = if (isFocused) 1f else 0.8f
+            binding.tvAction.alpha = if (isFocused) 1f else 0.85f
             if (isFocused) {
                 binding.clickView.setBackgroundResource(com.btelly.R.drawable.cell_background)
             } else {

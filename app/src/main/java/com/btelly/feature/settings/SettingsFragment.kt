@@ -2,6 +2,8 @@
 package com.btelly.feature.settings
 
 import com.btelly.core.ui.motion.applyMinWindowAnim
+import com.btelly.core.ui.motion.dismissWithMinAnim
+import com.btelly.core.ui.motion.playMinContentEnter
 import com.btelly.core.ui.motion.UiMinStyle
 import com.btelly.core.common.format.NumberUtils
 import com.btelly.core.ui.theme.resolveThemeColor
@@ -31,6 +33,7 @@ import com.btelly.core.common.media.VideoCodecSupport
 import com.btelly.core.common.update.ApkUpdater
 import com.btelly.databinding.FragmentSettingsBinding
 import com.btelly.model.SettingModel
+import com.btelly.model.SettingType
 import com.btelly.ui.adapter.SettingAdapter
 import com.btelly.ui.adapter.SettingSelectionDialogAdapter
 import com.btelly.core.ui.base.BaseFragment
@@ -221,98 +224,98 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
 
     private fun initSettings() {
         commonSettings = mutableListOf(
-            SettingModel(getString(R.string.clear_cache), "0.0kb"),
-            SettingModel(getString(R.string.cache_limit), "200 MB"),
-            SettingModel(getString(R.string.default_start_page), "热门"),
-            SettingModel(getString(R.string.image_quality), "中尺寸"),
-            SettingModel(getString(R.string.live_entry), "关"),
-            SettingModel(getString(R.string.risk_control_verify), "无"),
-            SettingModel(getString(R.string.show_video_detail_page), "关"),
-            SettingModel(getString(R.string.give_coin_number), "2"),
-            SettingModel(getString(R.string.ipv4_only), "开"),
-            SettingModel(getString(R.string.douyin_mode), "关")
+            SettingModel(getString(R.string.clear_cache), "0.0kb", SettingType.ACTION),
+            SettingModel(getString(R.string.cache_limit), "200 MB", SettingType.CHOICE),
+            SettingModel(getString(R.string.default_start_page), "热门", SettingType.CHOICE),
+            SettingModel(getString(R.string.image_quality), "中尺寸", SettingType.CHOICE),
+            SettingModel(getString(R.string.live_entry), "关", SettingType.TOGGLE),
+            SettingModel(getString(R.string.risk_control_verify), "无", SettingType.CHOICE),
+            SettingModel(getString(R.string.show_video_detail_page), "关", SettingType.TOGGLE),
+            SettingModel(getString(R.string.give_coin_number), "2", SettingType.CHOICE),
+            SettingModel(getString(R.string.ipv4_only), "开", SettingType.TOGGLE),
+            SettingModel(getString(R.string.douyin_mode), "关", SettingType.TOGGLE)
         )
 
         // 界面分类（P1-4 从通用设置拆出）：主题 / UI文字大小 / 视频卡片大小 / 显示模式 / Min化
         uiSettings = mutableListOf(
-            SettingModel(getString(R.string.theme), "黑色"),
-            SettingModel(getString(R.string.ui_text_size), "标准"),
-            SettingModel(getString(R.string.ui_card_size), "标准"),
-            SettingModel(getString(R.string.display_mode), "电视"),
+            SettingModel(getString(R.string.theme), "黑色", SettingType.CHOICE),
+            SettingModel(getString(R.string.ui_text_size), "标准", SettingType.CHOICE),
+            SettingModel(getString(R.string.ui_card_size), "标准", SettingType.CHOICE),
+            SettingModel(getString(R.string.display_mode), "电视", SettingType.CHOICE),
             SettingModel(
                 getString(R.string.min_style),
                 appSettings.getCachedString(UiMinStyle.KEY_MIN_STYLE, UiMinStyle.VALUE_ON)
                     ?: UiMinStyle.VALUE_ON
-            )
+            , SettingType.CHOICE)
         )
 
         // 青少年模式分类：青少年保护开关 + 单次观看时长 + 休息时长 + 公益广告开关 + 公益广告间隔
         teenSettings = mutableListOf(
-            SettingModel(getString(R.string.minor_protection), "开"),
-            SettingModel(getString(R.string.watch_time_limit), "不限制"),
-            SettingModel(getString(R.string.rest_time_limit), "不限制"),
-            SettingModel(getString(R.string.psas_enabled), "关"),
-            SettingModel(getString(R.string.psas_interval), "20分钟")
+            SettingModel(getString(R.string.minor_protection), "开", SettingType.TOGGLE),
+            SettingModel(getString(R.string.watch_time_limit), "不限制", SettingType.CHOICE),
+            SettingModel(getString(R.string.rest_time_limit), "不限制", SettingType.CHOICE),
+            SettingModel(getString(R.string.psas_enabled), "关", SettingType.TOGGLE),
+            SettingModel(getString(R.string.psas_interval), "20分钟", SettingType.CHOICE)
         )
 
         playerSettings = mutableListOf(
-            SettingModel(getString(R.string.default_video_quality), "1080P"),
-            SettingModel(getString(R.string.default_audio_track), "192kbps"),
-            SettingModel(getString(R.string.default_play_speed), "1.0"),
-            SettingModel(getString(R.string.after_play), "播推荐视频"),
-            SettingModel(getString(R.string.play_finish_exit_player), "开"),
-            SettingModel(getString(R.string.video_codec), "HEVC"),
-            SettingModel(getString(R.string.show_subtitle_default), "关"),
-            SettingModel(getString(R.string.subtitle_text_size), "45"),
-            SettingModel(getString(R.string.show_debug), "关"),
-            SettingModel(getString(R.string.show_bottom_progress_bar), "关"),
-            SettingModel(getString(R.string.show_next_previous), "关"),
-            SettingModel(getString(R.string.resume_playback), "开"),
-            SettingModel("空降助手", "关"),
-            SettingModel("音量均衡", "关"),
-            SettingModel("无缝切换清晰度", "关"),
-            SettingModel("播放器内核", "ExoPlayer"),
+            SettingModel(getString(R.string.default_video_quality), "1080P", SettingType.CHOICE),
+            SettingModel(getString(R.string.default_audio_track), "192kbps", SettingType.CHOICE),
+            SettingModel(getString(R.string.default_play_speed), "1.0", SettingType.CHOICE),
+            SettingModel(getString(R.string.after_play), "播推荐视频", SettingType.CHOICE),
+            SettingModel(getString(R.string.play_finish_exit_player), "开", SettingType.TOGGLE),
+            SettingModel(getString(R.string.video_codec), "HEVC", SettingType.CHOICE),
+            SettingModel(getString(R.string.show_subtitle_default), "关", SettingType.TOGGLE),
+            SettingModel(getString(R.string.subtitle_text_size), "45", SettingType.CHOICE),
+            SettingModel(getString(R.string.show_debug), "关", SettingType.TOGGLE),
+            SettingModel(getString(R.string.show_bottom_progress_bar), "关", SettingType.TOGGLE),
+            SettingModel(getString(R.string.show_next_previous), "关", SettingType.TOGGLE),
+            SettingModel(getString(R.string.resume_playback), "开", SettingType.TOGGLE),
+            SettingModel("空降助手", "关", SettingType.TOGGLE),
+            SettingModel("音量均衡", "关", SettingType.TOGGLE),
+            SettingModel("无缝切换清晰度", "关", SettingType.TOGGLE),
+            SettingModel("播放器内核", "ExoPlayer", SettingType.CHOICE),
             // 电视直播合入播放分类（P1-4）：CCTV 开关 + X5 内核替换
-            SettingModel(getString(R.string.cctv_live), "关"),
-            SettingModel("X5内核替换", "未安装")
+            SettingModel(getString(R.string.cctv_live), "关", SettingType.TOGGLE),
+            SettingModel("X5内核替换", "未安装", SettingType.ACTION)
         )
 
         dmSettings = mutableListOf(
-            SettingModel(getString(R.string.dm_switch), "开"),
-            SettingModel(getString(R.string.dm_alpha), "1.0"),
-            SettingModel(getString(R.string.dm_text_size), "40"),
-            SettingModel(getString(R.string.dm_screen_area), "1/2"),
-            SettingModel(getString(R.string.dm_speed), "4"),
-            SettingModel(getString(R.string.dm_track_spacing), "标准"),
-            SettingModel(getString(R.string.dm_allow_top), "关"),
-            SettingModel(getString(R.string.dm_allow_bottom), "关"),
-            SettingModel(getString(R.string.dm_filter_weight), "关"),
-            SettingModel(getString(R.string.allow_vip_colorful_dm), "开"),
-            SettingModel(getString(R.string.dm_merge_duplicate), "开"),
-            SettingModel(getString(R.string.dm_smart_shield), "关"),
-            SettingModel(getString(R.string.show_dm_switch), "关")
+            SettingModel(getString(R.string.dm_switch), "开", SettingType.TOGGLE),
+            SettingModel(getString(R.string.dm_alpha), "1.0", SettingType.CHOICE),
+            SettingModel(getString(R.string.dm_text_size), "40", SettingType.CHOICE),
+            SettingModel(getString(R.string.dm_screen_area), "1/2", SettingType.CHOICE),
+            SettingModel(getString(R.string.dm_speed), "4", SettingType.CHOICE),
+            SettingModel(getString(R.string.dm_track_spacing), "标准", SettingType.CHOICE),
+            SettingModel(getString(R.string.dm_allow_top), "关", SettingType.TOGGLE),
+            SettingModel(getString(R.string.dm_allow_bottom), "关", SettingType.TOGGLE),
+            SettingModel(getString(R.string.dm_filter_weight), "关", SettingType.TOGGLE),
+            SettingModel(getString(R.string.allow_vip_colorful_dm), "开", SettingType.TOGGLE),
+            SettingModel(getString(R.string.dm_merge_duplicate), "开", SettingType.TOGGLE),
+            SettingModel(getString(R.string.dm_smart_shield), "关", SettingType.TOGGLE),
+            SettingModel(getString(R.string.show_dm_switch), "关", SettingType.TOGGLE)
         )
 
-        deviceSettings.add(DEVICE_POSITION_VERSION, SettingModel("应用版本", BuildConfig.VERSION_NAME))
-        deviceSettings.add(DEVICE_POSITION_CHECK_UPDATE, SettingModel("检查更新", "点击检查"))
-        deviceSettings.add(DEVICE_POSITION_DEVICE_MODEL, SettingModel("设备型号", Build.MODEL))
-        deviceSettings.add(DEVICE_POSITION_SYSTEM_VERSION, SettingModel("系统版本", "Android ${Build.VERSION.RELEASE}"))
-        deviceSettings.add(DEVICE_POSITION_SDK_VERSION, SettingModel("SDK版本", Build.VERSION.SDK_INT.toString()))
-        deviceSettings.add(DEVICE_POSITION_CPU_ABI, SettingModel("CPU架构", Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown"))
-        deviceSettings.add(DEVICE_POSITION_SCREEN, SettingModel("屏幕分辨率", ScreenUtils.getRealScreenInfo(requireContext()).toString()))
-        deviceSettings.add(DEVICE_POSITION_CODEC, SettingModel("硬解支持", ""))
+        deviceSettings.add(DEVICE_POSITION_VERSION, SettingModel("应用版本", BuildConfig.VERSION_NAME, SettingType.INFO))
+        deviceSettings.add(DEVICE_POSITION_CHECK_UPDATE, SettingModel("检查更新", "点击检查", SettingType.ACTION))
+        deviceSettings.add(DEVICE_POSITION_DEVICE_MODEL, SettingModel("设备型号", Build.MODEL, SettingType.INFO))
+        deviceSettings.add(DEVICE_POSITION_SYSTEM_VERSION, SettingModel("系统版本", "Android ${Build.VERSION.RELEASE}", SettingType.INFO))
+        deviceSettings.add(DEVICE_POSITION_SDK_VERSION, SettingModel("SDK版本", Build.VERSION.SDK_INT.toString(), SettingType.INFO))
+        deviceSettings.add(DEVICE_POSITION_CPU_ABI, SettingModel("CPU架构", Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown", SettingType.INFO))
+        deviceSettings.add(DEVICE_POSITION_SCREEN, SettingModel("屏幕分辨率", ScreenUtils.getRealScreenInfo(requireContext()).toString(), SettingType.INFO))
+        deviceSettings.add(DEVICE_POSITION_CODEC, SettingModel("硬解支持", "", SettingType.INFO))
 
         // 作者与开源仓库：显眼位署名（B视机 by QAQMin / min09577），值取自 BrandGene 单一事实来源
         deviceSettings.add(
             SettingModel(
                 "作者",
                 "${BrandGene.AUTHOR_NAME} (${BrandGene.AUTHOR_ID})"
-            )
+            , SettingType.INFO)
         )
-        deviceSettings.add(SettingModel("开源仓库", BrandGene.REPO_URL.removePrefix("https://")))
+        deviceSettings.add(SettingModel("开源仓库", BrandGene.REPO_URL.removePrefix("https://"), SettingType.INFO))
 
-        commonSettings.add(SettingModel("日志记录", if (AppLog.isEnabled) "开" else "关"))
-        commonSettings.add(SettingModel("调试日志", ""))
+        commonSettings.add(SettingModel("日志记录", if (AppLog.isEnabled) "开" else "关", SettingType.TOGGLE))
+        commonSettings.add(SettingModel("调试日志", "", SettingType.NAV))
 
         restoreSavedSettings()
         updateCacheSizeAsync()
@@ -1336,11 +1339,12 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         applyPreview(selectedIndex)
 
         dialog.setOnShowListener {
-            recyclerView?.post {
-                choiceAdapter.requestInitialFocus(recyclerView)
-            }
+            // 焦点请求延后到入场动画之后：旧实现里它和窗口缩放同时进行，
+            // 两个动画叠在一起就是卡顿感的主要来源。
+            recyclerView?.postDelayed({ choiceAdapter.requestInitialFocus(recyclerView) }, 200L)
         }
         dialog.show()
+        dialog.playMinContentEnter()
     }
 
     /** 视频卡片大小：选完 recreate，所有视频网格经 adaptiveSpanCount 统一生效。 */
@@ -1404,10 +1408,12 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         onSelected: (String) -> Unit
     ) {
         val dialog = AppCompatDialog(requireContext(), R.style.DialogTheme)
-        dialog.applyMinWindowAnim() // Min化：对话框弹簧呈现（电视模式零动画）
+        // 只关窗口动画；入场动画改为内容视图实现，见 show() 后的 playMinContentEnter()。
+        // 窗口级动画会让 SurfaceFlinger 缩放整个 800x615 图层，弱板电视上掉帧明显。
+        dialog.applyMinWindowAnim()
         dialog.setContentView(R.layout.dialog_setting_choice)
         dialog.setCanceledOnTouchOutside(true)
-        dialog.findViewById<View>(R.id.dialog_root)?.setOnClickListener { dialog.dismiss() }
+        dialog.findViewById<View>(R.id.dialog_root)?.setOnClickListener { dialog.dismissWithMinAnim() }
 
         val titleView = dialog.findViewById<TextView>(R.id.top_title)
         val recyclerView = dialog.findViewById<RecyclerView>(R.id.recyclerView)
@@ -1418,7 +1424,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             selectedIndex = options.indexOf(currentValue).coerceAtLeast(0)
         ) { selectedIndex ->
             options.getOrNull(selectedIndex)?.let(onSelected)
-            dialog.dismiss()
+            dialog.dismissWithMinAnim()
         }
 
         val dialogLayoutManager = createExtraSpaceLayoutManager(
@@ -1436,11 +1442,12 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         }
 
         dialog.setOnShowListener {
-            recyclerView?.post {
-                choiceAdapter.requestInitialFocus(recyclerView)
-            }
+            // 焦点请求延后到入场动画之后：旧实现里它和窗口缩放同时进行，
+            // 两个动画叠在一起就是卡顿感的主要来源。
+            recyclerView?.postDelayed({ choiceAdapter.requestInitialFocus(recyclerView) }, 200L)
         }
         dialog.show()
+        dialog.playMinContentEnter()
     }
 
     private fun showListCategory(settings: MutableList<SettingModel>, animate: Boolean) {

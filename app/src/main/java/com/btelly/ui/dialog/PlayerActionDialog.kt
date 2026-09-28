@@ -1,6 +1,8 @@
 package com.btelly.ui.dialog
 
 import com.btelly.core.ui.motion.applyMinWindowAnim
+import com.btelly.core.ui.motion.dismissWithMinAnim
+import com.btelly.core.ui.motion.playMinContentEnter
 import com.btelly.core.ui.base.UiCarSpacing
 import android.content.Context
 import android.view.KeyEvent
@@ -324,7 +326,7 @@ class PlayerActionDialog(
             .setPositiveButton(R.string.confirm) { dialog, _ ->
                 selectedCoinMultiply = (selectedIndex + 1).coerceAtLeast(1)
                 persistCoinMultiply(selectedCoinMultiply)
-                dialog.dismiss()
+                dialog.dismissWithMinAnim()
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
@@ -359,7 +361,7 @@ class PlayerActionDialog(
         dialog.applyMinWindowAnim() // Min化：对话框弹簧呈现（电视模式零动画）
         dialog.setContentView(R.layout.dialog_favorite_folder)
         dialog.setCanceledOnTouchOutside(true)
-        dialog.findViewById<View>(R.id.dialog_root)?.setOnClickListener { dialog.dismiss() }
+        dialog.findViewById<View>(R.id.dialog_root)?.setOnClickListener { dialog.dismissWithMinAnim() }
 
         val titleView = dialog.findViewById<android.widget.TextView>(R.id.top_title)
         val recyclerView = dialog.findViewById<RecyclerView>(R.id.recyclerView)
@@ -368,7 +370,7 @@ class PlayerActionDialog(
 
         val adapter = FavoriteFolderDialogAdapter(folders) { position ->
             val folder = folders.getOrNull(position) ?: return@FavoriteFolderDialogAdapter
-            dialog.dismiss()
+            dialog.dismissWithMinAnim()
             scope.launch {
                 val result = if (isFavorited) {
                     favoriteRepository.removeFavorite(aid, folder.id.toString())
@@ -410,6 +412,7 @@ class PlayerActionDialog(
             }
         }
         dialog.show()
+        dialog.playMinContentEnter()
     }
 
     private fun loadCoinMultiply(): Int {

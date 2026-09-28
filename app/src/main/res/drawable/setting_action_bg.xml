@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 操作类设置项（清除缓存 / 检查更新）的动作按钮底。
+     细边 + 弱表面底，强调色文字；比"整行填充强调色"安静，
+     不至于让设置页里最醒目的东西是个按钮。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="?attr/tvSurfaceRaised" />
+    <corners android:radius="@dimen/px12" />
+    <stroke android:width="@dimen/px2" android:color="?attr/tvAccentDim" />
+</shape>

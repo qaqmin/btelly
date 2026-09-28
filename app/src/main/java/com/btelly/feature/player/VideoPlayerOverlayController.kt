@@ -1,6 +1,8 @@
 package com.btelly.feature.player
 
 import com.btelly.core.ui.motion.applyMinWindowAnim
+import com.btelly.core.ui.motion.dismissWithMinAnim
+import com.btelly.core.ui.motion.playMinContentEnter
 import com.btelly.core.ui.base.applyCarSpacing
 import android.view.Gravity
 import android.view.KeyEvent
@@ -132,7 +134,7 @@ class VideoPlayerOverlayController(
         )
 
         val episodeDialogAdapter = PlayerEpisodePanelAdapter { index ->
-            dialog.dismiss()
+            dialog.dismissWithMinAnim()
             onHideNextPreview()
             onPlayEpisode(index)
         }.apply {
@@ -152,6 +154,7 @@ class VideoPlayerOverlayController(
             }
         }
         dialog.show()
+        dialog.playMinContentEnter()
     }
 
     /**
@@ -197,7 +200,7 @@ class VideoPlayerOverlayController(
         val recyclerView = dialog.findViewById<RecyclerView>(R.id.recyclerView)
         val tabBar = dialog.findViewById<LinearLayout>(R.id.tab_bar)
         if (recyclerView == null || tabBar == null) {
-            dialog.dismiss()
+            dialog.dismissWithMinAnim()
             return
         }
         recyclerViewRef = recyclerView
@@ -217,7 +220,7 @@ class VideoPlayerOverlayController(
 
         val panelAdapter = PlayerSeasonEpisodePanelAdapter(
             onClick = { globalIndex ->
-                dialog.dismiss()
+                dialog.dismissWithMinAnim()
                 onHideNextPreview()
                 onPlayEpisode(globalIndex)
             },

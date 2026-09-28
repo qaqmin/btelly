@@ -1,6 +1,8 @@
 package com.btelly.feature.series
 
 import com.btelly.core.ui.motion.applyMinWindowAnim
+import com.btelly.core.ui.motion.dismissWithMinAnim
+import com.btelly.core.ui.motion.playMinContentEnter
 import android.annotation.SuppressLint
 import android.animation.ValueAnimator
 import android.os.Parcelable
@@ -307,7 +309,7 @@ class AllSeriesFragment : BaseFragment<FragmentAllSeriesBinding>(), OnBackPresse
         dialog.applyMinWindowAnim() // Min化：对话框弹簧呈现（电视模式零动画）
         dialog.setContentView(R.layout.dialog_setting_choice)
         dialog.setCanceledOnTouchOutside(true)
-        dialog.findViewById<View>(R.id.dialog_root)?.setOnClickListener { dialog.dismiss() }
+        dialog.findViewById<View>(R.id.dialog_root)?.setOnClickListener { dialog.dismissWithMinAnim() }
 
         val titleView = dialog.findViewById<android.widget.TextView>(R.id.top_title)
         val recyclerView = dialog.findViewById<RecyclerView>(R.id.recyclerView)
@@ -337,7 +339,7 @@ class AllSeriesFragment : BaseFragment<FragmentAllSeriesBinding>(), OnBackPresse
             currentPage = 1
             hasMore = true
             loadData()
-            dialog.dismiss()
+            dialog.dismissWithMinAnim()
         }
 
         recyclerView?.layoutManager = createDialogLayoutManager()
@@ -357,6 +359,7 @@ class AllSeriesFragment : BaseFragment<FragmentAllSeriesBinding>(), OnBackPresse
             }
         }
         dialog.show()
+        dialog.playMinContentEnter()
     }
 
     private fun showInfo(imageRes: Int, message: String) {
