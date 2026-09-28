@@ -968,6 +968,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     }
 
     override fun onResume() {
+        AppLog.dLogcat("FocusRestore", "onResume enter: wasChild=$wasStoppedByChildActivity top=$(supportFragmentManager.backStackEntryCount) focus=${currentFocus?.javaClass?.simpleName}#${currentFocus?.id}")
         AppLog.i(TEEN_REST_DIAG_TAG, "onResume start")
         super.onResume()
         AppLog.i(TEEN_REST_DIAG_TAG, "onResume after super, before refresh")
@@ -1030,6 +1031,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        AppLog.dLogcat("FocusRestore", "onUserLeaveHint")
         // 用户主动离开本 Activity（通常是打开了播放器等子 Activity）时打标记，
         // onResume 据此判断是否需要补一次焦点恢复。
         // onPause 不能用于此判断——系统在息屏/锁屏时也会调 onPause，那时不该抢焦点。
