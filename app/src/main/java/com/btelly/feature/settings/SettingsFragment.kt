@@ -1328,6 +1328,10 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         )
         recyclerView?.layoutManager = dialogLayoutManager
         recyclerView?.adapter = choiceAdapter
+        // 弹窗列表不需要 itemAnimator：选项是静态的，进出场由弹窗整体动画负责。
+        // 开着它会在弹窗入场的同时对每个 item 跑一次 fade，叠加出可见的顿挫
+        // （实测隔离测量 32 帧里 10 帧 janky，30%+）。主列表同样已置 null。
+        recyclerView?.itemAnimator = null
         if (recyclerView != null && recyclerView.itemDecorationCount == 0) {
             recyclerView.addItemDecoration(
                 LinearSpacingItemDecoration(
