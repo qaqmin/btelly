@@ -1,6 +1,7 @@
 package com.btelly.feature.player.view
 
 import androidx.media3.common.Player
+import com.btelly.feature.player.sponsor.SponsorSegment
 
 /**
  * 控制栏（[MyPlayerControlView]）的惰性创建状态缓冲。
