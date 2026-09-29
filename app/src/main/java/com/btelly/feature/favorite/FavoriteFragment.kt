@@ -134,11 +134,14 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
         if (embedded) {
             binding.buttonBack.visibility = View.GONE
             binding.tvTitle.visibility = View.GONE
-            (binding.recyclerViewFavorite.layoutParams as? ConstraintLayout.LayoutParams)?.let { params ->
+            // 汇总行没有 button_back 可挂，改挂父容器顶部（否则它会跟着 GONE 的
+            // button_back 一起被 ConstraintLayout 收到左上角之外的位置）
+            (binding.tvSummary.layoutParams as? ConstraintLayout.LayoutParams)?.let { params ->
                 params.topToTop = ConstraintLayout.LayoutParams.PARENT_ID
                 params.topToBottom = ConstraintLayout.LayoutParams.UNSET
-                binding.recyclerViewFavorite.layoutParams = params
+                binding.tvSummary.layoutParams = params
             }
+            binding.tvSummary.visibility = View.VISIBLE
         }
         swipeRefreshLayout = SwipeRefreshHelper.wrapRecyclerView(binding.recyclerViewFavorite, onRefresh = {
             refresh()
@@ -289,6 +292,7 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
                         hideEmptyState()
                         binding.recyclerViewFavorite.visibility = View.VISIBLE
                         adapter.setData(folders)
+                        updateSummary(folders)
                         PagePerfLogger.mark(
                             "Me/favorite",
                             "adapter_commit",
@@ -517,6 +521,23 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
         binding.favoriteEmptyState.emptyStateAction.visibility =
             if (withRetry) View.VISIBLE else View.GONE
         binding.recyclerViewFavorite.visibility = View.GONE
+        binding.tvSummary.visibility = View.GONE
+    }
+
+    /**
+     * 汇总行：共几个收藏夹、合计多少个视频。
+     * 存在的意义见 fragment_favorite.xml 里 tv_summary 的注释——用户的收藏通常高度集中
+     * 在一两个夹里，没有总量兜底时打开小夹子会误以为「收藏页里基本没有我的收藏」。
+     */
+    private fun updateSummary(folders: List<com.btelly.model.favorite.FavoriteFolderModel>) {
+        val folderCount = folders.size
+        val videoCount = folders.sumOf { it.mediaCount.coerceAtLeast(0) }
+        binding.tvSummary.text = getString(
+            R.string.favorite_summary_format,
+            folderCount,
+            videoCount
+        )
+        binding.tvSummary.visibility = View.VISIBLE
     }
 
     private fun hideEmptyState() {

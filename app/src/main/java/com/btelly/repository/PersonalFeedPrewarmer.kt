@@ -133,7 +133,8 @@ class PersonalFeedPrewarmer(
         synchronized(lock) {
             await = historyInFlight
             cached = historyResult
-            if (await == null && cached != null) historyResult = null
+            // 取走即清，与 takeFolders 同一约定（详见那里的注释）
+            if (cached != null) historyResult = null
         }
         if (await != null) {
             AppLog.i(TAG, "takeHistory await inFlight")
@@ -149,7 +150,7 @@ class PersonalFeedPrewarmer(
         synchronized(lock) {
             await = laterInFlight
             cached = laterResult
-            if (await == null && cached != null) laterResult = null
+            if (cached != null) laterResult = null
         }
         if (await != null) {
             AppLog.i(TAG, "takeLaterWatch await inFlight")
@@ -165,13 +166,15 @@ class PersonalFeedPrewarmer(
         synchronized(lock) {
             await = foldersInFlight
             cached = foldersResult
-            if (await == null && cached != null) foldersResult = null
+            // 无论走哪条路，取走即清。原来只在「非 in-flight 且命中缓存」时才清，
+            // 于是 in-flight 分支返回后预取协程还会把结果写回 foldersResult，
+            // 第二次 takeFolders 又命中同一份（可能已陈旧）的缓存——
+            // 表现为收藏页反复展示旧数据、切走再切回也不刷新。
+            if (cached != null) foldersResult = null
         }
         if (await != null) {
             AppLog.i(TAG, "takeFolders await inFlight")
             val result = awaitPrewarm(await, "Folders")
-            // 诊断：走 in-flight 分支时不会清 foldersResult，预取协程完成后会把它写回去，
-            // 于是第二次 takeFolders 仍能读到同一份（可能已陈旧）缓存。先留痕迹确认。
             AppLog.dLogcat(TAG, "takeFolders viaInFlight items=${result?.data?.list?.size}")
             return result
         }

@@ -13,11 +13,16 @@ class MeFragmentAdapter(
 ) : FragmentStateAdapter(fragmentManager, lifecycle) {
 
     private val fragmentManagerRef = fragmentManager
+    // 顺序：历史 → 收藏 → 追番 → 追剧 → 稍后再看。
+    // 追番/追剧曾被注释掉——MeSeriesFragment（连同 SeriesRepository 的
+    // getMyFollowingSeries、x/space/bangumi/follow/list API、SeriesAdapter、
+    // 字符串、fragment_me_tab_list 布局）其实全都还在，只是 tab 没入口，
+    // 整条链路成了死代码。现在启用。
     private val tabs = listOf(
         R.string.history,
         R.string.collection,
-//        R.string.following_animation,
-//        R.string.following_series,
+        R.string.following_animation,
+        R.string.following_series,
         R.string.later_watch
     )
 
@@ -31,9 +36,9 @@ class MeFragmentAdapter(
         return when (position) {
             0 -> MeListFragment.newInstance(MeListFragment.TYPE_HISTORY)
             1 -> FavoriteFragment.newEmbeddedInstance()
-//            2 -> MeSeriesFragment.newInstance(MeSeriesFragment.TYPE_ANIMATION)
-//            3 -> MeSeriesFragment.newInstance(MeSeriesFragment.TYPE_SERIES)
-            2 -> MeListFragment.newInstance(MeListFragment.TYPE_LATER)
+            2 -> MeSeriesFragment.newInstance(MeSeriesFragment.TYPE_ANIMATION)
+            3 -> MeSeriesFragment.newInstance(MeSeriesFragment.TYPE_SERIES)
+            4 -> MeListFragment.newInstance(MeListFragment.TYPE_LATER)
             else -> MeListFragment.newInstance(MeListFragment.TYPE_HISTORY)
         }
     }

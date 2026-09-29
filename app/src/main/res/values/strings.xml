@@ -134,6 +134,7 @@
     <string name="fast_forward">快进</string>
     <string name="favorite_folder_empty">暂无收藏夹</string>
     <string name="favorite_folder_content_empty">暂无收藏内容</string>
+    <string name="favorite_summary_format">共 %1$d 个收藏夹 · %2$d 个视频</string>
     <string name="favorite_folder_media_count_format">%1$d个内容</string>
     <string name="history_empty">暂无历史记录</string>
     <string name="later_watch_empty">暂无稍后观看内容</string>

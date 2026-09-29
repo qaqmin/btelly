@@ -779,22 +779,22 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
         }
         val currentAid = videoView?.aid ?: videoModel?.aid ?: return
         viewLifecycleOwner.lifecycleScope.launch {
+            // 用户信息里的 mid 才是「谁的收藏夹」。原来这里拿不到 userInfo 时会静默回退到
+            // 视频 UP主的 mid（videoView.owner.mid），那会把收藏写进 UP主的收藏夹——轻则失败，
+            // 重则写错地方，用户在自己收藏页里自然看不到。这里改为：拿不到就刷新一次用户信息，
+            // 再拿不到就明确报错，绝不用 owner.mid 冒充用户身份。
             val sessionMid = sessionGateway.getUserInfo()?.mid?.takeIf { it > 0L }
-            val ownerMid = videoView?.owner?.mid ?: videoModel?.owner?.mid ?: 0L
-            val currentUserMid = sessionMid ?: ownerMid
-            // 诊断：userInfo 拿不到 mid 时会静默回退到视频 UP主的 mid。若 sessionMid==null，
-            // 收藏就会写进 UP主的收藏夹，用户自己的收藏页自然看不到——这正是用户报的
-            // 「收藏里基本没有我的收藏」的一种可能成因，先确认再决定怎么修。
+                ?: runCatching { userRepository.resolveCurrentUserMid().getOrNull() }.getOrNull()
             AppLog.dLogcat(
                 "FavDiag",
-                "toggleFavorite aid=$currentAid sessionMid=$sessionMid ownerMid=$ownerMid " +
-                    "resolvedMid=$currentUserMid isFavorited=$isFavorited " +
-                    "midSource=${if (sessionMid != null) "session" else "ownerFallback"}"
+                "toggleFavorite aid=$currentAid sessionMid=$sessionMid isFavorited=$isFavorited " +
+                    "midSource=${if (sessionMid != null) "session" else "unresolved"}"
             )
-            if (currentUserMid <= 0L) {
-                toast("收藏夹信息未加载完成")
+            if (sessionMid == null || sessionMid <= 0L) {
+                toast(getString(R.string.need_sign_in))
                 return@launch
             }
+            val currentUserMid = sessionMid
             val folderResult = favoriteRepository.getFavoriteFolders(currentUserMid)
             val folders = folderResult.getOrNull()?.data?.list.orEmpty()
             AppLog.dLogcat(
