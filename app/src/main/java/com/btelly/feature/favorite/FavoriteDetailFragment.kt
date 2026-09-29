@@ -271,6 +271,17 @@ class FavoriteDetailFragment : BaseFragment<FragmentFavoriteDetailBinding>() {
                         ?.takeIf { it.isNotEmpty() }
                         ?.let { binding.tvTitle.text = it }
 
+                    // 诊断：原始条数 vs 过 ContentFilter 后的条数。用户报「收藏里只有一个视频」，
+                    // 若 raw 远大于 filtered，说明是过滤砍掉的；若 raw 本身就小，是接口/分页问题。
+                    val filteredForDiag = medias.map { it.title.take(40) to it.displayAuthorName.take(20) }
+                    AppLog.dLogcat(
+                        "FavDiag",
+                        "folderDetail folderId=$folderId page=$requestPage raw=${medias.size} " +
+                            "hasMore=$hasMore folderMediaCount=${detail?.info?.mediaCount ?: -1} " +
+                            "filtered=${medias.size - filteredForDiag.size} items=" +
+                            filteredForDiag.joinToString("|") { "${it.first}@${it.second}" }
+                    )
+
                     if (requestPage == 1 && medias.isEmpty()) {
                         favoriteAdapter.setData(emptyList())
                         showEmpty(getString(R.string.favorite_folder_content_empty))

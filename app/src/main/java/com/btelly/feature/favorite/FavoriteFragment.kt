@@ -243,13 +243,19 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
                 return@launch
             }
 
+            val prewarmed = feedPrewarmer.takeFolders()
             val result = try {
-                feedPrewarmer.takeFolders()
+                prewarmed
                     ?.let { Result.success(it) }
                     ?: favoriteRepository.getFavoriteFolders(mid)
             } catch (e: CancellationException) {
                 throw e
             }
+            AppLog.dLogcat(
+                "FavDiag",
+                "loadFolders request=$requestId mid=$mid prewarmHit=${prewarmed != null} " +
+                    "prewarmCount=${prewarmed?.data?.list?.size ?: -1}"
+            )
             if (!isActiveFolderRequest(requestId)) {
                 AppLog.d("MeDebug", "[favorite] drop stale folder result request=$requestId")
                 return@launch
@@ -268,6 +274,14 @@ class FavoriteFragment : BaseFragment<FragmentFavoriteBinding>(), MeTabPage {
                 )
                 if (response.isSuccess) {
                     val folders = response.data?.list.orEmpty().map(::applySavedCover).toList()
+                    // 诊断：把每个收藏夹的 id/title/count 打出来，用来核对「列表是不是本人的」
+                    AppLog.dLogcat(
+                        "FavDiag",
+                        "loadFolders done mid=$mid code=${response.code} count=${folders.size} " +
+                            "folders=" + folders.joinToString("; ") { f ->
+                                "[id=${f.id} mid=${f.mid} n=${f.mediaCount}]${f.title}"
+                            }
+                    )
                     if (folders.isEmpty()) {
                         showEmptyState(getString(R.string.favorite_folder_empty))
                         requestFallbackFocus()

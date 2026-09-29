@@ -779,14 +779,29 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
         }
         val currentAid = videoView?.aid ?: videoModel?.aid ?: return
         viewLifecycleOwner.lifecycleScope.launch {
-            val currentUserMid = sessionGateway.getUserInfo()?.mid?.takeIf { it > 0L }
-                ?: videoView?.owner?.mid ?: videoModel?.owner?.mid ?: 0L
+            val sessionMid = sessionGateway.getUserInfo()?.mid?.takeIf { it > 0L }
+            val ownerMid = videoView?.owner?.mid ?: videoModel?.owner?.mid ?: 0L
+            val currentUserMid = sessionMid ?: ownerMid
+            // 诊断：userInfo 拿不到 mid 时会静默回退到视频 UP主的 mid。若 sessionMid==null，
+            // 收藏就会写进 UP主的收藏夹，用户自己的收藏页自然看不到——这正是用户报的
+            // 「收藏里基本没有我的收藏」的一种可能成因，先确认再决定怎么修。
+            AppLog.dLogcat(
+                "FavDiag",
+                "toggleFavorite aid=$currentAid sessionMid=$sessionMid ownerMid=$ownerMid " +
+                    "resolvedMid=$currentUserMid isFavorited=$isFavorited " +
+                    "midSource=${if (sessionMid != null) "session" else "ownerFallback"}"
+            )
             if (currentUserMid <= 0L) {
                 toast("收藏夹信息未加载完成")
                 return@launch
             }
             val folderResult = favoriteRepository.getFavoriteFolders(currentUserMid)
             val folders = folderResult.getOrNull()?.data?.list.orEmpty()
+            AppLog.dLogcat(
+                "FavDiag",
+                "toggleFavorite folders resolvedMid=$currentUserMid count=${folders.size} " +
+                    "first=${folders.firstOrNull()?.let { "[id=${it.id} n=${it.mediaCount}]${it.title}" }}"
+            )
             val defaultFolder = folders.firstOrNull()
             if (defaultFolder == null) {
                 toast("暂无可用收藏夹")

@@ -169,9 +169,16 @@ class PersonalFeedPrewarmer(
         }
         if (await != null) {
             AppLog.i(TAG, "takeFolders await inFlight")
-            return awaitPrewarm(await, "Folders")
+            val result = awaitPrewarm(await, "Folders")
+            // 诊断：走 in-flight 分支时不会清 foldersResult，预取协程完成后会把它写回去，
+            // 于是第二次 takeFolders 仍能读到同一份（可能已陈旧）缓存。先留痕迹确认。
+            AppLog.dLogcat(TAG, "takeFolders viaInFlight items=${result?.data?.list?.size}")
+            return result
         }
         AppLog.i(TAG, "takeFolders ${if (cached != null) "hit" else "miss"}")
+        if (cached != null) {
+            AppLog.dLogcat(TAG, "takeFolders cacheHit items=${cached.data?.list?.size}")
+        }
         return cached
     }
 
