@@ -175,6 +175,13 @@ class PlayerActionDialog(
             true
         }
 
+        // 发弹幕：先关掉本面板，再开输入对话框（两层 Dialog 叠在一起焦点会打架）
+        binding.buttonDanmaku.setOnClickListener {
+            if (!checkLogin()) return@setOnClickListener
+            dismiss()
+            DanmakuInputDialog(context, aid = aid).show()
+        }
+
         binding.buttonTriple.setOnClickListener {
             if (!checkLogin()) return@setOnClickListener
             scope.launch {

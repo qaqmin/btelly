@@ -23,6 +23,10 @@ class CommentRepository(
         const val SOURCE = "comment"
         /** 视频评论 type=1 */
         const val REPLY_TYPE_VIDEO = 1
+        /** 热门排序。默认用这个：TV 一屏只放得下三五行，热门的"看头"密度更高 */
+        const val MODE_HOT = 3
+        /** 时间排序。保留常量但不默认使用——入口没有做成可切的 */
+        const val MODE_TIME = 2
         /** 一页 20 条：TV 一屏放不下 20 条，但翻页游标由接口决定，条数只影响一次请求的量 */
         const val PAGE_SIZE = 20
     }
@@ -81,9 +85,4 @@ class CommentRepository(
                 )
             }
         }
-
-    companion object {
-        const val MODE_HOT = 3
-        const val MODE_TIME = 2
-    }
 }

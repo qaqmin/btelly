@@ -129,6 +129,22 @@
                 android:text="@string/collection"/>
         </androidx.appcompat.widget.LinearLayoutCompat>
     </androidx.appcompat.widget.LinearLayoutCompat>
+    <!-- 发弹幕：放在 稍后再看/点赞/投币/收藏 那一行下面、三连上面。
+         语义上它和 点赞/收藏 同属"对当前视频做点什么"，三连是独立的大按钮。 -->
+    <androidx.appcompat.widget.AppCompatTextView
+        android:textSize="@dimen/px27"
+        android:textStyle="bold"
+        android:textColor="?attr/tvTextPrimary"
+        android:gravity="center"
+        android:id="@+id/button_danmaku"
+        android:background="?attr/selectableItemBackground"
+        android:padding="@dimen/px15"
+        android:focusable="true"
+        android:clickable="true"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/px10"
+        android:text="@string/danmaku_send_title"/>
     <androidx.appcompat.widget.AppCompatTextView
         android:textSize="@dimen/px27"
         android:textStyle="bold"
