@@ -161,38 +161,13 @@ class MyPlayerView @JvmOverloads constructor(
 
     private var controllerVisibilityListener: ControllerVisibilityListener? = null
     var douyinModeKeyListener: DouyinModeKeyListener? = null
-    private var pendingTitle: String? = null
-    private var pendingSubTitle: String? = null
-    private var pendingLiveDuration: String? = null
+    // 控制栏是 lazy 创建的，创建前到达的配置先攒在这里，控制器建好时 applyTo(target) 一次性灌入。
+    // 详见 ControllerStateBuffer 的说明。
+    private val controllerState = ControllerStateBuffer()
     private var pendingPlayerSettingChangeListener: OnPlayerSettingChange? = null
-    private var pendingVideoSettingChangeListener: OnVideoSettingChangeListener? = null
-    private var pendingRepeatMode: Int = Player.REPEAT_MODE_OFF
     private var pendingAfterPlayMode: com.btelly.feature.player.settings.AfterPlayMode =
         com.btelly.feature.player.settings.AfterPlayMode.RECOMMEND
-    private var pendingSeekSeconds: Int? = null
-    private var pendingTimeBarMinUpdateIntervalMs: Int = MyPlayerControlView.DEFAULT_TIME_BAR_MIN_UPDATE_INTERVAL_MS
-    private var pendingShowMultiWindowTimeBar: Boolean = false
-    private var pendingSimpleKeyPressEnabled: Boolean? = null
-    private var pendingEpisodeNavigationEnabled: Pair<Boolean, Boolean>? = null
-    private var pendingDmSwitchVisible: Boolean? = null
-    private var pendingMirrorVisible: Boolean? = null
-    private var pendingNextPreviousVisible: Boolean? = null
-    private var pendingFfReVisible: Boolean? = null
-    private var pendingEpisodeButtonVisible: Boolean? = null
-    private var pendingActionButtonVisible: Boolean? = null
-    private var pendingRelatedButtonVisible: Boolean? = null
-    private var pendingRepeatButtonVisible: Boolean? = null
-    private var pendingSubtitleButtonVisible: Boolean? = null
-    private var pendingLiveSettingButtonVisible: Boolean? = null
-    private var pendingRefreshButtonVisible: Boolean? = null
-    private var pendingLineButtonVisible: Boolean? = null
-    private var pendingTimeBarVisible: Boolean? = null
-    private var pendingTimeTextVisible: Boolean? = null
-    private var pendingSettingButtonVisible: Boolean? = null
-    private var pendingOwnerButtonVisible: Boolean? = null
     private var pendingSeekPreviewSnapshot: VideoSnapshotData? = null
-    private var pendingSponsorSegments: List<SponsorSegment> = emptyList()
-    private var pendingSponsorDurationMs: Long = 0L
     private var pendingDmMaskRequest: DmMaskRequest? = null
 
     private var touchInterceptListener: ((MotionEvent) -> Boolean)? = null
@@ -668,34 +643,7 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     private fun applyPendingControllerState(target: MyPlayerControlView) {
-        target.setRepeatMode(pendingRepeatMode)
-        pendingTitle?.let(target::setTitle)
-        pendingSubTitle?.let(target::setSubTitle)
-        pendingLiveDuration?.let(target::setLiveDuration)
-        target.setOnVideoSettingChangeListener(pendingVideoSettingChangeListener)
-        pendingSeekSeconds?.let { target.setFfDuration(it.coerceAtLeast(1).toLong() * 1000L) }
-        target.setTimeBarMinUpdateInterval(pendingTimeBarMinUpdateIntervalMs)
-        target.setShowMultiWindowTimeBar(pendingShowMultiWindowTimeBar)
-        pendingSimpleKeyPressEnabled?.let(target::setSimpleKeyPressEnabled)
-        pendingEpisodeNavigationEnabled?.let { target.setEpisodeNavigationEnabled(it.first, it.second) }
-        pendingDmSwitchVisible?.let(target::showHideDmSwitchButton)
-        pendingMirrorVisible?.let(target::showHideMirrorButton)
-        pendingNextPreviousVisible?.let(target::showHideNextPrevious)
-        pendingFfReVisible?.let(target::showHideFfRe)
-        pendingEpisodeButtonVisible?.let(target::showHideEpisodeButton)
-        pendingActionButtonVisible?.let(target::showHideActionButton)
-        pendingRelatedButtonVisible?.let(target::showHideRelatedButton)
-        pendingRepeatButtonVisible?.let(target::showHideRepeatButton)
-        pendingSubtitleButtonVisible?.let(target::showHideSubtitleButton)
-        pendingLiveSettingButtonVisible?.let(target::showHideLiveSettingButton)
-        pendingRefreshButtonVisible?.let(target::showHideRefreshButton)
-        pendingLineButtonVisible?.let(target::showHideLineButton)
-        pendingTimeBarVisible?.let(target::showHideTimeBar)
-        pendingTimeTextVisible?.let(target::showHideTimeText)
-        pendingSettingButtonVisible?.let(target::showSettingButton)
-        pendingOwnerButtonVisible?.let(target::setShowHideOwnerButton)
-        target.setSponsorSegments(pendingSponsorSegments)
-        target.setSponsorDuration(pendingSponsorDurationMs)
+        controllerState.applyTo(target)
     }
 
     private fun setupSettingView() {
@@ -778,7 +726,7 @@ class MyPlayerView @JvmOverloads constructor(
         overlay.setPlayer(player)
         overlay.setUiCoordinator(uiCoordinator)
         overlay.setPersistentBottomProgressEnabled(persistentBottomProgressEnabled)
-        pendingSeekSeconds?.let { overlay.seekSeconds = it }
+        controllerState.seekSeconds?.let { overlay.seekSeconds = it }
         overlay.setSeekPreviewSnapshot(pendingSeekPreviewSnapshot)
         restoreOverlayZOrder()
         overlay.setCallback(object : SeekOverlayView.Callback {
@@ -2112,17 +2060,17 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     fun setTitle(title: String?) {
-        pendingTitle = title
+        controllerState.title = title
         controller?.setTitle(title)
     }
 
     fun setSubTitle(subTitle: String?) {
-        pendingSubTitle = subTitle
+        controllerState.subTitle = subTitle
         controller?.setSubTitle(subTitle)
     }
 
     fun setLiveDuration(text: String) {
-        pendingLiveDuration = text
+        controllerState.liveDuration = text
         controller?.setLiveDuration(text)
     }
 
@@ -2137,7 +2085,7 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     fun setOnVideoSettingChangeListener(listener: OnVideoSettingChangeListener?) {
-        pendingVideoSettingChangeListener = listener
+        controllerState.videoSettingChangeListener = listener
         controller?.setOnVideoSettingChangeListener(listener)
     }
 
@@ -2265,12 +2213,12 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     fun setRepeatMode(repeatMode: Int) {
-        pendingRepeatMode = repeatMode
+        controllerState.repeatMode = repeatMode
         controller?.setRepeatMode(repeatMode)
     }
 
     fun setSeekSecond(seconds: Int) {
-        pendingSeekSeconds = seconds
+        controllerState.seekSeconds = seconds
         seekOverlayView?.seekSeconds = seconds
         controller?.setFfDuration(seconds.coerceAtLeast(1).toLong() * 1000L)
     }
@@ -2295,7 +2243,7 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     fun showHideDmSwitchButton(show: Boolean) {
-        pendingDmSwitchVisible = show
+        controllerState.dmSwitchVisible = show
         controller?.showHideDmSwitchButton(show)
     }
 
@@ -2496,32 +2444,32 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     fun showHideMirrorButton(show: Boolean) {
-        pendingMirrorVisible = show
+        controllerState.mirrorVisible = show
         controller?.showHideMirrorButton(show)
     }
 
     fun showHideNextPrevious(show: Boolean) {
-        pendingNextPreviousVisible = show
+        controllerState.nextPreviousVisible = show
         controller?.showHideNextPrevious(show)
     }
 
     fun showHideFfRe(show: Boolean) {
-        pendingFfReVisible = show
+        controllerState.ffReVisible = show
         controller?.showHideFfRe(show)
     }
 
     fun setSimpleKeyPressEnabled(enabled: Boolean) {
-        pendingSimpleKeyPressEnabled = enabled
+        controllerState.simpleKeyPressEnabled = enabled
         controller?.setSimpleKeyPressEnabled(enabled)
     }
 
     fun setEpisodeNavigationEnabled(previousEnabled: Boolean, nextEnabled: Boolean) {
-        pendingEpisodeNavigationEnabled = previousEnabled to nextEnabled
+        controllerState.episodeNavigationEnabled = previousEnabled to nextEnabled
         controller?.setEpisodeNavigationEnabled(previousEnabled, nextEnabled)
     }
 
     fun showHideEpisodeButton(show: Boolean) {
-        pendingEpisodeButtonVisible = show
+        controllerState.episodeButtonVisible = show
         controller?.showHideEpisodeButton(show)
     }
 
@@ -2534,7 +2482,7 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     fun showHideActionButton(show: Boolean) {
-        pendingActionButtonVisible = show
+        controllerState.actionButtonVisible = show
         controller?.showHideActionButton(show)
     }
 
@@ -2543,7 +2491,7 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     fun showHideRelatedButton(show: Boolean) {
-        pendingRelatedButtonVisible = show
+        controllerState.relatedButtonVisible = show
         controller?.showHideRelatedButton(show)
     }
 
@@ -2564,48 +2512,48 @@ class MyPlayerView @JvmOverloads constructor(
     }
 
     fun showHideRepeatButton(show: Boolean) {
-        pendingRepeatButtonVisible = show
+        controllerState.repeatButtonVisible = show
         controller?.showHideRepeatButton(show)
     }
 
     fun showHideSubtitleButton(show: Boolean) {
-        pendingSubtitleButtonVisible = show
+        controllerState.subtitleButtonVisible = show
         controller?.showHideSubtitleButton(show)
     }
 
     fun showHideLiveSettingButton(show: Boolean) {
-        pendingLiveSettingButtonVisible = show
+        controllerState.liveSettingButtonVisible = show
         controller?.showHideLiveSettingButton(show)
     }
 
     fun showHideRefreshButton(show: Boolean) {
-        pendingRefreshButtonVisible = show
+        controllerState.refreshButtonVisible = show
         controller?.showHideRefreshButton(show)
     }
 
     fun showHideLineButton(show: Boolean) {
-        pendingLineButtonVisible = show
+        controllerState.lineButtonVisible = show
         controller?.showHideLineButton(show)
     }
 
     fun showHideTimeBar(show: Boolean) {
-        pendingTimeBarVisible = show
+        controllerState.timeBarVisible = show
         controller?.showHideTimeBar(show)
     }
 
     fun showHideTimeText(show: Boolean) {
-        pendingTimeTextVisible = show
+        controllerState.timeTextVisible = show
         controller?.showHideTimeText(show)
     }
 
 
     fun showSettingButton(show: Boolean) {
-        pendingSettingButtonVisible = show
+        controllerState.settingButtonVisible = show
         controller?.showSettingButton(show)
     }
 
     fun setShowHideOwnerInfo(show: Boolean) {
-        pendingOwnerButtonVisible = show
+        controllerState.ownerButtonVisible = show
         controller?.setShowHideOwnerButton(show)
     }
 
@@ -2863,22 +2811,22 @@ class MyPlayerView @JvmOverloads constructor(
     fun getControllerAutoShow(): Boolean = controllerAutoShow
 
     fun setTimeBarMinUpdateInterval(intervalMs: Int) {
-        pendingTimeBarMinUpdateIntervalMs = intervalMs
+        controllerState.timeBarMinUpdateIntervalMs = intervalMs
         controller?.setTimeBarMinUpdateInterval(intervalMs)
     }
 
     fun setShowMultiWindowTimeBar(show: Boolean) {
-        pendingShowMultiWindowTimeBar = show
+        controllerState.showMultiWindowTimeBar = show
         controller?.setShowMultiWindowTimeBar(show)
     }
 
     fun setSponsorSegments(segments: List<SponsorSegment>) {
-        pendingSponsorSegments = segments
+        controllerState.sponsorSegments = segments
         controller?.setSponsorSegments(segments)
     }
 
     fun setSponsorDuration(durationMs: Long) {
-        pendingSponsorDurationMs = durationMs
+        controllerState.sponsorDurationMs = durationMs
         controller?.setSponsorDuration(durationMs)
     }
 
