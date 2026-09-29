@@ -1,7 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 设置行斑马纹背景（P1-4 令牌化）：偶数行卡片 = 抬升表面 + 分隔线细边；
+<!-- 设置行卡片背景（P1-4 令牌化）：常态 = 抬升表面 + 分隔线细边（设置页偶数行斑马纹）；
      焦点态 = 强调容器底 + 左侧强调指示条；按压 = 强调容器底。
-     旧实现硬编码 #2A2A2A/#3D3D3D/#444444，随主题切换会割裂，现全部走 ?attr。 -->
+     旧实现硬编码 #2A2A2A/#3D3D3D/#444444，随主题切换会割裂，现全部走 ?attr。
+
+     焦点态为什么用「整行铺强调色、再从左边 8px 起盖回强调容器底」这个写法，而不是
+     layer-list 里放一个窄条 shape：LayerDrawable 会把子 shape 拉伸到该层的 bounds，
+     层 bounds 由 <item> 的 left/top/right/bottom 决定；写 android:left="8px" 但不写
+     android:right 时右边界一路伸到父容器右边，shape 里的 <size android:width="6px"/>
+     只影响固有尺寸、对 layer bounds 无效，于是"6px 指示条"实际铺满整行。
+     实测后果：焦点行整片 #00C2A8，而当前值文字也是 #00C2A8 → 用户完全看不出选了哪行。
+     因此改成反向叠加：底层整行强调色，上层从 left=8px 盖强调容器底，天然露出左侧 8px 条。
+     设置页走 SettingAdapter，焦点态直接换 cell_background.xml，不吃这条分支，故不受影响。 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android" android:exitFadeDuration="@android:integer/config_shortAnimTime">
     <item android:state_pressed="true">
         <shape>
@@ -11,17 +20,22 @@
     </item>
     <item android:state_focused="true">
         <layer-list>
+            <!-- 底层：整行铺强调色（圆角），作为指示条的来源 -->
             <item>
                 <shape>
-                    <solid android:color="?attr/tvAccentDim" />
+                    <solid android:color="?attr/tvAccent" />
                     <corners android:radius="@dimen/px15" />
                 </shape>
             </item>
-            <item android:left="@dimen/px8" android:top="@dimen/px14" android:bottom="@dimen/px14">
+            <!-- 上层：从左边 8px 起盖强调容器底，左侧因此露出 8px 强调色指示条。
+                 左角设为 0 让这条盖层贴着指示条切边，右角保持与底层圆角一致以对齐 -->
+            <item android:left="@dimen/px8">
                 <shape>
-                    <solid android:color="?attr/tvAccent" />
-                    <corners android:radius="@dimen/px6" />
-                    <size android:width="@dimen/px6" />
+                    <solid android:color="?attr/tvAccentDim" />
+                    <corners
+                        android:radius="@dimen/px15"
+                        android:topLeftRadius="0dp"
+                        android:bottomLeftRadius="0dp" />
                 </shape>
             </item>
         </layer-list>
