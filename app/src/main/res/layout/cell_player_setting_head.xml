@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 播放器设置菜单表头。旧实现用 ?android:attr/textColorPrimary/Secondary（系统框架
+     属性），随系统主题漂移、不受本项目令牌控制；现统一走 ?attr/tvText*。 -->
 <androidx.appcompat.widget.LinearLayoutCompat xmlns:android="http://schemas.android.com/apk/res/android"
     android:orientation="vertical"
     android:paddingTop="@dimen/px45"
@@ -10,14 +12,14 @@
     <androidx.appcompat.widget.AppCompatTextView
         android:textSize="@dimen/px40"
         android:textStyle="bold"
-        android:textColor="?android:attr/textColorPrimary"
+        android:textColor="?attr/tvTextPrimary"
         android:id="@+id/textView"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@string/setting"/>
     <androidx.appcompat.widget.AppCompatTextView
         android:textSize="@dimen/px25"
-        android:textColor="?android:attr/textColorSecondary"
+        android:textColor="?attr/tvTextSecondary"
         android:id="@+id/subTextView"
         android:visibility="gone"
         android:layout_width="wrap_content"

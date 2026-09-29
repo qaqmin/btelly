@@ -1,69 +1,92 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+<!-- 播放器设置菜单项。
+     旧实现三个问题叠加，导致「人眼分不出选了哪个」：
+       1) 用 ?android:attr/textColorPrimary/Secondary（系统框架属性）而非项目令牌
+          ?attr/tvTextPrimary——颜色不受本项目主题控制，明暗对比随机；
+       2) 背景只有 ?attr/selectableItemBackground（默认水波纹），电视上 Press 状态
+          几乎不可见，且没有焦点态；
+       3) 当前值（text_view_sub）与标题同为次级色，二者糊成一片。
+     现在改用设置页已验证的那套视觉语言：令牌化文字 + cell_setting_background
+     （焦点态 = 强调容器底 + 左侧强调指示条）+ 当前值走强调色。 -->
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/click_view"
-    android:background="?attr/selectableItemBackground"
-    android:paddingTop="@dimen/px20"
-    android:paddingBottom="@dimen/px20"
-    android:focusable="true"
-    android:clipChildren="true"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content">
+    android:layout_height="wrap_content"
+    android:layout_marginStart="@dimen/px10"
+    android:layout_marginEnd="@dimen/px10"
+    android:background="@drawable/cell_setting_background"
+    android:clipChildren="false"
+    android:clipToPadding="false"
+    android:focusable="true"
+    android:paddingTop="@dimen/px16"
+    android:paddingBottom="@dimen/px16">
+
     <androidx.appcompat.widget.AppCompatImageView
         android:id="@+id/imageView"
         android:layout_width="@dimen/px50"
         android:layout_height="@dimen/px50"
-        android:layout_marginStart="@dimen/px30"
+        android:layout_marginStart="@dimen/px24"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:srcCompat="@drawable/ic_video_play_count"
-        app:tint="?android:attr/textColorPrimary"/>
+        app:tint="?attr/tvTextSecondary" />
+
     <androidx.appcompat.widget.LinearLayoutCompat
-        android:orientation="vertical"
         android:id="@+id/view_text"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:paddingStart="@dimen/px30"
-        android:paddingEnd="@dimen/px30"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/px24"
+        android:paddingEnd="@dimen/px24"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toStartOf="@+id/icon_more"
         app:layout_constraintStart_toEndOf="@+id/imageView"
-        app:layout_constraintTop_toTopOf="parent">
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_goneMarginEnd="@dimen/px24"
+        app:layout_goneMarginStart="@dimen/px24">
+
         <androidx.appcompat.widget.AppCompatTextView
-            android:textSize="@dimen/px35"
-            android:textStyle="bold"
-            android:textColor="?android:attr/textColorPrimary"
             android:id="@+id/text_view_primary"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/video_quality"/>
+            android:text="@string/video_quality"
+            android:textColor="?attr/tvTextPrimary"
+            android:textSize="@dimen/px35"
+            android:textStyle="bold" />
+
+        <!-- 当前值：走强调色，与标题明度拉开；旧实现与标题同为次级色，糊成一片 -->
         <androidx.appcompat.widget.AppCompatTextView
-            android:textSize="@dimen/px31"
-            android:textColor="?android:attr/textColorSecondary"
             android:id="@+id/text_view_sub"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="1080P"/>
+            android:text="1080P"
+            android:textColor="?attr/tvAccent"
+            android:textSize="@dimen/px31"
+            android:textStyle="bold" />
     </androidx.appcompat.widget.LinearLayoutCompat>
+
     <androidx.appcompat.widget.AppCompatImageView
         android:id="@+id/icon_more"
         android:layout_width="@dimen/px35"
         android:layout_height="@dimen/px35"
-        android:layout_marginEnd="@dimen/px30"
+        android:layout_marginEnd="@dimen/px24"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:srcCompat="@drawable/ic_arrow_right"
-        app:tint="?android:attr/textColorPrimary"/>
+        app:tint="?attr/tvTextSecondary" />
+
     <androidx.appcompat.widget.AppCompatImageView
         android:id="@+id/icon_check"
-        android:visibility="gone"
         android:layout_width="@dimen/px40"
         android:layout_height="@dimen/px40"
-        android:layout_marginEnd="@dimen/px30"
+        android:layout_marginEnd="@dimen/px24"
+        android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:srcCompat="@drawable/ic_check"
-        app:tint="?android:attr/textColorPrimary"/>
+        app:tint="?attr/tvAccent" />
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 播放器设置面板列表。clipChildren=false：焦点弹簧放大 1.04 倍时子 View 溢出 RecyclerView
+     默认裁剪边界会被裁掉一角，实测焦点感明显打折；与 cell_player_setting.xml 的
+     clipToPadding 配套。 -->
 <androidx.recyclerview.widget.RecyclerView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/recyclerView"
     android:paddingLeft="@dimen/px10"
     android:paddingRight="@dimen/px10"
     android:paddingBottom="@dimen/px50"
+    android:clipChildren="false"
     android:clipToPadding="false"
     android:descendantFocusability="afterDescendants"
     android:layout_width="match_parent"

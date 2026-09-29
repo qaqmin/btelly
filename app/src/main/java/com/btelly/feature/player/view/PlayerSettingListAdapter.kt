@@ -9,6 +9,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.btelly.R
+import com.btelly.core.ui.focus.animateFocusScale
 
 internal class PlayerSettingListAdapter(
     private val onClick: (PlayerSettingRow.Item) -> Unit
@@ -82,6 +83,23 @@ internal class PlayerSettingListAdapter(
             view.setOnClickListener {
                 currentItem?.let(onClick)
             }
+            // 焦点态与 SettingsFragment 的设置页保持同一套：透明度分层 + 轻微弹簧放大。
+            // 背景态（强调底 + 左侧强调指示条）由 cell_setting_background 的 state_focused
+            // 直接驱动，代码里不再插手背景，避免和 drawable 抢状态。
+            view.setOnFocusChangeListener { v, hasFocus ->
+                v.animateFocusScale(hasFocus)
+                applyFocusedAlpha(hasFocus)
+            }
+        }
+
+        /** 未聚焦压一档，聚焦位回到实色：扫视列表时选中行自己"跳出来"。 */
+        private fun applyFocusedAlpha(focused: Boolean) {
+            titleView.alpha = if (focused) 1f else 0.94f
+            valueView.alpha = if (focused) 1f else 0.85f
+            iconView.alpha = if (focused) 1f else 0.75f
+            arrowView.alpha = if (focused) 1f else 0.6f
+            // 勾是"当前选中的是这一项"，与焦点无关，保持醒目只做很小衰减
+            checkView.alpha = if (focused) 1f else 0.92f
         }
 
         fun bind(item: PlayerSettingRow.Item) {
@@ -105,6 +123,10 @@ internal class PlayerSettingListAdapter(
 
             checkView.visibility = if (item.checked) View.VISIBLE else View.GONE
             arrowView.visibility = if (!item.checked && item.showArrow) View.VISIBLE else View.GONE
+
+            // ViewHolder 复用后焦点态可能已经变了，bind 结束必须按当前真实焦点重刷一次
+            itemView.animateFocusScale(itemView.isFocused)
+            applyFocusedAlpha(itemView.isFocused)
         }
     }
 
