@@ -1,23 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 键盘按键焦点态。原来是纯色块（旧实现写死颜色），与设置行的「强调容器底 + 左侧
-     强调指示条」语言不一致，且纯色块会把按键文字糊在中间。现在改成同样的层叠写法：
-     底层整块强调色当底，上层从左侧盖回表面色——注意这里不能用「窄 shape + size width」
-     的写法（LayerDrawable 会拉伸子层到 bounds，width 只影响固有尺寸，详见
-     cell_setting_background.xml 的踩坑记录）。 -->
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item>
-        <shape>
-            <solid android:color="?attr/tvAccent" />
-            <corners android:radius="@dimen/px20" />
-        </shape>
-    </item>
-    <item android:left="@dimen/px8">
-        <shape>
-            <solid android:color="?attr/tvAccentDim" />
-            <corners
-                android:radius="@dimen/px20"
-                android:topLeftRadius="0dp"
-                android:bottomLeftRadius="0dp" />
-        </shape>
-    </item>
-</layer-list>
+<!-- T9 键盘按键焦点态。
+
+     演进记录（这条踩了两个坑，都留注释）：
+     1) 最早是 ?attr/colorPrimary 纯色块 → 会把按键文字糊在中间。
+     2) 改成「底层 tvAccent 整块 + 上层从 left=8px 盖 tvAccentDim」想做出左指示条，
+        但按键文字走 ?attr/tvTextSecondary（#9AA5B8 灰蓝），落在亮青碧 #00C2A8 上
+        对比不足，远看是一片亮块看不清字符——反而更糟。
+     现在回到「强调容器底 + 强调描边」的做法（与 cell_background.xml 的焦点态同语言）：
+     tvAccentDim 作底不抢文字的对比，靠 2px tvAccent 描边把行轮廓勾出来，
+     远看是"这行被框住了"，比纯换底色更容易定位。
+
+     另注：这里刻意不用「窄 shape + <size width>」做指示条——LayerDrawable 会把子 shape
+     拉伸到层 bounds，<size> 的宽度对 bounds 无效，会把整块涂满。
+     cell_setting_background.xml 和 search_item_background.xml 都踩过，详见其注释。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="?attr/tvAccentDim" />
+    <stroke
+        android:width="@dimen/px2"
+        android:color="?attr/tvAccent" />
+    <corners android:radius="@dimen/px20" />
+</shape>

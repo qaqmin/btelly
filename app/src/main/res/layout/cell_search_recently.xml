@@ -3,7 +3,7 @@
     android:gravity="center"
     android:orientation="horizontal"
     android:id="@+id/click_view"
-    android:background="@drawable/button_common"
+    android:background="@drawable/search_item_background"
     android:paddingTop="@dimen/px10"
     android:paddingBottom="@dimen/px10"
     android:focusable="true"

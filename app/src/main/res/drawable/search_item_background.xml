@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 搜索历史/热词项的焦点态。
+
+     之前用 button_common（焦点=colorControlHighlight → tvAccentDim #123B34），而该项常态底是
+     tvSurfaceOverlay #1C2438——两个颜色只差几个数，肉眼看就是同一种深色，焦点态等于没有。
+     这是「看不出选了哪个」在搜索页的同一根因的另一处表现。
+
+     改成强对比方案，而不是照搬设置行的「强调底+左指示条」：这个 item 是胶囊形
+     （radius=px100），从左边缘切一条直角色块跟胶囊轮廓打架，视觉上不成立。
+     所以用两层都参与对比的写法：
+       - 常态：tvSurfaceOverlay（深，融进面板）
+       - 焦点：整块 tvAccent（品牌青碧 #00C2A8）+ tvAccent 描边，亮度差拉到最大，
+         远距离一眼能看出「光标在这行」。
+     注意 focus 分支不能只换背景而不动文字色——文字仍走布局里的 ?attr/tvTextPrimary，
+     在 #00C2A8 上是浅字深底，对比足够；无需再处理。
+
+     另：这里刻意不用「窄 shape + <size width>」做指示条。LayerDrawable 会把子 shape
+     拉伸到层 bounds，<size> 的宽度对 bounds 无效，会把整块涂满——cell_setting_background.xml
+     和 kb_key_selected.xml 都踩过，详见其注释。 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape>
+            <solid android:color="?attr/tvAccent" />
+            <corners android:radius="@dimen/px100" />
+        </shape>
+    </item>
+    <item android:state_focused="true">
+        <shape>
+            <solid android:color="?attr/tvAccent" />
+            <stroke
+                android:width="@dimen/px3"
+                android:color="?attr/tvAccentOn" />
+            <corners android:radius="@dimen/px100" />
+        </shape>
+    </item>
+    <item>
+        <shape>
+            <solid android:color="?attr/tvSurfaceOverlay" />
+            <corners android:radius="@dimen/px100" />
+        </shape>
+    </item>
+</selector>
