@@ -18,7 +18,7 @@
         <TextView
             android:textSize="@dimen/px38"
             android:textStyle="bold"
-            android:textColor="?android:attr/textColorSecondary"
+            android:textColor="?attr/tvTextSecondary"
             android:gravity="center"
             android:layout_gravity="center"
             android:id="@+id/button_top"
@@ -38,7 +38,7 @@
         <TextView
             android:textSize="@dimen/px38"
             android:textStyle="bold"
-            android:textColor="?android:attr/textColorSecondary"
+            android:textColor="?attr/tvTextSecondary"
             android:gravity="center"
             android:layout_gravity="center"
             android:id="@+id/button_left"
@@ -58,7 +58,7 @@
         <TextView
             android:textSize="@dimen/px38"
             android:textStyle="bold"
-            android:textColor="?android:attr/textColorSecondary"
+            android:textColor="?attr/tvTextSecondary"
             android:gravity="center"
             android:layout_gravity="center"
             android:id="@+id/button_center"
@@ -78,7 +78,7 @@
         <TextView
             android:textSize="@dimen/px38"
             android:textStyle="bold"
-            android:textColor="?android:attr/textColorSecondary"
+            android:textColor="?attr/tvTextSecondary"
             android:gravity="center"
             android:layout_gravity="center"
             android:id="@+id/button_right"
@@ -98,7 +98,7 @@
         <TextView
             android:textSize="@dimen/px38"
             android:textStyle="bold"
-            android:textColor="?android:attr/textColorSecondary"
+            android:textColor="?attr/tvTextSecondary"
             android:gravity="center"
             android:layout_gravity="center"
             android:id="@+id/button_bottom"
@@ -121,7 +121,7 @@
     <TextView
         android:textSize="@dimen/px38"
         android:textStyle="bold"
-        android:textColor="?android:attr/textColorSecondary"
+        android:textColor="?attr/tvTextSecondary"
         android:gravity="center"
         android:layout_gravity="center"
         android:id="@+id/button_key"

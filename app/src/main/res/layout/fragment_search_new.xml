@@ -26,7 +26,7 @@
             android:layout_marginEnd="@dimen/px18"
             android:contentDescription="@string/search"
             app:srcCompat="@drawable/ic_search"
-            app:tint="?android:attr/textColorPrimary"/>
+            app:tint="?attr/tvTextPrimary"/>
         <androidx.appcompat.widget.AppCompatEditText
             android:id="@+id/edit_text"
             android:layout_width="0dp"
@@ -39,8 +39,8 @@
             android:maxLines="1"
             android:padding="0dp"
             android:singleLine="true"
-            android:textColor="?android:attr/textColorPrimary"
-            android:textColorHint="?android:attr/textColorSecondary"
+            android:textColor="?attr/tvTextPrimary"
+            android:textColorHint="?attr/tvTextSecondary"
             android:textSize="@dimen/px38"
             android:textStyle="bold"/>
     </androidx.appcompat.widget.LinearLayoutCompat>
@@ -99,7 +99,7 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="@+id/layout_result_search_box"
             app:srcCompat="@drawable/ic_back"
-            app:tint="?android:attr/textColorPrimary"/>
+            app:tint="?attr/tvTextPrimary"/>
         <androidx.appcompat.widget.LinearLayoutCompat
             android:id="@+id/layout_result_search_box"
             android:layout_width="0dp"
@@ -121,7 +121,7 @@
                 android:layout_marginEnd="@dimen/px18"
                 android:contentDescription="@string/search"
                 app:srcCompat="@drawable/ic_search"
-                app:tint="?android:attr/textColorPrimary"/>
+                app:tint="?attr/tvTextPrimary"/>
             <androidx.appcompat.widget.AppCompatTextView
                 android:id="@+id/text_result_keyword"
                 android:layout_width="0dp"
@@ -129,7 +129,7 @@
                 android:layout_weight="1"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:textColor="?android:attr/textColorPrimary"
+                android:textColor="?attr/tvTextPrimary"
                 android:textSize="@dimen/px38"
                 android:textStyle="bold"/>
         </androidx.appcompat.widget.LinearLayoutCompat>
@@ -166,10 +166,10 @@
                 android:layout_width="@dimen/px40"
                 android:layout_height="@dimen/px40"
                 app:srcCompat="@drawable/ic_order"
-                app:tint="?android:attr/textColorPrimary"/>
+                app:tint="?attr/tvTextPrimary"/>
             <androidx.appcompat.widget.AppCompatTextView
                 android:textSize="@dimen/px30"
-                android:textColor="?android:attr/textColorPrimary"
+                android:textColor="?attr/tvTextPrimary"
                 android:id="@+id/text_order"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

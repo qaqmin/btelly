@@ -2,7 +2,7 @@
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
     android:textSize="@dimen/px38"
     android:textStyle="bold"
-    android:textColor="?android:attr/textColorSecondary"
+    android:textColor="?attr/tvTextSecondary"
     android:gravity="center"
     android:id="@+id/button_key_qwe"
     android:background="@drawable/kb_keyboard_selector"

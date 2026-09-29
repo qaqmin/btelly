@@ -260,6 +260,7 @@ class KeyboardView @JvmOverloads constructor(
                     .inflate(R.layout.layout_key_qwe, row, false)
                     .findViewById<TextView>(R.id.button_key_qwe)
                 button.text = qweKeys[keyIndex]
+                button.contentDescription = qweKeys[keyIndex]
                 button.setOnClickListener {
                     keySelectListener?.onInsertText(button.text.toString().trim())
                     button.requestFocus()
@@ -286,6 +287,9 @@ class KeyboardView @JvmOverloads constructor(
                 val primaryButton = keyView.findViewById<TextView>(R.id.button_key)
                 val overlay = keyView.findViewById<View>(R.id.view_select)
                 primaryButton.text = t9Labels[keyIndex]
+                // T9 键的可见文本是 "2\nABC" 这种双行标签，TalkBack 会把换行读成停顿。
+                // 换成口语化描述，同时让"这个键能打出哪些字符"可被朗读出来。
+                primaryButton.contentDescription = describeT9Key(t9Labels[keyIndex])
                 overlay.visibility = View.GONE
                 primaryButton.setOnClickListener {
                     showT9Overlay(
@@ -345,11 +349,24 @@ class KeyboardView @JvmOverloads constructor(
 
         button.visibility = View.VISIBLE
         button.text = value
+        // 展开态里五个候选位都是同一个 overlay 上的按钮，可读文本彼此分不清，
+        // 补上方位描述让 TalkBack 能区分"上是 B / 左是 A / 中心是 1"。
+        button.contentDescription = value
         button.onFocusChangeListener = createScaleFocusListener(button)
         button.setOnKeyListener(createOverlayKeyListener())
         button.setOnClickListener {
             insertOverlayValue(button.text.toString())
         }
+    }
+
+    /**
+     * 把 T9 键的双行标签转成可朗读的描述。
+     * "2\nABC" → "按键 2 ABC"；"\n0/1" → "按键 0/1"。
+     */
+    private fun describeT9Key(label: String): String {
+        val parts = label.split("\n").filter { it.isNotBlank() }
+        if (parts.isEmpty()) return label
+        return context.getString(R.string.keyboard_key_description, parts.joinToString(" "))
     }
 
     private fun createOverlayKeyListener(): View.OnKeyListener {
@@ -403,8 +420,19 @@ class KeyboardView @JvmOverloads constructor(
     }
 
     private fun updateKeyboardToggleState() {
-        val activeColor = ContextCompat.getColor(context, R.color.colorAccent)
-        val inactiveColor = ContextCompat.getColor(context, R.color.white)
+        // 原来写死 R.color.white 作"未选中"色，浅色皮肤（白/粉）下就是白字白底，根本看不见。
+        // 改为解析主题令牌 tvTextTertiary（弱化态）/ tvAccent（激活态）。
+        val typedValue = android.util.TypedValue()
+        val activeColor = if (context.theme.resolveAttribute(R.attr.tvAccent, typedValue, true)) {
+            typedValue.data
+        } else {
+            ContextCompat.getColor(context, R.color.tv_accent)
+        }
+        val inactiveColor = if (context.theme.resolveAttribute(R.attr.tvTextTertiary, typedValue, true)) {
+            typedValue.data
+        } else {
+            ContextCompat.getColor(context, R.color.tv_text_tertiary)
+        }
         findViewById<AppCompatTextView>(R.id.button_t9)?.setTextColor(
             if (isT9Keyboard) activeColor else inactiveColor
         )

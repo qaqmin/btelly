@@ -22,10 +22,10 @@
         android:layout_height="@dimen/px35"
         android:layout_marginEnd="@dimen/px10"
         app:srcCompat="@drawable/ic_hot"
-        app:tint="?android:attr/textColorPrimary"/>
+        app:tint="?attr/tvTextPrimary"/>
     <androidx.appcompat.widget.AppCompatTextView
         android:textSize="@dimen/px35"
-        android:textColor="?android:attr/textColorPrimary"
+        android:textColor="?attr/tvTextPrimary"
         android:id="@+id/text_title"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

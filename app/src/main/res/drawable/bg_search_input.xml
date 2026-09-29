@@ -1,20 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 搜索输入框：焦点态 = 抬升表面 + 强调描边；常态 = 抬升表面 + 分隔线描边。
+     旧实现走 buttonBackgroundColor/colorAttrs/dividerColor 三个兼容映射 attr，
+     现直接引用令牌本身，少一层间接。 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_focused="true">
         <shape android:shape="rectangle">
-            <solid android:color="?attr/buttonBackgroundColor" />
+            <solid android:color="?attr/tvSurfaceOverlay" />
             <stroke
                 android:width="@dimen/px2"
-                android:color="?attr/colorAccent" />
+                android:color="?attr/tvAccent" />
             <corners android:radius="@dimen/px22" />
         </shape>
     </item>
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="?attr/buttonBackgroundColor" />
+            <solid android:color="?attr/tvSurfaceOverlay" />
             <stroke
                 android:width="@dimen/px2"
-                android:color="?attr/dividerColor" />
+                android:color="?attr/tvDivider" />
             <corners android:radius="@dimen/px22" />
         </shape>
     </item>

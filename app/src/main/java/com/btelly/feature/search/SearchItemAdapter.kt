@@ -276,7 +276,7 @@ class SearchItemAdapter(
             ImageLoader.load(
                 imageView = binding.imageView,
                 url = normalizeUrl(item.cover.ifBlank { item.pic }),
-                placeholder = R.color.thirdBackgroundColor
+                placeholder = placeholderColor(binding.root.context)
             )
         }
     }
@@ -298,7 +298,7 @@ class SearchItemAdapter(
             ImageLoader.load(
                 imageView = binding.imageView,
                 url = normalizeUrl(item.cover.ifBlank { item.pic }),
-                placeholder = R.color.thirdBackgroundColor
+                placeholder = placeholderColor(binding.root.context)
             )
         }
     }
@@ -442,6 +442,17 @@ class SearchItemAdapter(
         const val VIEW_TYPE_USER_OFFSET = 3
         const val VIEW_TYPE_STRIDE = 8
         val nextViewTypeBase = AtomicInteger(0x5C0100)
+
+        /**
+         * 封面占位色。原来用 R.color.thirdBackgroundColor（#454545 硬编码旧色），
+         * 随皮肤切换会与周围卡片割裂——浅色皮肤下尤其明显。改为解析 tvSurfaceOverlay
+         * 令牌，失败时退回深色默认值。
+         */
+        fun placeholderColor(context: android.content.Context): Int {
+            val typedValue = android.util.TypedValue()
+            val resolved = context.theme.resolveAttribute(R.attr.tvSurfaceOverlay, typedValue, true)
+            return if (resolved) typedValue.data else 0xFF1C2438.toInt()
+        }
     }
 }
 

@@ -1,5 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="?attr/colorPrimary"/>
-    <corners android:radius="@dimen/px20"/>
-</shape>
+<!-- 键盘按键焦点态。原来是纯色块（旧实现写死颜色），与设置行的「强调容器底 + 左侧
+     强调指示条」语言不一致，且纯色块会把按键文字糊在中间。现在改成同样的层叠写法：
+     底层整块强调色当底，上层从左侧盖回表面色——注意这里不能用「窄 shape + size width」
+     的写法（LayerDrawable 会拉伸子层到 bounds，width 只影响固有尺寸，详见
+     cell_setting_background.xml 的踩坑记录）。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape>
+            <solid android:color="?attr/tvAccent" />
+            <corners android:radius="@dimen/px20" />
+        </shape>
+    </item>
+    <item android:left="@dimen/px8">
+        <shape>
+            <solid android:color="?attr/tvAccentDim" />
+            <corners
+                android:radius="@dimen/px20"
+                android:topLeftRadius="0dp"
+                android:bottomLeftRadius="0dp" />
+        </shape>
+    </item>
+</layer-list>

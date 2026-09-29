@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 搜索结果单页。空态原先是本地一个半透明底板 TextView，与全 App 的统一空态组件
+     （view_empty_state：插画 + 文案）不一致；SearchNewFragment 已经用了统一组件，
+     这里一并换过来，视觉统一。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
@@ -15,19 +18,10 @@
         android:paddingEnd="@dimen/px10"
         android:paddingBottom="@dimen/px50" />
 
-    <TextView
-        android:id="@+id/text_empty"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:background="@drawable/transparent_black_bg"
-        android:gravity="center"
-        android:paddingStart="@dimen/px30"
-        android:paddingTop="@dimen/px20"
-        android:paddingEnd="@dimen/px30"
-        android:paddingBottom="@dimen/px20"
-        android:text="@string/search_empty"
-        android:textColor="?android:attr/textColorPrimary"
-        android:textSize="@dimen/px28"
+    <include
+        android:id="@+id/search_result_empty_state"
+        layout="@layout/view_empty_state"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
         android:visibility="gone" />
 </FrameLayout>

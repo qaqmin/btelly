@@ -281,8 +281,9 @@ class SearchResultPagerAdapter(
                 val changed = currentAdapter?.setItems(filteredItems) ?: false
                 AppLog.d(TAG, "submit: type=$currentType itemCount=${filteredItems.size} changed=$changed")
                 binding.recyclerViewResult.isVisible = filteredItems.isNotEmpty()
-                binding.textEmpty.isVisible = !page.loading && filteredItems.isEmpty()
-                binding.textEmpty.setText(R.string.search_empty)
+                binding.searchResultEmptyState.root.isVisible =
+                    !page.loading && filteredItems.isEmpty()
+                binding.searchResultEmptyState.emptyStateTitle.setText(R.string.search_empty)
                 if (changed) {
                     tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
                 }
@@ -299,7 +300,7 @@ class SearchResultPagerAdapter(
             val applyUiState = {
                 currentAdapter?.setItems(emptyList())
                 binding.recyclerViewResult.isVisible = false
-                binding.textEmpty.isVisible = false
+                binding.searchResultEmptyState.root.isVisible = false
             }
             if (binding.recyclerViewResult.isComputingLayout) {
                 binding.recyclerViewResult.post(applyUiState)

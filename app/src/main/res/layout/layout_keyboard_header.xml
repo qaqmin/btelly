@@ -6,7 +6,7 @@
     <androidx.appcompat.widget.AppCompatTextView
         android:textSize="@dimen/px35"
         android:textStyle="bold"
-        android:textColor="?android:attr/textColorSecondary"
+        android:textColor="?attr/tvTextSecondary"
         android:gravity="center"
         android:id="@+id/button_clear"
         android:background="@drawable/kb_keyboard_selector"
@@ -22,7 +22,7 @@
     <androidx.appcompat.widget.AppCompatTextView
         android:textSize="@dimen/px35"
         android:textStyle="bold"
-        android:textColor="?android:attr/textColorSecondary"
+        android:textColor="?attr/tvTextSecondary"
         android:gravity="center"
         android:id="@+id/button_back"
         android:background="@drawable/kb_keyboard_selector"

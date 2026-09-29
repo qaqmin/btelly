@@ -176,6 +176,7 @@
     <string name="icon_content_description">Dialog Icon</string>
     <string name="image_quality">图片质量</string>
     <string name="kichiku">鬼畜</string>
+    <string name="keyboard_key_description">按键 %1$s</string>
     <string name="knowledge">知识</string>
     <string name="last_watch_" formatted="false">上次观看到第%s集 %s</string>
     <string name="later_watch">稍后观看</string>
