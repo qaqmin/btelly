@@ -90,6 +90,7 @@ val repositoryModule = module {
     single { PersonalFeedPrewarmer(get(), get(), get()) }
     single { RecommendFeedRepository(androidContext()) }
     single { HotFeedRepository() }
+    single { RankFeedRepository() }
     single { HomeLaneFeedRepository(get()) }
 }
 
@@ -98,6 +99,7 @@ val viewModelModule = module {
     single { RecommendDislikeFeedback(get(), get()) }
     viewModel { RecommendViewModel(get(), get(), androidContext()) }
     viewModel { HotViewModel(get(), get(), androidContext()) }
+    viewModel { RankListViewModel(get(), get(), androidContext()) }
     viewModel { (type: Int) -> HomeLaneViewModel(type, get()) }
     viewModel { MainNavigationViewModel(get()) }
     viewModel { VideoPlayerViewModel(get(), get(), get(), get(), get(), get(), get(named("noCookie")), get(), androidContext(), get()) }

@@ -155,7 +155,9 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private val TEEN_TIME_OPTIONS = arrayOf("0", "1") + (10..120 step 10).map { it.toString() }
         private val TEEN_TIME_DISPLAY = TEEN_TIME_OPTIONS.copyOf().also { it[0] = "不限制" }
 
-        private val HOME_START_PAGE_OPTIONS = arrayOf("推荐", "热门", "番剧", "影视", "动态")
+        // 顺序必须与 HomeFragmentStateAdapter.titles 一致（推荐/热门/排行榜/番剧/影视），
+        // 下标即 getHomeDefaultStartPageIndex 的映射结果
+        private val HOME_START_PAGE_OPTIONS = arrayOf("推荐", "热门", "排行榜", "番剧", "影视", "动态")
         private val DISPLAY_MODE_OPTIONS = arrayOf("电视", "车机")
     }
 

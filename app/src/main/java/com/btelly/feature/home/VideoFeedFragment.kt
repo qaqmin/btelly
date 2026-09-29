@@ -488,7 +488,10 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
 
     private fun currentHomePageIndex(): Int {
         val parent = parentFragment as? HomeFragment ?: return -1
-        return (0..3).firstOrNull { parent.isCurrentPage(it) } ?: -1
+        // 只用于日志。范围取 0..3 是历史遗留（首页只有 4 个 tab 时写的），
+        // 加了「排行榜」后 tab 数变 5，这里改成覆盖全部 tab，否则日志会把
+        // 当前页报成错的索引，误导排查。
+        return (0..4).firstOrNull { parent.isCurrentPage(it) } ?: -1
     }
 
     private fun onVideoClick(video: VideoModel) {

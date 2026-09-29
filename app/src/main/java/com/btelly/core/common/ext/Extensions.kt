@@ -65,11 +65,15 @@ fun isVipColorfulDanmakuAllowed(): Boolean {
 fun getHomeDefaultStartPageIndex(maxIndex: Int, defaultIndex: Int = 1): Int {
     val safeMaxIndex = maxIndex.coerceAtLeast(0)
     val clampedDefault = defaultIndex.coerceIn(0, safeMaxIndex)
+    // 首页 tab 顺序：推荐(0) / 热门(1) / 排行榜(2) / 番剧(3) / 影视(4)。
+    // 排行榜是在「热门」之后插入的，所以「番剧」「影视」的下标相对插入前各 +1。
+    // 这里按标签名映射而不是按旧下标，插 tab 才不会让用户已保存的设置指错页面。
     val mappedFromLabel = when (appSettings.getCachedString("default_start_page")?.trim()) {
         "推荐" -> 0
         "热门" -> 1
-        "番剧" -> 2
-        "影视" -> 3
+        "排行榜" -> 2
+        "番剧" -> 3
+        "影视" -> 4
         "动态" -> clampedDefault
         else -> null
     }

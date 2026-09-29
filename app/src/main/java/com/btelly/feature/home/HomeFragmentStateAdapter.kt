@@ -12,9 +12,12 @@ class HomeFragmentStateAdapter(
     lifecycle: Lifecycle
 ) : FragmentStateAdapter(fragmentManager, lifecycle) {
 
+    // 顺序：推荐、热门、排行榜、番剧、影视。
+    // 排行榜插在热门后面：两者都是"大家都在看什么"，挨着符合直觉。
     private val titles = listOf(
         R.string.recommend,
         R.string.hot,
+        R.string.rank,
         R.string.animation,
         R.string.film_and_television
     )
@@ -25,7 +28,8 @@ class HomeFragmentStateAdapter(
         return when (position) {
             0 -> RecommendListFragment.newInstance()
             1 -> HotListFragment.newInstance()
-            2 -> HomeLaneFragment.newInstance(HomeLaneFragment.TYPE_ANIMATION)
+            2 -> RankListFragment.newInstance()
+            3 -> HomeLaneFragment.newInstance(HomeLaneFragment.TYPE_ANIMATION)
             else -> HomeLaneFragment.newInstance(HomeLaneFragment.TYPE_CINEMA)
         }
     }
