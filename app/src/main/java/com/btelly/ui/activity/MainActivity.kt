@@ -1016,9 +1016,17 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
             if (isFinishing || isDestroyed) return@post
             val focus = currentFocus
             // 已有可用焦点就别抢——用户可能回来前焦点就已被正确恢复
-            if (focus != null && focus.isAttachedToWindow && focus.isShown && focus.isFocusable) {
+            if (focus != null && isFocusUsableForDpad(focus)) {
                 AppLog.dLogcat("FocusRestore", "onResume: focus already ok (${focus.javaClass.simpleName})")
                 return@post
+            }
+            if (focus != null) {
+                AppLog.dLogcat(
+                    "FocusRestore",
+                    "onResume: reject parked focus ${focus.javaClass.simpleName}#${focus.id} " +
+                        "attached=${focus.isAttachedToWindow} shown=${focus.isShown} " +
+                        "focusable=${focus.isFocusable} size=${focus.width}x${focus.height} " +
+                        "visRect=${describeGlobalVisibleRect(focus)} windowFocus=${hasWindowFocus()}"                )
             }
             AppLog.dLogcat("FocusRestore", "onResume: no usable focus, restoring (tabIndex=$currentFragmentIndex)")
             val handledByContent = focusCurrentMainContent(
@@ -1037,6 +1045,34 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
                 ?.findFocus()
                 ?.requestFocus()
         }
+    }
+
+    private fun describeGlobalVisibleRect(view: View): String {
+        val rect = android.graphics.Rect()
+        val ok = view.getGlobalVisibleRect(rect)
+        return "ok=$ok rect=$rect"
+    }
+
+    /**
+     * 判定「现在持有焦点的这个 view」是否真的能接收 D-pad。
+     *
+     * 为什么不能只查 isAttachedToWindow/isShown/isFocusable：这三者对「停住了但已经没有
+     * 可用性的 view」全为真，历史上正是这个假阳性让返回播放器后的焦点恢复直接早退——
+     * currentFocus 返回一个 view，代码以为焦点已就绪，但 D-pad 实际打不中任何东西，
+     * 用户看到的就是「光标消失、必须再按一次返回键才回来」。
+     *
+     * 已知会命中的假阳性：
+     *  - 零尺寸 view（isShown 只看祖先链 VISIBLE，不看自身尺寸）
+     *  - 已滚出屏幕的 RecyclerView 子项（可见性标记仍在，位置已不在屏内）
+     *
+     * 只查 view 自身的可用性，不查 hasWindowFocus()：窗口焦点晚于 onResume 到达时，
+     * 恰恰更需要这次恢复，拿窗口状态当条件会把该做的恢复误跳过。
+     */
+    private fun isFocusUsableForDpad(view: View): Boolean {
+        if (!view.isAttachedToWindow || !view.isShown || !view.isFocusable) return false
+        if (view.width <= 0 || view.height <= 0) return false
+        val rect = android.graphics.Rect()
+        return view.getGlobalVisibleRect(rect) && !rect.isEmpty
     }
 
     override fun onUserLeaveHint() {
