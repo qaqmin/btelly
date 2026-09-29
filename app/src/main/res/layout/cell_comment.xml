@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 评论单元格。TV 版与手机版的关键差别：
+     1) 正文字号用 text_body 而不是手机上的小字——3 米外要能读；
+     2) 二级回复单独一档缩进 + 更弱的名字层级，避免和一级评论糊在一起；
+     3) 点赞数用强调色但只在 >0 时显示，0 赞不占位。 -->
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/click_view"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="@dimen/space_12"
+    android:layout_marginTop="@dimen/space_4"
+    android:layout_marginEnd="@dimen/space_12"
+    android:layout_marginBottom="@dimen/space_4"
+    android:background="@drawable/cell_background"
+    android:clickable="true"
+    android:focusable="true"
+    android:paddingStart="@dimen/space_16"
+    android:paddingTop="@dimen/space_12"
+    android:paddingEnd="@dimen/space_16"
+    android:paddingBottom="@dimen/space_12">
+
+    <androidx.appcompat.widget.AppCompatImageView
+        android:id="@+id/image_avatar"
+        android:layout_width="@dimen/comment_avatar_size"
+        android:layout_height="@dimen/comment_avatar_size"
+        android:contentDescription="@string/comment_avatar_desc"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:srcCompat="@drawable/default_avatar"
+        tools:ignore="MissingPrefix" />
+
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/text_name"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/space_12"
+        android:layout_marginEnd="@dimen/space_8"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="?attr/tvTextSecondary"
+        android:textSize="@dimen/text_label"
+        app:layout_constraintEnd_toStartOf="@+id/layout_like"
+        app:layout_constraintStart_toEndOf="@+id/image_avatar"
+        app:layout_constraintTop_toTopOf="@+id/image_avatar"
+        tools:text="用户名" />
+
+    <androidx.appcompat.widget.LinearLayoutCompat
+        android:id="@+id/layout_like"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/image_avatar">
+
+        <androidx.appcompat.widget.AppCompatImageView
+            android:id="@+id/image_like"
+            android:layout_width="@dimen/comment_like_icon_size"
+            android:layout_height="@dimen/comment_like_icon_size"
+            android:contentDescription="@string/comment_like_desc"
+            app:srcCompat="@drawable/ic_like"
+            app:tint="?attr/tvTextSecondary" />
+
+        <androidx.appcompat.widget.AppCompatTextView
+            android:id="@+id/text_like"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_4"
+            android:textColor="?attr/tvTextSecondary"
+            android:textSize="@dimen/text_label"
+            tools:text="1024" />
+    </androidx.appcompat.widget.LinearLayoutCompat>
+
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/text_message"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/space_12"
+        android:layout_marginTop="@dimen/space_4"
+        android:layout_marginEnd="@dimen/space_4"
+        android:textColor="?attr/tvTextPrimary"
+        android:textSize="@dimen/text_body"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@+id/image_avatar"
+        app:layout_constraintTop_toBottomOf="@+id/text_name"
+        tools:text="评论正文评论正文评论正文评论正文评论正文评论正文评论正文" />
+
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/text_expand"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/space_12"
+        android:layout_marginTop="@dimen/space_4"
+        android:background="@drawable/button_accent_outline"
+        android:paddingStart="@dimen/space_12"
+        android:paddingTop="@dimen/space_4"
+        android:paddingEnd="@dimen/space_12"
+        android:paddingBottom="@dimen/space_4"
+        android:text="@string/comment_expand_replies"
+        android:textColor="?attr/tvAccent"
+        android:textSize="@dimen/text_label"
+        android:visibility="gone"
+        app:layout_constraintStart_toEndOf="@+id/image_avatar"
+        app:layout_constraintTop_toBottomOf="@+id/text_message"
+        tools:visibility="visible" />
+</androidx.constraintlayout.widget.ConstraintLayout>

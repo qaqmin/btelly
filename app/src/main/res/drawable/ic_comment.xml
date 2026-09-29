@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 气泡对话框轮廓（评论入口）。用 tint 上色，路径本身保持白色 -->
+    <path
+        android:fillColor="#ffffff"
+        android:fillType="nonZero"
+        android:pathData="M4,2h16c1.105,0 2,0.895 2,2v11c0,1.105 -0.895,2 -2,2H9.5L5,21v-4H4c-1.105,0 -2,-0.895 -2,-2V4c0,-1.105 0.895,-2 2,-2z" />
+</vector>

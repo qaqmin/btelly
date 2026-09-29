@@ -224,7 +224,8 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
                 result
             },
             onFollowClick = { toggleFollow() },
-            onTripleAction = { tripleAction() }
+            onTripleAction = { tripleAction() },
+            onCommentClick = { openComments() }
         )
 
         binding.recyclerView.layoutManager = LinearLayoutManager(requireContext())
@@ -871,6 +872,21 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
 
     private fun showError(message: String?) {
         toast(message ?: "加载失败")
+    }
+
+    /** 打开评论区。评论按 aid 拉取（不是 bvid），所以优先取 aid。 */
+    private fun openComments() {
+        val aid = videoView?.aid ?: videoModel?.aid ?: 0L
+        if (aid <= 0L) {
+            toast("该视频暂无评论")
+            return
+        }
+        openInHostContainer(
+            com.btelly.feature.comment.CommentFragment.newInstance(
+                aid = aid,
+                title = videoView?.title ?: videoModel?.title
+            )
+        )
     }
 
     private fun openInHostContainer(

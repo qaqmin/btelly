@@ -50,7 +50,8 @@ class VideoDetailContentAdapter(
     private val onDescriptionClick: (CharSequence) -> Unit,
     private val onBackFocus: () -> Boolean,
     private val onFollowClick: () -> Unit,
-    private val onTripleAction: () -> Unit
+    private val onTripleAction: () -> Unit,
+    private val onCommentClick: () -> Unit
 ) : ListAdapter<VideoDetailContentAdapter.Row, RecyclerView.ViewHolder>(RowItemCallback) {
 
     sealed interface Row {
@@ -101,6 +102,7 @@ class VideoDetailContentAdapter(
                 onBackFocus,
                 onFollowClick,
                 onTripleAction,
+                onCommentClick,
                 parent.context
             )
 
@@ -143,6 +145,7 @@ class VideoDetailContentAdapter(
         private val onBackFocus: () -> Boolean,
         private val onFollowClick: () -> Unit,
         private val onTripleAction: () -> Unit,
+        private val onCommentClick: () -> Unit,
         private val context: Context
     ) : RecyclerView.ViewHolder(binding.root) {
 
@@ -215,6 +218,7 @@ class VideoDetailContentAdapter(
             }
             binding.buttonCoin.setOnClickListener { onCoinClick() }
             binding.buttonFavorite.setOnClickListener { onFavoriteClick() }
+            binding.buttonComment.setOnClickListener { onCommentClick() }
             binding.buttonDetail.setOnClickListener { onDescriptionClick(currentDescription) }
             binding.buttonFollow.setOnClickListener { onFollowClick() }
 

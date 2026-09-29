@@ -135,6 +135,16 @@
     <string name="favorite_folder_empty">暂无收藏夹</string>
     <string name="favorite_folder_content_empty">暂无收藏内容</string>
     <string name="favorite_summary_format">共 %1$d 个收藏夹 · %2$d 个视频</string>
+    <string name="comment_title">评论</string>
+    <string name="comment_empty">还没有评论</string>
+    <string name="comment_unavailable">评论加载失败</string>
+    <string name="comment_avatar_desc">用户头像</string>
+    <string name="comment_like_desc">点赞</string>
+    <string name="comment_expand_replies">展开回复</string>
+    <string name="comment_expand_replies_count">展开 %1$d 条回复</string>
+    <string name="comment_expanded">已展开全部回复</string>
+    <string name="comment_liked">已点赞</string>
+    <string name="comment_like_cancelled">已取消点赞</string>
     <string name="favorite_folder_media_count_format">%1$d个内容</string>
     <string name="history_empty">暂无历史记录</string>
     <string name="later_watch_empty">暂无稍后观看内容</string>

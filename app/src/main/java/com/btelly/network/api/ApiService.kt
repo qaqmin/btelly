@@ -8,6 +8,7 @@ import com.btelly.model.common.GiveCoinResultModel
 import com.btelly.model.common.ArchiveRelationModel
 import com.btelly.model.common.CheckGiveCoinModel
 import com.btelly.model.common.TripleActionResultModel
+import com.btelly.model.comment.ReplyWrapper
 import com.btelly.model.user.UserStatModel
 import com.btelly.model.user.UserSpaceInfo
 import com.btelly.model.user.UserDetailInfoModel
@@ -388,6 +389,32 @@ interface ApiService {
     suspend fun getFavoriteFolderInfo(
         @Query("media_id") mediaId: Long
     ): BaseResponse<FolderDetailModel>
+
+    // ==================== 评论区 ====================
+
+    /**
+     * 评论列表（WBI 签名，必须走 [com.btelly.network.security.WbiGenerator]）。
+     * mode=3 热门排序 / mode=2 时间排序；next 为翻页游标，接口自己给。
+     * 返回体里 top_replies 是置顶评论，replies 是普通评论。
+     */
+    @GET("x/v2/reply/wbi/main")
+    suspend fun getReplyList(
+        @QueryMap params: Map<String, String>
+    ): BaseResponse<ReplyWrapper>
+
+    /**
+     * 点赞/取消点赞评论。action=1 点赞，action=0 取消。
+     * B 站要求 form 表单 + csrf，不需要 WBI。
+     */
+    @POST("x/v2/reply/action")
+    @FormUrlEncoded
+    suspend fun likeReply(
+        @Field("oid") oid: Long,
+        @Field("type") type: Int,
+        @Field("rpid") rpid: Long,
+        @Field("action") action: Int,
+        @Field("csrf") csrf: String
+    ): BaseResponse<Any>
 
     @GET("x/v3/fav/resource/list")
     suspend fun getFavoriteFolderDetail(
