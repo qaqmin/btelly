@@ -26,6 +26,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.widget.AppCompatImageView
 import androidx.core.view.isVisible
+import androidx.fragment.commit
 
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.PlaybackException
