@@ -26,7 +26,6 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.widget.AppCompatImageView
 import androidx.core.view.isVisible
-import androidx.fragment.commit
 
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.PlaybackException
@@ -856,11 +855,13 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             },
             // 播放器里跳转独立页面（评论区、UP 主空间等）。原来是空实现 { _, _ -> }，
             // 于是这些入口点了没反应。这里放进 PlayerActivity 自己的容器。
+            // 用显式 transaction 而不是 androidx.fragment.commit 扩展：那个扩展需要
+            // fragment-ktx，本项目没引；显式写法零依赖。
             onOpenFragmentFromHost = { fragment, _ ->
-                supportFragmentManager.commit {
-                    replace(R.id.player_container, fragment)
-                    addToBackStack(null)
-                }
+                supportFragmentManager.beginTransaction()
+                    .replace(R.id.player_container, fragment)
+                    .addToBackStack(null)
+                    .commit()
             },
             onHideNextPreview = { autoPlayController.hideNextPreview() },
             isViewActive = { true }
