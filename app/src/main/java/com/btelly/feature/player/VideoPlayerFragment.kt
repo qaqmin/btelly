@@ -25,7 +25,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.widget.AppCompatImageView
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.commit
+import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -1541,10 +1541,24 @@ class VideoPlayerFragment : Fragment() {
             mainActivity.openInHostContainer(fragment)
             return
         }
-        parentFragmentManager.commit {
-            replace(R.id.player_container, fragment, tag)
-            addToBackStack(tag)
+        val container = view?.findViewById<View>(R.id.player_container)
+        container?.isVisible = true
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.player_container, fragment, tag)
+            .addToBackStack(tag)
+            .commit()
+        // 子页面全部弹出后隐藏容器；MainActivity 宿主走 openInHostContainer，不经过这里，
+        // 监听只在本分支注册，不会误伤宿主自己的返回栈变化。
+        val fragmentManager = parentFragmentManager
+        val listener = object : FragmentManager.OnBackStackChangedListener {
+            override fun onBackStackChanged() {
+                if (fragmentManager.backStackEntryCount == 0) {
+                    container?.isVisible = false
+                    fragmentManager.removeOnBackStackChangedListener(this)
+                }
+            }
         }
+        fragmentManager.addOnBackStackChangedListener(listener)
     }
 
     override fun onStart() {

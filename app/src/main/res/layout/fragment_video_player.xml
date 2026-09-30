@@ -188,4 +188,11 @@
         android:layout_width="match_parent"
         android:layout_height="2.5dp"
         android:visibility="gone"/>
+    <!-- 播放器内嵌子页面容器（评论、UP 主空间等）。默认 gone 不占位；宿主打开 Fragment 前
+         置为可见，返回栈清空时自动隐藏，避免空容器常驻拦截播放器区域的触摸/按键。 -->
+    <FrameLayout
+        android:id="@+id/player_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"/>
 </FrameLayout>

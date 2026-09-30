@@ -855,9 +855,9 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             },
             // 播放器里跳转独立页面（评论区、UP 主空间等）。原来是空实现 { _, _ -> }，
             // 于是这些入口点了没反应。这里放进 PlayerActivity 自己的容器。
-            // 用显式 transaction 而不是 androidx.fragment.commit 扩展：那个扩展需要
-            // fragment-ktx，本项目没引；显式写法零依赖。
+            // 用显式 transaction：容器要先置可见，否则 replace 进的 Fragment 不可见。
             onOpenFragmentFromHost = { fragment, _ ->
+                binding.playerContainer.isVisible = true
                 supportFragmentManager.beginTransaction()
                     .replace(R.id.player_container, fragment)
                     .addToBackStack(null)
@@ -872,8 +872,12 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             onCancelResume = { viewModel.cancelResumeProgress() },
             onClearResumeHint = { viewModel.clearResumeHint() },
             onShowResumeHint = { text -> playerView.showResumeHint(text) },
-            onHideResumeHint = { playerView.hideResumeHint() }
+            onHideResumeHint = { text -> playerView.hideResumeHint() }
         )
+        // 内嵌子页面（评论等）全部弹出后隐藏容器，空容器常驻会拦截播放器区域的触摸
+        supportFragmentManager.addOnBackStackChangedListener {
+            binding.playerContainer.isVisible = supportFragmentManager.backStackEntryCount > 0
+        }
     }
 
     private fun setupPlayer() {
@@ -1099,6 +1103,11 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             override fun handleOnBackPressed() {
                 // 公益广告锁死模式：吞掉返回键，不允许退出（dispatchKeyEvent 已拦截，这里是双重保险）
                 if (psasLocked) return
+                // 播放器内嵌子页面（评论区等）显示期间，BACK 先弹返回栈回到播放器
+                if (supportFragmentManager.backStackEntryCount > 0) {
+                    supportFragmentManager.popBackStack()
+                    return
+                }
                 if (cancelResume()) {
                     return
                 }
