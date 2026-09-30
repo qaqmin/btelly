@@ -27,6 +27,8 @@ import com.btelly.feature.category.CategoryViewModel
 import com.btelly.feature.dynamic.DynamicViewModel
 import com.btelly.feature.home.HotViewModel
 import com.btelly.feature.home.HotFeedRepository
+import com.btelly.feature.home.RankFeedRepository
+import com.btelly.feature.home.RankListViewModel
 import com.btelly.feature.home.HomeLaneFeedRepository
 import com.btelly.feature.home.HomeLaneViewModel
 import com.btelly.feature.home.RecommendDislikeFeedback

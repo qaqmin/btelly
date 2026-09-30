@@ -19,10 +19,19 @@ class DanmakuPostRepository(
     private val securityGateway: NetworkSecurityGateway
 ) {
 
-    private companion object {
+    /**
+     * 公开常量：MAX_DANMAKU_LENGTH 需要给输入对话框拿去做字数上限和计数显示。
+     * 其余（SOURCE/类型/模式）是内部实现细节，不对外。
+     */
+    companion object {
         const val SOURCE = "danmakuPost"
         /** type=1 是视频弹幕（直播是 3，漫画是 4...） */
         const val DM_TYPE_VIDEO = 1
+        /**
+         * B 站视频弹幕长度上限 100 字，这里保守取 80（TV 输入不便，长了也难看）。
+         * 对外公开——输入对话框要拿它做字数上限和「N/80」计数。
+         */
+        const val MAX_DANMAKU_LENGTH = 80
 
         /** 滚动弹幕 */
         const val MODE_ROLL = 1
@@ -108,10 +117,5 @@ class DanmakuPostRepository(
             result = Result.failure(e)
         }
         return result
-    }
-
-    companion object {
-        /** B 站视频弹幕长度上限 100 字，这里保守取 80（TV 输入不便，长了也难看） */
-        const val MAX_DANMAKU_LENGTH = 80
     }
 }

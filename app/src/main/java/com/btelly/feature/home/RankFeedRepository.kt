@@ -20,13 +20,13 @@ class RankFeedRepository {
         private const val MAX_CACHED_ITEMS = 100
     }
 
-    data class RankResult(
+    data class RankPage(
         val items: List<VideoModel>
     )
 
-    suspend fun loadRanking(pageSize: Int = MAX_CACHED_ITEMS): Result<RankResult> = runCatching {
+    suspend fun loadRanking(pageSize: Int = MAX_CACHED_ITEMS): Result<RankPage> = runCatching {
         val rawItems = BiliApi.ranking(rid = 0, type = "all")
-        RankResult(
+        RankPage(
             items = rawItems
                 .filter { it.isSupportedHomeVideoCard }
                 .take(pageSize)

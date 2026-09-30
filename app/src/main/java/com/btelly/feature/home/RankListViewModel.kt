@@ -26,9 +26,9 @@ class RankListViewModel(
         fromRefresh: Boolean
     ): Result<FetchedPage> {
         return repository.loadRanking(pageSize = PAGE_SIZE)
-            .map { items ->
+            .map { page ->
                 FetchedPage(
-                    items = filterForDisplay(items),
+                    items = filterForDisplay(page.items),
                     // 排行榜一次给全，没有下一页
                     hasMore = false
                 )
