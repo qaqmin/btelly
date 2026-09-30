@@ -853,7 +853,14 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                     viewModel.playRelatedVideo(video)
                 }
             },
-            onOpenFragmentFromHost = { _, _ -> },
+            // 播放器里跳转独立页面（评论区、UP 主空间等）。原来是空实现 { _, _ -> }，
+            // 于是这些入口点了没反应。这里放进 PlayerActivity 自己的容器。
+            onOpenFragmentFromHost = { fragment, _ ->
+                supportFragmentManager.commit {
+                    replace(R.id.player_container, fragment)
+                    addToBackStack(null)
+                }
+            },
             onHideNextPreview = { autoPlayController.hideNextPreview() },
             isViewActive = { true }
         )

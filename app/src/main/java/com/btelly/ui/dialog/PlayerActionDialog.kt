@@ -39,7 +39,10 @@ class PlayerActionDialog(
     context: Context,
     private val aid: Long,
     private val bvid: String,
-    private val ownerMid: Long = 0L
+    private val ownerMid: Long = 0L,
+    /** 打开评论区。由调用方（播放器 overlay）提供，因为 Dialog 自己不便拿 FragmentManager。
+     *  为 null 时「评论」按钮隐藏——调用方没接线就不该给一个点了没反应的入口。 */
+    private val onOpenComments: (() -> Unit)? = null
 ) : AppCompatDialog(context, R.style.DialogTheme), KoinComponent {
 
     init {
@@ -180,6 +183,14 @@ class PlayerActionDialog(
             if (!checkLogin()) return@setOnClickListener
             dismiss()
             DanmakuInputDialog(context, aid = aid).show()
+        }
+
+        // 看评论：评论是单独一页，由调用方（持有 FragmentManager 的播放器 overlay）打开。
+        // 调用方没接线就隐藏按钮，不留「点了没反应」的死入口。
+        binding.buttonComment.isVisible = onOpenComments != null
+        binding.buttonComment.setOnClickListener {
+            dismiss()
+            onOpenComments?.invoke()
         }
 
         binding.buttonTriple.setOnClickListener {

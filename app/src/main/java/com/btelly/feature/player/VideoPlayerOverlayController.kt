@@ -558,7 +558,18 @@ class VideoPlayerOverlayController(
             context = activity,
             aid = aid,
             bvid = bvid,
-            ownerMid = view?.owner?.mid ?: 0L
+            ownerMid = view?.owner?.mid ?: 0L,
+            // 评论是单独一页，交给宿主（PlayerActivity）的容器打开。
+            // Dialog 自己不便拿 FragmentManager，所以用回调绕出来。
+            onOpenComments = {
+                overlayCoordinator.rememberFocusRestoreTarget(PlayerOverlayCoordinator.FocusTarget.MORE_BUTTON)
+                com.btelly.feature.comment.CommentFragment.newInstance(
+                    aid = aid,
+                    title = view?.title
+                ).let { fragment ->
+                    onOpenFragmentFromHost(fragment, "comment:$aid")
+                }
+            }
         ).apply {
             setOnDismissListener {
                 uiCoordinator.transition(UiEvent.PanelClosed)
