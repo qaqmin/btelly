@@ -872,7 +872,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             onCancelResume = { viewModel.cancelResumeProgress() },
             onClearResumeHint = { viewModel.clearResumeHint() },
             onShowResumeHint = { text -> playerView.showResumeHint(text) },
-            onHideResumeHint = { text -> playerView.hideResumeHint() }
+            onHideResumeHint = { playerView.hideResumeHint() }
         )
         // 内嵌子页面（评论等）全部弹出后隐藏容器，空容器常驻会拦截播放器区域的触摸
         supportFragmentManager.addOnBackStackChangedListener {
