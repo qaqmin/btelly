@@ -1,0 +1,56 @@
+# GitHub 线上 CI 试运行线（2026-10-05 启用）
+#
+# 与历史上被置灰的 build-apk.yml.disabled 的区别：
+# - 不注入签名：keystore 三件套只在 Mac 构建机上，GitHub 侧一律产出**未签名** APK，
+#   仅作 CI 可用性验证与临时安装测试；未签名产物严禁进入更新渠道。
+# - 不创建 Release：双通道更新（GitHub/Codeberg）只认 Mac 构建机签发的正式版，
+#   CI 产物仅以 Actions Artifact 形式存在，避免未签名包被应用内更新拉到。
+# - 触发收窄：仅 push 触及 app/build.gradle.kts 或本工作流文件、以及手动触发时运行，
+#   不滥用 CI 额度。
+#
+# 历史事故存档（原 .disabled 文件说明，2026-09-24）：
+# Codeberg（Forgejo）Actions 会读取 .github/workflows 并对本工作流排队，
+# 留下永远「Waiting to run」的 pending 状态。此为 Forgejo 平台行为，非本文件 bug；
+# 重新启用 .yml 后 Codeberg 侧可能再次出现该 pending 记录（无 runner，不会执行，无害）。
+
+name: Android APK Build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - app/build.gradle.kts
+      - .github/workflows/build-apk.yml
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Release & Debug APK (unsigned)
+        run: ./gradlew assembleReleaseRenamed assembleDebugRenamed
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTelly-CI-APKs
+          path: app/build/outputs/renamed_apk/**/*.apk
+          if-no-files-found: error
