@@ -45,6 +45,14 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Raise JVM heap for CI
+        # 仓库默认 org.gradle.jvmargs=-Xmx2048m（为低配开发机设的）。release 全量 Kotlin
+        # 编译（协程变换阶段）在 runner 上会 GC overhead OOM，CI 内临时提到 4g。
+        # 公开仓库 runner 16GB 内存，Gradle daemon 与 Kotlin daemon 各 4g 无压力。
+        run: |
+          sed -i 's|^org.gradle.jvmargs=.*|org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8|' gradle.properties
+          grep 'org.gradle.jvmargs' gradle.properties
+
       - name: Build Release & Debug APK (unsigned)
         run: ./gradlew assembleReleaseRenamed assembleDebugRenamed
 
