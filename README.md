@@ -31,11 +31,19 @@
 
 ## ☕ 随缘赞助 (Sponsor)
 
-这个项目是利用业余时间"用爱发电"写出来的，能帮到大家我非常开心。
-长时间的调试与真机验收也搭进去了不少休息时间（笑）。
+这个项目是利用业余时间“用爱发电”写出来的，能帮到大家我非常开心。不过随着项目的不断完善，跑测试消耗的 API Tokens 确实超出了我的预期，加上长时间的调试，也搭进去了不少休息时间（笑）。
 
-如果这个项目恰好为你解决了问题，欢迎点个 **Star**，这是对我极大的鼓励；
-打赏方式与 [TiebaLite](https://github.com/qaqmin09577/TiebaLite) 一致（见其仓库赞助区），完全自愿，千万别有任何压力。
+如果这个项目恰好为你解决了问题，或者帮你省下了一些折腾的时间，欢迎随缘投喂。你的打赏将全部用于“回血”高昂的 API 账单，这也是让我能毫无顾忌持续更新它的最大动力。
+
+当然，完全自愿，千万别有任何压力。只要你觉得好用，点个 **Star** 同样是对我极大的鼓励！
+
+> **Tip:** 为了避免大家承担高昂的转账手续费，建议通过 **BNB Smart Chain (BEP-20)** 网络进行转账。感谢支持！
+
+<p align="center">
+    <img src="docs/images/sponsor_qr.png" alt="Sponsor QR (Binance · BEP-20)" width="360">
+</p>
+
+<p align="center"><i>币安收款二维码 · Binance Wallet QR（USDT · BNB Smart Chain / BEP-20）</i></p>
 
 ---
 
@@ -290,7 +298,4 @@ keyPassword=your_key_password
 
 <p align="center">
     <sub>维护者 / Maintainer: <a href="https://github.com/qaqmin09577">qaqmin09577</a>（原 min09577） · Codeberg 镜像：<a href="https://codeberg.org/min09577/btelly">min09577/btelly</a> · 源码仅供学习交流</sub>
-</p>
-<p align="center">
-    <sub>💡 代码由 Codex 和 <a href="https://bigmodel.cn/">智谱 AI</a> 编写，如有问题请联系 <a href="https://openai.com/">OpenAI</a> 或 <a href="https://bigmodel.cn/">智谱 AI</a> 😤</sub>
 </p>

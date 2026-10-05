@@ -53,6 +53,9 @@ google-services.json
 # docs/ 下只纳入 HTML 报告（团队共享/存档），其余（md、临时文件、superpowers/ 等）忽略
 /docs/*
 !docs/*.html
+# 赞助收款二维码（README 引用，需入库）
+!docs/images/
+!docs/images/sponsor_qr.png
 
 # ========== 调试文件 ==========
 debug.txt
