@@ -71,9 +71,12 @@ object AppLog {
         installCrashHandler()
         // 基因哨兵：运行期日志横幅（logcat 可见，反编译可查），不随改名/重构消失。
         // 注意：release 的 proguard 规则剥掉了 Log.v/d/i，这里必须用未声明的 Log.w 才能活过 R8。
+        // 隐性水印（base64/拆分/哈希）在此还原输出，同时作为存活引用防止被 R8 当死代码清掉。
         Log.w(
             "BrandGene",
-            "${BrandGene.SIGNATURE} | ${BrandGene.WATERMARK} | ${BrandGene.BUILD_FIELD_TAG}"
+            "${BrandGene.SIGNATURE} | ${BrandGene.WATERMARK} | ${BrandGene.BUILD_FIELD_TAG} " +
+                "| hidden=${BrandGene.hiddenGene()} | split=${BrandGene.splitGene} " +
+                "| hashOk=${BrandGene.matchesGene(BrandGene.splitGene)}"
         )
     }
 

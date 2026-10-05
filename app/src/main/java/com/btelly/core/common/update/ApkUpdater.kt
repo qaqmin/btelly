@@ -31,10 +31,20 @@ import kotlin.time.Duration.Companion.milliseconds
 
 object ApkUpdater {
 
+    /** 更新检测通道：GitHub 主渠道 + Codeberg 镜像渠道，双路并发、最新版优先。 */
+    enum class UpdateChannel(val label: String) {
+        GITHUB("GitHub"),
+        CODEBERG("Codeberg"),
+    }
+
     private const val REPO_OWNER = "min09577"
     private const val REPO_NAME = "btelly"
-    private const val RELEASE_API_URL =
-        "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/latest"
+    private val CHANNEL_RELEASE_API: Map<UpdateChannel, String> = mapOf(
+        UpdateChannel.GITHUB to
+            "https://api.github.com/repos/qaqmin09577/btelly/releases/latest",
+        UpdateChannel.CODEBERG to
+            "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/latest",
+    )
 
     private const val COOLDOWN_MS = 5_000L
     private const val TAG = "ApkUpdater"
@@ -77,6 +87,7 @@ object ApkUpdater {
         val versionName: String,
         val apkUrl: String,
         val releaseNotes: String,
+        val channel: UpdateChannel,
     )
 
     sealed class Progress {
@@ -130,10 +141,47 @@ object ApkUpdater {
         }
     }
 
+    /**
+     * 双通道并发检测：GitHub 与 Codeberg 同时查询，返回版本较新的一方；
+     * 版本相同（或都不可解析）时主渠道 GitHub 优先。单通道失败不影响另一通道，
+     * 全部失败才抛错，由外层重试兜底。
+     */
     private fun fetchLatestReleaseOnce(): ReleaseInfo {
+        val errors = mutableListOf<Throwable>()
+        val releases = UpdateChannel.entries.mapNotNull { channel ->
+            try {
+                fetchChannelReleaseOnce(channel)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                errors += t
+                null
+            }
+        }
+        if (releases.isEmpty()) {
+            throw errors.firstOrNull() ?: IllegalStateException("no update channel responded")
+        }
+        return releases.reduce { current, candidate ->
+            if (compareRelease(current, candidate) >= 0) current else candidate
+        }
+    }
+
+    /** 版本新者胜；版本不可解析或相同时，信道枚举序在前的（GITHUB）胜出。 */
+    private fun compareRelease(a: ReleaseInfo, b: ReleaseInfo): Int {
+        val va = parseVersion(a.versionName)
+        val vb = parseVersion(b.versionName)
+        if (va != null && vb != null) {
+            val byVersion = compareVersion(va, vb)
+            if (byVersion != 0) return byVersion
+        }
+        return b.channel.ordinal.compareTo(a.channel.ordinal)
+    }
+
+    private fun fetchChannelReleaseOnce(channel: UpdateChannel): ReleaseInfo {
         val req = Request.Builder()
-            .url(RELEASE_API_URL)
+            .url(CHANNEL_RELEASE_API.getValue(channel))
             .header("Accept", "application/json")
+            // GitHub API 强制要求 User-Agent，Codeberg（Forgejo）同样接受
+            .header("User-Agent", "BTelly-Updater")
             .get()
             .build()
         val call = okHttp.newCall(req)
@@ -165,6 +213,7 @@ object ApkUpdater {
                 versionName = tagName,
                 apkUrl = apkUrl,
                 releaseNotes = releaseNotes,
+                channel = channel,
             )
         }
     }

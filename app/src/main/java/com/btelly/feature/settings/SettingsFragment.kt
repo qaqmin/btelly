@@ -854,6 +854,15 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         })
 
         root.addView(ScaledTextView(requireContext()).apply {
+            text = "更新渠道：${releaseInfo.channel.label}（GitHub / Codeberg 双通道检测，取最新版）"
+            setTextColor(textColor)
+            textSize = 12f
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.setMargins(px40, px18, px40, px10)
+            layoutParams = lp
+        })
+
+        root.addView(ScaledTextView(requireContext()).apply {
             val notes = if (releaseInfo.releaseNotes.isNotBlank()) {
                 getString(R.string.update_release_notes_format, releaseInfo.releaseNotes.take(300))
             } else ""
