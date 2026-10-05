@@ -22,6 +22,9 @@ app/release/
 *.aar
 !gradle/wrapper/gradle-wrapper.jar
 !app/src/main/jniLibs/**/*.so
+# IjkPlayer 预编译产物（app/libs/ijkplayer-cmake-release.aar）：双播放内核的 native 部分，
+# files() 直接引用，必须入库——否则全新 clone / GitHub CI 缺文件无法构建。
+!app/libs/*.aar
 
 # ========== Gradle 相关 ==========
 .gradle/
