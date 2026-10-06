@@ -1,5 +1,9 @@
+**English** | [简体中文](README.zh-CN.md) | [日本語](README.ja-JP.md) | [한국어](README.ko-KR.md)
+
+---
+
 # <p align="center">B视机 · BTelly</p>
-<p align="center"><strong>第三方 Bilibili Android TV / 车机 客户端 | 双播放内核 · 弹幕评论 · 空降助手 · 青少年模式 | Android 6.0 → 15 全世代覆盖 | Kotlin · MVVM · Koin · 无广告</strong></p>
+<p align="center"><strong>Third-party Bilibili client for Android TV / car head units | Unofficial | Kotlin + Koin | Dual playback cores · danmaku & comments · sponsor-skip | No ads</strong></p>
 <p align="center">
     <a href="https://github.com/qaqmin09577/btelly/releases/latest">
         <img alt="Latest Release" src="https://img.shields.io/github/v/release/qaqmin09577/btelly?style=flat&color=blue">
@@ -14,151 +18,143 @@
 
 ---
 
-> ### 👤 维护者近况 / Maintainer's Corner
-> 本项目利用业余时间维护，遥控器真机验收 + Mac 远程构建机持续产出。
-> 每一枚被提交的 Bug，都会被逐一排查、逐一修复。
+> ### 👤 Maintainer's Corner
+> This project is maintained in spare time, with real-device acceptance on a TV box and a stable
+> output line from a remote Mac build machine. Every reported bug gets investigated and fixed, one by one.
 >
-> - 📺 **测试设备**：Android 电视盒（遥控器操作验收为主），兼顾车机显示模式适配
-> - 🚗 **车机模式**：设置内一键切换，文字与触控间距统一放大约 25%，电视模式零变化
+> - 📺 **Test devices**: an Android TV box (remote-control acceptance focus), plus car display-mode adaptation
+> - 🚗 **Car mode**: one toggle in settings — text and touch spacing scale up by ~25% uniformly, zero change in TV mode
 >
-> 📌 **账号迁移公告（2026-10-05）**：原 GitHub 账号 **min09577** 因不可抗拒原因被封禁（仓库均已 404）。
-> 本项目已整体迁移至新账号 **[qaqmin09577](https://github.com/qaqmin09577/btelly)**；
-> Codeberg 镜像（min09577/btelly）继续同步更新，作为备用渠道。
-> 应用内「检查更新」已支持 **GitHub / Codeberg 双通道检测**，自动取两者中版本最新的一版；
-> 签名钥匙不变，覆盖更新无缝衔接。
+> 📌 **Account migration notice (2026-10-05)**: the original GitHub account **min09577** was banned for reasons beyond our control (all repositories returned 404).
+> This project has fully migrated to the new account **[qaqmin09577](https://github.com/qaqmin09577/btelly)**;
+> the Codeberg mirror (min09577/btelly) keeps syncing as a backup channel.
+> The in-app update check now supports **dual-channel detection across GitHub / Codeberg**, automatically picking the newest version;
+> the signing key is unchanged, so over-the-top updates stay seamless.
 
 ---
 
-## ☕ 随缘赞助 (Sponsor)
+## ☕ Sponsor (Totally Optional)
 
-这个项目是利用业余时间“用爱发电”写出来的，能帮到大家我非常开心。不过随着项目的不断完善，跑测试消耗的 API Tokens 确实超出了我的预期，加上长时间的调试，也搭进去了不少休息时间（笑）。
+This project is written with love in spare time, and I'm happy whenever it helps someone.
+The ever-growing test API usage has exceeded my expectations though, and countless debugging hours have eaten into my rest time (lol).
 
-如果这个项目恰好为你解决了问题，或者帮你省下了一些折腾的时间，欢迎随缘投喂。你的打赏将全部用于“回血”高昂的 API 账单，这也是让我能毫无顾忌持续更新它的最大动力。
+If this project happens to solve a problem for you, or saves you some tinkering time, a tip is welcome — but entirely optional.
+All tips go toward "refilling" the API bills, and are the biggest motivation to keep updating it without hesitation.
 
-当然，完全自愿，千万别有任何压力。只要你觉得好用，点个 **Star** 同样是对我极大的鼓励！
+Of course, it's completely voluntary — please don't feel any pressure. If you find it useful, a **Star** is encouragement enough!
 
-> **Tip:** 为了避免大家承担高昂的转账手续费，建议通过 **BNB Smart Chain (BEP-20)** 网络进行转账。感谢支持！
+> **Tip:** to spare everyone hefty transfer fees, **BNB Smart Chain (BEP-20)** is the suggested network. Thanks for the support!
 
 <p align="center">
     <img src="docs/images/sponsor_qr.png" alt="Sponsor QR (Binance · BEP-20)" width="360">
 </p>
 
-<p align="center"><i>币安收款二维码 · Binance Wallet QR（USDT · BNB Smart Chain / BEP-20）</i></p>
+<p align="center"><i>Binance Wallet QR (USDT · BNB Smart Chain / BEP-20)</i></p>
 
 ---
 
-## ✨ 为什么选择 B视机 / Why BTelly
+## ✨ Why BTelly
 
-| 特性 | 说明 |
+| Feature | Description |
 |------|------|
-| 📺 **电视/车机双形态** | 专为遥控器操作设计；车机模式文字与间距统一放大约 25%，七套皮肤全局适配 |
-| 🎬 **全站视频** | 番剧、电影、电视剧、UGC；首页推荐/热门/排行榜/番剧/影视五大 tab |
-| 🔀 **双播放内核** | ExoPlayer / IjkPlayer 自由切换，下次播放生效；IjkPlayer 随包分发（全 ABI），无需额外下载 |
-| 📡 **直播 & CCTV** | 直播弹幕实时呈现；央视 1-17 套遥控器上下直接切台 |
-| 💬 **弹幕引擎** | Protobuf 协议解析，人物区域智能防挡；T9 键盘发弹幕 |
-| 🗨️ **播放器内评论** | 播放中 → 更多操作 → 评论，评论区直接覆在播放器上，BACK 即回播放器，不错过正在播的画面 |
-| ✈️ **空降助手** | 自动跳过恰饭/开场/片尾片段，进度条显示片段标记 |
-| 🎮 **互动视频 / 抖音模式** | 互动分支选择；抖音模式上下滑动切换推荐流 |
-| 👶 **青少年模式** | 设置内即点即用的家长控制内容过滤，无需秘籍 |
-| 🔍 **搜索/收藏/历史** | 搜索直达播放、收藏夹卡片堆叠、观看进度自动续播 |
-| ✨ **Min化 动效** | 焦点弹簧 / 列表浮入 / Hero 转场，一个总开关回到零动画直出 |
-| 📲 **扫码登录** | TV 端扫码快速登录，凭据仅存本地 |
-| 🔒 **隐私优先** | 无埋点跟踪，仅与 B 站 API 通信，不收集不上传任何用户数据 |
-| 📱 **超长世代兼容** | 横跨 Android 6.0 (API 23) 至 Android 15 (API 35) |
+| 📺 **TV / car dual form factors** | Built for remote control; car mode scales text and spacing up ~25% uniformly, seven themes adapt globally |
+| 🎬 **Full video library** | Anime, movies, TV series, UGC; five home tabs: Recommended / Trending / Ranking / Anime / Cinema |
+| 🔀 **Dual playback cores** | Switch freely between ExoPlayer / IjkPlayer, effective on next playback; IjkPlayer ships in-package (all ABIs), no runtime download |
+| 📡 **Live & CCTV** | Live-stream danmaku in real time; CCTV channels 1-17 switch up/down with the remote |
+| 💬 **Danmaku engine** | Protobuf protocol parsing with smart occlusion avoidance; send danmaku with the T9 keyboard |
+| 🗨️ **In-player comments** | Playback → More actions → Comments; the comment page overlays the player, BACK returns to playback without losing the picture |
+| ✈️ **Sponsor-skip** | Automatically skips sponsor/intro/outro segments with markers on the progress bar |
+| 🎮 **Interactive video / Douyin mode** | Branch choices for interactive videos; swipe up/down for the recommendation feed in Douyin mode |
+| 👶 **Teen mode** | Parental-control content filtering toggled directly in settings, no cheat codes |
+| 🔍 **Search / Favorites / History** | Search straight into playback, stacked favorites cards, automatic resume |
+| ✨ **Min-ified motion** | Focus springs / list stagger / Hero transitions, one master switch back to zero animation |
+| 📲 **QR-code login** | Quick TV-side QR login; credentials stay on-device |
+| 🔒 **Privacy first** | No tracking, talks only to Bilibili APIs, collects and uploads nothing |
+| 📱 **Long-generation compatibility** | Spans Android 6.0 (API 23) to Android 15 (API 35) |
 
 ---
 
-## 📖 简介
+## 📖 Introduction
 
-B视机（BTelly）是一个**非官方**的 Bilibili Android TV / 车机客户端，使用 Kotlin 编写，
-MVVM + Koin 架构，青碧深色自有设计语言。专为电视遥控器与车机操作场景设计：
-大焦点、大间距、纯遥控器可达，覆盖首页浏览、视频播放、弹幕互动到追剧追番的完整链路。
+BTelly (B视机) is an **unofficial** Bilibili client for Android TV and car head units, written in Kotlin with an MVVM + Koin architecture and a signature deep-teal design language. It is purpose-built for TV remotes and car controls: large focus targets, generous spacing, fully remote-reachable — covering the whole journey from browsing and playback to danmaku interaction and binge-watching.
 
-> **⚠️ 声明：** 本软件及源码仅供学习交流使用，严禁用于商业用途。与哔哩哔哩（Bilibili）无关。
+> **⚠️ Notice:** this software and its source code are for learning and communication only. Commercial use is strictly prohibited. Not affiliated with Bilibili.
 
-### 🛠️ 技术栈 / Tech Stack
+### 🛠️ Tech Stack
 
-- **Kotlin 2.1.0** · MVVM + Koin 依赖注入
-- **Coroutines + Flow + LiveData** 异步
-- **Retrofit + OkHttp + Gson** 网络层
-- **Media3 (ExoPlayer) / IjkPlayer** 双播放内核（CCTV 走 WebView）
-- **弹幕引擎**（Protobuf 协议解析）
-- **DataStore Preferences** 数据存储
-- **AndroidX** UI 组件
+- **Kotlin 2.1.0** · MVVM + Koin dependency injection
+- **Coroutines + Flow + LiveData** for async
+- **Retrofit + OkHttp + Gson** networking
+- **Media3 (ExoPlayer) / IjkPlayer** dual playback cores (CCTV via WebView)
+- **Danmaku engine** (Protobuf protocol parsing)
+- **DataStore Preferences** storage
+- **AndroidX** UI components
 - **minSdk 23 (Android 6.0)** / **targetSdk 35 (Android 15)**
 
-## 📷 APP 截图
+## 📷 Screenshots
 
-首页（推荐 / 热门 / 排行榜 / 番剧 / 影视）
+Home (Recommended / Trending / Ranking / Anime / Cinema)
 <img width="960" height="540" alt="home" src="screenshots/home.png" />
 
-播放 & 弹幕
+Playback & danmaku
 <img width="960" height="540" alt="player" src="screenshots/player.png" />
 
-视频详情
+Video detail
 <img width="960" height="540" alt="detail" src="screenshots/detail.png" />
 
-关于本机 & 检查更新
+About & update check
 <img width="960" height="540" alt="about" src="screenshots/about.png" />
 
-## 🆕 v3.0.8 — Hero 转场：封面飛进详情页
+## 🆕 v3.0.8 — Hero transition: covers fly into the detail page
 
-> ### 🖼️ 点卡片，封面自己飞过去
-> 点视频卡片进详情页，封面从卡片原位飞到头图位置（300ms 减速插值、圆角随飞行过渡），
-> 按返回再飞回卡片；详情内点相关视频同样接力。覆盖首页/动态/搜索/收藏/历史全部卡片入口；
-> 详情数据慢或接口失败时等待 2.5s 自动撤下，不卡页面；随「Min化」总开关门控。
+> ### 🖼️ Tap a card, the cover flies over
+> Tapping a video card flies the cover from its original position to the header image spot (300ms decelerated interpolation, corner radius morphing through the flight), and BACK flies it back to the card; related videos inside the detail page chain the same motion. Covers every card entry (home/dynamics/search/favorites/history); if detail data is slow or the API fails, the overlay retracts after 2.5s without blocking the page; the whole chain is gated by the "Min-ified" master switch.
 
-## 🆕 v3.0.7 / v3.0.6 — Min化 动效全面铺开
+## 🆕 v3.0.7 / v3.0.6 — Min-ified motion rolled out across the app
 
-> ### 🎞️ 列表浮入 + 对话框弹簧
-> 首页/直播等列表首次进场 stagger 浮入（子项 12% 递延迟、上移 14% + 渐显）；
-> 全部 16 处对话框弹簧呈现（0.92 倍放大回弹 + 渐显）、首页/直播切页淡入——
-> 均随「Min化」总开关门控：关闭时零动画直出。
+> ### 🎞️ List stagger + spring dialogs
+> Home/live lists stagger in on first entry (12% progressive delay per item, 14% rise + fade); all 16 dialogs spring in (0.92x scale bounce + fade), home/live page switches cross-fade — all gated by the "Min-ified" master switch: off means zero animation.
 
-## 🆕 v3.0.5 — Min化 动画总开关
+## 🆕 v3.0.5 — Min-ified motion master switch
 
-> ### 🎛️ 一个开关，两种性格
-> 设置 → 界面新增「Min化」总开关（默认开）：关闭后全站动效零动画直出，
-> 等价于系统「减少动态效果」，对低性能设备与敏感用户友好。
+> ### 🎛️ One switch, two personalities
+> New "Min-ified" master toggle in Settings → UI (on by default): off disables all motion app-wide, equivalent to the system "remove animations" option, friendly to low-end devices and motion-sensitive users.
 
-## 🆕 v3.0.4 — 焦点弹簧：遥控器也有"Apple 味"
+## 🆕 v3.0.4 — Focus springs: even the remote gets an "Apple" feel
 
-> ### 🍏 动效基座落地
-> 视频卡片、tab chip、导航轨、设置行聚焦时轻微放大回弹并抬升层级，
-> 失焦减速回落——UiMotion / UiFocusMotion 中央令牌统一驱动。
+> ### 🍏 The motion foundation lands
+> Video cards, tab chips, the nav rail and settings rows subtly scale-bounce and lift on focus, decelerating back on blur — all driven by central UiMotion / UiFocusMotion tokens.
 
-## 🆕 v2.1.0 — 更名 B视机 · 双播放内核纪元
+## 🆕 v2.1.0 — Renamed BTelly · dual playback core era
 
-> ### 🔀 ExoPlayer / IjkPlayer 自由切换
-> 新增「播放器内核」设置：IjkPlayer 支持视频与直播播放（DASH 双轨本地 MPD 合流、
-> 直播直连 FLV/HLS），内核 .so 随包分发全 ABI；为 Media3 Player 门面实现，
-> 弹幕/进度/控制既有链路零适配。青少年模式改为设置内直接开关，即点即用。
+> ### 🔀 Freely switch ExoPlayer / IjkPlayer
+> New "Playback core" setting: IjkPlayer supports video and live playback (DASH dual tracks merged via local MPD, live via direct FLV/HLS), native libs ship for all ABIs; it is a Media3 Player façade implementation, so danmaku/progress/control paths need zero adaptation. Teen mode became a direct settings toggle, effective immediately.
 >
-> ### 🏷️ 品牌统一
-> 界面、图标、代码包名与仓库命名统一为 B视机（BTelly），安装标识切换为 com.btelly。
+> ### 🏷️ Unified branding
+> UI, icons, package name and repository naming all switched to BTelly; the install identifier changed to com.btelly.
 
-## 🆕 最新构建（尚未发布新版本号）
+## 🆕 v3.0.9 — Ranking tab + in-player comments
 
-> ### 🏆 全站排行榜 + 播放器评论入口
-> 首页新增「排行榜」tab（推荐/热门/排行榜/番剧/影视五档）；
-> 播放器「更多操作」面板新增评论入口，评论区直接覆在播放器上、BACK 返回播放不中断
-> （顺手修复了评论区容器缺失导致的一处崩溃）。
+> ### 🏆 Ranking tab + in-player comments
+> New "Ranking" tab on the home page (Recommended / Trending / Ranking / Anime / Cinema, five in total);
+> the player's "More actions" panel gained a comments entry — the comment page overlays the player and BACK returns to playback without interruption
+> (a crash from a missing comment-page container was fixed along the way); the update check was upgraded to dual-channel.
 
-## 💡 使用贴士 / Pro Tips
+## 💡 Tips / Pro Tips
 
-| 场景 | 建议 |
+| Scenario | Suggestion |
 |------|------|
-| 🕹️ **纯遥控器操作** | OK 播放/确认，BACK 逐级返回；视频卡片长按可唤起快捷菜单 |
-| 💬 **看评论** | 播放中 → 更多操作 → 评论；按 BACK 返回播放器，播放不中断 |
-| ✍️ **发弹幕** | 播放中 → 更多操作 → 发送弹幕，T9 键盘输入，回车发送 |
-| ✈️ **空降助手** | 播放器进度条自动标记可跳过片段，跟随设置开关 |
-| 👶 **青少年模式** | 设置 → 青少年模式，即点即用，拦截不适内容 |
-| 🔄 **检查更新** | 设置 → 关于本机 → 检查更新（GitHub / Codeberg 双通道，取最新版） |
-| 🐛 **排障辅助** | 关于页查看日志 → 复制，提交 issue 时附上日志，事半功倍 |
+| 🕹️ **Pure remote control** | OK to play/confirm, BACK steps back; long-press a video card for the quick menu |
+| 💬 **Reading comments** | During playback → More actions → Comments; BACK returns to the player, playback never stops |
+| ✍️ **Sending danmaku** | During playback → More actions → Send danmaku, type with the T9 keyboard, Enter to send |
+| ✈️ **Sponsor-skip** | Skippable segments are marked automatically on the player progress bar, following the setting |
+| 👶 **Teen mode** | Settings → Teen mode, one tap to use, blocks unsuitable content |
+| 🔄 **Check for updates** | Settings → About → Check update (dual channel across GitHub / Codeberg, newest wins) |
+| 🐛 **Troubleshooting** | About page → View log → Copy, and attach it when filing an issue |
 
-## 💬 反馈与贡献 / Feedback and Contribution
+## 💬 Feedback & Contribution
 
-🐛 发现 Bug？💡 有好想法？欢迎通过 GitHub Issues 提交：
+Found a bug? Have an idea? File it via GitHub Issues:
 
 <p align="center">
     <a href="https://github.com/qaqmin09577/btelly/issues">
@@ -166,87 +162,84 @@ MVVM + Koin 架构，青碧深色自有设计语言。专为电视遥控器与�
     </a>
 </p>
 
-> 提交时请携带**应用日志**（关于页 → 查看日志 → 复制），越详细修复越快。
+> Please attach the **app log** (About page → View log → Copy) when filing — the more detail, the faster the fix.
 
-## 👨‍💻 原作者 / Original Author
+## 👨‍💻 Original Author
 
-本项目由 **[QAQMin (min09577)](https://github.com/qaqmin09577)** 开发并维护，
-2026-09 更名为 B视机（BTelly）。
+This project is developed and maintained by **[QAQMin (min09577)](https://github.com/qaqmin09577)**, and was renamed to BTelly in 2026-09.
 
-> 🙏 **绝大部分页面和操作逻辑参考自 [BBLL](https://github.com/xiaye13579/BBLL)**，
-> 部分关键功能参考 PiliPlus / BiliPai / Blbl，B 站 API 行为参考
-> [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)。
-> 对上述开源项目表示由衷感谢。
+> 🙏 **Most pages and interaction logic follow [BBLL](https://github.com/xiaye13579/BBLL)**, with some key features referencing PiliPlus / BiliPai / Blbl, and Bilibili API behavior referencing
+> [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect).
+> Heartfelt thanks to the above open-source projects.
 
-## 🔗 友情链接
+## 🔗 Friendly Links
 
-+ [SocialSisterYi/bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect) - B 站 API 收集整理
-+ [xiaye13579/BBLL](https://github.com/xiaye13579/BBLL) - 页面与操作逻辑的主要参考实现
-+ [bggRGjQaUbCoE/PiliPlus](https://github.com/bggRGjQaUbCoE/PiliPlus) / [jay3-yy/BiliPai](https://github.com/jay3-yy/BiliPai) / [cat3399/blbl](https://github.com/cat3399/blbl) - 部分关键功能参考
++ [SocialSisterYi/bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect) - Bilibili API reference collection
++ [xiaye13579/BBLL](https://github.com/xiaye13579/BBLL) - the main reference for pages and interaction logic
++ [bggRGjQaUbCoE/PiliPlus](https://github.com/bggRGjQaUbCoE/PiliPlus) / [jay3-yy/BiliPai](https://github.com/jay3-yy/BiliPai) / [cat3399/blbl](https://github.com/cat3399/blbl) - references for some key features
 
 ---
 
-## 📋 版本迭代记录 / Version History
+## 📋 Version History
 
-| 版本 / Version | 日期 / Date | 说明 / Description |
+| Version | Date | Description |
 |---|---|---|
-| v3.0.8 | 2026-09-26 | 🖼️ **Hero 转场** — 封面飛进详情页 · 全部卡片入口覆盖 · 返回飞回原位 |
-| v3.0.7 | 2026-09-26 | 🎞️ **列表 stagger 浮入** — 首页/直播首次进场递延上移渐显 |
-| v3.0.6 | 2026-09-26 | 🪀 **对话框弹簧呈现** — 16 处接入 · 首页/直播切页淡入 |
-| v3.0.5 | 2026-09-25 | 🎛️ **Min化 动效总开关** — 一键回到零动画直出 |
-| v3.0.4 | 2026-09-25 | 🍏 **焦点弹簧** — 卡片/tab/导航轨聚焦回弹 · UiMotion 令牌基座 |
-| v3.0.3 | 2026-09-25 | 🚗 **车机间距铺开收官** — 对话框 + 详情页头部接入 · 电视模式零变化 |
-| v3.0.2 | 2026-09-25 | 📺 **直播间令牌化收尾** — 房间卡片/列表背景/空态文案统一主题 |
-| v3.0.1 | 2026-09-25 | 🩺 **直播音画同步专项** — HEVC 路 14 分钟真机遥测无漂移 |
-| v3.0.0 | 2026-09-25 | 🎨 **图标体系整体重画 56 个** · 车机模式全屏铺开 · 收藏夹/用户空间改版 · 旧色令牌清零 |
-| v2.1.0 | 2026-09-25 | 🏷️ **更名 B视机 (BTelly)** — 包名切换 com.btelly · **双播放内核** · 青少年模式开关 · 欢迎页/设置改版 |
-| v2.0.4 | 2026-09-18 | 🐛 **弹幕滚动速度修复** · 个人空间页重做 · 用户信息弹窗官网风 |
-| v2.0.3 | 2026-09-10 | 🔤 **UI 文字大小五档** · **视频卡片大小四档** · 首页转圈修复 |
-| v2.0.2 | 2026-09-10 | 🐛 搜索串台/焦点丢失修复 · 弹幕字号上限 100 · 超宽屏每排 8 卡 |
-| v2.0.1 | 2026-09-10 | 🎫 **试看提示明确化** · 试看结束停止连播 · 若干加载修复 |
-| v2.0.0 | 2026-09-09 | 📦 **包名变更版本**（需卸载旧版重装）· 返回键焦点异常修复 |
-| [▶ 完整日志](CHANGELOG.md) | | 更早版本（v1.2.0 ~ v1.6.x，2025-04 ~ 2026-09）见 CHANGELOG.md |
+| v3.0.8 | 2026-09-26 | 🖼️ **Hero transition** — covers fly into the detail page · all card entries covered · fly back on return |
+| v3.0.7 | 2026-09-26 | 🎞️ **List stagger entry** — home/live first-entry progressive rise + fade |
+| v3.0.6 | 2026-09-26 | 🪀 **Spring dialogs** — 16 dialogs · home/live page-switch fade |
+| v3.0.5 | 2026-09-25 | 🎛️ **Min-ified motion master switch** — one tap back to zero animation |
+| v3.0.4 | 2026-09-25 | 🍏 **Focus springs** — card/tab/nav-rail focus bounce · UiMotion token foundation |
+| v3.0.3 | 2026-09-25 | 🚗 **Car spacing rollout finale** — dialogs + detail-page header · zero change in TV mode |
+| v3.0.2 | 2026-09-25 | 📺 **Live-room tokenization finale** — room cards / list background / empty-state copy unified |
+| v3.0.1 | 2026-09-25 | 🩺 **Live A/V sync investigation** — 14-minute HEVC real-device telemetry, no drift |
+| v3.0.0 | 2026-09-25 | 🎨 **Icon system redrawn (56 icons)** · car mode full-screen rollout · favorites/user-space rework · legacy colors tokenized away |
+| v2.1.0 | 2026-09-25 | 🏷️ **Renamed to BTelly** — package switched to com.btelly · **dual playback cores** · teen-mode toggle · welcome/settings rework |
+| v2.0.4 | 2026-09-18 | 🐛 **Danmaku scroll-speed fix** · user-space page rework · official-style user info dialog |
+| v2.0.3 | 2026-09-10 | 🔤 **UI text size (5 steps)** · **video card size (4 steps)** · home spinner fix |
+| v2.0.2 | 2026-09-10 | 🐛 Search bleed / focus-loss fixes · danmaku font cap 100 · 8 cards per row on ultra-wide |
+| v2.0.1 | 2026-09-10 | 🎫 **Explicit preview hints** · stop autoplay after preview ends · misc loading fixes |
+| v2.0.0 | 2026-09-09 | 📦 **Package rename release** (uninstall before install) · BACK key focus fix |
+| [▶ Full log](CHANGELOG.md) | | Earlier versions (v1.2.0 ~ v1.6.x, 2025-04 ~ 2026-09) in CHANGELOG.md |
 
 ---
 
-## 🛠️ 构建说明 / Build Instructions
+## 🛠️ Build Instructions
 
-### 环境要求 / Prerequisites
+### Prerequisites
 
 - **JDK 17+**
-- **Android SDK**（compileSdk 35）
-- Android Studio（推荐）
+- **Android SDK** (compileSdk 35)
+- Android Studio (recommended)
 
-### 构建命令 / Build Commands
+### Build Commands
 
 ```bash
-# Debug 构建 / Debug Build
+# Debug build
 ./gradlew assembleDebug
 
-# Release 构建 / Release Build
+# Release build
 ./gradlew assembleRelease
 ```
 
-构建产物位于 `app/build/outputs/apk/` 目录，产物名格式为 `BTelly-v<版本号>-<buildType>.apk`。
+Build outputs live in `app/build/outputs/apk/`, named `BTelly-v<version>-<buildType>.apk`.
 
-### 签名说明 / Signing
+### Signing
 
-Release 签名由 **Mac 远程构建机**统一管理（一项目一把密钥，仅生成一次，永不重建），
-keystore 三件套**不在本仓库内**。本地自行构建 Release 请自备签名配置：
+Release signing is managed by the **remote Mac build machine** (one key per project, generated once, never regenerated), and the keystore trio is **not in this repository**. For local release builds, bring your own signing config:
 
 ```properties
-# keystore.properties（勿提交到版本控制系统 / Do NOT commit）
+# keystore.properties (do NOT commit)
 storeFile=your_keystore_file.jks
 storePassword=your_store_password
 keyAlias=your_key_alias
 keyPassword=your_key_password
 ```
 
-> ⚠️ **注意 / Note:** 请勿将 `keystore.properties` 与任何 `.jks` 文件提交到版本控制系统。
+> ⚠️ **Note:** never commit `keystore.properties` or any `.jks` file to version control.
 
 ---
 
-## ⚠️ 免责声明 / Disclaimer
+## ⚠️ Disclaimer
 
 <details>
 <summary>🇨🇳 中文</summary>
@@ -297,5 +290,5 @@ keyPassword=your_key_password
 ---
 
 <p align="center">
-    <sub>维护者 / Maintainer: <a href="https://github.com/qaqmin09577">qaqmin09577</a>（原 min09577） · Codeberg 镜像：<a href="https://codeberg.org/min09577/btelly">min09577/btelly</a> · 源码仅供学习交流</sub>
+    <sub>Maintainer: <a href="https://github.com/qaqmin09577">qaqmin09577</a> (formerly min09577) · Codeberg mirror: <a href="https://codeberg.org/min09577/btelly">min09577/btelly</a> · Source for learning and communication only</sub>
 </p>
