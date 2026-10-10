@@ -5,11 +5,11 @@
 # <p align="center">B视机 · BTelly</p>
 <p align="center"><strong>非公式 Bilibili Android TV / 車載端末 クライアント | デュアル再生コア · 弾幕コメント · スキップアシスタント · 青少年モード | Android 6.0 → 15 全世代対応 | Kotlin · MVVM · Koin · 広告なし</strong></p>
 <p align="center">
-    <a href="https://github.com/qaqmin09577/btelly/releases/latest">
-        <img alt="Latest Release" src="https://img.shields.io/github/v/release/qaqmin09577/btelly?style=flat&color=blue">
+    <a href="https://github.com/qaqmin/btelly/releases/latest">
+        <img alt="Latest Release" src="https://img.shields.io/github/v/release/qaqmin/btelly?style=flat&color=blue">
     </a>
-    <a href="https://github.com/qaqmin09577/btelly/issues">
-        <img alt="GitHub Issues" src="https://img.shields.io/github/issues/qaqmin09577/btelly?style=flat&color=red&label=%F0%9F%90%9B%20Bug%20%2F%20Feature">
+    <a href="https://github.com/qaqmin/btelly/issues">
+        <img alt="GitHub Issues" src="https://img.shields.io/github/issues/qaqmin/btelly?style=flat&color=red&label=%F0%9F%90%9B%20Bug%20%2F%20Feature">
     </a>
     <img alt="API" src="https://img.shields.io/badge/API-23%2B-brightgreen">
     <img alt="Android" src="https://img.shields.io/badge/Android-15%20ready-blue">
@@ -25,8 +25,8 @@
 > - 📺 **テスト端末**：Android テレビボックス（リモコン操作での検証が中心）、車載表示モードへの対応も両立
 > - 🚗 **車載モード**：設定内でワンタップ切り替え。文字とタッチ間隔を一律約 25% 拡大し、テレビモードは一切変化なし
 >
-> 📌 **アカウント移行のお知らせ（2026-10-05）**：旧 GitHub アカウント **min09577** はやむを得ない理由により BAN され、リポジトリはすべて 404 となりました。
-> 本プロジェクトは新アカウント **[qaqmin09577](https://github.com/qaqmin09577/btelly)** へ全面移行しました。
+> 📌 **アカウント移行のお知らせ（2026-10-10）**：本プロジェクトの GitHub アカウントは二度にわたり停止されました——**min09577** と **qaqmin09577** が相次いでやむを得ない理由で BAN され（リポジトリはすべて 404）、ここに2人の犠牲アカウントを記します。
+> プロジェクトは新アカウント **[qaqmin](https://github.com/qaqmin/btelly)** へ全面移行しました。
 > Codeberg ミラー（min09577/btelly）は同期更新を継続し、予備チャネルとして提供します。
 > アプリ内の「更新を確認」は **GitHub / Codeberg のデュアルチャネル検出**に対応し、両者のうち最新バージョンを自動的に取得します。
 > 署名鍵は変更のないため、上書き更新もシームレスに行えます。
@@ -165,8 +165,8 @@ MVVM + Koin アーキテクチャ、青碧を基調としたダークな独自�
 🐛 バグを見つけましたか？💡 アイデアがありますか？GitHub Issues からお気軽にどうぞ：
 
 <p align="center">
-    <a href="https://github.com/qaqmin09577/btelly/issues">
-        <img alt="GitHub Issues" src="https://img.shields.io/github/issues/qaqmin09577/btelly?style=flat&color=red&label=%F0%9F%90%9B%20Bug%20%2F%20Feature">
+    <a href="https://github.com/qaqmin/btelly/issues">
+        <img alt="GitHub Issues" src="https://img.shields.io/github/issues/qaqmin/btelly?style=flat&color=red&label=%F0%9F%90%9B%20Bug%20%2F%20Feature">
     </a>
 </p>
 
@@ -174,7 +174,7 @@ MVVM + Koin アーキテクチャ、青碧を基調としたダークな独自�
 
 ## 👨‍💻 原作者 / Original Author
 
-本プロジェクトは **[QAQMin (min09577)](https://github.com/qaqmin09577)** が開発・メンテナンスしています。
+本プロジェクトは **[QAQMin (min09577)](https://github.com/qaqmin)** が開発・メンテナンスしています。
 2026-09 に B视机（BTelly）へ改名しました。
 
 > 🙏 **ほとんどの画面と操作ロジックは [BBLL](https://github.com/xiaye13579/BBLL) を参考にしています**。
@@ -301,5 +301,5 @@ keyPassword=your_key_password
 ---
 
 <p align="center">
-    <sub>メンテナー / Maintainer: <a href="https://github.com/qaqmin09577">qaqmin09577</a>（旧 min09577） · Codeberg ミラー：<a href="https://codeberg.org/min09577/btelly">min09577/btelly</a> · ソースコードは学習・交流のみを目的としています</sub>
+    <sub>メンテナー / Maintainer: <a href="https://github.com/qaqmin">qaqmin</a>（旧 min09577） · Codeberg ミラー：<a href="https://codeberg.org/min09577/btelly">min09577/btelly</a> · ソースコードは学習・交流のみを目的としています</sub>
 </p>

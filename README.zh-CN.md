@@ -5,11 +5,11 @@
 # <p align="center">B视机 · BTelly</p>
 <p align="center"><strong>第三方 Bilibili Android TV / 车机 客户端 | 双播放内核 · 弹幕评论 · 空降助手 · 青少年模式 | Android 6.0 → 15 全世代覆盖 | Kotlin · MVVM · Koin · 无广告</strong></p>
 <p align="center">
-    <a href="https://github.com/qaqmin09577/btelly/releases/latest">
-        <img alt="Latest Release" src="https://img.shields.io/github/v/release/qaqmin09577/btelly?style=flat&color=blue">
+    <a href="https://github.com/qaqmin/btelly/releases/latest">
+        <img alt="Latest Release" src="https://img.shields.io/github/v/release/qaqmin/btelly?style=flat&color=blue">
     </a>
-    <a href="https://github.com/qaqmin09577/btelly/issues">
-        <img alt="GitHub Issues" src="https://img.shields.io/github/issues/qaqmin09577/btelly?style=flat&color=red&label=%F0%9F%90%9B%20Bug%20%2F%20Feature">
+    <a href="https://github.com/qaqmin/btelly/issues">
+        <img alt="GitHub Issues" src="https://img.shields.io/github/issues/qaqmin/btelly?style=flat&color=red&label=%F0%9F%90%9B%20Bug%20%2F%20Feature">
     </a>
     <img alt="API" src="https://img.shields.io/badge/API-23%2B-brightgreen">
     <img alt="Android" src="https://img.shields.io/badge/Android-15%20ready-blue">
@@ -25,10 +25,10 @@
 > - 📺 **测试设备**：Android 电视盒（遥控器操作验收为主），兼顾车机显示模式适配
 > - 🚗 **车机模式**：设置内一键切换，文字与触控间距统一放大约 25%，电视模式零变化
 >
-> 📌 **账号迁移公告（2026-10-05）**：原 GitHub 账号 **min09577** 因不可抗拒原因被封禁（仓库均已 404）。
-> 本项目已整体迁移至新账号 **[qaqmin09577](https://github.com/qaqmin09577/btelly)**；
+> 📌 **账号迁移公告（2026-10-10）**：本项目的 GitHub 账号两度被封——**min09577** 与 **qaqmin09577** 先后因不可抗拒原因封停（仓库均已 404），这里是两位牺牲的账号。
+> 项目现已整体迁移至新账号 **[qaqmin](https://github.com/qaqmin/btelly)**；
 > Codeberg 镜像（min09577/btelly）继续同步更新，作为备用渠道。
-> 应用内「检查更新」已支持 **GitHub / Codeberg 双通道检测**，自动取两者中版本最新的一版；
+> 应用内「检查更新」支持 **GitHub / Codeberg 双通道检测**，自动取两者中版本最新的一版；
 > 签名钥匙不变，覆盖更新无缝衔接。
 
 ---
@@ -165,8 +165,8 @@ MVVM + Koin 架构，青碧深色自有设计语言。专为电视遥控器与�
 🐛 发现 Bug？💡 有好想法？欢迎通过 GitHub Issues 提交：
 
 <p align="center">
-    <a href="https://github.com/qaqmin09577/btelly/issues">
-        <img alt="GitHub Issues" src="https://img.shields.io/github/issues/qaqmin09577/btelly?style=flat&color=red&label=%F0%9F%90%9B%20Bug%20%2F%20Feature">
+    <a href="https://github.com/qaqmin/btelly/issues">
+        <img alt="GitHub Issues" src="https://img.shields.io/github/issues/qaqmin/btelly?style=flat&color=red&label=%F0%9F%90%9B%20Bug%20%2F%20Feature">
     </a>
 </p>
 
@@ -174,7 +174,7 @@ MVVM + Koin 架构，青碧深色自有设计语言。专为电视遥控器与�
 
 ## 👨‍💻 原作者 / Original Author
 
-本项目由 **[QAQMin (min09577)](https://github.com/qaqmin09577)** 开发并维护，
+本项目由 **[QAQMin (min09577)](https://github.com/qaqmin)** 开发并维护，
 2026-09 更名为 B视机（BTelly）。
 
 > 🙏 **绝大部分页面和操作逻辑参考自 [BBLL](https://github.com/xiaye13579/BBLL)**，
@@ -301,5 +301,5 @@ keyPassword=your_key_password
 ---
 
 <p align="center">
-    <sub>维护者 / Maintainer: <a href="https://github.com/qaqmin09577">qaqmin09577</a>（原 min09577） · Codeberg 镜像：<a href="https://codeberg.org/min09577/btelly">min09577/btelly</a> · 源码仅供学习交流</sub>
+    <sub>维护者 / Maintainer: <a href="https://github.com/qaqmin">qaqmin</a>（原 min09577） · Codeberg 镜像：<a href="https://codeberg.org/min09577/btelly">min09577/btelly</a> · 源码仅供学习交流</sub>
 </p>

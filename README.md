@@ -5,11 +5,11 @@
 # <p align="center">B视机 · BTelly</p>
 <p align="center"><strong>Third-party Bilibili client for Android TV / car head units | Unofficial | Kotlin + Koin | Dual playback cores · danmaku & comments · sponsor-skip | No ads</strong></p>
 <p align="center">
-    <a href="https://github.com/qaqmin09577/btelly/releases/latest">
-        <img alt="Latest Release" src="https://img.shields.io/github/v/release/qaqmin09577/btelly?style=flat&color=blue">
+    <a href="https://github.com/qaqmin/btelly/releases/latest">
+        <img alt="Latest Release" src="https://img.shields.io/github/v/release/qaqmin/btelly?style=flat&color=blue">
     </a>
-    <a href="https://github.com/qaqmin09577/btelly/issues">
-        <img alt="GitHub Issues" src="https://img.shields.io/github/issues/qaqmin09577/btelly?style=flat&color=red&label=%F0%9F%90%9B%20Bug%20%2F%20Feature">
+    <a href="https://github.com/qaqmin/btelly/issues">
+        <img alt="GitHub Issues" src="https://img.shields.io/github/issues/qaqmin/btelly?style=flat&color=red&label=%F0%9F%90%9B%20Bug%20%2F%20Feature">
     </a>
     <img alt="API" src="https://img.shields.io/badge/API-23%2B-brightgreen">
     <img alt="Android" src="https://img.shields.io/badge/Android-15%20ready-blue">
@@ -25,10 +25,10 @@
 > - 📺 **Test devices**: an Android TV box (remote-control acceptance focus), plus car display-mode adaptation
 > - 🚗 **Car mode**: one toggle in settings — text and touch spacing scale up by ~25% uniformly, zero change in TV mode
 >
-> 📌 **Account migration notice (2026-10-05)**: the original GitHub account **min09577** was banned for reasons beyond our control (all repositories returned 404).
-> This project has fully migrated to the new account **[qaqmin09577](https://github.com/qaqmin09577/btelly)**;
+> 📌 **Account migration notice (2026-10-10)**: this project's GitHub accounts have been banned twice — **min09577** and **qaqmin09577** were both taken down for reasons beyond our control (all repositories 404). Two fallen accounts, remembered here.
+> The project has fully migrated to the new account **[qaqmin](https://github.com/qaqmin/btelly)**;
 > the Codeberg mirror (min09577/btelly) keeps syncing as a backup channel.
-> The in-app update check now supports **dual-channel detection across GitHub / Codeberg**, automatically picking the newest version;
+> The in-app update check supports **dual-channel detection across GitHub / Codeberg**, automatically picking the newest version;
 > the signing key is unchanged, so over-the-top updates stay seamless.
 
 ---
@@ -157,8 +157,8 @@ About & update check
 Found a bug? Have an idea? File it via GitHub Issues:
 
 <p align="center">
-    <a href="https://github.com/qaqmin09577/btelly/issues">
-        <img alt="GitHub Issues" src="https://img.shields.io/github/issues/qaqmin09577/btelly?style=flat&color=red&label=%F0%9F%90%9B%20Bug%20%2F%20Feature">
+    <a href="https://github.com/qaqmin/btelly/issues">
+        <img alt="GitHub Issues" src="https://img.shields.io/github/issues/qaqmin/btelly?style=flat&color=red&label=%F0%9F%90%9B%20Bug%20%2F%20Feature">
     </a>
 </p>
 
@@ -166,7 +166,7 @@ Found a bug? Have an idea? File it via GitHub Issues:
 
 ## 👨‍💻 Original Author
 
-This project is developed and maintained by **[QAQMin (min09577)](https://github.com/qaqmin09577)**, and was renamed to BTelly in 2026-09.
+This project is developed and maintained by **[QAQMin (min09577)](https://github.com/qaqmin)**, and was renamed to BTelly in 2026-09.
 
 > 🙏 **Most pages and interaction logic follow [BBLL](https://github.com/xiaye13579/BBLL)**, with some key features referencing PiliPlus / BiliPai / Blbl, and Bilibili API behavior referencing
 > [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect).
@@ -290,5 +290,5 @@ keyPassword=your_key_password
 ---
 
 <p align="center">
-    <sub>Maintainer: <a href="https://github.com/qaqmin09577">qaqmin09577</a> (formerly min09577) · Codeberg mirror: <a href="https://codeberg.org/min09577/btelly">min09577/btelly</a> · Source for learning and communication only</sub>
+    <sub>Maintainer: <a href="https://github.com/qaqmin">qaqmin</a> (formerly min09577) · Codeberg mirror: <a href="https://codeberg.org/min09577/btelly">min09577/btelly</a> · Source for learning and communication only</sub>
 </p>

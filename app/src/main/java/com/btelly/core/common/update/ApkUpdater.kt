@@ -41,7 +41,7 @@ object ApkUpdater {
     private const val REPO_NAME = "btelly"
     private val CHANNEL_RELEASE_API: Map<UpdateChannel, String> = mapOf(
         UpdateChannel.GITHUB to
-            "https://api.github.com/repos/qaqmin09577/btelly/releases/latest",
+            "https://api.github.com/repos/qaqmin/btelly/releases/latest",
         UpdateChannel.CODEBERG to
             "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/latest",
     )

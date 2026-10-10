@@ -5,11 +5,11 @@
 # <p align="center">B视机 · BTelly</p>
 <p align="center"><strong>서드파티 Bilibili Android TV / 차량용 클라이언트 | 듀얼 플레이어 코어 · 탄막 댓글 · 공습 어시스턴트 · 청소년 모드 | Android 6.0 → 15 전 세대 지원 | Kotlin · MVVM · Koin · 광고 없음</strong></p>
 <p align="center">
-    <a href="https://github.com/qaqmin09577/btelly/releases/latest">
-        <img alt="Latest Release" src="https://img.shields.io/github/v/release/qaqmin09577/btelly?style=flat&color=blue">
+    <a href="https://github.com/qaqmin/btelly/releases/latest">
+        <img alt="Latest Release" src="https://img.shields.io/github/v/release/qaqmin/btelly?style=flat&color=blue">
     </a>
-    <a href="https://github.com/qaqmin09577/btelly/issues">
-        <img alt="GitHub Issues" src="https://img.shields.io/github/issues/qaqmin09577/btelly?style=flat&color=red&label=%F0%9F%90%9B%20Bug%20%2F%20Feature">
+    <a href="https://github.com/qaqmin/btelly/issues">
+        <img alt="GitHub Issues" src="https://img.shields.io/github/issues/qaqmin/btelly?style=flat&color=red&label=%F0%9F%90%9B%20Bug%20%2F%20Feature">
     </a>
     <img alt="API" src="https://img.shields.io/badge/API-23%2B-brightgreen">
     <img alt="Android" src="https://img.shields.io/badge/Android-15%20ready-blue">
@@ -25,8 +25,8 @@
 > - 📺 **테스트 기기**: Android TV 박스(리모컨 조작 검수 중심), 차량 표시 모드 대응 병행
 > - 🚗 **차량 모드**: 설정 내 원클릭 전환, 텍스트와 터치 간격을 통일해 약 25% 확대, TV 모드는 변화 없음
 >
-> 📌 **계정 이전 공지(2026-10-05)**: 기존 GitHub 계정 **min09577** 이 불가항력적인 사유로 차단되었습니다(저장소 모두 404).
-> 본 프로젝트는 새 계정 **[qaqmin09577](https://github.com/qaqmin09577/btelly)**(으)로 전체 이전되었습니다.
+> 📌 **계정 이전 공지(2026-10-10)**: 본 프로젝트의 GitHub 계정은 두 차례 제재되었습니다 — **min09577**와 **qaqmin09577**가 잇달아 불가항력적인 사유로 차단되어(리포지토리 모두 404) 두 개의 희생된 계정이 되었습니다.
+> 프로젝트는 새 계정 **[qaqmin](https://github.com/qaqmin/btelly)**(으)로 전체 이전되었습니다.
 > Codeberg 미러(min09577/btelly)는 계속 동기화 갱신하며 예비 채널로 남습니다.
 > 앱 내 '업데이트 확인'은 **GitHub / Codeberg 듀얼 채널 감지**를 지원하며, 두 곳 중 더 최신 버전을 자동으로 선택합니다.
 > 서명 키는 그대로이며, 덮어쓰기 업데이트도 매끄럽게 이어집니다.
@@ -164,8 +164,8 @@ MVVM + Koin 아키텍처와 청록빛 계열의 다크 자체 디자인 언어�
 🐛 버그 발견? 💡 좋은 아이디어? GitHub Issues로 제출해 주세요:
 
 <p align="center">
-    <a href="https://github.com/qaqmin09577/btelly/issues">
-        <img alt="GitHub Issues" src="https://img.shields.io/github/issues/qaqmin09577/btelly?style=flat&color=red&label=%F0%9F%90%9B%20Bug%20%2F%20Feature">
+    <a href="https://github.com/qaqmin/btelly/issues">
+        <img alt="GitHub Issues" src="https://img.shields.io/github/issues/qaqmin/btelly?style=flat&color=red&label=%F0%9F%90%9B%20Bug%20%2F%20Feature">
     </a>
 </p>
 
@@ -300,5 +300,5 @@ keyPassword=your_key_password
 ---
 
 <p align="center">
-    <sub>메인테이너 / Maintainer: <a href="https://github.com/qaqmin09577">qaqmin09577</a>(구 min09577) · Codeberg 미러: <a href="https://codeberg.org/min09577/btelly">min09577/btelly</a> · 소스 코드는 학습 및 교류 목적 전용</sub>
+    <sub>메인테이너 / Maintainer: <a href="https://github.com/qaqmin">qaqmin</a>(구 min09577) · Codeberg 미러: <a href="https://codeberg.org/min09577/btelly">min09577/btelly</a> · 소스 코드는 학습 및 교류 목적 전용</sub>
 </p>

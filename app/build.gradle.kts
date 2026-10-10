@@ -59,7 +59,7 @@ android {
         versionName = "3.0.9"
 
         // 基因哨兵：作者标识编入 BuildConfig（随 APK 分发，反编译可见）
-        buildConfigField("String", "BT_AUTHOR_ID", "\"qaqmin09577\"")
+        buildConfigField("String", "BT_AUTHOR_ID", "\"qaqmin\"")
         buildConfigField("String", "BT_AUTHOR_NAME", "\"QAQMin\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

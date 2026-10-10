@@ -1,4 +1,4 @@
-// B视机（BTelly）— by QAQMin (qaqmin09577)
+// B视机（BTelly）— by QAQMin (qaqmin)
 package com.btelly.core.common
 
 import android.util.Base64
@@ -16,13 +16,13 @@ import com.btelly.BuildConfig
 object BrandGene {
 
     /** 作者 ID（GitHub / Codeberg 通用账号名）。 */
-    const val AUTHOR_ID: String = "qaqmin09577"
+    const val AUTHOR_ID: String = "qaqmin"
 
     /** 作者昵称（小写形式即 qaqmin）。 */
     const val AUTHOR_NAME: String = "QAQMin"
 
-    /** 主仓库（GitHub，新账号）与镜像仓库（Codeberg，旧账号备用渠道）。 */
-    const val GITHUB_REPO_URL: String = "https://github.com/qaqmin09577/btelly"
+    /** 主仓库（GitHub）与镜像仓库（Codeberg）。 */
+    const val GITHUB_REPO_URL: String = "https://github.com/qaqmin/btelly"
     const val CODEBERG_REPO_URL: String = "https://codeberg.org/min09577/btelly"
 
     /** 兼容旧字段：默认指向主仓库（GitHub）。 */
@@ -33,16 +33,16 @@ object BrandGene {
 
     /** 隐藏哨兵：嵌入字符串常量的水印，反编译 grep 可见。 */
     const val WATERMARK: String =
-        "BTelly::qaqmin09577::QAQMin::btelly-brand-gene-v2"
+        "BTelly::qaqmin::QAQMin::btelly-brand-gene-v2"
 
     // ==================== 隐性水印 ====================
     // 不明文包含 qaqmin：以下三种编码各存一份，运行期还原。
     // R8 保活：proguard-rules.pro 已 keep com.btelly.core.common.**，
     // 且 AppLog 启动横幅会调用它们，不会被当死代码清掉。
 
-    /** base64("BTelly::qaqmin09577::hidden-gene-v2")，反编译静态不可读。 */
+    /** base64("BTelly::qaqmin::hidden-gene-v2")，反编译静态不可读。 */
     private const val HIDDEN_GENE_B64 =
-        "QlRlbGx5OjpxYXFtaW4wOTU3Nzo6aGlkZGVuLWdlbmUtdjI="
+        "QlRlbGx5OjpxYXFtaW46OmhpZGRlbi1nZW5lLXYy"
 
     /** 拆分片段：拼接后即 "qaqmin"，单看任一片段都无意。 */
     private const val GENE_FRAGMENT_HEAD = "qa"
