@@ -14,8 +14,14 @@ import com.btelly.core.ui.layout.WrapContentGridLayoutManager
 class LiveRecommendAdapter(
     private val onRoomClick: (LiveRoomItem) -> Unit,
     private val onTopEdgeUp: () -> Boolean = { false },
-    private val onLeftEdge: () -> Boolean = { false }
+    private val onLeftEdge: () -> Boolean = { false },
+    private val onFollowTitleClick: (() -> Unit)? = null
 ) : RecyclerView.Adapter<LiveRecommendAdapter.ViewHolder>() {
+
+    companion object {
+        // 服务端下发的关注模块标题(xlive index/getList 的 module_info.title)
+        const val FOLLOW_SECTION_TITLE = "我的关注"
+    }
 
     private val items = ArrayList<LiveRecommendSection>()
     private val sharedRoomViewPool = RecyclerView.RecycledViewPool()
@@ -47,7 +53,7 @@ class LiveRecommendAdapter(
             parent,
             false
         )
-        return ViewHolder(binding, onRoomClick, onTopEdgeUp, onLeftEdge, sharedRoomViewPool)
+        return ViewHolder(binding, onRoomClick, onTopEdgeUp, onLeftEdge, onFollowTitleClick, sharedRoomViewPool)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
@@ -64,10 +70,14 @@ class LiveRecommendAdapter(
         onRoomClick: (LiveRoomItem) -> Unit,
         private val onTopEdgeUp: () -> Boolean,
         private val onLeftEdge: () -> Boolean,
+        private val onFollowTitleClick: (() -> Unit)?,
         sharedViewPool: RecyclerView.RecycledViewPool
     ) : RecyclerView.ViewHolder(binding.root) {
 
         private val roomAdapter = LiveRoomAdapter(onRoomClick)
+
+        // 仅「我的关注」分区的标题响应 OK 键，作为关注列表页的入口
+        private var isFollowSection = false
 
         init {
             // 列数须与 LiveRecommendFragment.applySections 的行高估算保持同一 adaptiveSpanCount 判定
@@ -90,13 +100,20 @@ class LiveRecommendAdapter(
                 when (keyCode) {
                     KeyEvent.KEYCODE_DPAD_UP -> bindingAdapterPosition == 0 && onTopEdgeUp()
                     KeyEvent.KEYCODE_DPAD_LEFT -> onLeftEdge()
+                    // 「我的关注」标题上按 OK：进入关注主播列表页
+                    KeyEvent.KEYCODE_DPAD_CENTER -> isFollowSection && run {
+                        onFollowTitleClick?.invoke()
+                        true
+                    }
                     else -> false
                 }
             }
         }
 
         fun bind(item: LiveRecommendSection) {
-            binding.topTitle.text = item.title
+            isFollowSection = item.title == FOLLOW_SECTION_TITLE
+            // 「我的关注」加箭头提示可进入；其余分区标题原样
+            binding.topTitle.text = if (isFollowSection) item.title + " ▸" else item.title
             roomAdapter.setData(item.rooms)
         }
 

@@ -34,6 +34,7 @@ import com.btelly.feature.home.HomeLaneViewModel
 import com.btelly.feature.home.RecommendDislikeFeedback
 import com.btelly.feature.home.RecommendFeedRepository
 import com.btelly.feature.home.RecommendViewModel
+import com.btelly.feature.live.FollowLiveViewModel
 import com.btelly.feature.live.LiveListViewModel
 import com.btelly.feature.live.LiveRecommendViewModel
 import com.btelly.feature.live.LiveViewModel
@@ -110,6 +111,7 @@ val viewModelModule = module {
     viewModel { LiveViewModel(get()) }
     viewModel { LiveListViewModel(get()) }
     viewModel { LiveRecommendViewModel(get()) }
+    viewModel { FollowLiveViewModel(get()) }
     viewModel { MeListViewModel(get(), get()) }
     viewModel { MeViewModel(get(), get()) }
     viewModel { SearchViewModel(get()) }

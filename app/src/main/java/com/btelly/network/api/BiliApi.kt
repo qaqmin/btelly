@@ -1,7 +1,9 @@
 package com.btelly.network.api
 
 import android.os.SystemClock
+import com.btelly.model.live.LiveFollowPage
 import com.btelly.model.live.LiveListWrapper
+import com.btelly.model.live.LiveRoomItem
 import com.btelly.model.video.VideoModel
 import com.btelly.network.BiliClient
 import com.btelly.core.common.log.AppLog
@@ -175,5 +177,31 @@ object BiliApi {
         val t2 = SystemClock.elapsedRealtime()
         AppLog.i(TAG, "liveHomeList net=${t1 - t0}ms parse=${t2 - t1}ms total=${t2 - t0}ms")
         return result
+    }
+
+    /**
+     * 直播关注列表：分页返回全部已关注主播（开播/未开播混合，调用方按 live_status 分组）。
+     * 需要登录态（SESSDATA），cookie 由全局 client 自动携带；未登录时服务端返回非 0 code。
+     */
+    suspend fun liveFollowList(page: Int, pageSize: Int = 29): LiveFollowPage {
+        val url = BiliClient.buildUrl(
+            path = "https://api.live.bilibili.com/xlive/web-uinterface/v1/follow/getList",
+            params = mapOf(
+                "page" to page.toString(),
+                "page_size" to pageSize.toString()
+            )
+        )
+        val json = BiliClient.getJson(url)
+        BiliClient.checkResponse(json, "liveFollowList")
+        val data = json.optJSONObject("data") ?: return LiveFollowPage()
+        val rooms = data.optJSONArray("list")?.let { arr ->
+            (0 until arr.length()).mapNotNull { idx ->
+                runCatching { LiveRoomItem.fromJson(arr.getJSONObject(idx)) }.getOrNull()
+            }
+        }.orEmpty()
+        // 服务端没有稳定的分页结束标记，按「满页即可能还有下一页」的启发式判断
+        val hasMore = rooms.size >= pageSize
+        AppLog.i(TAG, "liveFollowList page=$page rooms=${rooms.size} hasMore=$hasMore")
+        return LiveFollowPage(rooms = rooms, hasMore = hasMore)
     }
 }

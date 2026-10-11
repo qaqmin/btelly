@@ -2,6 +2,7 @@ package com.btelly.repository
 
 import com.google.gson.JsonObject
 import com.btelly.model.live.LiveAreaCategoryParent
+import com.btelly.model.live.LiveFollowPage
 import com.btelly.model.live.LiveListWrapper
 import com.btelly.core.common.log.AppLog
 import kotlinx.coroutines.sync.Mutex
@@ -97,6 +98,9 @@ class LiveRepository(
 
     suspend fun getAreaLive(parentAreaId: Long, areaId: Long, page: Int) =
         delegate.getAreaLive(parentAreaId, areaId, page)
+
+    suspend fun getLiveFollowList(page: Int, pageSize: Int = 29): Result<LiveFollowPage> =
+        delegate.getLiveFollowList(page, pageSize)
 
     suspend fun getLiveAreas(forceRefresh: Boolean = false): Result<List<LiveAreaCategoryParent>> {
         if (!forceRefresh) {

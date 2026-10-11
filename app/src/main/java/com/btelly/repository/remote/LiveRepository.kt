@@ -4,6 +4,7 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.btelly.model.live.LiveDUrlModel
+import com.btelly.model.live.LiveFollowPage
 import com.btelly.model.live.LivePlayUrlDataModel
 import com.btelly.model.live.LiveQualityModel
 import com.btelly.model.live.LiveRoomItem
@@ -106,6 +107,12 @@ class LiveRepository(
     suspend fun getLiveRecommend(): Result<LiveListWrapper> {
         return runCatching {
             com.btelly.network.api.BiliApi.liveHomeList()
+        }
+    }
+
+    suspend fun getLiveFollowList(page: Int, pageSize: Int = 29): Result<LiveFollowPage> {
+        return runCatching {
+            com.btelly.network.api.BiliApi.liveFollowList(page, pageSize)
         }
     }
 

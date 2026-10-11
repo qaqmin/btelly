@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/text_header"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingStart="@dimen/px10"
+        android:paddingTop="@dimen/px30"
+        android:paddingBottom="@dimen/px15"
+        android:textColor="?attr/tvTextPrimary"
+        android:textSize="@dimen/px35"
+        android:textStyle="bold"
+        tools:text="正在直播 (3)" />
+
+</FrameLayout>

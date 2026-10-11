@@ -34,7 +34,7 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
         private const val CACHE_TTL_MS = 10 * 60 * 1000L
         private const val INITIAL_SECTION_BATCH_SIZE = 5
         // 服务端下发的关注模块标题(xlive index/getList 的 module_info.title)
-        private const val FOLLOW_SECTION_TITLE = "我的关注"
+        private const val FOLLOW_SECTION_TITLE = LiveRecommendAdapter.FOLLOW_SECTION_TITLE
 
         fun newInstance(): LiveRecommendFragment = LiveRecommendFragment()
     }
@@ -58,7 +58,8 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
         adapter = LiveRecommendAdapter(
             onRoomClick = ::onRoomClick,
             onTopEdgeUp = ::focusTopTab,
-            onLeftEdge = ::focusLeftNav
+            onLeftEdge = ::focusLeftNav,
+            onFollowTitleClick = ::openFollowPage
         )
         binding.recyclerView.layoutManager = LinearLayoutManager(requireContext())
         binding.recyclerView.adapter = adapter
@@ -257,6 +258,13 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
 
     private fun onRoomClick(room: com.btelly.model.live.LiveRoomItem) {
         LivePlayerActivity.start(requireContext(), room.roomId)
+    }
+
+    /** 「我的关注」分区标题 OK 键：打开关注主播列表页（正在直播/未开播分组）。 */
+    private fun openFollowPage() {
+        (activity as? com.btelly.ui.activity.MainActivity)
+            ?.openInHostContainer(FollowLiveListFragment.newInstance())
+            ?: toast("页面打开失败")
     }
 
     private fun focusTopTab(): Boolean {
