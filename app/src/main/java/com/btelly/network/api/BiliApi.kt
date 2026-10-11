@@ -202,11 +202,12 @@ object BiliApi {
                 runCatching {
                     val item = arr.getJSONObject(idx)
                     val parsed = LiveRoomItem.fromJson(item)
-                    if (parsed.cover.isBlank() && parsed.userCover.isBlank()) {
-                        parsed.copy(cover = item.optString("room_cover", ""))
-                    } else {
-                        parsed
-                    }
+                    parsed.copy(
+                        // room_cover 是该接口的封面字段，回填到 cover 供卡片渲染
+                        cover = if (parsed.cover.isBlank()) item.optString("room_cover", "") else parsed.cover,
+                        // 该接口不下发 online/watched_show，热度在 text_small 里
+                        onlineText = item.optString("text_small", "")
+                    )
                 }.getOrNull()
             }
         }.orEmpty()

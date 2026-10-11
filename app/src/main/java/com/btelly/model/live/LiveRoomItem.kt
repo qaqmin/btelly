@@ -38,7 +38,13 @@ data class LiveRoomItem(
     @SerializedName("live_time")
     val liveTime: String = "",
     @SerializedName("watched_show")
-    val watchedShow: WatchedShowModel? = null
+    val watchedShow: WatchedShowModel? = null,
+    /**
+     * 热度展示文本（可选）。直播关注列表接口不下发 online/watched_show，
+     * 只给服务端预格式化的 text_small（如 "2.7万"）；由调用方解析时回填，
+     * 卡片渲染优先于 online。空串表示无热度信息（卡片应隐藏徽章）。
+     */
+    val onlineText: String = ""
 ) : Serializable {
 
     data class WatchedShowModel(

@@ -183,8 +183,12 @@ class LiveRoomAdapter(
             views.textLayer.clearHistoryTrailing()
             views.progressBar.visibility = View.GONE
             views.coverMetaOverlay.bind(
-                playCountText = NumberUtils.formatCount(item.online.toLong()),
-                showPlayCount = true,
+                playCountText = if (item.onlineText.isNotBlank()) {
+                    item.onlineText
+                } else {
+                    NumberUtils.formatCount(item.online.toLong())
+                },
+                showPlayCount = item.onlineText.isNotBlank() || item.online > 0,
                 showDanmakuCount = false,
                 durationText = "",
                 showChargeBadge = false,
