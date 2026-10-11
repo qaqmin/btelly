@@ -182,13 +182,16 @@ object BiliApi {
     /**
      * 直播关注列表：分页返回全部已关注主播（开播/未开播混合，调用方按 live_status 分组）。
      * 需要登录态（SESSDATA），cookie 由全局 client 自动携带；未登录时服务端返回非 0 code。
+     * 响应字段为 room_cover（非 cover/user_cover），解析时回填到 cover 供卡片渲染。
      */
     suspend fun liveFollowList(page: Int, pageSize: Int = 29): LiveFollowPage {
         val url = BiliClient.buildUrl(
-            path = "https://api.live.bilibili.com/xlive/web-uinterface/v1/follow/getList",
+            path = "https://api.live.bilibili.com/xlive/web-ucenter/user/following",
             params = mapOf(
                 "page" to page.toString(),
-                "page_size" to pageSize.toString()
+                "page_size" to pageSize.toString(),
+                "ignoreRecord" to "1",
+                "hit_ab" to "true"
             )
         )
         val json = BiliClient.getJson(url)
@@ -196,12 +199,25 @@ object BiliApi {
         val data = json.optJSONObject("data") ?: return LiveFollowPage()
         val rooms = data.optJSONArray("list")?.let { arr ->
             (0 until arr.length()).mapNotNull { idx ->
-                runCatching { LiveRoomItem.fromJson(arr.getJSONObject(idx)) }.getOrNull()
+                runCatching {
+                    val item = arr.getJSONObject(idx)
+                    val parsed = LiveRoomItem.fromJson(item)
+                    if (parsed.cover.isBlank() && parsed.userCover.isBlank()) {
+                        parsed.copy(cover = item.optString("room_cover", ""))
+                    } else {
+                        parsed
+                    }
+                }.getOrNull()
             }
         }.orEmpty()
-        // 服务端没有稳定的分页结束标记，按「满页即可能还有下一页」的启发式判断
-        val hasMore = rooms.size >= pageSize
-        AppLog.i(TAG, "liveFollowList page=$page rooms=${rooms.size} hasMore=$hasMore")
-        return LiveFollowPage(rooms = rooms, hasMore = hasMore)
+        val totalPage = data.optInt("totalPage", 1)
+        val hasMore = page < totalPage
+        AppLog.i(TAG, "liveFollowList page=$page rooms=${rooms.size} totalPage=$totalPage liveCount=${data.optInt("live_count", 0)}")
+        return LiveFollowPage(
+            rooms = rooms,
+            liveCount = data.optInt("live_count", 0),
+            totalCount = data.optInt("count", 0),
+            hasMore = hasMore
+        )
     }
 }
