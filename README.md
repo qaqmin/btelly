@@ -112,7 +112,7 @@ About & update check
 > no longer limited to the small preview module on the home page;
 > grouped display — "Live" items enter the room directly on OK, "Offline" items open the streamer's user space;
 > a summary bar at the top shows "Live N · Offline M" in real time;
-> room clicks inside the live-home follow module were fixed along the way.
+> room clicks inside the live-home follow module were fixed along the way, as well as the card heat display showing 0 (cards now show the server-preformatted viewer text, and the badge is hidden for offline streamers).
 
 ## 🆕 v3.0.9 — Ranking tab + in-player comments
 
@@ -193,7 +193,7 @@ This project is developed and maintained by **[QAQMin (min09577)](https://github
 
 | Version | Date | Description |
 |---|---|---|
-| v3.1.0 | 2026-10-11 | 🏆 **Live "My Following" rework** — paginated full list of followed streamers · Live/Offline groups · offline jumps to user space · follow-module clicks fixed |
+| v3.1.0 | 2026-10-11 | 🏆 **Live "My Following" rework** — paginated full list of followed streamers · Live/Offline groups · offline jumps to user space · follow-module clicks and card heat display fixed |
 | v3.0.9 | 2026-10-05 | 🗨️ **In-player comments + Ranking tab** · dual-channel update check · comment-page container crash fixed |
 | v3.0.8 | 2026-09-26 | 🖼️ **Hero transition** — covers fly into the detail page · all card entries covered · fly back on return |
 | v3.0.7 | 2026-09-26 | 🎞️ **List stagger entry** — home/live first-entry progressive rise + fade |
