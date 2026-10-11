@@ -105,6 +105,22 @@ Video detail
 About & update check
 <img width="960" height="540" alt="about" src="screenshots/about.png" />
 
+## 🆕 v3.1.0 — Live "My Following" rework
+
+> ### 🏆 Every followed streamer, live status at a glance
+> Press OK on the live page's "My Following" section title to open the follow-list page: **all followed streamers, paginated in full**,
+> no longer limited to the small preview module on the home page;
+> grouped display — "Live" items enter the room directly on OK, "Offline" items open the streamer's user space;
+> a summary bar at the top shows "Live N · Offline M" in real time;
+> room clicks inside the live-home follow module were fixed along the way.
+
+## 🆕 v3.0.9 — Ranking tab + in-player comments
+
+> ### 🏆 Ranking tab + in-player comments
+> New "Ranking" tab on the home page (Recommended / Trending / Ranking / Anime / Cinema, five in total);
+> the player's "More actions" panel gained a comments entry — the comment page overlays the player and BACK returns to playback without interruption
+> (a crash from a missing comment-page container was fixed along the way); the update check was upgraded to dual-channel.
+
 ## 🆕 v3.0.8 — Hero transition: covers fly into the detail page
 
 > ### 🖼️ Tap a card, the cover flies over
@@ -132,13 +148,6 @@ About & update check
 >
 > ### 🏷️ Unified branding
 > UI, icons, package name and repository naming all switched to BTelly; the install identifier changed to com.btelly.
-
-## 🆕 v3.0.9 — Ranking tab + in-player comments
-
-> ### 🏆 Ranking tab + in-player comments
-> New "Ranking" tab on the home page (Recommended / Trending / Ranking / Anime / Cinema, five in total);
-> the player's "More actions" panel gained a comments entry — the comment page overlays the player and BACK returns to playback without interruption
-> (a crash from a missing comment-page container was fixed along the way); the update check was upgraded to dual-channel.
 
 ## 💡 Tips / Pro Tips
 
@@ -184,6 +193,8 @@ This project is developed and maintained by **[QAQMin (min09577)](https://github
 
 | Version | Date | Description |
 |---|---|---|
+| v3.1.0 | 2026-10-11 | 🏆 **Live "My Following" rework** — paginated full list of followed streamers · Live/Offline groups · offline jumps to user space · follow-module clicks fixed |
+| v3.0.9 | 2026-10-05 | 🗨️ **In-player comments + Ranking tab** · dual-channel update check · comment-page container crash fixed |
 | v3.0.8 | 2026-09-26 | 🖼️ **Hero transition** — covers fly into the detail page · all card entries covered · fly back on return |
 | v3.0.7 | 2026-09-26 | 🎞️ **List stagger entry** — home/live first-entry progressive rise + fade |
 | v3.0.6 | 2026-09-26 | 🪀 **Spring dialogs** — 16 dialogs · home/live page-switch fade |
