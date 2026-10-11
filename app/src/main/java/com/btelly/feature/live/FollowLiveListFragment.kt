@@ -45,7 +45,11 @@ class FollowLiveListFragment : BaseFragment<FragmentFollowLiveListBinding>() {
         inflater: LayoutInflater,
         container: ViewGroup?
     ): FragmentFollowLiveListBinding {
-        return FragmentFollowLiveListBinding.inflate(inflater, container ?: android.widget.FrameLayout(inflater.context))
+        return FragmentFollowLiveListBinding.inflate(
+            inflater,
+            container ?: android.widget.FrameLayout(inflater.context),
+            false
+        )
     }
 
     override fun initView() {
@@ -132,7 +136,7 @@ class FollowLiveListFragment : BaseFragment<FragmentFollowLiveListBinding>() {
         } else if (room.uid > 0) {
             (activity as? MainActivity)?.openInHostContainer(UserSpaceFragment.newInstance(room.uid))
         } else {
-            context.toast("该主播未开播")
+            requireContext().toast("该主播未开播")
         }
     }
 }

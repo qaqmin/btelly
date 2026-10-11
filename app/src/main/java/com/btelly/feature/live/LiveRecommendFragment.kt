@@ -264,7 +264,7 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
     private fun openFollowPage() {
         (activity as? com.btelly.ui.activity.MainActivity)
             ?.openInHostContainer(FollowLiveListFragment.newInstance())
-            ?: toast("页面打开失败")
+            ?: requireContext().toast("页面打开失败")
     }
 
     private fun focusTopTab(): Boolean {
