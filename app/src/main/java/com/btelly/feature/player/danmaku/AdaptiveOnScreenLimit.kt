@@ -8,9 +8,10 @@ import kotlin.math.min
  *
  * 策略（语义：下限固定，上限按渲染帧率自动增减）：
  * - 帧率 ≥ 刷新率×[GROW_FPS_RATIO] 且窗口内同屏数顶到当前上限（有需求且有余量）
- *   → 连续 [CONFIRM_WINDOWS] 个窗口确认后 +[stepUp]；
+ *   → 连续 [CONFIRM_WINDOWS] 个窗口确认后 +[stepUp]（升档保守）；
  * - 帧率 ≤ 刷新率×[SHRINK_FPS_RATIO] 且同屏数 ≥ 上限×[SHRINK_ACT_RATIO]
- *   （同屏够多，掉帧才可能怪弹幕）→ 连续确认后 -[stepDown]，降比升快；
+ *   （同屏够多，掉帧才可能怪弹幕）→ 一次劣化窗口立即 -[stepDown]（降档即时，
+ *   与升档的保守对冲：误降只少看几条，漏降就是整段卡顿）；
  * - 同屏数很低时不动作：此时掉帧与弹幕无关，不误伤；
  * - 暂停/seek 造成的陈旧大间隔窗口不判定，只重置。
  *
@@ -93,7 +94,10 @@ internal class AdaptiveOnScreenLimit(
             fps <= lowHz && maxAct >= limit * SHRINK_ACT_RATIO -> {
                 shrinkStreak++
                 growStreak = 0
-                if (shrinkStreak >= CONFIRM_WINDOWS && limit > floor) {
+                // 降档不等确认窗口：一次劣化窗口立即降（升档仍需 CONFIRM_WINDOWS 连续确认）。
+                // 稀疏弹幕的掉帧与弹幕无关，SHRINK_ACT_RATIO 已保证只有"同屏顶到上限还掉帧"
+                // 才动手；误降的代价（密度低几个窗口）远小于突发密集弹幕段的持续卡顿。
+                if (shrinkStreak >= SHRINK_CONFIRM_WINDOWS && limit > floor) {
                     limit = max(limit - stepDown, floor)
                     shrinkStreak = 0
                     return limit
@@ -123,8 +127,11 @@ internal class AdaptiveOnScreenLimit(
         /** 帧率劣化线（刷新率占比）：跌破才考虑下调。 */
         const val SHRINK_FPS_RATIO = 0.72f
 
-        /** 连续确认窗口数：单次抖动不调整。 */
+        /** 连续确认窗口数：单次抖动不上调。 */
         const val CONFIRM_WINDOWS = 2
+
+        /** 下调确认窗口数：一次劣化窗口即降（即时降，与升档的保守对冲）。 */
+        const val SHRINK_CONFIRM_WINDOWS = 1
 
         /** 下调判定所需的最小同屏数（相对上限）。 */
         const val SHRINK_ACT_RATIO = 0.6f

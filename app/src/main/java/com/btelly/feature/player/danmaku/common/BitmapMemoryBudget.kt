@@ -86,12 +86,17 @@ internal fun resolveDanmakuBitmapBudgetBytes(
 internal inline fun reclaimUntilBitmapBudgetFits(
     budget: BitmapMemoryBudget,
     requiredBytes: Long,
-    evictPooled: () -> Boolean,
     evictShared: () -> Boolean,
+    evictPooled: () -> Boolean,
 ): Boolean {
+    // 顺序即策略：先淘汰共享表（LRU 内容，丢失只是下次重建），池留作最后手段。
+    // 实测教训（2026-10 真机 DanmakuPerf）：此前 pool 第一顺位，弹幕位图
+    // "进池即被下一位新弹幕的额度腾挪回收"，池恒空（pool=0/25MB），位图全程
+    // create→recycle churn，表现为每 ~30s 一次 10MB GC、偶发 12ms 绘制长帧。
+    // 共享表优先后，尺寸相近的新弹幕可直接复用池中缓冲，砍掉大部分分配 churn。
     while (!budget.canFit(requiredBytes)) {
-        if (evictPooled()) continue
         if (evictShared()) continue
+        if (evictPooled()) continue
         return false
     }
     return true

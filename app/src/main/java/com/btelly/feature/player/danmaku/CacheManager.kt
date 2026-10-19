@@ -701,17 +701,17 @@ internal class CacheManager(
         return reclaimUntilBitmapBudgetFits(
             budget = bitmapBudget,
             requiredBytes = requiredBytes,
-            evictPooled = {
-                val pooled = pool.evictOne() ?: return@reclaimUntilBitmapBudgetFits false
-                recycleBitmap(pooled)
-                true
-            },
             evictShared = {
                 val iterator = sharedCacheStore.entries.iterator()
                 if (!iterator.hasNext()) return@reclaimUntilBitmapBudgetFits false
                 val eldest = iterator.next().value
                 iterator.remove()
                 if (eldest.release()) recycleBitmap(eldest.bitmap)
+                true
+            },
+            evictPooled = {
+                val pooled = pool.evictOne() ?: return@reclaimUntilBitmapBudgetFits false
+                recycleBitmap(pooled)
                 true
             },
         )
