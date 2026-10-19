@@ -116,8 +116,12 @@ internal class CacheManager(
                 sharedTableSize.decrementAndGet()
                 // 释放共享表持有的那份引用。若此时已无 item 引用，bitmap 立刻可回收；
                 // 若仍有 item 在用，bitmap 等最后一个 item release 时才回收。
+                // 走 recycleEntryBitmap（进池优先）而非直接 recycle：实测 pool 恒空的
+                // 根因就是各淘汰路径都直接 recycle，池唯一的喂食口（item 释放）又被
+                // 表引用挡住，位图全程 create→recycle churn（~30s 一次 10MB GC、
+                // 偶发 12ms 绘制长帧）。
                 if (entry.release()) {
-                    recycleBitmap(entry.bitmap)
+                    recycleEntryBitmap(entry)
                 }
             }
             return true
@@ -706,7 +710,13 @@ internal class CacheManager(
                 if (!iterator.hasNext()) return@reclaimUntilBitmapBudgetFits false
                 val eldest = iterator.next().value
                 iterator.remove()
-                if (eldest.release()) recycleBitmap(eldest.bitmap)
+                sharedTableSize.decrementAndGet()
+                // 预算腾挪的目的是释放额度：这里必须直接回收（进池的位图仍占额度，
+                // 腾挪循环会永远腾不出空间）。池的稳定喂食走 removeEldestEntry 的
+                // 常规 LRU 溢出路径（recycleEntryBitmap）。
+                if (eldest.release()) {
+                    recycleBitmap(eldest.bitmap)
+                }
                 true
             },
             evictPooled = {
