@@ -20,8 +20,10 @@ class DanmakuView @JvmOverloads constructor(
 ) : View(context, attrs) {
     private val player = DanmakuPlayer(this)
 
-    // TEMP-MEASURE: 强制打开性能探针（draw 采样/帧探针），测量后还原
-    init { setDebugEnabled(true) }
+    // TEMP-MEASURE: 强制打开性能探针（draw 采样/帧探针），测量后还原。
+    // 必须 post 到 attach 之后：setDebugEnabled 会触达构造函数尾部才初始化的成员，
+    // 构造期直接调用会 NPE。
+    init { post { setDebugEnabled(true) } }
 
     private var positionProvider: (() -> Long)? = null
     private var isPlayingProvider: (() -> Boolean)? = null
