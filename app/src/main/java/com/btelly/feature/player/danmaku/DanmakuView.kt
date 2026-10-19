@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Canvas
 import android.os.SystemClock
 import android.util.AttributeSet
-import android.util.Log
 import android.util.TypedValue
 import android.view.View
 import com.btelly.core.common.log.AppLog
@@ -19,11 +18,6 @@ class DanmakuView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
 ) : View(context, attrs) {
     private val player = DanmakuPlayer(this)
-
-    // TEMP-MEASURE: 强制打开性能探针（draw 采样/帧探针），测量后还原。
-    // 必须 post 到 attach 之后：setDebugEnabled 会触达构造函数尾部才初始化的成员，
-    // 构造期直接调用会 NPE。
-    init { post { setDebugEnabled(true) } }
 
     private var positionProvider: (() -> Long)? = null
     private var isPlayingProvider: (() -> Boolean)? = null
@@ -409,8 +403,7 @@ class DanmakuView @JvmOverloads constructor(
         force: Boolean = false,
     ) {
         // 日志关闭时零成本跳过（不打快照、不拼字符串、不触发采样请求）。
-        // TEMP-MEASURE: 测量期间绕过该门控，无条件输出（测后还原）
-        // if (!AppLog.isEnabled) return
+        if (!AppLog.isEnabled) return
         val now = SystemClock.uptimeMillis()
         val lastAt = perfLastLogAtUptimeMs
         val due = lastAt == 0L || now - lastAt >= PERF_LOG_INTERVAL_MS
@@ -461,8 +454,7 @@ class DanmakuView @JvmOverloads constructor(
         val heapUsedMb = (rt.totalMemory() - rt.freeMemory()) / (1024L * 1024L)
         val heapTotalMb = rt.totalMemory() / (1024L * 1024L)
 
-        // TEMP-MEASURE: Log.w 可活过 release R8（AppLog.i 被 assumenosideeffects 剥掉），测后还原
-        Log.w(
+        AppLog.i(
             "DanmakuPerf",
             buildString(320) {
                 append("dm=").append(if (config.enabled) "on" else "off")
