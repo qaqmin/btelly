@@ -59,7 +59,7 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
             onRoomClick = ::onRoomClick,
             onTopEdgeUp = ::focusTopTab,
             onLeftEdge = ::focusLeftNav,
-            onFollowTitleClick = ::openFollowPage
+            onSectionTitleClick = ::onSectionTitleClick
         )
         binding.recyclerView.layoutManager = LinearLayoutManager(requireContext())
         binding.recyclerView.adapter = adapter
@@ -267,6 +267,27 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
             ?: requireContext().toast("页面打开失败")
     }
 
+    /**
+     * 分区标题 OK 键：「我的关注」走关注主播列表页；其余分区解析 module_info.link
+     * （area-tags?parentAreaId=X&areaId=Y 或 /all）打开该分区的全量房间列表。
+     */
+    private fun onSectionTitleClick(section: LiveRecommendSection) {
+        if (section.title.contains(FOLLOW_SECTION_TITLE)) {
+            openFollowPage()
+            return
+        }
+        val host = activity as? com.btelly.ui.activity.MainActivity
+        if (host == null) {
+            requireContext().toast("页面打开失败")
+            return
+        }
+        val parentAreaId = Regex("parentAreaId=(\\d+)").find(section.link)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+        val areaId = Regex("areaId=(\\d+)").find(section.link)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+        host.openInHostContainer(
+            LiveListFragment.newAreaInstance(areaId, parentAreaId, section.title)
+        )
+    }
+
     private fun focusTopTab(): Boolean {
         return (parentFragment as? LiveFragment)?.focusCurrentTab() == true
     }
@@ -369,7 +390,8 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
                 } else {
                     LiveRecommendSection(
                         title = wrapper.moduleInfo?.title.orEmpty(),
-                        rooms = rooms
+                        rooms = rooms,
+                        link = wrapper.moduleInfo?.link.orEmpty()
                     )
                 }
             }
@@ -379,7 +401,9 @@ class LiveRecommendFragment : BaseFragment<FragmentLiveBaseListBinding>(), LiveT
         if (hotRooms.isNotEmpty()) {
             sections += LiveRecommendSection(
                 title = getString(R.string.hot_live),
-                rooms = hotRooms
+                rooms = hotRooms,
+                // 热门直播即「推荐直播」模块，全量页走 /all（parentAreaId=0&areaId=0）
+                link = "https://live.bilibili.com/all"
             )
         }
         sections += moduleSections.filter { !it.title.contains(FOLLOW_SECTION_TITLE) }

@@ -215,7 +215,11 @@ class LiveDanmakuClient(
         try {
             val obj = JSONObject(json)
             val cmd = obj.optString("cmd") ?: return
-            AppLog.d(TAG, "cmd=$cmd")
+            // 逐消息日志必须走 isEnabled 门控：字符串模板是 eager 求值，不门控的话
+            // 即使日志关着，每条命令也白建 3 个字符串——实测密级流房间 10MB/13s 的
+            // GC churn 有相当一部分来自这里（另一大头是 org.json 解析）。
+            val logEnabled = AppLog.isEnabled
+            if (logEnabled) AppLog.d(TAG, "cmd=$cmd")
 
             if (cmd.startsWith("DANMU_MSG")) {
                 val info = obj.optJSONArray("info") ?: return
@@ -224,15 +228,14 @@ class LiveDanmakuClient(
                 val info0 = info.optJSONArray(0)
                 // info[0]: [rand, mode, fontsize, color, timestamp, pool, dmidStr, userHash]
                 val color = info0?.optInt(3) ?: 0xFFFFFF
-                AppLog.d(TAG, "DANMU: $content color=$color")
-                val emitted = _danmakuMessages.tryEmit(
+                if (logEnabled) AppLog.d(TAG, "DANMU: $content color=$color")
+                _danmakuMessages.tryEmit(
                     LiveDanmakuMessage(
                         type = LiveDanmakuMessage.Type.DANMU,
                         content = content,
                         color = color
                     )
                 )
-                AppLog.d(TAG, "DANMU emitted=$emitted")
             }
         } catch (e: Exception) {
             AppLog.w(TAG, "handleSingleCommand error: ${e.message}")

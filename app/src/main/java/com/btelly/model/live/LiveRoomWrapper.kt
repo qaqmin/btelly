@@ -21,7 +21,8 @@ data class LiveRoomWrapper(
             val modObj = obj.optJSONObject("module_info")
             val module = if (modObj != null) LiveRoomModule(
                 id = modObj.optInt("id", 0),
-                title = modObj.optString("title", "")
+                title = modObj.optString("title", ""),
+                link = modObj.optString("link", "")
             ) else null
             return LiveRoomWrapper(list = items, moduleInfo = module)
         }

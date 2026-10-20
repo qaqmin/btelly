@@ -25,7 +25,9 @@ fun Context.toast(@StringRes resId: Int, duration: Int = Toast.LENGTH_SHORT) {
 }
 
 fun isOpenDetailFirstEnabled(): Boolean {
-    return getToggleSetting("show_video_detail", false)
+    // 默认开启：点视频卡片进详情页（Hero 转场），从详情页点播放再进播放器。
+    // 之前默认关着，卡片直进播放器导致详情页不可达；需要旧行为的用户可在设置里关闭。
+    return getToggleSetting("show_video_detail", true)
 }
 
 fun getDanmakuSmartFilterLevel(): Int {
