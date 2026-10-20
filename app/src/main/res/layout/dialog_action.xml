@@ -149,20 +149,6 @@
     <androidx.appcompat.widget.AppCompatTextView
         android:textSize="@dimen/px27"
         android:textStyle="bold"
-        android:textColor="?attr/tvTextPrimary"
-        android:gravity="center"
-        android:id="@+id/button_danmaku"
-        android:background="?attr/selectableItemBackground"
-        android:padding="@dimen/px15"
-        android:focusable="true"
-        android:clickable="true"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/px10"
-        android:text="@string/danmaku_send_title"/>
-    <androidx.appcompat.widget.AppCompatTextView
-        android:textSize="@dimen/px27"
-        android:textStyle="bold"
         android:textColor="?attr/tvAccent"
         android:gravity="center"
         android:id="@+id/button_triple"

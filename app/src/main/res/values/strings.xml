@@ -68,15 +68,6 @@
     <string name="default_start_page">默认启动页面</string>
     <string name="default_video_quality">默认画质</string>
     <string name="device_info">关于本机</string>
-    <string name="danmaku_send_title">发送弹幕</string>
-    <string name="danmaku_input_hint">说点什么吧…</string>
-    <string name="danmaku_mode_roll">滚动</string>
-    <string name="danmaku_mode_top">顶部</string>
-    <string name="danmaku_mode_bottom">底部</string>
-    <string name="danmaku_sent">弹幕已发送</string>
-    <string name="danmaku_send_failed">发送失败</string>
-    <string name="danmaku_need_login">登录后才能发弹幕</string>
-    <string name="danmaku_char_count">%1$d/%2$d</string>
     <string name="dm_allow_bottom">允许底部悬停弹幕</string>
     <string name="dm_allow_top">允许顶部悬停弹幕</string>
     <string name="dm_alpha">弹幕透明度</string>

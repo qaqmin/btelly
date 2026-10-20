@@ -635,28 +635,6 @@ interface ApiService {
         @Query("page_size") pageSize: Int = 30
     ): BaseResponse<GetVideoByChannelWrapper>
 
-    // ==================== 发弹幕 ====================
-
-    /**
-     * 发送视频弹幕。type=1 视频弹幕；mode=1 滚动 / 4 底部 / 5 顶部。
-     * oid 是 aid，不是 bvid。B 站要求表单 + csrf，且需要注意发送频率限制
-     * （同一账号连发会被风控，本仓库在 repository 层做最短间隔约束）。
-     */
-    @POST("x/v2/dm/post")
-    @FormUrlEncoded
-    suspend fun postDanmaku(
-        @Field("type") type: Int,
-        @Field("oid") oid: Long,
-        @Field("msg") msg: String,
-        @Field("aid") aid: Long,
-        @Field("mode") mode: Int,
-        @Field("pool") pool: Int = 0,
-        @Field("color") color: Int = 16777215,
-        @Field("fontsize") fontSize: Int = 25,
-        @Field("rnd") rnd: Long,
-        @Field("csrf") csrf: String
-    ): BaseResponse<Any>
-
     // ==================== TV 登录 API ====================
 
     @FormUrlEncoded

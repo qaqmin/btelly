@@ -178,13 +178,6 @@ class PlayerActionDialog(
             true
         }
 
-        // 发弹幕：先关掉本面板，再开输入对话框（两层 Dialog 叠在一起焦点会打架）
-        binding.buttonDanmaku.setOnClickListener {
-            if (!checkLogin()) return@setOnClickListener
-            dismiss()
-            DanmakuInputDialog(context, aid = aid).show()
-        }
-
         // 看评论：评论是单独一页，由调用方（持有 FragmentManager 的播放器 overlay）打开。
         // 调用方没接线就隐藏按钮，不留「点了没反应」的死入口。
         binding.buttonComment.isVisible = onOpenComments != null
