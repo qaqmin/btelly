@@ -61,7 +61,7 @@ Of course, it's completely voluntary — please don't feel any pressure. If you 
 | 🎬 **Full video library** | Anime, movies, TV series, UGC; five home tabs: Recommended / Trending / Ranking / Anime / Cinema |
 | 🔀 **Dual playback cores** | Switch freely between ExoPlayer / IjkPlayer, effective on next playback; IjkPlayer ships in-package (all ABIs), no runtime download |
 | 📡 **Live & CCTV** | Live-stream danmaku in real time; CCTV channels 1-17 switch up/down with the remote |
-| 💬 **Danmaku engine** | Protobuf protocol parsing with smart occlusion avoidance; send danmaku with the T9 keyboard |
+| 💬 **Danmaku engine** | Protobuf protocol parsing with smart occlusion avoidance |
 | 🗨️ **In-player comments** | Playback → More actions → Comments; the comment page overlays the player, BACK returns to playback without losing the picture |
 | ✈️ **Sponsor-skip** | Automatically skips sponsor/intro/outro segments with markers on the progress bar |
 | 🎮 **Interactive video / Douyin mode** | Branch choices for interactive videos; swipe up/down for the recommendation feed in Douyin mode |
@@ -155,7 +155,6 @@ About & update check
 |------|------|
 | 🕹️ **Pure remote control** | OK to play/confirm, BACK steps back; long-press a video card for the quick menu |
 | 💬 **Reading comments** | During playback → More actions → Comments; BACK returns to the player, playback never stops |
-| ✍️ **Sending danmaku** | During playback → More actions → Send danmaku, type with the T9 keyboard, Enter to send |
 | ✈️ **Sponsor-skip** | Skippable segments are marked automatically on the player progress bar, following the setting |
 | 👶 **Teen mode** | Settings → Teen mode, one tap to use, blocks unsuitable content |
 | 🔄 **Check for updates** | Settings → About → Check update (dual channel across GitHub / Codeberg, newest wins) |
