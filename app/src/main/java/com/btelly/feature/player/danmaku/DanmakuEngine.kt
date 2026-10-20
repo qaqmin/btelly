@@ -1116,13 +1116,19 @@ internal class DanmakuEngine(
 
     private fun publishEmptySnapshot() {
         val out = writableSnapshot()
+        var writeReleased = false
         try {
             releaseSnapshotCacheLeases(out)
             out.clear()
+            // 先结束写锁再发布：主线程 acquireRenderSnapshot 读到 latestSnapshot 时
+            // 缓冲区必须已回到 AVAILABLE。写锁未释放就发布会让主线程每帧落在写窗口上
+            // 自旋（超过 32 次还要 Thread.yield，被 TV 小核调度延迟放大成整帧卡顿）。
+            out.endWrite()
+            writeReleased = true
             latestSnapshot = out
             snapshotDirty = false
         } finally {
-            out.endWrite()
+            if (!writeReleased) out.endWrite()
         }
     }
 
@@ -1139,6 +1145,7 @@ internal class DanmakuEngine(
     private fun publishSnapshotIfDirty(nowMs: Int) {
         if (!snapshotDirty) return
         val out = writableSnapshot()
+        var writeReleased = false
         try {
             releaseSnapshotCacheLeases(out)
             out.clear()
@@ -1147,10 +1154,15 @@ internal class DanmakuEngine(
             out.nextAtMs = items.getOrNull(index)?.timeMs()
             writeDanmakuRenderOrder(active, out)
             retainSnapshotCacheLeases(out)
+            // 先结束写锁再发布：主线程 acquireRenderSnapshot 读到 latestSnapshot 时
+            // 缓冲区必须已回到 AVAILABLE。写锁未释放就发布会让主线程每帧落在写窗口上
+            // 自旋（超过 32 次还要 Thread.yield，被 TV 小核调度延迟放大成整帧卡顿）。
+            out.endWrite()
+            writeReleased = true
             latestSnapshot = out
             snapshotDirty = false
         } finally {
-            out.endWrite()
+            if (!writeReleased) out.endWrite()
         }
     }
 
